@@ -3593,8 +3593,10 @@ COPILOT_BYOK_EOF
         --argjson dflt 256000 '
         def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         def display_name($route):
-            if ($displaynames | has($route)) then "Native Route - \($displaynames[$route])"
-            else "Dynamic Route - \($route)" end;
+            ($displaynames[$route] // "" | if type == "string" then gsub("^\\s+|\\s+$"; "") else "" end) as $display
+            | (if ($route | test("^cf-native-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"; "i"))
+               then "Native Route - " else "Dynamic Route - " end)
+              + (if $display != "" then $display else $route end);
         # Pi 0.85.1 emits block-level checkpoints and honors cacheRetention:none.
         # Only Worker-authorized native Runtime handles opt in; no provider-wide
         # switch may leak these Anthropic fields into Dynamic/other-provider calls.
@@ -3625,7 +3627,8 @@ COPILOT_BYOK_EOF
               }
               else ({
                 id: $route, name: display_name($route), reasoning: true,
-                thinkingLevelMap: ($levels | map({key: ., value: .}) | from_entries),
+                thinkingLevelMap: (canonical_levels | map(. as $level | {key: $level,
+                    value: (if ($levels | index($level)) != null then $level else null end)}) | from_entries),
                 input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
               } + (if (prompt_cache($route) | length) > 0 then {compat: prompt_cache($route)} else {} end))
               end))' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0

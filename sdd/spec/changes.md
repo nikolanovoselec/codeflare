@@ -4,6 +4,16 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-13
 
+### Routing Save recovery and current-inventory reconciliation
+
+- **Save recovery** (REQ-ENTERPRISE-043/055). Dynamic/Native receipts last 30 days, exceeding the one-hour minimum. Fresh receipts update observations; unavailable/expired receipts may use unchanged saved authority. Null clears proof; mismatches reject. Advanced recovery preserves drafts; private replay retention is independent.
+- **Explicit administrator assessment** (REQ-ENTERPRISE-043/054/075). Generated profiles can receive exact server-issued confirmation without model probes. Assessment stays distinct from automated tools, reasoning, streaming and cache observations; browser assertions and profile namespaces grant no authority.
+- **Authoritative inventory cleanup** (REQ-ENTERPRISE-034/042/044/047/055). Saved-connection POST /catalog reconciliation uses existing admission and revision protection. Only complete independent inventories prove absence; exact provider bindings govern Native deletion. Empty deny-only groups, shared profiles and historical receipts survive; overlays remain read-only.
+- **Honest choices and labels** (REQ-ENTERPRISE-039/043/056/058/064/082). Only Provider-default exposes seven preferences; explicit profiles expose supported levels/aliases, including off-only. Worker normalization is unchanged. Native labels prefer user text with model fallback and stable IDs; compatible backup warnings retain green success treatment.
+- **Native cache experiment** (REQ-ENTERPRISE-083). Two successful submissions share identical prefix and native controls but ask different questions. Dynamic pairs remain identical. No retry, delay, fallback, parser change or immediate-cache guarantee is added; Eventstream and existing bounds remain intact.
+
+These supersede the earlier seven-preference exception for generated single-mapping contracts and generated-profile confirmation prohibition, not their historical evidence. Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation awaits exact-head verification; historical evidence is not new deployment acceptance.
+
 - **Independent capability evidence replaces current cumulative grades** (REQ-ENTERPRISE-035/043/075/083). Tools/replay on every included executable mapping can authorize reviewed activation without cache evidence. Nested evidence v2 records per-mapping reasoning, delivery and input caching; strict legacy v1 retains its original authority rules without promotion. Exact server receipts, target/backend correlation, authentication, replay, privacy and fatal campaign boundaries remain mandatory. Native model-wide checkpoint permission requires prefix evidence on every selectable mapping/operation; Gateway HIT is whole-response reuse only.
 
 - **Native discovery restores actual selectable controls** (REQ-ENTERPRISE-072/075/077/078/058). Six audited forms—disabled, Low, Medium, High, XHigh and Max—produce reusable successful mappings, with Minimal→Low only when Low passes. Provider-default is an exclusive fallback. Native uses at most 34 calls within the unchanged shared 40/2,048-token/90-second/10-minute bounds; mapped effort determines auto operation without migrating explicit transports. Existing Dynamic seven-preference publication stays unchanged.

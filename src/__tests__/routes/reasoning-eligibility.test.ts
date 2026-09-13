@@ -688,7 +688,7 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
       expect(puts).toHaveLength(1); expect(puts[0][2]).toEqual({ expirationTtl: 30 * 24 * 60 * 60 });
     }
   });
-  it.each([20 * 60_000, 24 * 60 * 60_000, 30 * 24 * 60 * 60_000 - 1])('REQ-ENTERPRISE-043: Confirm Save retains exact Dynamic and Native authority after %i milliseconds of configuration', async (elapsed) => {
+  it.each([20 * 60_000, 60 * 60_000, 24 * 60 * 60_000, 30 * 24 * 60 * 60_000 - 1])('REQ-ENTERPRISE-043: Confirm Save retains exact Dynamic and Native authority after %i milliseconds of configuration', async (elapsed) => {
     const f = setup();
     const dynamic = await (await f.check()).json() as any;
     const target = { label: 'Native configuration draft', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true };
@@ -813,11 +813,17 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     const submitted = values({ routeChecks: { working: receipt.checkId }, routeContextWindows: { working: 20000 } });
     const valid = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', submitted);
     expect(valid.fieldErrors).toBeUndefined();
-    expect((valid.values?.reasoningConfiguration as any).routeAssignments.working.verification).toEqual(receipt.verification);
+    expect(valid.values).toBeDefined();
+    expect((valid.values!.reasoningConfiguration as any).routeAssignments.working.verification).toEqual(receipt.verification);
     await executeConfigurationTask(f.env, 'configure_model_routing', valid.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 2 });
     expect(await f.kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')).toEqual({ working: 20000 });
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
     expect(providerCalls).toBe(calls);
+    const fresh = await (await f.check({ administratorConfirmed: true })).json() as any;
+    const refreshed = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: fresh.checkId } }));
+    expect(refreshed.fieldErrors).toBeUndefined();
+    expect((refreshed.values!.reasoningConfiguration as any).routeAssignments.working.verification).toEqual(fresh.verification);
+    expect(fresh.verification.method).toBe('administrator');
     expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: null } }))).values).toBeUndefined();
     version = 'changed-after-check';
     expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', submitted)).values).toBeUndefined();
@@ -848,6 +854,12 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     await executeConfigurationTask(f.env, 'configure_model_routing', result.values!, context);
     expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].label).toBe('Renamed Native');
     expect(providerCalls).toBe(calls);
+    const fresh = await (await f.post('native/discover', { target: nativeDraft, administratorConfirmed: true })).json() as any;
+    const freshReceipt = await readNativeTargetCheck(f.env.KV, fresh.checkId);
+    const refreshed = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...submitted, nativeChecks: { [checked.targetId]: fresh.checkId } });
+    expect(refreshed.fieldErrors).toBeUndefined();
+    expect(parseNativeAiTargets(refreshed.values!.nativeTargets).targets[0].verification).toEqual(freshReceipt.verification);
+    expect(freshReceipt.verification.method).toBe('administrator');
     expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...submitted, nativeChecks: { [checked.targetId]: null } })).values).toBeUndefined();
     expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...submitted, nativeTargets: [{ ...nativeDraft, model: 'eu.anthropic.claude-other' }] })).values).toBeUndefined();
   });

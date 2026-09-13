@@ -1,23 +1,29 @@
 /* v8 ignore start -- administration UI exercised by component fixtures */
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
+import { For, Index, Show, batch, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import { checkNativeTarget, discoverNativeCompatibility, discoverReasoningCompatibility, discoverTargetCapabilities, getReasoningCatalog, getReasoningRouteInventory } from '../../api/client';
 import { TargetCapabilityDiscovery, TargetCheckResult, DiscoveryCheckEvidence, CapabilityEvidence } from './TargetCapabilityDiscovery';
 import { CapabilitySummarySchema } from '../../lib/schemas';
-import { isGeneratedDiscoveryProfileId, isGeneratedNativeProfileId } from '../../../../src/lib/reasoning-profiles';
+import { isGeneratedNativeProfileId } from '../../../../src/lib/reasoning-profiles';
 import type { TargetDiscoveryResult } from '../../lib/target-capability-contract';
 import { apiErrorMessage } from '../../api/fetch-helper';
 import type {
   FallbackRouting, NativeAiTargetDraft, NativeTargetCheckResult, PiReasoningLevel, ProfileRevisionRef, ReasoningCatalog, ReasoningConfiguration,
   ReasoningDiscoveryResult, ReasoningGatewayDraft, ReasoningManagementContext, ReasoningProfileCatalogEntry,
-  ReasoningRouteAssignment, ReasoningRouteInventory,
+  ReasoningRouteAssignment, ReasoningRouteInventory, ReasoningCatalogReconciliation,
 } from '../../types';
 import ReasoningProfileEditor, { DISCOVERY_COMPLETION_TOKENS, ReasoningCheckDetails, ReasoningCheckOverview, reasoningCheckSummary } from './ReasoningProfileEditor';
 import { profileDisplayName, profileValidationBasis } from './pi-profile-presentation';
 import { bedrockAnthropicCandidate, BEDROCK_MESSAGES_DEFAULT_PROFILE, nativeTargetDraftShapeValid, preservesDisabledNativeTarget } from '../../../../src/lib/native-ai-target-draft';
 import '../../styles/ai-routing-workspace.css';
 
-interface Props { current: unknown; onReadyChange?: (ready: boolean) => void; onDirtyChange?: (dirty: boolean) => void }
+interface Props {
+  current: unknown;
+  baseRevision?: number;
+  onRevisionChange?: (revision: number) => void;
+  onReadyChange?: (ready: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}
 interface GroupDraft { accessGroup: string; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel }
 interface AssignmentDraft extends Omit<ReasoningRouteAssignment, 'activeProfile'> { activeProfile?: ProfileRevisionRef }
 interface RouteDraft {
@@ -102,9 +108,8 @@ const PolicyFields: Component<PolicyFieldsProps> = (props) => {
       <For each={props.policy.routes}>{(route) => <option value={route} selected={route === props.policy.defaultRoute}>{optionLabel(route)}</option>}</For>
     </select><small>The route Pi starts with for this policy.</small></label>
     <label class="admin-form-field"><span>Default reasoning</span><select aria-label={`${props.label} default reasoning`} aria-describedby={`${encodeURIComponent(props.label)}-reasoning-help`} value={props.policy.reasoning} disabled={!props.policy.defaultRoute || (props.levels.length === 1 && props.levels[0] !== 'off')} onChange={(event) => props.onReasoning(event.currentTarget.value as PiReasoningLevel)}>
-      <Show when={props.policy.defaultRoute && props.levels.length === 0}><option value="off">Off (preference)</option></Show>
-      <For each={props.levels}>{(level) => <option value={level} selected={level === props.policy.reasoning}>{levelLabel(level)}</option>}</For>
-    </select><small id={`${encodeURIComponent(props.label)}-reasoning-help`}>{!props.policy.defaultRoute ? 'Choose an available route first.' : props.levels.length === 0 ? 'Off is a default preference: no explicit override is sent. Reasoning remains provider-controlled; Off is not guaranteed or verified.' : props.levels.length === 1 ? `This profile supports only ${levelLabel(props.levels[0])}.` : `Only options supported by this route's Pi compatibility profile are available.${props.levels.includes('off') ? '' : ' Off is not supported.'}`}</small></label>
+      <For each={props.levels.length ? props.levels : props.policy.defaultRoute ? LEVELS : []}>{(level) => <option value={level} selected={level === props.policy.reasoning}>{level === 'off' && props.levels.length === 0 ? 'Off (preference)' : levelLabel(level)}</option>}</For>
+    </select><small id={`${encodeURIComponent(props.label)}-reasoning-help`}>{!props.policy.defaultRoute ? 'Choose an available route first.' : props.levels.length === 0 ? 'All seven preferences use Provider default: no explicit override is sent. Reasoning remains provider-controlled; Off is not guaranteed or verified.' : props.levels.length === 1 ? `This profile supports only ${levelLabel(props.levels[0])}.` : `Only options supported by this route's Pi compatibility profile are available.${props.levels.includes('off') ? '' : ' Off is not supported.'}`}</small></label>
   </div>
 </div>;
 };
@@ -114,7 +119,13 @@ const AiRoutingFields: Component<Props> = (props) => {
   const configuration = record(current.reasoningConfiguration);
   const assignments = record(configuration.routeAssignments);
   const contextWindows = record(current.routeContextWindows);
-  const storedRoutes = [...new Set([...stringList(current.dynamicRoutes), ...Object.keys(assignments)])];
+  let storedRoutes = [...new Set([...stringList(current.dynamicRoutes), ...Object.keys(assignments)])];
+  const removedSavedRoutes = new Set<string>();
+  const [catalogRevision, setCatalogRevision] = createSignal(props.baseRevision);
+  createEffect(() => {
+    const revision = props.baseRevision;
+    if (revision !== undefined) setCatalogRevision((prior) => prior === undefined ? revision : Math.max(prior, revision));
+  });
   const [routeState, setRouteState] = createStore<RouteDraft[]>(storedRoutes.map((name) => ({ name, contextWindow: typeof contextWindows[name] === 'number' ? contextWindows[name] as number : DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]) })));
   const routes = () => routeState;
   const initialNativeDrafts: NativeDraft[] = (Array.isArray(current.nativeTargets) ? current.nativeTargets : []).flatMap((item) => {
@@ -132,8 +143,8 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [nativeChecks, setNativeChecks] = createSignal<Record<string, string | null>>({});
   const nativeSubmissionOf = (targets: NativeDraft[]) => targets.map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, verificationRequest: _request, rememberedRegion: _region, discoveryResult: _discovery, checkResult: _check, ...target }) => target);
   const nativeSubmission = () => nativeSubmissionOf(nativeTargets());
-  const initialNativeSubmission = JSON.stringify(nativeSubmissionOf(initialNativeDrafts));
-  const nativeDirty = () => JSON.stringify(nativeSubmission()) !== initialNativeSubmission || Object.keys(nativeChecks()).length > 0;
+  const [initialNativeSubmission, setInitialNativeSubmission] = createSignal(nativeSubmissionOf(initialNativeDrafts));
+  const nativeDirty = () => JSON.stringify(nativeSubmission()) !== JSON.stringify(initialNativeSubmission()) || Object.keys(nativeChecks()).length > 0;
   const setRoutes = (update: (items: RouteDraft[]) => RouteDraft[]) => setRouteState(reconcile(update(routeState), { key: 'name' }));
   const updateRoute = (name: string, update: (route: RouteDraft) => RouteDraft) => setRoutes((items) => items.map((route) => route.name === name ? update(route) : route));
   const routeByName = (name: string) => routes().find((route) => route.name === name);
@@ -195,17 +206,21 @@ const AiRoutingFields: Component<Props> = (props) => {
   const routeDraftEntry = (route: RouteDraft) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment });
   const routeDraft = () => routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
     .map(routeDraftEntry).sort((a, b) => a.name.localeCompare(b.name));
-  const draftKey = () => JSON.stringify({
+  const draftSnapshot = () => ({
     gatewayUrl: effectiveGatewayUrl(), gatewayId: effectiveGatewayId(), replacementToken: replacementToken().trim(),
     routes: routeDraft(),
-    groups: groups().map((group) => ({ ...group, routes: [...group.routes].sort() })),
-    fallback: fallbackEnabled() ? { enabled: true, ...fallbackPolicy(), routes: [...fallbackPolicy().routes].sort() } : { enabled: false },
+    groups: groups().map((group) => ({ ...group, routes: [...group.routes] })),
+    fallback: (fallbackEnabled() ? { enabled: true, ...fallbackPolicy(), routes: [...fallbackPolicy().routes] } : { enabled: false }) as FallbackRouting,
     customRevisions: customRevisions(),
     nativeTargets: nativeSubmission(),
   });
   const initialRouteDraftKeys = new Map(routeDraft().map((route) => [route.name, JSON.stringify(route)]));
-  const initialDraftKey = draftKey();
-  createEffect(() => props.onDirtyChange?.(draftKey() !== initialDraftKey));
+  const draftKey = (draft = draftSnapshot()) => JSON.stringify({ ...draft,
+    groups: draft.groups.map((group) => ({ ...group, routes: [...group.routes].sort() })),
+    fallback: draft.fallback.enabled ? { ...draft.fallback, routes: [...draft.fallback.routes].sort() } : draft.fallback,
+  });
+  const [initialDraft, setInitialDraft] = createSignal(JSON.parse(JSON.stringify(draftSnapshot())) as ReturnType<typeof draftSnapshot>);
+  createEffect(() => props.onDirtyChange?.(draftKey() !== draftKey(initialDraft())));
   let disposed = false;
   onCleanup(() => { disposed = true; });
 
@@ -272,13 +287,14 @@ const AiRoutingFields: Component<Props> = (props) => {
     .filter((leg) => leg.provider.replace(/^custom-/, '') === provider).map((leg) => leg.declaredModel) ?? []))].sort();
   const eligiblePolicyOptions = createMemo<PolicyOption[]>(() => [
     ...eligibleRoutes().map((route) => ({ name: route.name, label: `Dynamic Route - ${route.name}`, administratorConfirmed: route.assignment.verification?.method === 'administrator', observedPath: route.assignment.verification?.scope === 'observed-path' })),
-    ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), label: `Native Route - ${providerLabel(target.provider)} - ${target.model}`, administratorConfirmed: target.verification?.method === 'administrator' })),
+    ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), label: `Native Route - ${providerLabel(target.provider)} - ${target.label.trim() || target.model}`, administratorConfirmed: target.verification?.method === 'administrator' })),
   ]);
   const eligibleNames = () => eligiblePolicyOptions().map((route) => route.name);
   const normalizedPolicy = <T extends Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning'>>(policy: T): T => {
     const selected = policy.routes.filter((name) => eligibleNames().includes(name));
     const defaultRoute = selected.includes(policy.defaultRoute) ? policy.defaultRoute : selected[0] ?? '';
-    const reasoning = defaultRoute === policy.defaultRoute && supportedLevels(defaultRoute).includes(policy.reasoning) ? policy.reasoning : preferredLevel(defaultRoute);
+    const levels = supportedLevels(defaultRoute);
+    const reasoning = defaultRoute && defaultRoute === policy.defaultRoute && (levels.length === 0 || levels.includes(policy.reasoning)) ? policy.reasoning : preferredLevel(defaultRoute);
     return { ...policy, routes: selected, defaultRoute, reasoning };
   };
   const configuredGroups = createMemo(() => groups().map(normalizedPolicy));
@@ -336,6 +352,49 @@ const AiRoutingFields: Component<Props> = (props) => {
       return undefined;
     }
   };
+  // REQ-ENTERPRISE-034/044/052: only server-applied removals change retained
+  // draft references. A missing route/provider in a read is not deletion proof.
+  const reconcileSavedDraft = (result: ReasoningCatalogReconciliation) => {
+    if (result.status !== 'applied') return;
+    const removedRoutes = new Set(result.removedDynamicRoutes);
+    const removedIds = new Set(result.removedNativeTargetIds);
+    const removedNames = new Set([...removedRoutes, ...result.removedNativeTargetIds.map((id) => `cf-native-${id}`),
+      ...nativeTargets().filter((target) => target.id && removedIds.has(target.id)).map(nativeHandle)]);
+    const prunePolicy = <T extends Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning'>>(policy: T): T => {
+      const routes = policy.routes.filter((name) => !removedNames.has(name));
+      if (routes.length === policy.routes.length && !removedNames.has(policy.defaultRoute)) return policy;
+      const defaultRoute = routes.includes(policy.defaultRoute) ? policy.defaultRoute : routes[0] ?? '';
+      return { ...policy, routes, defaultRoute, reasoning: defaultRoute === policy.defaultRoute ? policy.reasoning : preferredLevel(defaultRoute) };
+    };
+    const pruneFallback = (policy: FallbackRouting): FallbackRouting => {
+      if (!policy.enabled) return policy;
+      const next = prunePolicy(policy);
+      return policy.routes.length > 0 && next.routes.length === 0 ? { enabled: false } : next;
+    };
+    batch(() => {
+      for (const name of removedRoutes) { removedSavedRoutes.add(name); initialRouteDraftKeys.delete(name); }
+      storedRoutes = storedRoutes.filter((name) => !removedRoutes.has(name));
+      setRoutes((items) => items.filter((route) => !removedRoutes.has(route.name)));
+      setNativeTargets((items) => items.filter((target) => !target.id || !removedIds.has(target.id)));
+      setInitialNativeSubmission((items) => items.filter((target) => !target.id || !removedIds.has(target.id)));
+      setGroups((items) => items.map(prunePolicy));
+      const nextFallback = pruneFallback(fallbackEnabled() ? { enabled: true, ...fallbackPolicy() } : { enabled: false });
+      setFallbackPolicy(prunePolicy);
+      setFallbackEnabled(nextFallback.enabled);
+      setRouteChecks((items) => Object.fromEntries(Object.entries(items).filter(([name]) => !removedRoutes.has(name))));
+      setNativeChecks((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !removedIds.has(id))));
+      setVerifications((items) => Object.fromEntries(Object.entries(items).filter(([name]) => !removedRoutes.has(name))));
+      setCapabilityResults((items) => Object.fromEntries(Object.entries(items).filter(([name]) => !removedRoutes.has(name))));
+      setInitialDraft((draft) => ({ ...draft,
+        routes: draft.routes.filter((route) => !removedRoutes.has(route.name)),
+        nativeTargets: draft.nativeTargets.filter((target) => !target.id || !removedIds.has(target.id)),
+        groups: draft.groups.map(prunePolicy), fallback: pruneFallback(draft.fallback),
+      }));
+      if (expandedRoute() && removedRoutes.has(expandedRoute()!)) setExpandedRoute(undefined);
+      if (profileEditorRoute() && removedRoutes.has(profileEditorRoute()!)) setProfileEditorRoute(undefined);
+      if (removedIds.size) { setExpandedNative(undefined); setNativeProfileEditor(undefined); }
+    });
+  };
   const checkConnection = async () => {
     if (gatewayKind() === 'account-api') {
       const canonical = accountApiBase(gatewayUrl());
@@ -345,8 +404,19 @@ const AiRoutingFields: Component<Props> = (props) => {
     const key = connectionKey();
     try {
       const gateway = gatewayDraft();
-      const loaded = gateway ? await getReasoningCatalog(gateway) : await getReasoningCatalog();
-      if (disposed || key !== connectionKey()) return;
+      const baseRevision = catalogRevision();
+      const loaded = gateway ? await getReasoningCatalog(gateway)
+        : baseRevision === undefined ? await getReasoningCatalog()
+          : await getReasoningCatalog(undefined, { reconcileSaved: true, baseRevision });
+      if (disposed) return;
+      // The POST may have committed while the operator edited connection fields.
+      // Rebase its authoritative removals, but do not display the stale inventory.
+      if (!gateway && loaded.reconciliation && (catalogRevision() === undefined || loaded.reconciliation.revision >= catalogRevision()!)) {
+        reconcileSavedDraft(loaded.reconciliation);
+        setCatalogRevision(loaded.reconciliation.revision);
+        props.onRevisionChange?.(loaded.reconciliation.revision);
+      }
+      if (key !== connectionKey()) return;
       setCatalog(loaded);
       if (loaded.routeCatalogStatus === 'ready') {
         setCheckedConnection(key); setGatewayRoutes(loaded.routes);
@@ -354,7 +424,7 @@ const AiRoutingFields: Component<Props> = (props) => {
         const unavailable: Record<string, string> = {};
         setRoutes((items) => {
           const byName = new Map(items.map((route) => [route.name, route]));
-          const loadedRoutes = loaded.routes.map((name) => byName.has(name) ? { ...byName.get(name)!, inventoryBusy: true } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]), inventoryBusy: true });
+          const loadedRoutes = loaded.routes.map((name) => byName.has(name) ? { ...byName.get(name)!, inventoryBusy: true } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(removedSavedRoutes.has(name) ? undefined : assignments[name]), inventoryBusy: true });
           for (const route of loadedRoutes) {
             const label = providerNativeRefs.get(refKey(route.assignment.activeProfile));
             if (label) { unavailable[route.name] = label; route.assignment = {}; }
@@ -512,7 +582,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     if (check.busy) return { label: check.administratorConfirmed ? 'Confirming…' : 'Verifying…', state: 'unclear' };
     if (check.error || check.result?.classification === 'Unsupported') return { label: 'Check failed · inactive', state: 'failed' };
     if (!route.assignment.activeProfile) return { label: 'Discover capabilities', state: 'unclear' };
-    if (verifiedAssignment(route)) return !validContext(route) ? { label: 'Set context window', state: 'unclear' } : route.assignment.verification?.method === 'administrator' ? { label: 'Administrator-confirmed', state: 'passed' } : route.assignment.verification?.scope === 'observed-path' ? { label: 'Compatible · backup untested', state: 'unclear' } : { label: 'Verified', state: 'passed' };
+    if (verifiedAssignment(route)) return !validContext(route) ? { label: 'Set context window', state: 'unclear' } : route.assignment.verification?.method === 'administrator' ? { label: 'Administrator-confirmed', state: 'passed' } : route.assignment.verification?.scope === 'observed-path' ? { label: 'Compatible · backup untested', state: 'passed' } : { label: 'Verified', state: 'passed' };
     return { label: 'Needs confirmation · inactive', state: 'unclear' };
   };
   const togglePolicyRoute = <T extends Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning'>>(policy: T, name: string): T => {
@@ -637,12 +707,12 @@ const AiRoutingFields: Component<Props> = (props) => {
             <div class="admin-route-action-row" role="group" aria-label={`${route.name} profile actions`}>
             <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for ${route.name}`} disabled={!connectionReady() || check().busy || Boolean(profileEditorRoute()) || !gatewayRoutes().includes(route.name)} onClick={() => setProfileEditorRoute(route.name)}>Discover Profile</button>
               <button type="button" class="admin-secondary-button" aria-label={`Verify Profile for ${route.name}`} disabled={!connectionReady() || !profile() || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name); }}>{check().busy && !check().administratorConfirmed ? 'Verifying…' : 'Verify Profile'}</button>
-              <Show when={profile() && !isGeneratedDiscoveryProfileId(profile()!.id)}> <button type="button" class="admin-primary-button" aria-label={`Mark ${route.name} as verified`} disabled={!connectionReady() || !profile() || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name, true); }}>Mark as verified</button></Show>
+              <Show when={profile()}> <button type="button" class="admin-primary-button" aria-label={`Mark ${route.name} as verified`} disabled={!connectionReady() || !profile() || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name, true); }}>Mark as verified</button></Show>
             </div>
             </div>
 
             <p class="admin-field-help">Verify runs a live check and may use provider credits. Its result appears above.</p>
-            <Show when={profile() && !isGeneratedDiscoveryProfileId(profile()!.id)}><p class="admin-field-help">Mark as verified records your own assessment without a live check; it is not automated evidence.</p></Show>
+            <Show when={profile()}><p class="admin-field-help">Mark as verified records your own assessment without a live check; it is not automated evidence.</p></Show>
             <Show when={profileEditorRoute() === route.name}><ReasoningProfileEditor route={route.name} context={managementContext(route.name)} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setProfileEditorRoute(undefined)} onSelectProfile={(ref) => { setProfileEditorRoute(undefined); setRouteProfile(route.name, refKey(ref)); }} onSave={(revision) => { setProfileEditorRoute(undefined); setCustomRevisions((items) => [...items, revision]); setRouteProfile(route.name, refKey(profileRef(revision))); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
             </details>
             <Show when={!gatewayRoutes().includes(route.name)}><button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${route.name} stale route`} onClick={() => setPendingRemoval(route.name)}>Remove stale route</button></Show>
@@ -664,7 +734,7 @@ const AiRoutingFields: Component<Props> = (props) => {
         const failedCheck = () => { const result = target().checkResult; return result?.assignable === false ? result : undefined; };
         const evidence = () => target().verification?.discovery ?? failedCheck()?.capabilitySummary;
         const title = () => `Native Route - ${providerLabel(target().provider)} - ${target().model || 'Add model'}`;
-        return <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`}>
+        return <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`} hidden={catalog().providerCatalogStatus !== undefined && !configuredProviders().some((provider) => provider.provider === target().provider)}>
           <div class="admin-native-target-heading">
             <button type="button" class="admin-route-toggle" aria-label={`Configure ${title()}`} aria-expanded={expandedNative() === index} aria-controls={`native-panel-${index}`} onClick={() => setExpandedNative(expandedNative() === index ? undefined : index)}>
               <span><strong>{title()}</strong><small>{target().label || 'New target'}</small></span>
@@ -713,12 +783,12 @@ const AiRoutingFields: Component<Props> = (props) => {
                 <Show when={!target().busy && !target().error && !target().discoveryResult && !target().checkResult && !nativeReady(target())}><p>{target().provider === 'aws-bedrock' ? 'Use Discover above. Results appear here.' : 'Choose a profile in Advanced below, then verify it. Results appear here.'}</p></Show>
               </TargetCheckResult>
               <details class="admin-route-reference" open={target().provider !== 'aws-bedrock'}><summary>Advanced: choose a profile</summary>
-              <p class="admin-field-help">Choose a profile yourself instead of using automatic Discover. Verify Profile runs a live check; Mark as verified, when available, records your assessment without a live check. Results appear above.</p>
+              <p class="admin-field-help">Choose a profile yourself instead of using automatic Discover. Verify Profile runs a live check; Mark as verified records your assessment without a live check. Results appear above.</p>
               <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} disabled={target().busy} onChange={(event) => {
                   const profile = assignableProfiles().find((candidate) => refKey(candidate) === event.currentTarget.value);
                   if (profile) clearProof({ profileRef: profileRefFromEntry(profile) });
                 }}><For each={profilesForTarget(target())}>{(profile) => <option value={refKey(profile)} selected={refKey(profile) === refKey(target().profileRef)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'All seven Pi preferences normalize to Provider default; no exact effort or Off state is claimed.'}</small></label>
-              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><Show when={!target().transport || target().transport === 'aig-legacy-compat' || target().profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE || isGeneratedNativeProfileId(target().profileRef.id)}><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button></Show><Show when={target().profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE && !isGeneratedDiscoveryProfileId(target().profileRef.id)}><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button></Show></div>
+              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><Show when={!target().transport || target().transport === 'aig-legacy-compat' || target().profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE || isGeneratedNativeProfileId(target().profileRef.id)}><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button></Show><Show when={selectedProfile()}><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button></Show></div>
               <Show when={target().profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE}><p class="admin-field-help">Verify authorizes up to four billable requests on this exact model, at most 2,048 output tokens each and 90 seconds each. The two cache requests include a public prefix of approximately 60 KiB; cost depends on the configured provider. No retries or model substitutions. Tools and exact replay are required. Input-prefix caching and incremental streaming are reported separately; Gateway HIT is whole-response reuse only. Reasoning remains provider-controlled.</p></Show>
               <Show when={nativeProfileEditor() === index}><ReasoningProfileEditor route={`${target().provider}/${target().model}`} discoverCompatibility={() => discoverNativeCompatibility({ target: nativeSubmission()[index], ...(gatewayDraft() && { gateway: gatewayDraft()! }), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS })} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setNativeProfileEditor(undefined)} onSelectProfile={(ref) => { setNativeProfileEditor(undefined); clearProof({ profileRef: ref }); }} onSave={(revision) => { const ref = profileRef(revision); if (!ref) return; setNativeProfileEditor(undefined); setCustomRevisions((items) => [...items, revision]); clearProof({ profileRef: ref }); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
               </details>

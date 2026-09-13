@@ -318,7 +318,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Administration discovers gateway routes from supported management responses. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
+1. Administration lists live gateway routes. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
 2. Normal Discover automatically adopts a qualified shared contract and server receipt, without a profile chooser, naming step or separate Verify. Manual controls remain under Advanced. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx -->
 3. Detected models load automatically through read-only inventory and appear inside the selected route, outside advanced technical details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: adds a discovered route only after verification and policy assignment and preserves apply-to-all) -->
@@ -327,6 +327,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 7. A verified existing-profile assignment can be saved independently of unfinished gateway routes. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: one working group route permits Save despite incomplete inactive routes) -->
 
 **Constraints:**
+
+- Cleanup removes absent Dynamic assignments, context windows, defaults and policy references, preserving shared custom revisions and historical receipts. Native-shaped names without a saved native owner remain Dynamic Routes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+
+- Reconciliation shares existing configuration admission and revision ownership. Revision, saved connection, Setup or run-ownership drift aborts before routing writes; an applied cleanup advances the revision and invalidates earlier reviews. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
+
+- Reconciliation uses only complete authoritative current Gateway inventories through POST /catalog with {reconcileSaved:true,baseRevision}. GET, ordinary POST and draft connection overlays remain read-only; reconciliation rejects overlays and submitted deletion lists. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
 
 - Gateway routes and backend legs remain gateway-owned and cannot be forced or inferred by this workflow.
 - Manual profile assignment does not require discovery.
@@ -337,9 +343,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
 
-**Verification:** Automated tests in the anchored Administration API and web-ui suites above.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -507,7 +513,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Each fallback or group default reasoning selector offers its route's supported preferences: actual native levels/aliases, retained Dynamic normalization, or Provider-default preferences including Off with no-override/provider-controlled help. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) -->
+1. Each fallback or group reasoning selector offers all seven Provider-default preferences, or only the explicit profile's supported levels and aliases, including off-only profiles. Provider-default Off explains no override and provider-controlled behavior. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) -->
 2. Associated help explains absent eligible routes and single-mode disabled states. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: default reasoning help distinguishes pending connection from missing checked route assignment) -->
 3. Disabling a single-mode selector preserves that mode in the Save payload. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: a single non-off mode stays disabled yet serializes its selected policy value) -->
 4. An absent global default is represented by an empty route with Off reasoning. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (accepts an AI Gateway connection before routes or access policies exist) -->
@@ -523,9 +529,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Anchored behavior is exercised in CI; execution is pending.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -601,7 +607,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Connection status reports route-management readiness rather than merely the presence of a token. <!-- @impl: src/lib/ai-gateway-management.ts::connectionStatus --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (reports sanitized permission-denied for management %s without asserting the exact missing scope) -->
 2. Invalid draft gateway credentials or provenance are rejected before external I/O. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects invalid draft gateway coordinates, credentials and provenance before external I/O) -->
-3. Transient connection overlays reuse saved encrypted credentials without persisting replacements during checks. <!-- @impl: src/lib/ai-gateway-management.ts::resolveGatewayConnection --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (reuses the saved encrypted token for draft inspection without changing storage) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: checking changed credentials does not save or run model probes) -->
+3. Transient connection overlays reuse saved encrypted credentials without persisting replacements or reconciling saved routing during checks. <!-- @impl: src/lib/ai-gateway-management.ts::resolveGatewayConnection --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (reuses the saved encrypted token for draft inspection without changing storage) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: checking changed credentials does not save or run model probes) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
 4. Selected verification accepts one bounded canonical unsaved custom revision with its exact reference. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (verifies an unsaved canonical custom profile and draft gateway without activation) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects invalid, mismatched and mutated or disabled existing custom drafts before provider I/O) -->
 5. Verification accepts custom-provider and multi-model routes without a backend description. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: verifies a three-model route without requiring a custom backend description) -->
 6. Absent custom provenance limits live evidence to the observed path. <!-- @impl: src/lib/reasoning-verification.ts::checkedRouteInventory --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (verifies an undescribed custom backend without inventing inherited provenance) -->
@@ -612,9 +618,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-038](#req-enterprise-038-enterprise-pi-selected-profile-verification)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -628,19 +634,23 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. A selected live check issues authority only after complete Pi tools/replay on every included executable semantic mapping against stable inventory; optional cache evidence is not an activation gate. <!-- @impl: src/lib/reasoning-verification.ts::completedProfileCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (issues no receipt for %s checks) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (issues no receipt when inventory drifts during an otherwise complete canary) -->
 2. Route-only mapping never issues activation authority. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (route-only Map never creates an eligibility receipt) -->
-3. Save accepts only matching server-issued receipts or unchanged current server-owned verification, never submitted evidence flags or fabricated administrator confirmation. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (never trusts forged verification or legacy evidence flags in Save) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not accept browser-fabricated administrator confirmation as saved authority) -->
-4. A successful observed path may be assigned with a warning that other backends remain untested. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: a successful observed-path check enables assignment with an untested-backup warning) -->
-5. Unavailable receipts fail closed with retry guidance rather than automatic paid rechecks. <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (fails closed on delayed receipt visibility with retry advice and no automatic paid checks) -->
+3. Save validates unchanged current saved authority first, adopts fresh valid receipts, and falls back to saved authority only for unavailable or expired receipts. Explicit null invalidates saved proof; present mismatched receipts and fabricated browser authority remain rejected. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (never trusts forged verification or legacy evidence flags in Save) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not accept browser-fabricated administrator confirmation as saved authority) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: an unavailable old receipt cannot block unchanged current server-owned route authority) -->
+4. A successful observed path remains green Compatible with an untested-backup warning; assigning it never certifies the other backends. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: a successful observed-path check enables assignment with an untested-backup warning) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-038: observed-path receipts enable access with a backup warning without fabricating per-leg evidence) -->
+5. Missing unsaved proof fails closed with field errors and preserves the draft. Recovery uses existing Advanced Verify or explicit Mark as verified, followed by Review and Confirm Save; no wizard or automatic paid recheck is introduced. <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (fails closed on delayed receipt visibility with retry advice and no automatic paid checks) --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail -->
 6. Save preserves new verification or administrator confirmation on inactive drafts without granting policy access. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (persists a newly checked inactive draft without granting policy access or repeating paid checks) -->
 
-7. Mark as verified explicitly confirms an eligible historical canonical selected profile without model probes; generated discovery profiles cannot acquire authority through administrator assertion. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading) -->
+7. Mark as verified explicitly confirms an eligible exact canonical selected profile, including generated discovery profiles, without model probes. The server issues target/profile/connection/inventory-bound administrator authority, distinct from automated observations. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-043: confirms selected Dynamic $id through endpoint, Save and runtime without inventing observations) -->
 
 **Constraints:**
 
+- Receipt recovery never retries automatically, clears unrelated draft edits or bypasses current identity, warning acknowledgement or baseRevision checks. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail -->
+
+- Administrator confirmation invents no tools, reasoning, streaming or cache observations and grants no inferred cache permission to generated profiles. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (REQ-ENTERPRISE-043: Save rejects $label without an issued receipt) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
+
 - Both live and administrator-confirmed receipts bind the exact profile revision, gateway credential context, inventory, any supplied provenance, and compatibility contract version.
 - Administrator confirmation retains its distinct method through browser response validation and persistence, never becoming live-check evidence. <!-- @impl: web-ui/src/lib/schemas.ts::ReasoningRouteVerificationSchema --> <!-- @test: web-ui/src/__tests__/api/reasoning-client.test.ts (REQ-ENTERPRISE-043: retains %s authority through real discovery and inventory response parsing) -->
-- Temporary receipts use unique immutable KV keys and their existing 15-minute lifetime; saved verification does not expire with its receipt.
-- Generated discovery profiles cannot gain authority from namespaces, omitted evidence or administrator method. <!-- @impl: src/lib/reasoning-profiles.ts::isGeneratedDiscoveryProfileId --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (does not let administrator confirmation or an incomplete replay replace executable evidence) -->
+- Dynamic and Native temporary Save receipts must remain valid for at least one hour; bounded retention is 30 days on immutable unique KV keys. Future-dated/expired receipts fail closed. Saved authority does not expire with receipts; private replay retention is independent. <!-- @impl: src/lib/reasoning-verification.ts::issueRouteCheck --> <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @impl: src/lib/native-ai-targets.ts::issueNativeTargetCheck --> <!-- @impl: src/lib/native-ai-targets.ts::readNativeTargetCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (uses unique immutable receipt keys with a bounded TTL and never rewrites an earlier check) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: Confirm Save retains exact Dynamic and Native authority after %i milliseconds of configuration) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: receipt readers still reject outside the bounded lifetime (%i milliseconds)) -->
+- Generated namespaces, missing evidence and browser-supplied administrator methods grant no authority. Incomplete automated replay remains insufficient; only explicit server-issued administrator confirmation establishes the separate assessment basis. <!-- @impl: src/lib/reasoning-verification.ts::verificationMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (REQ-ENTERPRISE-043: incomplete automated replay cannot replace executable evidence) -->
 - Runtime performs no management polling or branch forcing.
 - Observed-path authority is not per-leg or whole-route certification.
 - Legacy Setup cannot inject verification authority.
@@ -649,9 +659,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only and pending for this change.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -668,10 +678,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. Adding a group with exactly one eligible route preselects that route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
 4. New default reasoning prefers Medium, then Off, then the first supported level. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
 5. Unmatched users receive only the enabled fallback subset, or no routes when fallback is disabled. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (disabled fallback denies unmatched users and enabled fallback exposes only its allowed verified subset) -->
-6. The first matching configured group remains authoritative even when its eligible route set is empty. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not fall through from the first matching policy when its routes become ineligible) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (saves and retains an explicit empty deny-only first group alongside a working group) -->
+6. The first matching configured group remains authoritative even when reconciliation removes every route. Empty deny-only groups survive; exhausted fallback is disabled rather than widened. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not fall through from the first matching policy when its routes become ineligible) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (saves and retains an explicit empty deny-only first group alongside a working group) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently) -->
 7. Any editable draft that differs semantically from saved state can reach authoritative Review validation without a client-side readiness gate. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044/057: replacement credentials preserve saved policies regardless of connection edit order (%s)) -->
 
 **Constraints:**
+
+- Cleanup preserves surviving policy order and supported defaults. If a default disappears, choose only a surviving allowed route and supported reasoning; an empty global default uses Off. Repeated unchanged reconciliation does not advance the revision. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently) -->
 
 - Active dynamic routes are the union of eligible group and enabled fallback routes.
 - Inactive profile assignments remain editable drafts.
@@ -686,9 +698,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only and pending for this change.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -975,7 +987,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-075: Provider-native Bedrock Administration Authority
 
-**Intent:** Administrators reuse a native protocol contract and explicitly establish target-bound capabilities through the existing verification workflow, while retaining historical confirmation authority.
+**Intent:** Administrators reuse a native protocol contract and explicitly establish target-bound capabilities through the existing verification workflow, while retaining distinct explicit administrator confirmation authority.
 
 **Applies To:** Admin
 
@@ -983,7 +995,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Normal Bedrock Discover adopts a verified shared contract and target-bound receipt for any compatible model without changing saved transport. <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (certifies a synthetic future native model through the saved Invoke transport and authentic replay) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (does not infer Azure support or accept a browser endpoint/credential override) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (selects a future Bedrock model and adopts its reusable native contract in one Discover action) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-075: selects older/current/synthetic future models with one reusable native profile and explicit verification) -->
 2. Native capability probes require an explicit administrator check, never template listing, target selection, or session startup. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-075: offers the reusable native contract without a paid probe and preserves historical explicit confirmation) --> <!-- @test: src/__tests__/routes/bedrock-generic-upgrade.test.ts (certifies, saves and authorizes a synthetic future model through the existing workflow without authoring a profile) -->
-3. Native v2 receipts bind the actual returned canonical profile and complete tools/replay for every executable mapping, with exact transport coverage; retained historical profiles keep their original confirmation/evidence rules. <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-072/075: binds discovered Native selectable mappings to the receipt and saved target rather than replacing them with Provider default) --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/bedrock-generic-upgrade.test.ts (certifies, saves and authorizes a synthetic future model through the existing workflow without authoring a profile) --> <!-- @test: src/__tests__/routes/bedrock-generic-upgrade.test.ts (upgrades one real old profile reference via explicit confirmation while retaining another disabled stale target) -->
+3. Automated Native v2 receipts bind the returned canonical profile and complete tools/replay for every executable mapping with exact transport coverage. Explicit server-issued administrator confirmation remains a separate authority basis for eligible generated or historical profiles. <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-072/075: binds discovered Native selectable mappings to the receipt and saved target rather than replacing them with Provider default) --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/bedrock-generic-upgrade.test.ts (certifies, saves and authorizes a synthetic future model through the existing workflow without authoring a profile) --> <!-- @test: src/__tests__/routes/bedrock-generic-upgrade.test.ts (upgrades one real old profile reference via explicit confirmation while retaining another disabled stale target) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
 4. Missing or incomplete cache evidence remains inconclusive without blocking an otherwise receipt-eligible native target. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-075: keeps native tools and authentic replay assignable without input-cache evidence (%s)) -->
 5. Provider-native Bedrock profiles are ineligible in Dynamic Route draft selections, including previously stored selections. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: loads every detected inventory read-only and exposes models in the selected route outside advanced disclosures) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-075: removes hidden provider-native authority from a Dynamic Route draft until an allowed profile is selected) -->
 6. After generic adoption, reselecting an applicable saved explicit profile in Advanced requires fresh exact verification before the unchanged-transport target becomes ready. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (retains saved $profileId in Advanced after generic adoption, requiring a fresh exact check when reselected) -->
@@ -1007,9 +1019,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity)
 
-**Verification:** Named synthetic fixtures cover discovery authority, native forms and visible budget disclosure. The supplied behavioral RED checkpoint is CI `34764775466`; final source/anchor crosscheck and GREEN remain pending. No live or deployed acceptance is claimed.
+**Verification:** Historical RED checkpoint CI `34764775466` remains provenance. Administrator-confirmation regressions failed in CI `34770156766`; updated implementation awaits exact-head CI. No live or deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1221,7 +1233,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. The authenticated reasoning catalog discovers all gateway-scoped provider configurations through bounded pagination. <!-- @impl: src/lib/ai-gateway-management.ts::listNativeProviderConfigs --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: discovers all sanitized provider bindings through bounded gateway-scoped pages) -->
 2. The catalog discovers sanitized account custom-provider slugs independently of provider configurations. <!-- @impl: src/lib/ai-gateway-management.ts::listCustomProviderSlugs --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: discovers sanitized custom-provider slugs independently) -->
 3. Provider discovery rejects malformed, over-budget, cross-gateway, or ambiguous data. <!-- @impl: src/lib/ai-gateway-management.ts::listNativeProviderConfigs --> <!-- @impl: src/lib/ai-gateway-management.ts::selectNativeProviderConfig --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: rejects malformed, over-budget, cross-gateway and ambiguous provider discovery) -->
-4. Provider-configuration failure leaves successful Dynamic Route discovery usable. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-047: provider discovery failure leaves Dynamic Routes usable) -->
+4. Dynamic and Native inventory domains fail independently. Only a complete authoritative domain permits absence-based cleanup; failed, malformed, incomplete or incoherent pagination never proves absence. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-047: provider discovery failure leaves Dynamic Routes usable) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: only a complete domain authorizes deletion when the other inventory is unavailable) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: errors and incomplete or incoherent pages never prove absence) -->
 5. Custom-provider discovery failure leaves built-in provider discovery, validation, and reauthorization usable. <!-- @impl: src/lib/ai-gateway-management.ts::listCustomProviderSlugsForProviders --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (uses failed custom-provider lookup only as a built-in classification fallback) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails) -->
 6. A sole provider binding is selectable; multiple bindings require exactly one default. <!-- @impl: src/lib/ai-gateway-management.ts::selectNativeProviderConfig --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: discovers all sanitized provider bindings through bounded gateway-scoped pages) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: rejects malformed, over-budget, cross-gateway and ambiguous provider discovery) -->
 
@@ -1231,9 +1243,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1277,7 +1289,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Opening a target row exposes its fields and current Check result, retaining saved independent capability detail after reload; profile actions are grouped in one Advanced disclosure. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
 3. Targets without current proof show orange Not ready status; ready targets distinguish green Live-verified from Administrator-confirmed without a fresh check. <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-043: saved Native %s authority has a distinct visible basis without a fresh check) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
 4. Only targets with current proof and valid context are ready for access policies. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
-5. Access-policy checkboxes and default-route choices show each native target's provider and exact model. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056/064: presents named native group assignments while preserving their opaque handles) -->
+5. Access-policy checkboxes and default-route choices show each native target's provider and trimmed user label, falling back to its exact model when the label is absent or blank. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 
 **Constraints:** Readiness has no separate toggle while editing and lifecycle remain with [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace) and [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration).
 
@@ -1285,9 +1297,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1303,7 +1315,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Selecting a saved custom profile stores that exact immutable revision reference in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: selects the exact %s profile revision in the target draft) -->
 3. Advanced Discover Profile retains compatibility matching without automatic draft adoption. Normal Bedrock Discover instead verifies/adopts the exact target under REQ-ENTERPRISE-075. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: invokes native compatibility discovery for the current target draft) -->
 4. Verify Profile verifies the exact selected profile and records only the returned server-issued check and target identity in the draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verifies the exact selected profile and records its server-issued draft state) -->
-5. Eligible historical/manual profiles may be explicitly administrator-confirmed without fabricating automated evidence; discovered contracts cannot use confirmation to bypass a failed minimum. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
+5. Eligible selected profiles, including generated contracts, may be explicitly administrator-confirmed through an exact server-issued receipt without inventing automated evidence or generated-profile cache permission. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
 6. Successful verification or administrator confirmation makes the target Ready automatically. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) -->
 7. Remove target deletes that target from the editable draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: removes a native target from the editable draft) -->
 
@@ -1313,9 +1325,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1354,20 +1366,24 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Native verification applies the exact validated BYOK alias selected by current provider discovery. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: applies the discovered provider alias during native verification) -->
 2. Native runtime dispatch applies the identical stored validated BYOK alias. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-050: dispatches %s through its exact Worker-owned selector) -->
 3. Save validates current provider discovery and submitted target data, including Dynamic Route/native-target name collisions, before any routing KV write. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: rejects invalid native target data before any routing write) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: rejects a Dynamic Route that collides with a submitted native handle before any routing write) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-055: submits saved native identity during a policy-only edit) -->
-4. Label and context edits retain the server identity and proof when provider, model, binding, profile, transport, and adapter authority are unchanged. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: unchanged provider authority retains identity and proof across label and context edits) -->
+4. Label and context edits retain identity and unchanged current saved proof. Fresh valid receipts replace observations; unavailable or expired receipts may use that saved proof. Explicit null clears proof; present mismatched receipts reject. Target and connection authority must match. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: unchanged provider authority retains identity and proof across label and context edits) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-065: an unavailable old Native receipt cannot block unchanged current saved target authority) --> <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues -->
 5. Proof is rejected when provider, model, binding, profile, transport, adapter, target, or gateway identity changes. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed provider authority invalidates proof) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed target or connection authority fails verification matching) -->
 6. A route-only Save that omits native targets neither creates nor rewrites the native-target document. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
 7. A route name is classified as native only when a submitted native target owns it; an unowned native-shaped name remains a Dynamic Route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: validates a native-shaped Dynamic Route as a Dynamic Route when no native target owns it) -->
 
-**Constraints:** Save remains atomic and short-lived receipts never replace persisted authority.
+**Constraints:**
+
+- Save validates complete routing values before writes; receipt expiry does not revoke unchanged current saved authority. Fresh valid receipts may update observations.
+- Existing multi-key KV writes are not transactional. Reconciliation reports persistence failures rather than claiming committed cleanup. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: a failed %s write cannot report committed cleanup) -->
+- Reconciliation removes a Native target only when its exact stored provider binding is authoritatively absent. Ambiguous, unsupported or alias-changed present bindings remain stored without regaining readiness; replacement bindings cannot retain a deleted target. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-055: exact binding presence retains ambiguous or unsupported targets but a replacement binding cannot retain a deleted target) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1553,8 +1569,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Configured and assignable Dynamic Routes display as `Dynamic Route - <route name>`. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies) -->
-2. Configured and assignable native targets display as `Native Route - <provider> - <exact model>`. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056/064: presents named native group assignments while preserving their opaque handles) -->
-3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056/064: presents named native group assignments while preserving their opaque handles) -->
+2. Configured and assignable native targets display as `Native Route - <provider> - <user label>`, using the exact model only when the trimmed label is empty or absent. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 4. Built-in compatibility profile labels begin with `Dynamic Route` or `Native Route` and identify the provider and supported model family without transport mechanics in the profile name. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (presents the three Bedrock choices by route category and model family without transport jargon) -->
 
 **Constraints:** Presentation labels do not change route names, profile references, native target identities, or submitted policy values.
@@ -1563,9 +1579,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-056](#req-enterprise-056-native-target-disclosure-and-readiness)
 
-**Verification:** Behavioral route-selection and submitted-identity fixtures, exact-head CI, and deployed Administration acceptance.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1581,23 +1597,23 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Startup replaces prior managed Pi models and defaults with the authorized snapshot, including explicit empty resets. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) --> <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 3. An empty enterprise catalog or failed Pi publication removes stale managed Pi configuration without altering unrelated providers and settings. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 4. An explicit empty enterprise catalog removes managed Copilot configuration. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) -->
-5. Provider-default routes and Dynamic generated single-mapping contracts retain all seven Pi preferences without expanding canonical mappings; configurable Native discoveries publish actual successful levels/aliases. Administrator context remains unchanged; Provider-default routes retain a 16,384-token output cap. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-035/058: publishes seven Pi choices without inventing seven discovered reasoning mappings) --> <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: provider-default Dynamic routes expose and preserve all seven Pi thinking choices) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: the real provider-default thinking selector renders and selects all seven choices) -->
+5. Provider-default routes retain all seven Pi preferences without expanding canonical mappings. Explicit profiles publish only supported levels and aliases, including off-only profiles. Administrator context remains unchanged; Provider-default routes retain a 16,384-token output cap. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-058: publishes only the explicitly mapped discovered level while retaining Worker normalization) --> <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: provider-default Dynamic routes expose and preserve all seven Pi thinking choices) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: the real provider-default thinking selector renders and selects all seven choices) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: ${id === nativeHandle ? 'Native' : 'Dynamic'} mapped ${levels.join('/')} offers only supported Pi choices) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: Native provider-default offers seven choices without serializing an override) -->
 6. Copilot uses the same opaque default with an output cap of 16,384 and a prompt limit bounded by the administrator context. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-058: bounds Copilot output for a provider-default native model) --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-058: derives bounded Copilot limits for an off-only native profile) -->
 7. Container state omits exact native models, provider identity, credentials, aliases, and connection authority. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) -->
 
 **Constraints:**
 
 - Container-visible state contains no account or gateway authority.
-- Client thinking choices do not widen backend profile levels or bypass Worker normalization. <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (serializes generated provider-default and native models before the network boundary) -->
+- Client thinking choices do not widen backend profile levels. Worker normalization for older clients remains unchanged: exact, next higher, then highest lower executable mapping; Provider-default sends no reasoning override. <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (serializes generated provider-default and native models before the network boundary) -->
 - Pi publication stages models and defaults together and reports success only after application; failure keeps the container available. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-049](#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Anchored container and packaged entrypoint fixtures and CI.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -2463,7 +2479,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Pi's model picker displays published names for all `codeflare-gateway` models. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
 2. Pi's model-thinking settings display those same published gateway names. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
 3. Selecting or saving a named gateway model retains its provider/model routing identity, including opaque native IDs. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
-4. Startup publishes `Dynamic Route - <route name>` and `Native Route - <native label>` as model names without changing IDs. <!-- @impl: entrypoint.sh::PI_MODELS_JSON --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
+4. Startup publishes `Dynamic Route - <route name>` and `Native Route - <native label>` without changing IDs; a trimmed user label takes precedence over the native model fallback. <!-- @impl: entrypoint.sh::PI_MODELS_JSON --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-082: publishes a native ${label ? 'user label' : label === '' ? 'empty-label fallback' : 'missing-label fallback'} without changing its handle) -->
 5. Model-command status messages use the published gateway name. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
 6. Picker selection, including saving the default, confirms the published gateway name. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
 7. The local footer uses the same published gateway name. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-082: renders the published Dynamic Route name without changing its route identity) --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-058: renders the enterprise native label without changing its opaque identity) -->
@@ -2474,9 +2490,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication)
 
-**Verification:** Real source and CLI-bundled component rendering and selection tests in CI and image verification.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -2498,6 +2514,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
+- Cache experiments add no retries, delays, fallback or parser changes. Existing Eventstream/Invoke handling, five-minute checkpoints, fatal stop boundaries and campaign limits remain unchanged; synthetic read counters do not promise immediate provider reuse. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-074: discovers selectable native forms on an unknown model with exact replay and $transport dispatch) --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (does not probe cache after an authentication failure or retry another transport) -->
+
+- After successful tools/replay, each successful Native cache experiment submits exactly two requests with identical public prefix and native controls but different nonempty user questions. Dynamic whole-response cache pairs keep identical bodies. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: changes only the user question in each Native Eventstream cache pair while preserving independent %s evidence) --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (accepts Dynamic Gateway %s honestly, without native serialization or an all-branches gate) -->
+
 - Cache hits remain provider decisions; Gateway HIT never proves prefix reuse, including replayed positive counters. Mixed/no-cache profiles remain usable without model-wide checkpoint permission; UI shows per-level evidence and the Worker rejects unauthorized checkpoints before inference. <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: Gateway HIT with cached provider counters never certifies native input-prefix reuse (%s)) -->
 - A refused cache fill may report a positive write but cannot establish cache permission or submit the paired read; completed tools/replay remain independent. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
 - Only the final tool-result text checkpoint lifts to its enclosing native `tool_result`.
@@ -2518,8 +2538,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity), [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation), [REQ-ENTERPRISE-079](#req-enterprise-079-provider-native-bedrock-replay-confidentiality)
 
-**Verification:** Automated synthetic boundary tests and the named locked-Pi interoperability test, executed by CI. Historical Runtime observations are separate [cache evidence](../../documentation/lanes/bedrock-prompt-caching.md), not deployed application acceptance.
+**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---

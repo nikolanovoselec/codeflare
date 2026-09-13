@@ -108,10 +108,10 @@ function checkedCurrent() {
 const draftConfiguration = (container: HTMLElement): ReasoningConfiguration => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
 const formValues = (container: HTMLElement) => environmentValues('aiRouting', 'enterprise', new FormData(container.querySelector('form')!)) as Record<string, any>;
 const profileKey = (ref: ProfileRevisionRef) => `${ref.id}\u001f${ref.revision}\u001f${ref.hash}`;
-const mount = (data: unknown = current) => {
+const mount = (data: unknown = current, baseRevision?: number) => {
   const submit = vi.fn((event: SubmitEvent) => event.preventDefault());
   const onReadyChange = vi.fn();
-  return { ...render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={data} onReadyChange={onReadyChange} /></form>), submit, onReadyChange };
+  return { ...render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={data} baseRevision={baseRevision} onReadyChange={onReadyChange} /></form>), submit, onReadyChange };
 };
 type View = ReturnType<typeof mount>;
 async function section(view: View, name: 'Connection' | 'Dynamic routes' | 'Native routes' | 'Access & fallback') {
@@ -186,13 +186,16 @@ describe('Structured AI routing', () => {
   it('REQ-ENTERPRISE-034: shows only live Gateway routes and drops deleted route settings after a successful inventory', async () => {
     const deleted = ['bedrock_opus', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'development', 'documentation', 'freestyler', 'general_usage'];
     const live = ['Planning', 'Operations', 'Development', 'Review'];
-    api.catalog.mockResolvedValueOnce({ ...catalog, routes: live });
+    api.catalog.mockResolvedValueOnce({ ...catalog, routes: live, reconciliation: {
+      status: 'applied', removedDynamicRoutes: deleted, removedNativeTargetIds: [], revision: 8,
+    } });
     const saved = { ...current, dynamicRoutes: deleted,
       routeContextWindows: Object.fromEntries(deleted.map((route) => [route, 200000])),
       reasoningConfiguration: { ...current.reasoningConfiguration,
         routeAssignments: Object.fromEntries(deleted.map((route) => [route, { activeProfile: glmRef }])) } };
-    const view = mount(saved);
+    const view = mount(saved, 7);
     await view.findByText('Connected · 4 routes readable');
+    expect(api.catalog).toHaveBeenCalledWith(undefined, { reconcileSaved: true, baseRevision: 7 });
     await waitFor(() => expect(api.inventory).toHaveBeenCalledTimes(4));
     expect(view.getAllByRole('article').map((row) => row.getAttribute('aria-label'))).toEqual(live.map((route) => `${route} route`));
     expect(view.getByText('0 ready / 4 routes')).toBeVisible();
@@ -210,8 +213,10 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-034: an authoritative empty route inventory removes all saved Dynamic routes without discovery or Save', async () => {
-    api.catalog.mockResolvedValueOnce({ ...catalog, routes: [] });
-    const view = mount();
+    api.catalog.mockResolvedValueOnce({ ...catalog, routes: [], reconciliation: {
+      status: 'applied', removedDynamicRoutes: Object.keys(current.reasoningConfiguration.routeAssignments), removedNativeTargetIds: [], revision: 8,
+    } });
+    const view = mount(current, 7);
     await view.findByText('Connected · 0 routes readable');
     expect(view.queryByRole('article')).toBeNull();
     expect(view.getByText('0 ready / 0 routes')).toBeVisible();
@@ -228,11 +233,15 @@ describe('Structured AI routing', () => {
     const native = { id: targetId, label: 'Deleted provider route', model: 'eu.anthropic.claude-synthetic-2099', provider: 'aws-bedrock',
       transport: 'aig-legacy-compat', contextWindow: 200000, profileRef: savedNativeCustomRef, enabled: true,
       verification: { method: 'administrator', checkedAt: '2026-09-13T12:00:00Z', current: true } };
-    api.catalog.mockResolvedValueOnce({ ...catalog, providers: [], providerCatalogStatus });
+    api.catalog.mockResolvedValueOnce({ ...catalog, providers: [], providerCatalogStatus,
+      ...(providerCatalogStatus === 'ready' && { reconciliation: {
+        status: 'applied', removedDynamicRoutes: [], removedNativeTargetIds: [targetId], revision: 8,
+      } }),
+    });
     const view = mount({ ...current, nativeTargets: [native],
       reasoningConfiguration: { ...current.reasoningConfiguration, customProfileRevisions: [savedNativeCustom] },
       groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
-      fallbackRouting: { enabled: true, routes: [handle], defaultRoute: handle, reasoning: 'off' } });
+      fallbackRouting: { enabled: true, routes: [handle], defaultRoute: handle, reasoning: 'off' } }, 7);
     await openNative(view);
     expect(view.queryByRole('article', { name: 'Deleted provider route native target' })).toBeNull();
     const values = formValues(view.container);

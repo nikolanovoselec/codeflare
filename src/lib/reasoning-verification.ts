@@ -24,7 +24,7 @@ function parsedSchema<T>(parse: (value: unknown) => T) {
 }
 const routeVerificationSchema = parsedSchema(parseRouteVerification);
 export const fallbackRoutingSchema = parsedSchema(parseFallbackRouting);
-const ROUTE_CHECK_TTL_SECONDS = 15 * 60;
+const ROUTE_CHECK_TTL_SECONDS = 30 * 24 * 60 * 60;
 const CHECK_PREFIX = 'admin:reasoning:check:';
 const receiptSchema = z.object({ route: dynamicRouteSchema, verification: routeVerificationSchema }).strict();
 export const routeCheckIdSchema = z.string().uuid();
@@ -79,7 +79,7 @@ export function verificationMatches(
   connection: GatewayConnection,
   current?: CheckedRouteInventory,
 ): boolean {
-  if (!verification || !profile.enabled || (isGeneratedDiscoveryProfileId(profile.id) && (verification.method === 'administrator' || !capabilityEvidenceMatches(verification.capabilities, profile)))
+  if (!verification || !profile.enabled || (isGeneratedDiscoveryProfileId(profile.id) && verification.method !== 'administrator' && !capabilityEvidenceMatches(verification.capabilities, profile))
     || verification.canaryVersion !== PI_WIRE_CANARY_VERSION
     || canonicalJson(verification.profileRef) !== canonicalJson({ id: profile.id, revision: profile.revision, hash: profile.hash })
     || canonicalJson(verification.supportedLevels) !== canonicalJson(profile.supportedLevels)
@@ -95,7 +95,7 @@ export function rebindVerificationConnection(
   current: CheckedRouteInventory,
 ): RouteVerification | null {
   const fingerprint = connectionFingerprint(connection);
-  if (!verification || !fingerprint || (isGeneratedDiscoveryProfileId(profile.id) && (verification.method === 'administrator' || !capabilityEvidenceMatches(verification.capabilities, profile))) || current.inventory.models.length === 0
+  if (!verification || !fingerprint || (isGeneratedDiscoveryProfileId(profile.id) && verification.method !== 'administrator' && !capabilityEvidenceMatches(verification.capabilities, profile)) || current.inventory.models.length === 0
     || verification.canaryVersion !== PI_WIRE_CANARY_VERSION
     || canonicalJson(verification.profileRef) !== canonicalJson({ id: profile.id, revision: profile.revision, hash: profile.hash })
     || canonicalJson(verification.supportedLevels) !== canonicalJson(profile.supportedLevels)
@@ -126,7 +126,7 @@ export async function issueRouteCheck(kv: KVNamespace, route: string, verificati
 }
 export async function readRouteCheck(kv: KVNamespace, checkId: string): Promise<z.infer<typeof receiptSchema>> {
   routeCheckIdSchema.parse(checkId);
-  const retry = 'Route check receipt unavailable. Retry Save without rerunning the paid check; if it has expired, explicitly check the route again.';
+  const retry = 'Route check receipt unavailable or expired. Retry Save without rerunning the check. If still unavailable, use Advanced to verify the selected profile or explicitly Mark as verified, then review and Save again.';
   let raw: string | null;
   try { raw = await kv.get(`${CHECK_PREFIX}${checkId}`); } catch { throw new Error(retry); }
   if (!raw) throw new Error(retry);

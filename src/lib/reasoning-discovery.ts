@@ -1148,10 +1148,16 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
     { role: 'user', content: 'Reply with a numbered list of 32 short fictional labels. Do not use tools.' },
   ], stream: true, stream_options: { include_usage: true }, max_completion_tokens: maxCompletionTokens }, semantic);
   request.max_completion_tokens = maxCompletionTokens;
+  const readRequest = clone(request);
+  // Native tests prefix reuse, not whole-response reuse: change only the user
+  // question after the checkpoint. Dynamic keeps its identical whole-body pair.
+  if (common.native) (readRequest.messages as PlainObject[])[1].content = 'Reply with a numbered list of 32 short fictional colors. Do not use tools.';
   const observations: Array<Record<string, any>> = [];
-  for (let index = 0; index < 2; index++) {
+  const publicBodies: string[] = [];
+  for (const body of [request, readRequest]) {
     try {
-      const attempt = await requestChatCompletionsWithCompat({ ...common, body: request });
+      publicBodies.push(JSON.stringify(compatibilityRequest(body, common.compatibility)));
+      const attempt = await requestChatCompletionsWithCompat({ ...common, body });
       const header = gatewayObservation(attempt.response);
       if (attempt.response.status !== 200) {
         const text = await readBoundedText(attempt.response, common.maxResponseBytes);
@@ -1182,7 +1188,9 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
   const incremental = common.compatibility?.response !== 'buffered' && observations.some((item) => item.valid && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
     && item.publicDeltaTimes.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
     && item.publicDeltaTimes[0] + 5 < item.eofTime);
-  return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(compatibilityRequest(request, common.compatibility))),
+  const identicalPublicBody = publicBodies.length === 2 && publicBodies[0] === publicBodies[1];
+  return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody,
+    publicBodyHash: identicalPublicBody ? await digest(publicBodies[0]) : null,
     explanation: !backendConsistent ? 'Reasoning, tool or cache observations identify different backends. Evidence cannot certify one exercised route path; this is not an all-branches requirement.'
       : observations[0]?.effectiveFinishReason === 'content_filter'
         ? `The provider refused the cache-fill response.${Number.isSafeInteger(observations[0].cacheWriteTokens) && observations[0].cacheWriteTokens >= 0 ? ` Provider cache write: ${observations[0].cacheWriteTokens} tokens.` : ''} Cache-read was not attempted. A write alone does not prove input caching.`

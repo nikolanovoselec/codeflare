@@ -767,14 +767,11 @@ export async function loadEnterpriseRouteConfig(
     const assignment = configuration.routeAssignments[route];
     if (assignment) {
       const profile = getRouteReasoningProfile(configuration, route);
-      // Client preferences normalize to the discovered mapping; canonical evidence stays unchanged.
-      const preferences: PiReasoningLevel[] = profile.id.startsWith('discovered-') && profile.supportedLevels.length === 1
-        ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-        : [...profile.supportedLevels];
-      routeReasoningLevels[route] = preferences;
+      // Publish executable levels; older client preferences still normalize in the Worker.
+      routeReasoningLevels[route] = [...profile.supportedLevels];
     } else {
       const target = resolved.nativeTargets[route];
-      if (target) { routeReasoningLevels[route] = [...target.reasoningLevels]; modelDisplayNames[route] = target.label; }
+      if (target) { routeReasoningLevels[route] = [...target.reasoningLevels]; modelDisplayNames[route] = target.label.trim() || target.model; }
     }
   }
   const routeContextWindows = (() => {

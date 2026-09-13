@@ -73,8 +73,10 @@ export async function getAdminConfiguration(): Promise<AdminConfigurationRespons
   return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
 }
 
-export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft): Promise<ReasoningCatalog> {
-  return fetchApi('/admin/reasoning/catalog', gateway ? { method: 'POST', body: JSON.stringify({ gateway }) } : {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
+export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft, reconciliation?: { reconcileSaved: true; baseRevision: number }): Promise<ReasoningCatalog> {
+  // Gateway overlays and ordinary GET reads never reconcile saved routing.
+  const body = gateway ? { gateway } : reconciliation;
+  return fetchApi('/admin/reasoning/catalog', body ? { method: 'POST', body: JSON.stringify(body) } : {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
 }
 
 export async function getReasoningRouteInventory(route: string, context?: ReasoningManagementContext): Promise<ReasoningRouteInventory> {

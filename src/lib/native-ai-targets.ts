@@ -131,7 +131,7 @@ export type NativeAiTargetsDocument = z.infer<typeof documentSchema>;
 
 const checkReceiptSchema = z.object({ targetId: z.string().uuid(), verification: nativeVerificationSchema }).strict();
 const CHECK_PREFIX = 'admin:native-ai-target-check:';
-const CHECK_TTL_SECONDS = 900;
+const CHECK_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export interface NativeProviderAuthority { id: string; alias?: string; customProvider: boolean }
 
@@ -204,8 +204,12 @@ export function nativeVerificationMatches(target: NativeAiTarget, connection: Ga
 
 function genericDiscoveryQualifies(target: NativeAiTarget, profile?: NormalizedReasoningProfile): boolean {
   if (target.profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE && !isGeneratedDiscoveryProfileId(target.profileRef.id)) return true;
+  if (target.verification?.method === 'administrator') {
+    const selected = profile ?? getBuiltInProfile(target.profileRef.id);
+    return Boolean(selected?.enabled && canonicalJson({ id: selected.id, revision: selected.revision, hash: selected.hash }) === canonicalJson(target.profileRef));
+  }
   const evidence = target.verification?.discovery;
-  if (!evidence || target.verification?.method === 'administrator') return false;
+  if (!evidence) return false;
   // Historical evidence remains governed by its original rules, never upgraded.
   if (evidence.schemaVersion === 1) return legacyCapabilityQualifies(evidence);
   const selected = profile ?? getBuiltInProfile(target.profileRef.id);
@@ -219,6 +223,7 @@ function genericDiscoveryQualifies(target: NativeAiTarget, profile?: NormalizedR
 export function nativePromptCacheSupported(target: NativeAiTarget, profile?: NormalizedReasoningProfile): boolean {
   if (target.provider !== 'aws-bedrock' || target.transport === 'aig-legacy-compat') return false;
   if (target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE || isGeneratedNativeProfileId(target.profileRef.id)) {
+    if (target.verification?.method === 'administrator') return false;
     const evidence = target.verification?.discovery;
     if (!evidence || !genericDiscoveryQualifies(target, profile)) return false;
     return evidence.schemaVersion === 1 ? evidence.nativePromptCache === true

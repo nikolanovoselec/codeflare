@@ -115,6 +115,14 @@ export const EnvironmentAreaDetail: Component = () => {
   const [error, setError] = createSignal<string>();
   const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
   const [aiRoutingDirty, setAiRoutingDirty] = createSignal(false);
+  const [revision, setRevision] = createSignal(configuration.revision);
+  const reconcileRevision = (nextRevision: number) => {
+    if (nextRevision <= revision()) return;
+    setRevision(nextRevision);
+    // REQ-ENTERPRISE-044: keep the editor mounted; only the stale review expires.
+    setPreview(undefined);
+    setConfirmedWarnings([]);
+  };
 
   const editedCurrent = () => {
     const section = area()?.section;
@@ -135,7 +143,9 @@ export const EnvironmentAreaDetail: Component = () => {
       const values = environmentValues(section, configuration.mode, new FormData(event.currentTarget as HTMLFormElement));
       setSubmittedValues(values);
       setConfirmedWarnings([]);
-      setPreview(await previewConfiguration(section, configuration.revision, values));
+      const baseRevision = revision();
+      const reviewed = await previewConfiguration(section, baseRevision, values);
+      if (baseRevision === revision()) setPreview(reviewed);
     } catch (reason) {
       setError(configurationErrorMessage(reason));
     } finally { setBusy(false); }
@@ -144,10 +154,10 @@ export const EnvironmentAreaDetail: Component = () => {
   const apply = async () => {
     const section = area()?.section;
     const reviewed = preview();
-    if (!section || !submittedValues() || !reviewed || busy() || configuration.activeRunId || reviewed.warnings.some((warning) => !confirmedWarnings().includes(warning.code))) return;
+    if (!section || !submittedValues() || !reviewed || reviewed.baseRevision !== revision() || busy() || configuration.activeRunId || reviewed.warnings.some((warning) => !confirmedWarnings().includes(warning.code))) return;
     setBusy(true); setError(undefined);
     try {
-      const response = await startConfigurationRun(section, configuration.revision, submittedValues(), confirmedWarnings());
+      const response = await startConfigurationRun(section, reviewed.baseRevision, submittedValues(), confirmedWarnings());
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Configuration stream was unavailable');
       const decoder = new TextDecoder();
@@ -166,8 +176,8 @@ export const EnvironmentAreaDetail: Component = () => {
       }
     } catch (reason) {
       if (reason instanceof ConfigurationRequestError && reason.status === 409) {
-        setError(`${reason.message}. Reload current settings before applying again.`);
-      } else setError(reason instanceof Error ? reason.message : 'Settings change failed.');
+        setError(`${configurationErrorMessage(reason)}. Reload current settings before applying again.`);
+      } else setError(configurationErrorMessage(reason));
     } finally { setBusy(false); }
   };
 
@@ -186,9 +196,9 @@ export const EnvironmentAreaDetail: Component = () => {
       <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
       <Show when={!run() && (resolved().section === 'aiRouting' || !preview())}>
         <form style={{ display: preview() ? 'none' : undefined }} class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
-          <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{configuration.revision}</strong></span></div>
+          <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{revision()}</strong></span></div>
           <div class="admin-editor-layout">
-            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onDirtyChange={setAiRoutingDirty} />
+            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} baseRevision={revision()} onRevisionChange={reconcileRevision} onDirtyChange={setAiRoutingDirty} />
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>

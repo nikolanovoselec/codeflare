@@ -155,8 +155,33 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
   if (!isPlainObject(payload)) throw new Error('route_list_malformed');
   const envelope = isPlainObject(payload.data) ? payload.data : isPlainObject(payload.result) ? payload.result : null;
   if (!envelope || !Array.isArray(envelope.routes)) throw new Error('route_list_malformed');
+  // This endpoint's supported envelope is a complete inventory, not a page.
+  // Do not invent pagination parameters or treat an advertised partial page as absence.
+  for (const owner of [payload, envelope]) {
+    if ((owner.gateway_id !== undefined && owner.gateway_id !== gatewayId)
+      || owner.has_more === true || owner.hasMore === true || owner.next_cursor || owner.cursor || owner.next || owner.cursors
+      || owner.pagination !== undefined) throw new Error('route_list_incomplete');
+    const paginationFields = ['page', 'count', 'per_page', 'total_count', 'total_pages'];
+    const metadata = [
+      ...(owner.result_info !== undefined ? [owner.result_info] : []),
+      ...(paginationFields.some((key) => Object.hasOwn(owner, key)) ? [owner] : []),
+    ];
+    for (const info of metadata) {
+      if (!isPlainObject(info) || info.page !== 1 || info.count !== envelope.routes.length
+        || !Number.isInteger(info.per_page) || (info.per_page as number) < envelope.routes.length
+        || (info.per_page as number) < 1 || info.total_count !== envelope.routes.length
+        || (info.total_pages !== undefined && info.total_pages !== 1 && !(info.total_pages === 0 && envelope.routes.length === 0))
+        || info.cursor || info.next_cursor || info.next || info.cursors || info.has_more === true || info.hasMore === true) throw new Error('route_list_incomplete');
+    }
+  }
+  const ids = new Set<string>();
+  const names = new Set<string>();
   return envelope.routes.map((candidate) => {
-    if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !dynamicRouteSchema.safeParse(candidate.name).success) throw new Error('route_list_malformed');
+    if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !dynamicRouteSchema.safeParse(candidate.name).success
+      || ids.has(candidate.id) || names.has(candidate.name as string)
+      || (candidate.gateway_id !== undefined && candidate.gateway_id !== gatewayId)) throw new Error('route_list_malformed');
+    ids.add(candidate.id);
+    names.add(candidate.name as string);
     return { id: candidate.id, name: candidate.name as string };
   });
 }
@@ -177,21 +202,41 @@ function parseDefaultConfig(value: unknown): boolean {
 /** Discover gateway-scoped provider bindings while discarding all sensitive fields. */
 export async function listNativeProviderConfigs(accountId: string, gatewayId: string, token: string): Promise<NativeProviderConfig[]> {
   const result: NativeProviderConfig[] = [];
+  const ids = new Set<string>();
+  let total: number | undefined;
+  let pageSize: number | undefined;
+  let totalPages: number | undefined;
   for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
     const payload = await managementRequest(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs?page=${page}&per_page=100`, token);
     if (!isPlainObject(payload) || payload.success !== true || !Array.isArray(payload.result) || !isPlainObject(payload.result_info)) throw new Error('provider_config_list_malformed');
     const info = payload.result_info;
     if (info.page !== page || !Number.isInteger(info.count) || !Number.isInteger(info.per_page) || !Number.isInteger(info.total_count)
       || info.count !== payload.result.length || (info.per_page as number) < 1 || (info.per_page as number) > 100
-      || (info.total_count as number) < 0 || (info.total_count as number) > MAX_PROVIDER_CONFIGS) throw new Error('provider_config_list_malformed');
+      || (info.total_count as number) < 0 || (info.total_count as number) > MAX_PROVIDER_CONFIGS
+      || payload.result.length > (info.per_page as number)
+      || (total !== undefined && total !== info.total_count) || (pageSize !== undefined && pageSize !== info.per_page)
+      || (info.total_pages !== undefined && !(page === 1 && info.total_count === 0 && info.total_pages === 0)
+        && (!Number.isInteger(info.total_pages) || (info.total_pages as number) < page
+          || (info.total_pages as number) > MAX_PROVIDER_CONFIG_PAGES))
+      || (page > 1 && totalPages !== info.total_pages)
+      || info.has_more === true || info.hasMore === true || info.cursor || info.next_cursor || info.cursors
+      || payload.has_more === true || payload.hasMore === true || payload.cursor || payload.next_cursor || payload.cursors) throw new Error('provider_config_list_malformed');
+    total = info.total_count as number;
+    pageSize = info.per_page as number;
+    totalPages = info.total_pages === 0 ? 1 : info.total_pages as number | undefined;
     for (const candidate of payload.result) {
       if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !providerSlugSchema.safeParse(candidate.provider_slug).success
-        || !providerAliasSchema.optional().safeParse(candidate.alias).success || candidate.gateway_id !== gatewayId) throw new Error('provider_config_list_malformed');
+        || !providerAliasSchema.optional().safeParse(candidate.alias).success || candidate.gateway_id !== gatewayId
+        || ids.has(candidate.id)) throw new Error('provider_config_list_malformed');
+      ids.add(candidate.id);
       result.push({ id: candidate.id, provider: candidate.provider_slug as string, gatewayId,
         ...(typeof candidate.alias === 'string' && { alias: candidate.alias }), defaultSelection: parseDefaultConfig(candidate.default_config) });
     }
-    if (result.length > MAX_PROVIDER_CONFIGS) throw new Error('provider_config_list_malformed');
-    if (result.length >= (info.total_count as number)) return result;
+    if (result.length > total || (totalPages === page && result.length !== total)) throw new Error('provider_config_list_malformed');
+    if (result.length === total) {
+      if (totalPages !== undefined && totalPages !== page) throw new Error('provider_config_list_malformed');
+      return result;
+    }
     if (payload.result.length === 0) throw new Error('provider_config_list_malformed');
   }
   throw new Error('provider_config_list_malformed');

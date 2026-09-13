@@ -304,6 +304,54 @@ describe('live saved-connection routing reconciliation', () => {
     }
   });
 
+  it.each([
+    { result: { routes: [], total_count: 1 } },
+    { result: { routes: [], result_info: { page: 1, count: 0, per_page: 100, total_count: 0, total_pages: 2 } } },
+    { result: { routes: [], has_more: true } },
+    { result: { routes: [{ id: 'same', name: 'one' }, { id: 'same', name: 'two' }] } },
+    { result: { routes: [{ id: 'one', name: 'same' }, { id: 'two', name: 'same' }] } },
+    { result: { routes: [{ id: 'foreign', name: 'live', gateway_id: 'other' }] } },
+  ])('REQ-ENTERPRISE-047: incomplete or incoherent Dynamic inventories never authorize cleanup (%j)', async (body) => {
+    const f = await setup();
+    const before = await routingSnapshot(f.kv);
+    routesReply = () => Response.json(body);
+    providersReply = () => Response.json({}, { status: 503 });
+    const response = await reconcile(f);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ routeCatalogStatus: 'unavailable', providerCatalogStatus: 'unavailable',
+      reconciliation: { status: 'unchanged', removedDynamicRoutes: [], removedNativeTargetIds: [], revision: 7 } });
+    expect(await routingSnapshot(f.kv)).toEqual(before);
+  });
+
+  it.each([...routingKeys, ADMIN_CONFIGURATION_KEYS.REVISION])('REQ-SETUP-018: a failed %s write cannot report committed cleanup', async (failedKey) => {
+    const f = await setup();
+    const before = await f.kv.get(failedKey);
+    const credentialBefore = await f.kv.get(SETUP_KEYS.AIG_TOKEN);
+    const put = f.kv.put.getMockImplementation()!;
+    f.kv.put.mockImplementation(async (key, value, options) => {
+      if (key === failedKey) throw new Error(`private storage error: ${token}`);
+      return put(key, value, options);
+    });
+    const response = await reconcile(f);
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body).toMatchObject({ code: 'configuration_task_failed' });
+    expect(body).not.toHaveProperty('reconciliation');
+    expect(JSON.stringify(body)).not.toContain(token);
+    expect(await f.kv.get(failedKey)).toBe(before);
+    expect(await f.kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe('7');
+    expect(await f.kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+    expect(await f.kv.get(SETUP_KEYS.AIG_TOKEN)).toBe(credentialBefore);
+    expect(await f.kv.get('admin:reasoning-check:retained-history')).toBe('historical-receipt');
+    const history = await f.app.request('/admin/configuration-runs');
+    expect(history.status).toBe(200);
+    const activity = await history.json() as any;
+    expect(activity.items).toEqual([expect.objectContaining({ state: 'failed', baseRevision: 7,
+      error: expect.objectContaining({ code: 'configuration_task_failed' }),
+      tasks: [expect.objectContaining({ state: 'failed' })] })]);
+    expect(JSON.stringify(activity)).not.toContain(token);
+  });
+
   it('REQ-ENTERPRISE-055: exact binding presence retains ambiguous or unsupported targets but a replacement binding cannot retain a deleted target', async () => {
     const f = await setup();
     const unsupportedId = '44444444-4444-4444-8444-444444444444';

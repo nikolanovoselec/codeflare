@@ -8,6 +8,8 @@ interface Props {
   section: ConfigurationSection;
   mode: AdministrationMode;
   current: unknown;
+  baseRevision?: number;
+  onRevisionChange?: (revision: number) => void;
   onReadyChange?: (ready: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
@@ -39,7 +41,7 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
         : textarea('allowedUsers', 'Allowed user emails, one per line', lines(current().allowedUsers))}
     </Match>
     <Match when={props.section === 'domain'}>{field('customDomain', 'Custom domain')}</Match>
-    <Match when={props.section === 'aiRouting'}><AiRoutingFields current={props.current} onReadyChange={props.onReadyChange} onDirtyChange={props.onDirtyChange} /></Match>
+    <Match when={props.section === 'aiRouting'}><AiRoutingFields current={props.current} baseRevision={props.baseRevision} onRevisionChange={props.onRevisionChange} onReadyChange={props.onReadyChange} onDirtyChange={props.onDirtyChange} /></Match>
     <Match when={props.section === 'codingAgents'}>
       <div class="admin-form-wide"><span class="admin-field-label">Active agents</span><div class="admin-checkbox-list"><For each={list(current().configurableAgents)}>{(agent) => <label class="admin-toggle-field"><input type="checkbox" name="activeAgents" value={agent} checked={list(current().activeAgents).includes(agent)} /><span>{agent}</span></label>}</For></div></div>
     </Match>

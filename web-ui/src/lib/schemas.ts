@@ -78,6 +78,12 @@ export const ReasoningCatalogSchema = z.object({
   routeCatalogStatus: z.enum(['ready', 'unavailable']),
   providers: z.array(z.object({ provider: z.string(), label: z.string(), configured: z.boolean(), defaultSelection: z.boolean(), supported: z.boolean(), custom: z.boolean().optional() })).optional(),
   providerCatalogStatus: z.enum(['ready', 'unavailable']).optional(),
+  reconciliation: z.object({
+    status: z.enum(['unchanged', 'applied']),
+    removedDynamicRoutes: z.array(z.string().min(1)),
+    removedNativeTargetIds: z.array(z.string().uuid()),
+    revision: z.number().int().nonnegative(),
+  }).optional(),
   connection: z.object({ status: z.enum(['ready', 'missing', 'permission-denied', 'unavailable']), message: z.string() }).optional(),
 });
 

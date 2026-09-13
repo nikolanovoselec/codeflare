@@ -87,6 +87,13 @@ export interface ReasoningCompatibilityNotice {
   limitations?: string[];
 }
 
+export interface ReasoningCatalogReconciliation {
+  status: 'unchanged' | 'applied';
+  removedDynamicRoutes: string[];
+  removedNativeTargetIds: string[];
+  revision: number;
+}
+
 export interface ReasoningCatalog {
   schemaVersion: 1;
   profiles: ReasoningProfileCatalogEntry[];
@@ -96,6 +103,7 @@ export interface ReasoningCatalog {
   routeCatalogStatus: 'ready' | 'unavailable';
   providers?: Array<{ provider: string; label: string; configured: boolean; defaultSelection: boolean; supported: boolean; custom?: boolean }>;
   providerCatalogStatus?: 'ready' | 'unavailable';
+  reconciliation?: ReasoningCatalogReconciliation;
   connection?: { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string };
 }
 
