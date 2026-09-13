@@ -22,7 +22,7 @@
 
 1. Select a gateway-owned Dynamic Route, or select the configured Amazon Bedrock provider and enter/select its exact authorized model, region and context window.
 2. Click **Discover**. No profile selection, naming, JSON editing or separate Verify action is required.
-3. Read **Check result**, directly below Discover. Tool calling, Reasoning, Streaming and Input caching stay visible when technical details or Advanced are closed. On success, set access/fallback policy as needed, choose **Review changes**, then **Confirm Save**. Changes apply at the next normal session start.
+3. Read **Check result**, directly below Discover. Tool calling, Reasoning, Streaming and Input caching stay visible when technical details or Advanced are closed. On success, set access/fallback policy as needed, choose **Review changes**, then **Confirm Save**.
 4. After a route/model/binding change, Discover again. The application reuses protocol handling; the operator does not write another profile for a model release.
 
 Discover changes only the local draft and issues a temporary server-held receipt. It does not enable targets, change Gateway resources or modify a running session. Normal next container/session start publishes saved capabilities to Pi. Inventory loading and startup never run inference automatically.

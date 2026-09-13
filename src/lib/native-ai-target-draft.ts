@@ -8,11 +8,6 @@ export const NATIVE_REGION_PATTERN = /^[a-z]{2}(?:-gov)?-[a-z]+-\d$/;
 export const NATIVE_TRANSPORTS = ['aig-legacy-compat', 'aig-bedrock-anthropic-invoke', 'aig-bedrock-anthropic-eventstream', 'aig-bedrock-anthropic-auto'] as const;
 export const BEDROCK_MESSAGES_DEFAULT_PROFILE = 'bedrock-anthropic-native-provider-default';
 
-/** Target evidence, not a model catalog or a generated executable profile.
- * Gateway whole-response reuse satisfies the operator's minimum, but only a
- * provider-prefix observation can authorize Pi's native checkpoint serializer. */
-export type { CapabilitySummary as BedrockCapabilitySummary } from './ai-capability-discovery/contract';
-
 /** A protocol candidate, never a claim of availability or capabilities. The
  * namespace admits new releases without a source change; authenticated binding
  * and an explicit, target-bound tool/cache check still gate authorization. */

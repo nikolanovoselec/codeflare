@@ -8,7 +8,8 @@ import { validateConfigurationValues } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { readRouteCheck, verificationMatches } from '../../lib/reasoning-verification';
 import { readNativeTargetCheck } from '../../lib/native-ai-targets';
-import { getBuiltInProfile } from '../../lib/reasoning-profiles';
+import { getBuiltInProfile, normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { bedrockToolResponse } from '../helpers/bedrock-eventstream';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 
 vi.mock('../../middleware/auth', () => ({ authMiddleware: async (_c: any, next: any) => next(), requireAdmin: async (_c: any, next: any) => next() }));
@@ -231,6 +232,74 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     expect(Object.keys((await validateConfigurationValues(env, 'aiRouting', 'enterprise', substituted)).fieldErrors ?? {})).not.toHaveLength(0);
     expect(submissions).toBeLessThanOrEqual(40);
     for (const secret of ['private-provider-id', 'Synthetic private thought', 'synthetic-private-signature', connection.token]) expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it.each([false, true])('REQ-ENTERPRISE-075: re-verifies only selected Native mappings with exact receipt authority (failed replay: %s)', async (failedReplay) => {
+    const { kv, post } = setup();
+    const template = getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
+    const selected = normalizeCustomProfile({ schemaVersion: 1, revision: 1, enabled: true,
+      id: `bedrock-anthropic-native-discovered-${'a'.repeat(24)}`, name: 'Selected synthetic Native controls', family: 'Synthetic',
+      supportedLevels: ['minimal', 'low', 'max'], removePaths: template.removePaths,
+      levels: { minimal: template.levels.minimal, low: template.levels.low, max: template.levels.max },
+      aliases: { minimal: 'low' }, offSemantics: { status: 'unsupported' } });
+    const profileRef = { id: selected.id, revision: selected.revision, hash: selected.hash };
+    const target = { provider: 'aws-bedrock', model: 'eu.anthropic.claude-synthetic-reverify-2099-v1:0', label: 'Selected Native',
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', contextWindow: 200000, enabled: false, profileRef };
+    const calls: Array<{ mode: string; stage: string }> = [];
+    const originals = new Map<string, Record<string, any>[]>();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        const providers = String(url).includes('/provider_configs') ? [{ id: 'synthetic-provider', provider_slug: 'aws-bedrock', gateway_id: 'synthetic', default_config: true }] : [];
+        return Response.json({ success: true, result: providers, result_info: { page: 1, count: providers.length, per_page: 100, total_count: providers.length } });
+      }
+      const body = JSON.parse(String(init?.body));
+      const mode = body.output_config?.effort;
+      expect(['low', 'max']).toContain(mode); // Neither alias duplication nor expansion to other forms.
+      expect(body.thinking).toEqual({ type: 'adaptive' });
+      expect(body.max_tokens).toBe(2048);
+      const transport = mode === 'max' ? 'invoke' : 'eventstream';
+      expect(String(url)).toContain(`${target.model.replace(':', '%3A')}/${transport === 'invoke' ? 'invoke' : 'invoke-with-response-stream'}`);
+      const replay = body.messages.some((message: any) => Array.isArray(message.content) && message.content.some((block: any) => block.type === 'tool_result'));
+      const tool = Array.isArray(body.tools) && body.tools.length > 0 && !replay;
+      const cache = Array.isArray(body.system) && body.system.some((block: any) => block.cache_control);
+      calls.push({ mode, stage: replay ? 'replay' : tool ? 'tool' : cache ? 'cache' : 'reasoning' });
+      const thinking = { type: 'thinking', thinking: 'Synthetic private re-verification thought', signature: 'synthetic-private-reverification-signature' };
+      if (tool) {
+        const content = [thinking, { type: 'tool_use', id: `synthetic-${mode}`, name: 'codeflare_profile_canary', input: { value: 'ok' } }];
+        originals.set(mode, content);
+        return bedrockToolResponse(content, transport);
+      }
+      if (replay) {
+        expect(body.messages.at(-2).content).toEqual(originals.get(mode));
+        expect(body.messages.at(-1).content).toEqual([{ type: 'tool_result', tool_use_id: `synthetic-${mode}`, content: 'ok' }]);
+        if (failedReplay && mode === 'max') return Response.json({ error: { code: 'ValidationException' } }, { status: 400 });
+      }
+      return bedrockToolResponse([thinking, { type: 'text', text: 'Synthetic complete result.' }], transport);
+    });
+    const response = await post({ target, profileDraft: selected, maxCompletionTokens: 2048 }, '/reasoning/native/discover');
+    expect(response.status).toBe(200);
+    const result: any = await response.json();
+    expect(result.assignable).toBe(!failedReplay);
+    expect(calls.filter((call) => call.mode === 'low').map((call) => call.stage)).toEqual(['reasoning', 'tool', 'replay', 'cache', 'cache']);
+    expect(calls.filter((call) => call.mode === 'max').map((call) => call.stage)).toEqual(failedReplay ? ['reasoning', 'tool', 'replay'] : ['reasoning', 'tool', 'replay', 'cache', 'cache']);
+    expect(kv._store.has(SETUP_KEYS.NATIVE_AI_TARGETS)).toBe(false);
+    expect(kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    if (failedReplay) {
+      expect(result).not.toHaveProperty('checkId');
+      expect(result).not.toHaveProperty('verification');
+      expect(result.piCompatibility.failedLevels).toContain('max');
+    } else {
+      const receipt = await readNativeTargetCheck(kv as unknown as KVNamespace, result.checkId);
+      expect(receipt.targetId).toBe(result.targetId);
+      expect(receipt.verification).toMatchObject({ profileRef, transport: target.transport, model: target.model, region: target.region,
+        discovery: { schemaVersion: 2, mappings: [
+          { levels: ['minimal', 'low'], transport: 'bedrock-eventstream', tools: true, replay: true },
+          { levels: ['max'], transport: 'bedrock-invoke', tools: true, replay: true },
+        ] } });
+    }
+    for (const privateValue of ['Synthetic private re-verification thought', 'synthetic-private-reverification-signature', connection.token]) {
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    }
   });
 
   it('does not infer Azure support or accept a browser endpoint/credential override', async () => {
