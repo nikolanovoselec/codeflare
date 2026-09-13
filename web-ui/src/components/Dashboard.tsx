@@ -1,10 +1,11 @@
 import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
+import { recreateAgentConfigs } from '../api/storage';
 import { downloadFile } from '../lib/download';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
@@ -59,6 +60,29 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
+  const [recreateLoading, setRecreateLoading] = createSignal(false);
+  const [recreateError, setRecreateError] = createSignal<string | null>(null);
+  const [recreateMessage, setRecreateMessage] = createSignal<string | null>(null);
+  const showUpgradeRecovery = () => sessionStore.preseedUpgradeFailed
+    && !sessionStore.preseedUpgrading
+    && !sessionStore.bucketMigrating
+    && sessionStore.managedReleaseStatus !== 'update_pending';
+  const handleRecreate = async () => {
+    if (recreateLoading() || sessionStore.preseedUpgrading || !showUpgradeRecovery()) return;
+    setRecreateLoading(true);
+    setRecreateError(null);
+    setRecreateMessage(null);
+    try {
+      const result = await sessionStore.runPreseedUpdate(recreateAgentConfigs);
+      const parts = [`Recreated ${result.written.length} agent config file(s).`];
+      if (result.deleted && result.deleted.length > 0) parts.push(`Removed ${result.deleted.length} file(s) from previous mode.`);
+      setRecreateMessage(parts.join(' '));
+    } catch (error) {
+      setRecreateError(error instanceof Error ? error.message : 'Failed to recreate agent configurations.');
+    } finally {
+      setRecreateLoading(false);
+    }
+  };
   const [showUserMenu, setShowUserMenu] = createSignal(false);
   const [gravatarOk, setGravatarOk] = createSignal(false);
   // Probe Gravatar existence once via fetch (no <img onError> console noise).
@@ -448,6 +472,18 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         ? 'Retry upgrade'
                         : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
                 </button>
+                <Show when={showUpgradeRecovery()}>
+                  <button
+                    type="button"
+                    class="dashboard-new-session-btn dashboard-recreate-btn"
+                    aria-label="Recreate Agent Skills & Rules"
+                    title="Recreate Agent Skills & Rules"
+                    disabled={recreateLoading() || sessionStore.preseedUpgrading}
+                    onClick={() => void handleRecreate()}
+                  >
+                    <Icon path={mdiReflectHorizontal} size={22} />
+                  </button>
+                </Show>
                 <Show when={multiViewWorkspace()}>
                   <button
                     type="button"
@@ -461,6 +497,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   </button>
                 </Show>
             </div>
+
+            <Show when={recreateError()}>
+              <p class="dashboard-recovery-message" role="alert">{recreateError()}</p>
+            </Show>
+            <Show when={recreateMessage()}>
+              <p class="dashboard-recovery-message" role="status">{recreateMessage()}</p>
+            </Show>
 
             <Show when={sessionStore.bucketMigrationPending}>
               <div class="dashboard-migration-notice" role="status" data-testid="dashboard-migration-pending">

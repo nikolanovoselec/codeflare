@@ -247,6 +247,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(sessionStore.startR2Polling).mockReset();
     vi.mocked(upgradeRecovery.retryPreseedUpgrade).mockReset().mockResolvedValue(undefined);
     upgradeRecovery.preseedUpgradeFailed = false;
+    vi.mocked(storageApi.recreateAgentConfigs).mockReset();
+    (sessionStore as any)._setBucketMigrating(false);
+    (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setPreseedUpgrading(false);
     (storageStore as any)._setStats(null);
     (sessionStore as any)._setR2Ready(true);
@@ -1142,7 +1145,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   it('REQ-AGENT-049: recovery backup uses the existing full Recreate operation without retry or session creation', async () => {
     upgradeRecovery.preseedUpgradeFailed = true;
-    vi.mocked(storageApi.recreateAgentConfigs).mockResolvedValue({ success: true, written: ['file'], skipped: [], deleted: [] });
+    vi.mocked(storageApi.recreateAgentConfigs).mockResolvedValue({ success: true, bucketCreated: false, written: ['file'], skipped: [], deleted: [] });
     render(() => <Dashboard {...defaultProps} sessions={[]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' }));
