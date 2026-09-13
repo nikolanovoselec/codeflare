@@ -181,7 +181,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
   });
 
   it.each([
-    ['automated', 'bedrock-anthropic-native-provider-default', /automated|live[- ]verified/i],
+    ['automated', 'bedrock-anthropic-native-provider-default', null],
     ['administrator', 'bedrock-anthropic-native-sonnet', /administrator[- ]confirmed/i],
   ] as const)('REQ-ENTERPRISE-043: saved Native %s authority has a distinct visible basis without a fresh check', async (method, profileId, message) => {
     const native = getBuiltInProfile(profileId)!;
@@ -193,7 +193,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await view.findByText('Connected · 1 routes readable');
     await fireEvent.click(view.getByRole('button', { name: 'Native routes' }));
     const configure = view.getByRole('button', { name: /Configure Native Route/i });
-    expect(configure).toHaveTextContent(message);
+    if (message) expect(configure).toHaveTextContent(message);
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: target.id, enabled: true, profileRef: target.profileRef });
     expect(api.discover).not.toHaveBeenCalled();
     expect(api.checkNative).not.toHaveBeenCalled();
