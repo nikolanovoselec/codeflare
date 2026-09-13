@@ -33,7 +33,7 @@ function saved(kv = createMockKV()) {
 }
 
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
-  it('REQ-ENTERPRISE-035/058: publishes seven Pi choices without inventing seven discovered reasoning mappings', async () => {
+  it('REQ-ENTERPRISE-058: publishes only the explicitly mapped discovered level while retaining Worker normalization', async () => {
     const kv = createMockKV();
     const env = makeEnv(kv);
     const profile = capabilityCandidates(false).find((candidate) => candidate.levels.medium?.some((write) => write.path === 'reasoning_effort'))!;
@@ -52,10 +52,8 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
 
     const published = await loadEnterpriseRouteConfig(env, ['engineering']);
     expect(published.routeCatalog).toEqual(['normalized']);
-    expect(published.routeReasoningLevels.normalized).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-    // Selectable client preferences are not seven independently verified controls.
-    expect(profile.supportedLevels).toEqual(['medium']);
-    expect(configuration.routeAssignments.normalized.verification!.supportedLevels).toEqual(['medium']);
+    expect(published.routeReasoningLevels.normalized).toEqual(['medium']);
+    // Restricted client choices do not remove normalization for older clients.
     for (const preference of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const) {
       expect(translateRuntimeReasoningRequest({ reasoning_effort: preference }, profile, published.defaultReasoning).reasoning_effort).toBe('medium');
     }

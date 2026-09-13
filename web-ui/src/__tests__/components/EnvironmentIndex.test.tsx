@@ -216,6 +216,30 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(await screen.findByText(`${routeReason} ${credentialReason}`, { exact: true })).toBeVisible();
   });
 
+  it('REQ-ENTERPRISE-081: rejected Confirm Save shows authoritative field reasons and preserves the reviewed draft', async () => {
+    const reason = 'Native target verification is no longer current';
+    api.preview.mockImplementation(async (section, baseRevision, values) => ({ ...preview(section, baseRevision, values), warnings: [warning] }));
+    api.start.mockRejectedValueOnce(new ConfigurationRequestError(400, {
+      error: 'Environment values are invalid',
+      fields: { reasoningConfiguration: [reason, '', reason] },
+    }));
+    mount();
+    await openRoute('development');
+    await screen.findByText('@cf/development');
+    await fireEvent.input(screen.getByLabelText('development context window'), { target: { value: '192000' } });
+    await review();
+    const reviewedDraft = structuredClone(submitted());
+    await fireEvent.click(screen.getByRole('checkbox', { name: /confirm warning/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm Save' }));
+    expect(await screen.findByText(reason, { exact: true })).toBeVisible();
+    expect(screen.queryByText('Environment values are invalid', { exact: true })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Confirm Save' })).toBeVisible();
+    expect(api.start).toHaveBeenCalledExactlyOnceWith('aiRouting', 7, reviewedDraft, [warning.code]);
+    expect(api.discover).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    expect(screen.getByLabelText('development context window')).toHaveValue('192000');
+  });
+
   it.each(['developers', 'Fallback'])('REQ-ENTERPRISE-044: reverting %s route membership disables review', async (policy) => {
     const initial = aiRouting();
     const routes = ['development', 'staging', 'production'];

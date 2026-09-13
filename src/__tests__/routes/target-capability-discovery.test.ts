@@ -4,10 +4,11 @@ import type { Env } from '../../types';
 import reasoningRoutes from '../../routes/admin/reasoning';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
-import { validateConfigurationValues } from '../../lib/admin-configuration';
+import { executeConfigurationTask, validateConfigurationValues } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { readRouteCheck, verificationMatches } from '../../lib/reasoning-verification';
-import { readNativeTargetCheck } from '../../lib/native-ai-targets';
+import { nativeTargetHandle, parseNativeAiTargets, readNativeTargetCheck } from '../../lib/native-ai-targets';
+import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
 import { getBuiltInProfile, normalizeCustomProfile } from '../../lib/reasoning-profiles';
 import { bedrockToolResponse } from '../helpers/bedrock-eventstream';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
@@ -49,7 +50,6 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     expect(result).not.toHaveProperty('matchedProfiles');
     expect(verificationMatches(result.routeVerification, result.profile, connection)).toBe(true);
     expect(verificationMatches({ ...result.routeVerification, capabilities: undefined }, result.profile, connection)).toBe(false);
-    expect(verificationMatches({ ...result.routeVerification, method: 'administrator' }, result.profile, connection)).toBe(false);
     const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId); expect(receipt.verification.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ cache: 'gateway-response' }] });
     const values = { ...config, dynamicRoutes: ['future'], routeContextWindows: { future: 200000 }, routeChecks: { future: result.checkId },
       reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [result.profile], routeAssignments: { future: { activeProfile: result.routeVerification.profileRef, verification: result.routeVerification } } } };
@@ -92,7 +92,6 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     expect(receipt.verification).toEqual(result.routeVerification);
     expect(verificationMatches(receipt.verification, result.profile, connection)).toBe(true);
     expect(verificationMatches({ ...receipt.verification, capabilities: undefined }, result.profile, connection)).toBe(false);
-    expect(verificationMatches({ ...receipt.verification, method: 'administrator' }, result.profile, connection)).toBe(false);
     expect(kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false); // Discovery did not save or enable.
     const values = { ...config, dynamicRoutes: ['future'], routeContextWindows: { future: 200000 }, routeChecks: { future: result.checkId },
       groupRouting: [{ accessGroup: 'engineering', routes: ['future'], defaultRoute: 'future', reasoning: 'off' }],
@@ -307,5 +306,116 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     expect((await post({ kind: 'native-provider', target: { provider: 'azure-openai', model: 'model', label: 'Azure', contextWindow: 200000, enabled: false, transport: 'aig-legacy-compat' } })).status).toBe(422);
     expect((await post({ kind: 'dynamic-route', route: 'future', endpoint: 'https://untrusted.invalid' })).status).toBe(400);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+// Management fixtures remain real HTTP responses; no discovery/Save/runtime helper is mocked.
+function administratorManagement() {
+  const modelRequests: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    const method = input instanceof Request ? input.method : init?.method ?? 'GET';
+    if (method !== 'GET') {
+      modelRequests.push(url);
+      return Response.json({ error: 'Administrator confirmation must not run a model probe' }, { status: 503 });
+    }
+    if (url.includes('/provider_configs?')) return Response.json({ success: true,
+      result: [{ id: 'private-provider-id', provider_slug: 'aws-bedrock', gateway_id: 'synthetic', default_config: true }],
+      result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
+    if (url.includes('/custom-providers?')) return Response.json({ success: true, result: [],
+      result_info: { page: 1, count: 0, per_page: 100, total_count: 0 } });
+    if (url.endsWith('/routes')) return Response.json({ data: { routes: [{ id: 'id', name: 'future' }] } });
+    return Response.json({ result: { version: { version_id: 'v1', active: true, data: topology } } });
+  });
+  return modelRequests;
+}
+
+const saveContext = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 1 };
+
+describe('Advanced administrator authority for selected generated contracts', () => {
+  it.each(capabilityCandidates(false))('REQ-ENTERPRISE-043: confirms selected Dynamic $id through endpoint, Save and runtime without inventing observations', async (profile) => {
+    const { kv, env, post } = setup();
+    const modelRequests = administratorManagement();
+    const profileRef = { id: profile.id, revision: profile.revision, hash: profile.hash };
+    const response = await post({ route: 'future', profileRef, profileDraft: profile, administratorConfirmed: true }, '/reasoning/discover');
+    const result: any = await response.json();
+    expect(response.status, JSON.stringify(result)).toBe(200);
+    expect(result).toMatchObject({ assignable: true, classification: 'Administrator-confirmed', verification: { method: 'administrator', profileRef } });
+    const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId);
+    expect(receipt.verification).toEqual(result.verification);
+    expect(receipt.verification).not.toHaveProperty('capabilities');
+    expect(result).not.toHaveProperty('piCompatibility');
+    expect(result).not.toHaveProperty('report');
+    expect(kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    const reasoning = profile.supportedLevels[0] ?? 'off';
+    const values = { ...config, dynamicRoutes: ['future'], routeContextWindows: { future: 200000 }, routeChecks: { future: result.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['future'], defaultRoute: 'future', reasoning }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [profile], routeAssignments: { future: { activeProfile: profileRef } } } };
+    const saved = await validateConfigurationValues(env, 'aiRouting', 'enterprise', values);
+    expect(saved.fieldErrors ?? {}).toEqual({});
+    await executeConfigurationTask(env, 'configure_model_routing', saved.values!, saveContext);
+    const stored = parseReasoningConfiguration(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION));
+    expect(stored.routeAssignments.future.verification).toEqual(receipt.verification);
+    const runtime = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(runtime.routeCatalog).toEqual(['future']);
+    expect(runtime.defaultRoute).toBe('future');
+    expect(runtime.promptCacheTargets).toBeUndefined();
+    expect(modelRequests).toEqual([]); // Confirmation, Save and runtime are not automated probes.
+  });
+
+  const nativeSelections = [
+    ...capabilityCandidates(true).map((profile) => ({ profile, transport: 'aig-bedrock-anthropic-auto' })),
+    { profile: getBuiltInProfile('bedrock-anthropic-native-provider-default')!, transport: 'aig-bedrock-anthropic-auto' },
+    { profile: capabilityCandidates(false)[0], transport: 'aig-legacy-compat' },
+  ];
+  it.each(nativeSelections)('REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence', async ({ profile, transport }) => {
+    const { kv, env, post } = setup();
+    const modelRequests = administratorManagement();
+    const profileRef = { id: profile.id, revision: profile.revision, hash: profile.hash };
+    const customProfileRevisions = getBuiltInProfile(profile.id) ? [] : [profile];
+    const target = { provider: 'aws-bedrock', model: 'eu.anthropic.claude-synthetic-admin-2099-v1:0', label: 'Administrator-selected native',
+      transport, ...(transport !== 'aig-legacy-compat' && { region: 'eu-central-1' }), contextWindow: 200000, enabled: false, profileRef };
+    const response = await post({ target, ...(customProfileRevisions.length && { profileDraft: profile }), administratorConfirmed: true }, '/reasoning/native/discover');
+    const result: any = await response.json();
+    expect(response.status, JSON.stringify(result)).toBe(200);
+    expect(result).toMatchObject({ assignable: true, classification: 'Administrator-confirmed', verification: { method: 'administrator' } });
+    const receipt = await readNativeTargetCheck(kv as unknown as KVNamespace, result.checkId);
+    expect(receipt.verification).toMatchObject({ targetId: result.targetId, profileRef, model: target.model, transport, method: 'administrator' });
+    expect(receipt.verification).not.toHaveProperty('discovery');
+    expect(receipt.verification).not.toHaveProperty('capabilities');
+    expect(result).not.toHaveProperty('report');
+    expect(result.verification).not.toHaveProperty('discovery');
+    expect(kv._store.has(SETUP_KEYS.NATIVE_AI_TARGETS)).toBe(false);
+    const handle = nativeTargetHandle(result.targetId);
+    const values = { ...config, nativeTargets: [{ ...target, id: result.targetId, enabled: true }], nativeChecks: { [result.targetId]: result.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: profile.supportedLevels[0] ?? 'off' }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions, routeAssignments: {} } };
+    const unreceipted = await validateConfigurationValues(env, 'aiRouting', 'enterprise', { ...values, nativeChecks: {} });
+    expect(unreceipted.fieldErrors).toEqual({ reasoningConfiguration: [expect.stringContaining('must be verified')] });
+    const browserProof = await validateConfigurationValues(env, 'aiRouting', 'enterprise', { ...values, nativeChecks: {},
+      nativeTargets: [{ ...values.nativeTargets[0], verification: receipt.verification }] });
+    expect(browserProof.values).toBeUndefined();
+    expect(Object.keys(browserProof.fieldErrors ?? {})).not.toHaveLength(0);
+    const substituted = await validateConfigurationValues(env, 'aiRouting', 'enterprise', { ...values,
+      nativeTargets: [{ ...values.nativeTargets[0], model: 'eu.anthropic.claude-another-admin-2099-v1:0' }] });
+    expect(substituted.fieldErrors).toEqual({ reasoningConfiguration: ['Native target check receipt is stale'] });
+    const saved = await validateConfigurationValues(env, 'aiRouting', 'enterprise', values);
+    expect(saved.fieldErrors ?? {}).toEqual({});
+    await executeConfigurationTask(env, 'configure_model_routing', saved.values!, saveContext);
+    const stored = parseNativeAiTargets(await kv.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+    expect(stored.targets[0].verification).toEqual(receipt.verification);
+    const runtime = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(runtime.routeCatalog).toEqual([handle]);
+    expect(runtime.defaultRoute).toBe(handle);
+    expect(runtime.promptCacheTargets).toBeUndefined();
+    for (const changed of [
+      { model: 'eu.anthropic.claude-another-admin-2099-v1:0' },
+      { profileRef: { ...profileRef, hash: '0'.repeat(64) } },
+      ...(transport !== 'aig-legacy-compat' ? [{ region: 'us-east-1' }, { transport: 'aig-bedrock-anthropic-invoke' }] : []),
+    ]) {
+      kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { ...stored, targets: [{ ...stored.targets[0], ...changed }] });
+      expect((await loadEnterpriseRouteConfig(env, ['engineering'])).routeCatalog, JSON.stringify(changed)).toEqual([]);
+    }
+    expect(modelRequests).toEqual([]);
   });
 });

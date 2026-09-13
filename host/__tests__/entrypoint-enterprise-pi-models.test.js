@@ -227,7 +227,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
       off: 'off', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
     assert.deepEqual(models[1].thinkingLevelMap, {
-      minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
+      off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
   });
 
@@ -356,5 +356,31 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     const re = new RegExp(`--arg(?:json)?\\s+(${KEYWORDS.join('|')})\\b`, 'g');
     const hits = code.match(re) || [];
     assert.deepEqual(hits, [], `reserved-keyword jq arg name(s) in entrypoint.sh: ${hits.join(', ')}`);
+  });
+
+  for (const [label, expectedName] of [
+    ['AWS Bedrock - Opus 5', 'Native Route - AWS Bedrock - Opus 5'],
+    [undefined, `Native Route - ${nativeHandle}`],
+    ['', `Native Route - ${nativeHandle}`],
+  ]) {
+    it(`REQ-ENTERPRISE-082: publishes a native ${label ? 'user label' : label === '' ? 'empty-label fallback' : 'missing-label fallback'} without changing its handle`, () => {
+      const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off',
+        JSON.stringify(label === undefined ? {} : { [nativeHandle]: label }));
+      assert.equal(result.code, 0, result.stderr);
+      const model = result.modelsJson.providers['codeflare-gateway'].models[0];
+      assert.equal(model.name, expectedName);
+      assert.equal(model.id, nativeHandle);
+      assert.equal(result.settings.defaultModel, nativeHandle);
+    });
+  }
+
+  it('REQ-ENTERPRISE-082: uses a Dynamic user label without reclassifying or renaming the route identity', () => {
+    const result = runBlock('["development"]', 'development', undefined, undefined, 'off',
+      JSON.stringify({ development: 'Engineering review' }));
+    assert.equal(result.code, 0, result.stderr);
+    const model = result.modelsJson.providers['codeflare-gateway'].models[0];
+    assert.equal(model.name, 'Dynamic Route - Engineering review');
+    assert.equal(model.id, 'development');
+    assert.equal(result.settings.defaultModel, 'development');
   });
 });

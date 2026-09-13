@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Env } from '../../types';
+import { validateConfigurationValues } from '../../lib/admin-configuration';
+import { createMockKV } from '../helpers/mock-kv';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import { parseCapabilitySummary } from '../../lib/ai-capability-discovery/contract';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
-import { connectionFingerprint, verificationMatches } from '../../lib/reasoning-verification';
+import { checkedRouteInventory, connectionFingerprint, verificationMatches } from '../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
 import { normalizeCustomProfile } from '../../lib/reasoning-profiles';
 
@@ -40,9 +44,7 @@ describe('REQ-ENTERPRISE-035/043: independent evidence remains exact server-owne
     expect(() => parseCapabilitySummary(raw)).toThrow();
   });
 
-  it('does not let administrator confirmation or an incomplete replay replace executable evidence', () => {
-    const proof = verification(evidence);
-    expect(verificationMatches({ ...proof, method: 'administrator' }, defaultProfile, connection)).toBe(false);
+  it('REQ-ENTERPRISE-043: incomplete automated replay cannot replace executable evidence', () => {
     expect(verificationMatches(verification({ ...evidence, mappings: [{ ...mapping, replay: false }] }), defaultProfile, connection)).toBe(false);
   });
 
@@ -55,5 +57,50 @@ describe('REQ-ENTERPRISE-035/043: independent evidence remains exact server-owne
     expect(verificationMatches(verification({ schemaVersion: 2, mappings: [{ ...enabledEvidence.mappings[0], levels: ['high'] }] }, enabled), enabled, connection)).toBe(false);
     expect(verificationMatches(verification({ schemaVersion: 2, mappings: [{ ...enabledEvidence.mappings[0], transport: 'bedrock-invoke' }] }, enabled), enabled, connection)).toBe(false);
     expect(verificationMatches(verification(enabledEvidence, enabled), enabled, { ...connection, token: 'different-synthetic-token' })).toBe(false);
+  });
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('Browser input is not administrator authority', () => {
+  it.each([
+    { label: 'generated namespace alone', method: undefined, capabilities: undefined },
+    { label: 'administrator method alone', method: 'administrator', capabilities: undefined },
+    { label: 'fabricated automated observations', method: undefined, capabilities: evidence },
+    { label: 'administrator method plus fabricated observations', method: 'administrator', capabilities: evidence },
+  ])('REQ-ENTERPRISE-043: Save rejects $label without an issued receipt', async ({ method, capabilities }) => {
+    const kv = createMockKV();
+    const env = { KV: kv, ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: connection.gatewayUrl,
+      AIG_GATEWAY_ID: connection.gatewayId, AIG_TOKEN: connection.token } as unknown as Env;
+    const elements = [
+      { id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
+      { id: 'model', type: 'model', properties: { provider: 'unlisted-provider', model: 'synthetic-future-2099' }, outputs: { success: { elementId: 'end' } } },
+      { id: 'end', type: 'end', outputs: {} },
+    ];
+    const inventory = checkedRouteInventory({ versionId: 'synthetic-version', elements });
+    const modelRequests: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if ((init?.method ?? 'GET') !== 'GET') {
+        modelRequests.push(String(url));
+        return Response.json({ error: 'No implicit verification' }, { status: 503 });
+      }
+      if (String(url).endsWith('/routes')) return Response.json({ result: { routes: [{ id: 'id', name: 'future' }] } });
+      return Response.json({ result: { version: { version_id: 'synthetic-version', active: true, data: elements } } });
+    });
+    const forged = { ...verification(evidence), inventoryDigest: inventory.inventoryDigest, scope: inventory.scope,
+      checkedAt: new Date().toISOString(), method, capabilities };
+    const result = await validateConfigurationValues(env, 'aiRouting', 'enterprise', {
+      gatewayUrl: connection.gatewayUrl, gatewayId: connection.gatewayId, replacementToken: '', dynamicRoutes: ['future'],
+      defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: { future: 200000 },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['future'], defaultRoute: 'future', reasoning: 'off' }],
+      fallbackRouting: { enabled: false }, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [defaultProfile],
+        routeAssignments: { future: { activeProfile: forged.profileRef, verification: forged } } },
+    });
+    // Every identity field is valid. The missing server receipt, not a bad hash,
+    // timestamp, namespace or inventory, must deny browser-created authority.
+    expect(result.fieldErrors).toEqual({ reasoningConfiguration: [expect.stringContaining('requires a successful check')] });
+    expect(result.values).toBeUndefined();
+    expect(kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    expect(modelRequests).toEqual([]);
   });
 });

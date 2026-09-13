@@ -11,8 +11,11 @@ import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { getAigConfig } from '../../lib/aig-config';
 import { encryptForKV, importEncryptionKey } from '../../lib/kv-crypto';
 import { LlmInterceptor } from '../../llm-interceptor';
-import { nativeTargetHandle, parseNativeAiTargets } from '../../lib/native-ai-targets';
+import { nativeTargetHandle, parseNativeAiTargets, readNativeTargetCheck } from '../../lib/native-ai-targets';
+import { readRouteCheck } from '../../lib/reasoning-verification';
 import reasoningRoutes from '../../routes/admin/reasoning';
+import configurationPreviewRoutes from '../../routes/admin/configuration-previews';
+import configurationRunRoutes from '../../routes/admin/configuration-runs';
 import setupRoutes from '../../routes/setup';
 import { AppError } from '../../lib/error-types';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -52,6 +55,8 @@ function setup() {
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
   app.use('*', async (c, next) => { c.env = env; return next(); });
   app.route('/api/admin/reasoning', reasoningRoutes);
+  app.route('/api/admin/configuration-previews', configurationPreviewRoutes);
+  app.route('/api/admin/configuration-runs', configurationRunRoutes);
   app.route('/api/setup', setupRoutes);
   app.onError((error, c) => error instanceof AppError ? c.json(error.toJSON(), error.statusCode as ContentfulStatusCode) : c.json({ error: 'Unexpected test error' }, 500));
   const post = async (path: string, body: unknown) => app.request(`/api/admin/reasoning/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -680,9 +685,61 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     expect(first.checkId).not.toBe(second.checkId);
     for (const checkId of [first.checkId, second.checkId]) {
       const puts = f.kv.put.mock.calls.filter(([key]) => key.endsWith(checkId));
-      expect(puts).toHaveLength(1); expect(puts[0][2]).toEqual({ expirationTtl: 15 * 60 });
+      expect(puts).toHaveLength(1); expect(puts[0][2]).toEqual({ expirationTtl: 30 * 24 * 60 * 60 });
     }
   });
+  it.each([20 * 60_000, 24 * 60 * 60_000, 30 * 24 * 60 * 60_000 - 1])('REQ-ENTERPRISE-043: Confirm Save retains exact Dynamic and Native authority after %i milliseconds of configuration', async (elapsed) => {
+    const f = setup();
+    const dynamic = await (await f.check()).json() as any;
+    const target = { label: 'Native configuration draft', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true };
+    const native = await (await f.post('native/discover', { target, maxCompletionTokens: 32 })).json() as any;
+    expect(dynamic.checkId).toEqual(expect.any(String));
+    expect(native.checkId).toEqual(expect.any(String));
+    const handle = nativeTargetHandle(native.targetId);
+    const submitted = values({ routeChecks: { working: dynamic.checkId },
+      nativeTargets: [{ ...target, id: native.targetId }], nativeChecks: { [native.targetId]: native.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: 'working', reasoning: 'off' }],
+    });
+    const request = (path: string, extra: Record<string, unknown> = {}) => f.app.request(`/api/admin/${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: 'aiRouting', baseRevision: 0, values: submitted, ...extra }),
+    });
+    const preview = await request('configuration-previews');
+    expect(preview.status).toBe(200);
+    const reviewed = await preview.json() as any;
+    const calls = providerCalls;
+    const issuedAt = Date.parse(dynamic.verification.checkedAt);
+    vi.spyOn(Date, 'now').mockReturnValue(issuedAt + elapsed);
+    const response = await request('configuration-runs', { confirmedWarnings: reviewed.warnings.map((warning: { code: string }) => warning.code) });
+    expect(response.status).toBe(200);
+    const events = (await response.text()).trim().split('\n').map((line) => JSON.parse(line));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot', run: expect.objectContaining({ state: 'succeeded' }) }));
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working', handle]);
+    const stored = parseReasoningConfiguration(await f.kv.get(SETUP_KEYS.REASONING_CONFIGURATION));
+    expect(stored.routeAssignments.working.verification).toEqual(dynamic.verification);
+    const storedTarget = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0];
+    expect(storedTarget.id).toBe(native.targetId);
+    expect(storedTarget.verification?.profileRef).toEqual(bedrockProfileRef);
+    expect(providerCalls).toBe(calls);
+    const receiptWrites = f.kv.put.mock.calls.filter(([key]) => key.endsWith(dynamic.checkId) || key.endsWith(native.checkId));
+    expect(receiptWrites).toHaveLength(2);
+    expect(receiptWrites.every(([, , options]) => options?.expirationTtl === 30 * 24 * 60 * 60)).toBe(true);
+  });
+
+  it.each([-1, 30 * 24 * 60 * 60_000])('REQ-ENTERPRISE-043: receipt readers still reject outside the bounded lifetime (%i milliseconds)', async (elapsed) => {
+    const f = setup();
+    const dynamic = await (await f.check()).json() as any;
+    const native = await (await f.post('native/discover', {
+      target: { label: 'Boundary target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
+      maxCompletionTokens: 32,
+    })).json() as any;
+    const clock = vi.spyOn(Date, 'now');
+    clock.mockReturnValue(Date.parse(dynamic.verification.checkedAt) + elapsed);
+    await expect(readRouteCheck(f.env.KV, dynamic.checkId)).rejects.toThrow(/receipt/i);
+    clock.mockReturnValue(Date.parse(native.verification.checkedAt) + elapsed);
+    await expect(readNativeTargetCheck(f.env.KV, native.checkId)).rejects.toThrow(/receipt/i);
+  });
+
   it('verifies an undescribed custom backend without inventing inherited provenance', async () => {
     const f = setup();
     elements = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'toString' } } }, { ...model, id: 'toString', properties: { provider: 'custom-enterprise', model: 'alias' } }];
@@ -747,6 +804,54 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: checked.checkId } }));
     expect(JSON.stringify(result.fieldErrors)).toMatch(/retry.*without.*check/i); expect(providerCalls).toBe(calls);
   });
+  it('REQ-ENTERPRISE-043: an unavailable old receipt cannot block unchanged current server-owned route authority', async () => {
+    const f = setup();
+    const { receipt } = await activate(f);
+    const key = f.kv.put.mock.calls.find(([key]) => key.endsWith(receipt.checkId))![0];
+    f.kv._store.delete(key);
+    const calls = providerCalls;
+    const submitted = values({ routeChecks: { working: receipt.checkId }, routeContextWindows: { working: 20000 } });
+    const valid = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', submitted);
+    expect(valid.fieldErrors).toBeUndefined();
+    expect((valid.values?.reasoningConfiguration as any).routeAssignments.working.verification).toEqual(receipt.verification);
+    await executeConfigurationTask(f.env, 'configure_model_routing', valid.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 2 });
+    expect(await f.kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')).toEqual({ working: 20000 });
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
+    expect(providerCalls).toBe(calls);
+    expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: null } }))).values).toBeUndefined();
+    version = 'changed-after-check';
+    expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', submitted)).values).toBeUndefined();
+  });
+
+  it('REQ-ENTERPRISE-065: an unavailable old Native receipt cannot block unchanged current saved target authority', async () => {
+    const f = setup();
+    await activate(f);
+    const target = { label: 'Saved Native', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true };
+    const checked = await (await f.post('native/discover', { target, maxCompletionTokens: 32 })).json() as any;
+    const nativeDraft = { ...target, id: checked.targetId };
+    const handle = nativeTargetHandle(checked.targetId);
+    const submitted = values({ nativeTargets: [nativeDraft], nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    });
+    const initial = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', submitted);
+    expect(initial.fieldErrors).toBeUndefined();
+    const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 2 };
+    await executeConfigurationTask(f.env, 'configure_model_routing', initial.values!, context);
+    const proof = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification;
+    const key = f.kv.put.mock.calls.find(([key]) => key.endsWith(checked.checkId))![0];
+    f.kv._store.delete(key);
+    const calls = providerCalls;
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...submitted, nativeTargets: [{ ...nativeDraft, label: 'Renamed Native' }] });
+    expect(result.fieldErrors).toBeUndefined();
+    expect(parseNativeAiTargets(result.values?.nativeTargets).targets[0].verification).toEqual(proof);
+    await executeConfigurationTask(f.env, 'configure_model_routing', result.values!, context);
+    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].label).toBe('Renamed Native');
+    expect(providerCalls).toBe(calls);
+    expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...submitted, nativeChecks: { [checked.targetId]: null } })).values).toBeUndefined();
+    expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...submitted, nativeTargets: [{ ...nativeDraft, model: 'eu.anthropic.claude-other' }] })).values).toBeUndefined();
+  });
+
   it('REQ-ENTERPRISE-057: rebinds saved route authority after a replacement connection passes management topology validation', async () => {
     const f = setup(); await activate(f);
     f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');

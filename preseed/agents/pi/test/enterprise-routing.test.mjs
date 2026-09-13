@@ -10,8 +10,8 @@ import { authorizedRoutes, enterpriseStartup, nativeHandle } from '../../../../h
 // empty backend capabilities, and the Worker remains authoritative over overrides.
 const providerDefaultThinkingChoices = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-async function providerDefaultSession(t) {
-  const fixture = enterpriseStartup({ reasoning: '' });
+async function providerDefaultSession(t, options = {}) {
+  const fixture = enterpriseStartup({ reasoning: '', ...options });
   t.after(fixture.cleanup);
   assert.equal(fixture.result.status, 0, fixture.result.stderr);
   const modelRuntime = await ModelRuntime.create({
@@ -32,7 +32,7 @@ async function providerDefaultSession(t) {
   t.after(() => session.dispose());
   assert.equal(session.model.provider, 'codeflare-gateway');
   assert.equal(session.model.id, 'bedrock_opus');
-  return { session, sessionManager };
+  return { session, sessionManager, modelRuntime };
 }
 
 describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtime without inference', () => {
@@ -72,6 +72,60 @@ describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtim
       selector.handleInput('\u001b[B');
     }
     assert.deepEqual(selected, providerDefaultThinkingChoices);
+  });
+
+  for (const id of ['bedrock_opus', nativeHandle]) {
+    for (const levels of [['medium'], ['off'], ['high', 'max']]) {
+      it(`REQ-ENTERPRISE-058: ${id === nativeHandle ? 'Native' : 'Dynamic'} mapped ${levels.join('/')} offers only supported Pi choices`, async (t) => {
+        const { session, sessionManager, modelRuntime } = await providerDefaultSession(t, {
+          levels: { bedrock_opus: [], [nativeHandle]: [], [id]: levels },
+        });
+        await session.setModel(modelRuntime.getModel('codeflare-gateway', id));
+        assert.deepEqual(session.getAvailableThinkingLevels(), levels);
+        initTheme('dark', false);
+        session.setThinkingLevel(levels[0]);
+        const selector = new ThinkingSelectorComponent(
+          session.thinkingLevel, session.getAvailableThinkingLevels(),
+          (level) => session.setThinkingLevel(level),
+          () => assert.fail('thinking selection must not cancel'),
+        );
+        const renderedChoices = selector.render(100)
+          .map((line) => stripVTControlCharacters(line).match(/^\s*(?:→\s*)?(?:✓\s*)?(off|minimal|low|medium|high|xhigh|max)\s/)?.[1])
+          .filter(Boolean);
+        assert.deepEqual(renderedChoices, levels);
+        for (const level of levels) {
+          selector.handleInput('\r');
+          assert.equal(session.thinkingLevel, level);
+          assert.equal(sessionManager.buildSessionContext().thinkingLevel, level);
+          assert.equal(session.model.id, id);
+          selector.handleInput('\u001b[B');
+        }
+      });
+    }
+  }
+
+  it('REQ-ENTERPRISE-058: Native provider-default offers seven choices without serializing an override', async (t) => {
+    const { session, sessionManager, modelRuntime } = await providerDefaultSession(t, {
+      levels: { bedrock_opus: [], [nativeHandle]: [] },
+    });
+    await session.setModel(modelRuntime.getModel('codeflare-gateway', nativeHandle));
+    assert.deepEqual(session.getAvailableThinkingLevels(), providerDefaultThinkingChoices);
+    for (const level of providerDefaultThinkingChoices) {
+      session.setThinkingLevel(level);
+      assert.equal(session.thinkingLevel, level);
+      assert.equal(sessionManager.buildSessionContext().thinkingLevel, level);
+      let sent;
+      const result = await streamSimple(session.model, {
+        messages: [{ role: 'user', content: 'Offline native provider-default serialization', timestamp: 1 }],
+      }, {
+        apiKey: 'fixture-only', reasoning: level,
+        onPayload(payload) { sent = payload; throw new Error('offline serialization boundary'); },
+      }).result();
+      assert.ok(sent);
+      assert.equal(result.stopReason, 'error');
+      assert.equal(sent.model, nativeHandle);
+      assert.equal(Object.hasOwn(sent, 'reasoning_effort'), false);
+    }
   });
 
   for (const previousModel of [undefined, 'development', nativeHandle]) {

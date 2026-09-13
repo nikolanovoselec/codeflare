@@ -39,7 +39,7 @@ function nativeCapabilityFixture(options: {
 } = {}) {
   const requests: Array<{ url: string; headers: Headers; body: any; form: NativeForm | 'invalid'; stage: string }> = [];
   const originals = new Map<string, any[]>();
-  const cacheBodies = new Map<string, number>();
+  const cachePrefixes = new Map<string, number>();
   const fetcher: typeof fetch = async (url, init) => {
     const body = JSON.parse(String(init?.body));
     const form = nativeForm(body);
@@ -52,9 +52,13 @@ function nativeCapabilityFixture(options: {
     }
     const transport = String(url).endsWith('/invoke-with-response-stream') ? 'eventstream' : 'invoke';
     if (stage === 'cache') {
-      const key = JSON.stringify(body);
-      const read = (cacheBodies.get(key) ?? 0) > 0;
-      cacheBodies.set(key, (cacheBodies.get(key) ?? 0) + 1);
+      // Model/region/operation and native controls bind the cacheable system
+      // prefix. A changed user question is not part of that checkpoint.
+      const key = JSON.stringify({ url: String(url), system: body.system,
+        anthropic_version: body.anthropic_version, thinking: body.thinking,
+        output_config: body.output_config, max_tokens: body.max_tokens });
+      const read = (cachePrefixes.get(key) ?? 0) > 0;
+      cachePrefixes.set(key, (cachePrefixes.get(key) ?? 0) + 1);
       // Gateway HIT may replay old positive usage counters. Those counters must
       // not be presented as fresh native input-prefix evidence.
       const counters = options.cache === 'none' ? 0 : 8192;
@@ -140,6 +144,16 @@ function nativeCapabilityFixture(options: {
   return { fetcher, requests, originals };
 }
 
+function expectNativeCachePair(fill: any, read: any): void {
+  const { messages: fillMessages, ...fillPrefixAndControls } = fill;
+  const { messages: readMessages, ...readPrefixAndControls } = read;
+  expect(readPrefixAndControls).toEqual(fillPrefixAndControls);
+  expect(fill.system.at(-1).cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
+  expect(fillMessages).toEqual([{ role: 'user', content: [{ type: 'text', text: expect.stringMatching(/\S/) }] }]);
+  expect(readMessages).toEqual([{ role: 'user', content: [{ type: 'text', text: expect.stringMatching(/\S/) }] }]);
+  expect(readMessages[0].content[0].text).not.toBe(fillMessages[0].content[0].text);
+}
+
 describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
   it.each([
     { transport: 'aig-bedrock-anthropic-auto', rejected: [] },
@@ -199,7 +213,7 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     expect(fixture.requests.length).toBeLessThanOrEqual(40);
     const cachePair = fixture.requests.filter((request) => request.form === 'low' && request.stage === 'cache');
     expect(cachePair).toHaveLength(2);
-    expect(cachePair[0].body).toEqual(cachePair[1].body);
+    expectNativeCachePair(cachePair[0].body, cachePair[1].body);
 
     // Exercise the returned executable mappings and the actual native adapter,
     // rather than asserting that a draft merely contains effort labels.
@@ -219,6 +233,43 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     for (const forbidden of ['synthetic private', 'synthetic-private-', 'synthetic-token', ...nativeForms.map((form) => `synthetic-${form}-call`)]) {
       expect(JSON.stringify(result)).not.toContain(forbidden);
     }
+  });
+
+  it.each(['prefix', 'none'] as const)('REQ-ENTERPRISE-083: changes only the user question in each Native Eventstream cache pair while preserving independent %s evidence', async (cache) => {
+    // Synthetic valid CRC-framed Eventstream, not captured confirmation wire.
+    // Reads are a fixture outcome, not a claim of reliable immediate AWS reuse.
+    const fixture = nativeCapabilityFixture({ cache, incremental: true, reject: ['xhigh', 'max'] });
+    const selected = input();
+    const result = await discoverTargetCapabilities({ ...selected,
+      native: { ...selected.native!, transport: 'aig-bedrock-anthropic-eventstream' }, fetcher: fixture.fetcher });
+    expect(result.assignable).toBe(true);
+    expect(result.profile?.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high']);
+    expect(result.profile?.aliases).toEqual({ minimal: 'low' });
+    expect(result.capabilities).toEqual({ schemaVersion: 2, mappings: ['off', 'low', 'medium', 'high'].map((form) => ({
+      levels: form === 'low' ? ['minimal', 'low'] : [form], transport: 'bedrock-eventstream',
+      tools: true, replay: true, reasoning: form === 'off' ? 'verified-disabled' : 'observed-enabled',
+      cache: cache === 'prefix' ? 'provider-prefix' : 'inconclusive', streaming: 'incremental',
+    })) });
+    for (const form of ['off', 'low', 'medium', 'high']) {
+      const calls = fixture.requests.filter((request) => request.form === form);
+      // Exactly two cache submissions after this form's own reasoning and
+      // authentic tool lifecycle; Minimal adds no probe, retry or fallback.
+      expect(calls.map((request) => request.stage)).toEqual(['reasoning', 'tool', 'replay', 'cache', 'cache']);
+      expect(calls[2].body.messages.at(-2).content).toEqual(fixture.originals.get(form));
+      expect(calls[2].body.messages.at(-1).content).toEqual([
+        { type: 'tool_result', tool_use_id: `synthetic-${form}-call`, content: 'ok' },
+      ]);
+      expectNativeCachePair(calls[3].body, calls[4].body);
+    }
+    for (const request of fixture.requests) {
+      expect(request.url).toBe(`https://gateway.ai.cloudflare.com/v1/${selected.accountId}/${selected.gatewayId}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-synthetic-future-2099-v1%3A0/invoke-with-response-stream`);
+      expect(request.headers.get('cf-aig-max-attempts')).toBe('1');
+      expect(request.body.max_tokens).toBe(2048);
+      expect(request.body).not.toHaveProperty('stream');
+    }
+    // Four five-call forms plus one rejection each for XHigh and Max.
+    expect(fixture.requests).toHaveLength(22);
+    expect(result.accounting.httpAttempts).toBe(22);
   });
 
   it('REQ-ENTERPRISE-072/078: preserves High incremental delivery beside XHigh and Max Invoke evidence in one native result', async () => {
@@ -322,7 +373,8 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     expect(result.capabilitySummary).not.toHaveProperty('grade');
     expect(fixture.requests.map((request) => request.stage)).toEqual(['tool', 'replay', 'cache', 'cache']);
     expect(fixture.requests[1].body.messages.at(-2).content).toEqual(fixture.originals.get('default'));
-    expect(fixture.requests[2].body).toEqual(fixture.requests[3].body);
+    expectNativeCachePair(fixture.requests[2].body, fixture.requests[3].body);
+    expect(result.cacheEvidence.identicalPublicBody).toBe(false);
     expect(fixture.requests.every((request) => request.url.endsWith(transport === 'invoke' ? '/invoke' : '/invoke-with-response-stream'))).toBe(true);
   });
 
@@ -395,7 +447,8 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
       reasoning: 'provider-default', streaming: 'not-observed' }] });
     expect(requests).toHaveLength(4);
     expect(requests[1].messages.at(-2).content).toEqual(authentic);
-    expect(requests[2]).toEqual(requests[3]);
+    expectNativeCachePair(requests[2], requests[3]);
+    expect(result.cacheEvidence.identicalPublicBody).toBe(false);
     expect(requests[2].system.at(-1).cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
     const report = JSON.stringify(result);
     expect(report).not.toContain('synthetic-signature');
@@ -485,9 +538,11 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
   });
 
   it.each(['HIT', 'MISS'])('accepts Dynamic Gateway %s honestly, without native serialization or an all-branches gate', async (cache) => {
+    const requests: any[] = [];
     let calls = 0;
     const fetcher = vi.fn(async (_url: any, init: any) => {
       const body = JSON.parse(init.body); calls++;
+      requests.push(body);
       expect(typeof body.messages[0].content).toBe('string');
       expect(JSON.stringify(body)).not.toContain('cache_control');
       const delta = calls === 1 ? { tool_calls: [{ index: 0, id: 'synthetic-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] } : { content: 'synthetic answer' };
@@ -500,6 +555,9 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     expect(result.capabilitySummary).toMatchObject({ schemaVersion: 2, mappings: [{ cache: cache === 'HIT' ? 'gateway-response' : 'inconclusive' }] });
     expect(result.classification).toBe('Verified');
     expect(result.cacheEvidence.observations[1].backend).toEqual({ provider: 'aws-bedrock', model: 'synthetic-backend' });
+    expect(requests[2]).toEqual(requests[3]);
+    expect(result.cacheEvidence.identicalPublicBody).toBe(true);
+    expect(result.accounting.httpAttempts).toBe(4);
   });
 
   it('does not probe cache after an authentication failure or retry another transport', async () => {
