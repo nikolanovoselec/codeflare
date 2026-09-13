@@ -2320,7 +2320,7 @@ None.
 3. Initial dashboard load requests an upgrade decision comparing stored preseed identity and enterprise mode with the desired environment. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @manual -->
 4. The frontend automatically reconciles each advertised pending target at most once until status reports no upgrade needed. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: attempts a changed baked target without managed status after target A %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (posts a successful upgrade once while stale true status keeps being observed) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (attempts target B without an intervening false after target A %s, but does not repeat either target) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (allows a later automatic upgrade after false/current, including the same target (%s)) --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
 5. The dashboard shows an active update for the full automatic reconciliation request and removes that request-scoped indicator when the request settles. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (should set preseedUpgrading during upgrade and clear after) -->
-6. After upgrade failure, session-creation controls offer explicit retry or stay disabled. Whenever the dashboard offers Retry upgrade, a separate icon button offers the existing full Recreate action with shared update exclusion and visible failure feedback. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: recovery backup uses the existing full Recreate operation without retry or session creation) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: recovery backup exposes Recreate failure and allows another explicit attempt) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: hides Recreate backup outside Retry upgrade state (%s)) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175: a failed baked upgrade cannot be bypassed through New Session) --> <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @impl: web-ui/src/stores/session.ts::retryPreseedUpgrade --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not automatically retry a failed upgrade on repeated true polls and exposes recovery) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (manually retries the current need once through the upgrade endpoint, never session creation or full Recreate) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate) -->
+6. After upgrade failure, session-creation controls offer explicit retry or stay disabled. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175: a failed baked upgrade cannot be bypassed through New Session) --> <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @impl: web-ui/src/stores/session.ts::retryPreseedUpgrade --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not automatically retry a failed upgrade on repeated true polls and exposes recovery) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (manually retries the current need once through the upgrade endpoint, never session creation or full Recreate) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate) -->
 7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited). <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-AGENT-049 AC7: propagates advanced mode and contextModeEnabled for unlimited tier) -->
 
 **Constraints:**
@@ -5476,6 +5476,31 @@ None.
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
 **Verification:** Automated Pi and Claude marker, ingress, transcript, Stop-hook, filter, worktree, and parity tests; integration R2 restoration check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-213: Dashboard full recreation recovery
+
+**Intent:** Users can invoke the existing full recreation operation directly from failed-upgrade recovery.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A separate Recreate icon action appears whenever the dashboard displays Retry upgrade and is absent outside that state. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: hides Recreate backup outside Retry upgrade state (%s)) -->
+2. Selecting the backup invokes full recreation rather than retry or session creation and reports the returned completion counts. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation) -->
+3. Active updates exclude overlapping operations and hide the backup until settlement. <!-- @impl: web-ui/src/stores/session.ts::runPreseedUpdate --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery hides during an update and returns after settlement) -->
+4. Failed recreation displays the error and leaves explicit recovery available. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt) -->
+
+**Constraints:** Successful recreation does not replace authoritative applied-status reconciliation. Existing server admission remains unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-STOR-037](storage.md#req-stor-037-page-local-managed-seed-action-coordination)
+
+**Verification:** Automated component and store tests
 
 **Status:** Implemented
 

@@ -106,7 +106,7 @@ vi.mock('../../stores/session', async () => {
   const [r2Ready, setR2Ready] = createSignal(true);
   let _isAtLimit = false;
   let _maxSessions = 3;
-  let _preseedUpgrading = false;
+  const [_preseedUpgrading, setPreseedUpgrading] = createSignal(false);
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
   let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
@@ -118,7 +118,7 @@ vi.mock('../../stores/session', async () => {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return r2Ready(); },
-      get preseedUpgrading() { return _preseedUpgrading; },
+      get preseedUpgrading() { return _preseedUpgrading(); },
       preseedUpgradeFailed: false,
       retryPreseedUpgrade: vi.fn().mockResolvedValue(undefined),
       runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
@@ -136,7 +136,7 @@ vi.mock('../../stores/session', async () => {
         if (max !== undefined) _maxSessions = max;
       },
       _setR2Ready: setR2Ready,
-      _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
+      _setPreseedUpgrading: (upgrading: boolean) => { setPreseedUpgrading(upgrading); },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
       _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
@@ -1143,20 +1143,41 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
   });
 
-  it('REQ-AGENT-049: recovery backup uses the existing full Recreate operation without retry or session creation', async () => {
+  it('REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation', async () => {
     upgradeRecovery.preseedUpgradeFailed = true;
-    vi.mocked(storageApi.recreateAgentConfigs).mockResolvedValue({ success: true, bucketCreated: false, written: ['file'], skipped: [], deleted: [] });
+    vi.mocked(storageApi.recreateAgentConfigs).mockResolvedValue({ success: true, bucketCreated: false, written: ['file'], skipped: [], deleted: ['old-file'] });
     render(() => <Dashboard {...defaultProps} sessions={[]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' }));
 
     await waitFor(() => expect(storageApi.recreateAgentConfigs).toHaveBeenCalledTimes(1));
     expect(sessionStore.runPreseedUpdate).toHaveBeenCalledWith(storageApi.recreateAgentConfigs);
+    expect(screen.getByRole('status')).toHaveTextContent('Recreated 1 agent config file(s). Removed 1 file(s) from previous mode.');
     expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
     expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
   });
 
-  it('REQ-AGENT-049: recovery backup exposes Recreate failure and allows another explicit attempt', async () => {
+  it('REQ-AGENT-213: recovery hides during an update and returns after settlement', async () => {
+    upgradeRecovery.preseedUpgradeFailed = true;
+    let finish!: () => void;
+    vi.mocked(storageApi.recreateAgentConfigs).mockImplementationOnce(() => new Promise(resolve => {
+      finish = () => resolve({ success: true, bucketCreated: false, written: [], skipped: [], deleted: [] });
+    }));
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' }));
+    // The store's exclusion is covered by its real-store test. Drive its public
+    // reactive state here to verify the dashboard's in-flight presentation.
+    (sessionStore as any)._setPreseedUpgrading(true);
+    expect(screen.queryByRole('button', { name: 'Recreate Agent Skills & Rules' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
+    finish();
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    (sessionStore as any)._setPreseedUpgrading(false);
+    expect(screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retry upgrade' })).toBeEnabled();
+  });
+
+  it('REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt', async () => {
     upgradeRecovery.preseedUpgradeFailed = true;
     vi.mocked(storageApi.recreateAgentConfigs).mockRejectedValueOnce(new Error('Storage unavailable'));
     render(() => <Dashboard {...defaultProps} sessions={[]} />);
@@ -1167,7 +1188,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
   });
 
-  it.each(['normal', 'in-flight', 'pending', 'migration'] as const)('REQ-AGENT-049: hides Recreate backup outside Retry upgrade state (%s)', (state) => {
+  it.each(['normal', 'in-flight', 'pending', 'migration'] as const)('REQ-AGENT-213: hides Recreate backup outside Retry upgrade state (%s)', (state) => {
     upgradeRecovery.preseedUpgradeFailed = state !== 'normal';
     (sessionStore as any)._setPreseedUpgrading(state === 'in-flight');
     (sessionStore as any)._setManagedReleaseStatus(state === 'pending' ? 'update_pending' : null);

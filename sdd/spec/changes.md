@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-14
 
-- **Dashboard upgrade recovery backup** (REQ-AGENT-049 AC6). Retry upgrade now has a separate compact Recreate icon action matching Settings' full recreation and shared update exclusion. Recovery errors remain visible; session admission and authoritative applied-status checks are unchanged.
+- **Dashboard upgrade recovery backup** (REQ-AGENT-213; REQ-AGENT-049 AC6 unchanged). Retry upgrade now has a separate compact Recreate icon action matching Settings' full recreation and shared update exclusion. Recovery errors remain visible; session admission and authoritative applied-status checks are unchanged.
 
 ## 2026-09-13
 
