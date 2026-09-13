@@ -59,7 +59,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     const panel = await row.findByRole('region', { name: checkResultName });
     expect(row.getAllByRole('region', { name: checkResultName })).toHaveLength(1);
     expect(advanced).not.toContainElement(panel);
-    expect(within(panel).getByText(/Optimal/i)).toBeVisible();
+    expect(await within(panel).findByText(/Optimal/i)).toBeVisible();
     expect(within(panel).getByText(/Review changes/i)).toBeVisible();
     expect(within(panel).getByText(/Confirm Save/i)).toBeVisible();
     expect(within(panel).getByText(/next (?:normal )?session/i)).toBeVisible();
