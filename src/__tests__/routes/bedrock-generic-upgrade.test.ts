@@ -47,7 +47,14 @@ describe('REQ-ENTERPRISE-074 existing native receipt upgrade', () => {
       const target = { label: 'New protocol target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-synthetic-future-2099-v1:0',
         transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', profileRef: getBuiltInProfileRef('bedrock-anthropic-native-provider-default'), contextWindow: 200000, enabled: false };
       const post = (body: unknown) => app.request('/reasoning/native/discover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      expect((await post({ target, administratorConfirmed: true })).status).toBe(400);
+      const confirmation = await post({ target, administratorConfirmed: true });
+      expect(confirmation.status).toBe(200);
+      const confirmed = await confirmation.json();
+      expect(confirmed).toMatchObject({ assignable: true, classification: 'Administrator-confirmed',
+        checkId: expect.any(String), verification: { method: 'administrator', current: true } });
+      expect(confirmed).not.toHaveProperty('report');
+      expect(confirmed.verification).not.toHaveProperty('discovery');
+      expect(confirmed.verification).not.toHaveProperty('capabilities');
       expect(calls).toBe(0);
       const response = await post({ target, maxCompletionTokens: 256 });
       expect(response.status).toBe(200);

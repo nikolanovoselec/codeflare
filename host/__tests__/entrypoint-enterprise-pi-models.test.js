@@ -358,14 +358,14 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(hits, [], `reserved-keyword jq arg name(s) in entrypoint.sh: ${hits.join(', ')}`);
   });
 
-  for (const [label, expectedName] of [
-    ['AWS Bedrock - Opus 5', 'Native Route - AWS Bedrock - Opus 5'],
-    [undefined, `Native Route - ${nativeHandle}`],
-    ['', `Native Route - ${nativeHandle}`],
+  for (const [scenario, label, expectedName] of [
+    ['user label', '  AWS Bedrock - Opus 5  ', 'Native Route - AWS Bedrock - Opus 5'],
+    ['empty-label fallback', '', `Native Route - ${nativeHandle}`],
+    ['whitespace-label fallback', ' \t ', `Native Route - ${nativeHandle}`],
   ]) {
-    it(`REQ-ENTERPRISE-082: publishes a native ${label ? 'user label' : label === '' ? 'empty-label fallback' : 'missing-label fallback'} without changing its handle`, () => {
+    it(`REQ-ENTERPRISE-082: publishes a native ${scenario} without changing its handle`, () => {
       const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off',
-        JSON.stringify(label === undefined ? {} : { [nativeHandle]: label }));
+        JSON.stringify({ [nativeHandle]: label }));
       assert.equal(result.code, 0, result.stderr);
       const model = result.modelsJson.providers['codeflare-gateway'].models[0];
       assert.equal(model.name, expectedName);
@@ -374,13 +374,22 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     });
   }
 
-  it('REQ-ENTERPRISE-082: uses a Dynamic user label without reclassifying or renaming the route identity', () => {
-    const result = runBlock('["development"]', 'development', undefined, undefined, 'off',
-      JSON.stringify({ development: 'Engineering review' }));
+  it('REQ-ENTERPRISE-082: publishes a Dynamic route name without changing its identity', () => {
+    // The Worker publishes display-map entries only for resolved Native targets.
+    const result = runBlock('["development"]', 'development', undefined, undefined, 'off', '{}');
     assert.equal(result.code, 0, result.stderr);
     const model = result.modelsJson.providers['codeflare-gateway'].models[0];
-    assert.equal(model.name, 'Dynamic Route - Engineering review');
+    assert.equal(model.name, 'Dynamic Route - development');
     assert.equal(model.id, 'development');
     assert.equal(result.settings.defaultModel, 'development');
+  });
+
+  it('REQ-ENTERPRISE-082: an unowned native-shaped Dynamic route retains its published kind and identity', () => {
+    const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off', '{}');
+    assert.equal(result.code, 0, result.stderr);
+    const model = result.modelsJson.providers['codeflare-gateway'].models[0];
+    assert.equal(model.name, `Dynamic Route - ${nativeHandle}`);
+    assert.equal(model.id, nativeHandle);
+    assert.equal(result.settings.defaultModel, nativeHandle);
   });
 });

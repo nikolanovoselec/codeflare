@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BEDROCK_NATIVE_ADAPTER_VERSION, createNativeTarget, nativeTargetDraftSchema, nativeVerificationMatches } from '../../lib/native-ai-targets';
+import { BEDROCK_NATIVE_ADAPTER_VERSION, createNativeTarget, nativeTargetDraftSchema, nativeVerificationMatches, nativePromptCacheSupported } from '../../lib/native-ai-targets';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { getBuiltInProfile, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
 import { buildBedrockAnthropicRequest } from '../../lib/bedrock-anthropic-native-adapter';
@@ -25,7 +25,13 @@ describe('reusable Bedrock Messages contract', () => {
     const proof = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: target.id, model: target.model,
       providerConfigId: target.providerConfigId, connectionFingerprint: connectionFingerprint(connection)!, profileRef: target.profileRef,
       transport: target.transport, region: target.region, adapterVersion: BEDROCK_NATIVE_ADAPTER_VERSION as typeof BEDROCK_NATIVE_ADAPTER_VERSION, checkedAt: new Date().toISOString() };
-    expect(nativeVerificationMatches({ ...target, verification: proof }, connection)).toBe(false);
+    expect(nativeVerificationMatches(target, connection)).toBe(false);
+    expect(nativeVerificationMatches({ ...target, verification: { ...proof, method: 'automated' } }, connection)).toBe(false);
+    const confirmed = { ...target, verification: proof };
+    expect(nativeVerificationMatches(confirmed, connection)).toBe(true);
+    expect(nativePromptCacheSupported(confirmed)).toBe(false);
+    expect(nativeVerificationMatches({ ...confirmed, model: models[0] }, connection)).toBe(false);
+    expect(nativeVerificationMatches(confirmed, { ...connection, gatewayId: 'another-gateway' })).toBe(false);
   });
   it.each(models)('REQ-ENTERPRISE-074: selects %s without a model-specific profile entry', (model) => {
     expect(nativeTargetDraftSchema.safeParse(draft(model)).success).toBe(true);

@@ -90,8 +90,8 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     const controls = within(advanced);
     expect(controls.getByLabelText('brand-new-route Pi compatibility profile')).toBeVisible();
     expect(controls.getByRole('button', { name: 'Discover Profile for brand-new-route' })).toBeVisible();
-    // Generated contracts require live evidence; only historical eligible profiles offer manual confirmation.
-    expect(controls.queryByRole('button', { name: 'Mark brand-new-route as verified' })).toBeNull();
+    // Explicit administrator assessment remains separate from this live recheck.
+    expect(controls.getByRole('button', { name: 'Mark brand-new-route as verified' })).toBeEnabled();
     const verify = controls.getByRole('button', { name: 'Verify Profile for brand-new-route' });
     await waitFor(() => expect(verify).toBeEnabled());
     await fireEvent.click(verify);
@@ -149,7 +149,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     // disclosure consolidation is independently covered above.
     const summary = row.getByText(/Advanced(?:: choose a profile| profile verification)/i);
     await fireEvent.click(summary);
-    expect(row.queryByRole('button', { name: /Mark .*verified/i })).toBeNull();
+    expect(row.getByRole('button', { name: /Mark .*verified/i })).toBeEnabled();
     await fireEvent.click(row.getByRole('button', { name: /^Verify Profile$/i }));
 
     // A recheck withdraws old authority immediately, not only on its response.
@@ -541,7 +541,7 @@ describe('Independent capability evidence and administrator default preferences'
     const row = within(view.getByRole('article', { name: 'Independent native native target' }));
     await fireEvent.click(row.getByText(advancedName));
     expect(row.getByRole('button', { name: 'Verify Profile' })).toBeEnabled();
-    expect(row.queryByRole('button', { name: 'Mark as verified' })).toBeNull();
+    expect(row.getByRole('button', { name: 'Mark as verified' })).toBeEnabled();
     expect(row.getByLabelText('Native target 1 profile')).toHaveValue(`${native.id}\u001f${native.revision}\u001f${native.hash}`);
     await fireEvent.click(view.getByRole('button', { name: 'Access & fallback' }));
     if (!saved) await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
@@ -586,7 +586,7 @@ describe('Independent capability evidence and administrator default preferences'
     await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
     const policy = view.getByRole('button', { name: 'engineering policy' });
     if (policy.getAttribute('aria-expanded') !== 'true') await fireEvent.click(policy);
-    const label = kind === 'dynamic' ? 'Dynamic Route - brand-new-route' : `Native Route - AWS Bedrock - ${model}`;
+    const label = kind === 'dynamic' ? 'Dynamic Route - brand-new-route' : 'Native Route - Independent native';
     const allowed = view.getByRole('checkbox', { name: `engineering ${label} route` });
     expect(allowed).toBeEnabled();
     // Adding a group selects its sole eligible route; discovery alone did not.
