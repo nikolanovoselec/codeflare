@@ -84,7 +84,7 @@ const ReasoningRouteLegSchema = z.object({
   paths: z.array(z.string()).optional(),
 }).passthrough();
 
-const ReasoningRouteVerificationSchema = z.object({
+export const ReasoningRouteVerificationSchema = z.object({
   schemaVersion: z.literal(1),
   method: z.literal('administrator').optional(),
   profileRef: ProfileRevisionRefSchema,
@@ -95,6 +95,10 @@ const ReasoningRouteVerificationSchema = z.object({
   supportedLevels: z.array(PiReasoningLevelSchema),
   scope: z.enum(['single-model', 'observed-path']),
   checkedAt: z.string(),
+  capabilities: z.object({ schemaVersion: z.literal(1), tools: z.boolean(), replay: z.boolean(), nativePromptCache: z.boolean(),
+    cache: z.enum(['provider-prefix', 'gateway-response', 'inconclusive', 'not-tested']),
+    reasoning: z.enum(['provider-default', 'observed-enabled', 'unverified']), streaming: z.enum(['incremental', 'not-observed']),
+    grade: z.enum(['Minimum', 'Acceptable', 'Optimal', 'Not qualified']) }).strict().optional(),
 });
 
 export const ReasoningRouteInventorySchema = z.object({

@@ -124,11 +124,19 @@ async function openNative(view: View) {
 async function addNativeTarget(view: View) {
   await openNative(view);
   await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
+  for (const summary of view.container.querySelectorAll('details > summary')) {
+    if (summary.textContent?.startsWith('Advanced') && !(summary.parentElement as HTMLDetailsElement).open) await fireEvent.click(summary);
+  }
 }
 async function openRoute(view: View, route: string) {
   await section(view, 'Dynamic routes');
   const toggle = view.getByRole('button', { name: `Configure ${route}` });
   if (toggle.getAttribute('aria-expanded') !== 'true') await fireEvent.click(toggle);
+  // These existing tests exercise the preserved manual/advanced workflow.
+  // Single-click automatic discovery has its own regression without opening it.
+  for (const summary of view.getByRole('article', { name: `${route} route` }).querySelectorAll('details > summary')) {
+    if (summary.textContent?.startsWith('Advanced') && !(summary.parentElement as HTMLDetailsElement).open) await fireEvent.click(summary);
+  }
   return view.getByRole('article', { name: `${route} route` });
 }
 async function ready(view: View, route = 'development') {
@@ -797,7 +805,7 @@ describe('Structured AI routing', () => {
     const card = view.getByRole('article', { name: 'development route' });
     const verify = within(card).getByRole('button', { name: 'Verify Profile for development' });
     expect(verify).toBeEnabled();
-    expect(verify.closest('details')).toBeNull();
+    expect(verify.closest('details')).toHaveAttribute('open');
     expect(within(card).getByRole('button', { name: 'Discover Profile for development' })).toBeVisible();
     expect(within(card).queryByRole('spinbutton', { name: /verification|completion|token/i })).toBeNull();
     expect(within(card).queryByRole('button', { name: /start|add compatibility record/i })).toBeNull();

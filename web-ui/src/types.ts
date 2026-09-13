@@ -142,6 +142,7 @@ export interface ReasoningRouteVerification {
   supportedLevels: PiReasoningLevel[];
   scope: 'single-model' | 'observed-path';
   checkedAt: string;
+  capabilities?: import('../../src/lib/ai-capability-discovery/contract').CapabilitySummary;
 }
 
 export type FallbackRouting = { enabled: false } | {

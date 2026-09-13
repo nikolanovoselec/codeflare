@@ -38,7 +38,12 @@ const values = (container: HTMLElement) => environmentValues('aiRouting', 'enter
 const mount = (data: unknown = current(), onReadyChange = vi.fn()) => ({ ...render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={data} onReadyChange={onReadyChange} /></form>), onReadyChange });
 async function ready(view: ReturnType<typeof mount>) { await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true)); }
 async function section(view: ReturnType<typeof mount>, name: string) { await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name })); }
-async function openRoute(view: ReturnType<typeof mount>, route: string) { await section(view, 'Dynamic routes'); await fireEvent.click(view.getByRole('button', { name: `Configure ${route}` })); }
+async function openRoute(view: ReturnType<typeof mount>, route: string) {
+  await section(view, 'Dynamic routes'); await fireEvent.click(view.getByRole('button', { name: `Configure ${route}` }));
+  for (const summary of view.getByRole('article', { name: `${route} route` }).querySelectorAll('details > summary')) {
+    if (summary.textContent?.startsWith('Advanced') && !(summary.parentElement as HTMLDetailsElement).open) await fireEvent.click(summary);
+  }
+}
 
 beforeEach(() => {
   api.catalog.mockReset().mockResolvedValue(catalog());
@@ -80,7 +85,7 @@ describe('Administrator route workspace', () => {
     expect(local.getAllByRole('progressbar')).toHaveLength(1);
     const progress = local.getByRole('progressbar', { name: 'Verifying profile' });
     const actions = within(local.getByRole('group', { name: 'development profile actions' }));
-    expect(actions.getByRole('progressbar', { name: 'Verifying profile' })).toBe(progress);
+    expect(progress).toBeVisible(); // Visible outside the collapsed advanced action controls.
     expect(actions.getByRole('button', { name: 'Mark development as verified' })).toBeDisabled();
     expect(progress).not.toHaveAttribute('value');
     const status = progress.closest('[role="status"]') as HTMLElement;
@@ -134,7 +139,7 @@ describe('Administrator route workspace', () => {
     expect(view.queryByRole('button', { name: 'Discover Profile for development' })).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Configure development' }));
     expect(view.queryByRole('button', { name: 'Discover Profile for general_usage' })).toBeNull();
-    expect(view.getByRole('button', { name: 'Discover Profile for development' })).toBeVisible();
+    expect(view.getByRole('button', { name: 'Discover capabilities for development' })).toBeVisible();
     expect(api.discover).not.toHaveBeenCalled();
   });
   it('REQ-ENTERPRISE-041: switching route details preserves unsaved values', async () => {

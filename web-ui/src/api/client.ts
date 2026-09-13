@@ -31,6 +31,7 @@ import {
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
 import { ApiError, baseFetch } from './fetch-helper';
+import { TargetDiscoveryResultSchema, type TargetDiscoveryResult } from '../lib/target-capability-contract';
 
 const BASE_URL = '/api';
 
@@ -94,6 +95,11 @@ export async function discoverReasoningCompatibility(request: ReasoningDiscovery
     method: 'POST',
     body: JSON.stringify(request),
   }, ReasoningDiscoveryResultSchema) as Promise<ReasoningDiscoveryResult>;
+}
+
+export async function discoverTargetCapabilities(request: ({ kind: 'dynamic-route'; route: string } & ReasoningManagementContext)
+  | { kind: 'native-provider'; target: NativeAiTargetDraft; gateway?: ReasoningGatewayDraft }): Promise<TargetDiscoveryResult> {
+  return fetchApi('/admin/reasoning/capabilities/discover', { method: 'POST', body: JSON.stringify(request) }, TargetDiscoveryResultSchema);
 }
 
 const AdminUsageUserSchema = z.object({
