@@ -499,8 +499,8 @@ describe('Independent capability evidence and administrator default preferences'
     const label = kind === 'dynamic' ? 'Dynamic Route - brand-new-route' : `Native Route - AWS Bedrock - ${model}`;
     const allowed = view.getByRole('checkbox', { name: `engineering ${label} route` });
     expect(allowed).toBeEnabled();
-    expect(allowed).not.toBeChecked();
-    await fireEvent.click(allowed);
+    // Adding a group selects its sole eligible route; discovery alone did not.
+    expect(allowed).toBeChecked();
     await fireEvent.change(view.getByLabelText('engineering default route'), { target: { value: handle } });
     const reasoning = view.getByLabelText('engineering default reasoning');
     expect(reasoning).toBeEnabled();
