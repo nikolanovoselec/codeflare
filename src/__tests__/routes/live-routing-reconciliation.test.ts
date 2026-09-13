@@ -185,6 +185,65 @@ afterEach(() => {
 });
 
 describe('live saved-connection routing reconciliation', () => {
+  it.each([
+    { label: 'empty first page', pages: [[]] },
+    { label: 'short first page', pages: [['live']] },
+    { label: 'full page followed by empty page', pages: [['live', nativeShapedDynamic], []] },
+    { label: 'saved route on a later page', pages: [['new-route', nativeShapedDynamic], ['live']] },
+  ])('REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)', async ({ pages }) => {
+    const f = await setup();
+    const credentials = await f.kv.get(SETUP_KEYS.AIG_TOKEN);
+    const nativeBefore = await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS);
+    const requests: number[] = [];
+    routesReply = (url) => {
+      const page = Number(url.searchParams.get('page') ?? 1);
+      requests.push(page);
+      return Response.json({ success: true, data: { page, per_page: 2, order_by: 'name', order_by_direction: 'asc',
+        routes: (pages[page - 1] ?? []).map((name) => ({ id: name, name, gateway_id: 'gateway' })) } });
+    };
+    providersReply = () => Response.json({}, { status: 503 });
+    const response = await reconcile(f);
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body).toMatchObject({ routeCatalogStatus: 'ready', connection: { status: 'ready' }, routes: pages.flat(),
+      reconciliation: { status: 'applied', removedNativeTargetIds: [], revision: 8 } });
+    expect(requests).toEqual(pages.map((_, index) => index + 1));
+    const retained = ['live', nativeShapedDynamic].filter((name) => pages.flat().includes(name));
+    expect(await f.kv.get(SETUP_KEYS.DYNAMIC_ROUTES, 'json')).toEqual(retained);
+    const configuration = await f.kv.get(SETUP_KEYS.REASONING_CONFIGURATION, 'json') as any;
+    expect(Object.keys(configuration.routeAssignments).sort()).toEqual([...retained].sort());
+    for (const name of retained) expect(configuration.routeAssignments[name]).toEqual(f.reasoning.routeAssignments[name]);
+    expect(await f.kv.get(SETUP_KEYS.AIG_TOKEN)).toBe(credentials);
+    expect(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).toBe(nativeBefore);
+    expect((await reload(f)).revision).toBe(8);
+  });
+
+  it.each(['unavailable', 'repeated page', 'changed page size', 'duplicate route', 'page bound'] as const)(
+    'REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)', async (failure) => {
+      const f = await setup();
+      const before = await routingSnapshot(f.kv);
+      const requests: number[] = [];
+      routesReply = (url) => {
+        const page = Number(url.searchParams.get('page') ?? 1);
+        requests.push(page);
+        if (page > 1 && failure === 'unavailable') return Response.json({}, { status: 503 });
+        return Response.json({ success: true, data: {
+          page: page > 1 && failure === 'repeated page' ? 1 : page,
+          per_page: page > 1 && failure === 'changed page size' ? 2 : 1,
+          routes: [{ id: failure === 'duplicate route' ? 'same' : `id-${page}`,
+            name: failure === 'duplicate route' ? 'live' : `route-${page}`, gateway_id: 'gateway' }],
+        } });
+      };
+      providersReply = () => Response.json({}, { status: 503 });
+      const response = await reconcile(f);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ routeCatalogStatus: 'unavailable',
+        reconciliation: { status: 'unchanged', removedDynamicRoutes: [], removedNativeTargetIds: [], revision: 7 } });
+      expect(requests).toEqual(Array.from({ length: failure === 'page bound' ? 10 : 2 }, (_, index) => index + 1));
+      expect(await routingSnapshot(f.kv)).toEqual(before);
+      expect((await reload(f)).revision).toBe(7);
+    });
+
   it('REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access', async () => {
     const f = await setup();
     const nativeBefore = await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS, 'json') as any;

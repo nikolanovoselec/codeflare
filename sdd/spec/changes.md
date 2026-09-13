@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-13
 
+- **Dynamic inventory pagination correction** (REQ-ENTERPRISE-034/047). Cloudflare documents `data.page`, `data.per_page` and `data.routes`, not mandatory count/total fields. Full pages require further reads; short terminal pages establish completion within ten pages and 1,000 routes. Failed/incoherent pages preserve saved state. Regression verification is pending; no new deployment acceptance is claimed.
+
 ### Routing Save recovery and current-inventory reconciliation
 
 - **Save recovery** (REQ-ENTERPRISE-043/055). Dynamic/Native receipts last 30 days, exceeding the one-hour minimum. Fresh receipts update observations; unavailable/expired receipts may use unchanged saved authority. Null clears proof; mismatches reject. Advanced recovery preserves drafts; private replay retention is independent.
