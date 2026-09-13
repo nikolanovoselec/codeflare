@@ -328,18 +328,18 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- Cleanup removes absent Dynamic assignments, context windows, defaults and policy references, preserving shared custom revisions and historical receipts. Native-shaped names without a saved native owner remain Dynamic Routes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+- Prune absent Dynamic assignments, contexts, defaults and policies; retain shared revisions/receipts. Native-looking names remain Dynamic without a saved Native owner. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
 
-- Reconciliation shares existing configuration admission and revision ownership. Revision, saved connection, Setup or run-ownership drift aborts before routing writes; an applied cleanup advances the revision and invalidates earlier reviews. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
+- Use existing admission/revision ownership. Revision, connection, Setup or ownership drift aborts writes; applied cleanup advances revision and invalidates previews. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
 
-- Dynamic inventory accepts Cloudflare's `data.page`/`data.per_page` envelope without requiring undocumented totals, following full pages until a short terminal page within ten pages and 1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
-- Failed later pages, inconsistent pagination, duplicate identities and exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
-- Reconciliation uses only complete authoritative current Gateway inventories through POST /catalog with {reconcileSaved:true,baseRevision}. GET, ordinary POST and draft connection overlays remain read-only; reconciliation rejects overlays and submitted deletion lists. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
+- Accept `data.page`/`data.per_page` without mandatory totals; collect complete inventories within ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
+- Failed pages, pagination drift, duplicates or exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
+- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories. GET, ordinary POST and overlays are read-only; reject reconciliation overlays and deletion lists. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
 
-- Gateway routes and backend legs remain gateway-owned and cannot be forced or inferred by this workflow.
-- Manual profile assignment does not require discovery.
-- UI checks never automatically retry or escalate.
-- The Advanced discovery API retains its independent 32–16,384 range and 4,096 default; the new target capability endpoint does not inherit that ceiling.
+- Gateway-owned routes/backends cannot be forced or inferred.
+- Manual assignment needs no discovery.
+- UI checks never retry or escalate automatically.
+- Advanced discovery retains 32–16,384 tokens (default 4,096), independently of target discovery.
 
 **Priority:** P1
 

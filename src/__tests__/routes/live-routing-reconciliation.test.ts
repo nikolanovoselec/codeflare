@@ -190,7 +190,8 @@ describe('live saved-connection routing reconciliation', () => {
     { label: 'short first page', pages: [['live']] },
     { label: 'full page followed by empty page', pages: [['live', nativeShapedDynamic], []] },
     { label: 'saved route on a later page', pages: [['new-route', nativeShapedDynamic], ['live']] },
-  ])('REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)', async ({ pages }) => {
+    { label: 'full last page proven by explicit totals', pages: [['live', nativeShapedDynamic]], counted: true },
+  ])('REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)', async ({ pages, counted }) => {
     const f = await setup();
     const credentials = await f.kv.get(SETUP_KEYS.AIG_TOKEN);
     const nativeBefore = await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS);
@@ -199,6 +200,7 @@ describe('live saved-connection routing reconciliation', () => {
       const page = Number(url.searchParams.get('page') ?? 1);
       requests.push(page);
       return Response.json({ success: true, data: { page, per_page: 2, order_by: 'name', order_by_direction: 'asc',
+        ...(counted && { count: pages[page - 1]?.length ?? 0, total_count: pages.flat().length, total_pages: pages.length }),
         routes: (pages[page - 1] ?? []).map((name) => ({ id: name, name, gateway_id: 'gateway' })) } });
     };
     providersReply = () => Response.json({}, { status: 503 });

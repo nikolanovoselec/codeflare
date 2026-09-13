@@ -1,16 +1,42 @@
+/**
+ * Read-only Cloudflare AI Gateway management boundary.
+ *
+ * Callers resolve saved or draft connection coordinates before invoking these
+ * readers. Requests target the Cloudflare management API, never a URL returned
+ * by an upstream payload. This module does not change gateways, routes, provider
+ * credentials, or saved application settings.
+ *
+ * Dynamic Routing uses a data.routes/page/per_page envelope; provider bindings
+ * use result/result_info. Their completion rules are deliberately separate.
+ * A failed inventory must throw rather than return accumulated rows: downstream
+ * reconciliation treats a successful complete list as authority for absence.
+ * Relevant SDK contract:
+ * https://github.com/cloudflare/cloudflare-typescript/blob/main/src/resources/ai-gateway/dynamic-routing.ts
+ */
 import { z } from 'zod';
 import type { Env } from '../types';
 import { getAigConfig } from './aig-config';
 
+// The byte and timeout limits apply to each request, including body consumption.
+// Inventory limits bound sequential reads; they are application safety budgets,
+// not claims about Cloudflare account quotas or endpoint maximums.
 const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
 const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
 const MAX_PROVIDER_CONFIG_PAGES = 10;
 const MAX_PROVIDER_CONFIGS = 1000;
+const MAX_DYNAMIC_ROUTE_PAGES = 10;
+const MAX_DYNAMIC_ROUTES = 1000;
+// Only these built-in slugs may proceed when custom-provider classification is
+// unavailable. This set is not a model-version or provider-config allowlist.
 const KNOWN_NATIVE_PROVIDERS = new Set(['aws-bedrock', 'google-ai-studio', 'openai']);
 const providerSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const providerAliasSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
+// Route names also become dictionary keys in routing configuration. Exclude
+// prototype-sensitive keys as well as path separators and control characters.
 export const dynamicRouteSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
   .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
+// A draft is an inspection overlay, not permission to persist a connection.
+// Account API URLs contain no gateway name, so that form needs an explicit ID.
 export const gatewayDraftSchema = z.object({
   gatewayUrl: z.string().trim().max(512).refine((value) => parseGatewayUrl(value) !== null),
   gatewayId: dynamicRouteSchema.optional(),
@@ -20,6 +46,8 @@ export const gatewayDraftSchema = z.object({
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
   }
 });
+// Administrator-authored descriptions are bounded display metadata. They do not
+// identify a backend authoritatively or override the gateway's route topology.
 export const backendDescriptionsSchema = z.record(
   z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase())),
   z.string().trim().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/),
@@ -29,12 +57,21 @@ export interface GatewayConnection { gatewayUrl?: string; gatewayId?: string; to
 export interface ParsedGatewayUrl { accountId: string; gatewayId?: string; kind: 'legacy' | 'account-api'; canonicalUrl: string }
 export interface ConnectionStatus { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string }
 
+// JSON boundaries remain unknown until narrowed. These helpers check object
+// shape and bounded, nonempty strings; endpoint-specific schemas follow below.
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 function safeString(value: unknown, maxLength = 512): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(value);
 }
+/**
+ * Accept only supported HTTPS Cloudflare URL shapes and extract coordinates.
+ * Embedded credentials and non-default ports are rejected. Legacy gateway URLs
+ * carry both IDs and reject query/fragment suffixes; account API forms retain
+ * only the account root, discarding inference-path/query/fragment details.
+ * Management readers reconstruct their own fixed-origin URLs from those IDs.
+ */
 export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | null {
   if (!raw) return null;
   let url: URL;
@@ -54,14 +91,20 @@ export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | nul
   }
   return null;
 }
+/** A gateway embedded in a legacy URL takes precedence over a separate draft ID. */
 export function gatewayCoordinates(connection: GatewayConnection): { accountId: string; gatewayId: string } | null {
   const parsed = parseGatewayUrl(connection.gatewayUrl);
   if (!parsed) return null;
   const gatewayId = parsed.gatewayId ?? connection.gatewayId;
   return gatewayId && dynamicRouteSchema.safeParse(gatewayId).success ? { accountId: parsed.accountId, gatewayId } : null;
 }
+/**
+ * Overlay validated draft values on the saved connection without writing them.
+ * getAigConfig remains the sole owner of credential decryption and precedence;
+ * an omitted or blank replacement token keeps the saved token. A legacy URL
+ * owns its gateway name, while account API URLs use the separate gateway ID.
+ */
 export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): Promise<GatewayConnection> {
-  // The incumbent source remains the sole owner of stored encrypted credentials.
   const saved = await getAigConfig(env);
   const gatewayUrl = draft?.gatewayUrl ?? saved.gatewayUrl;
   const parsed = parseGatewayUrl(gatewayUrl);
@@ -71,9 +114,17 @@ export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): 
     token: draft?.replacementToken?.trim() || saved.token,
   };
 }
+// Keep only HTTP status across the management boundary, not response bodies,
+// Authorization headers, or provider configuration details.
 class GatewayManagementError extends Error {
   constructor(public readonly status: number) { super('management_request_failed'); }
 }
+/**
+ * Only an actual management HTTP 401/403 is classified as permission denial.
+ * Transport, payload, and completeness errors are unavailable, not evidence
+ * that saved credentials were lost. Management Read and inference Run access
+ * are distinct; successful inference alone does not prove inspection access.
+ */
 export function connectionStatus(error?: unknown, missing = false): ConnectionStatus {
   if (missing) return { status: 'missing', message: 'Configure an AI Gateway URL and API token.' };
   if (error instanceof GatewayManagementError && (error.status === 401 || error.status === 403)) {
@@ -82,6 +133,11 @@ export function connectionStatus(error?: unknown, missing = false): ConnectionSt
   if (error) return { status: 'unavailable', message: 'AI Gateway route inspection is unavailable. Retry when the connection is available.' };
   return { status: 'ready', message: 'AI Gateway route inspection is available.' };
 }
+/**
+ * Count streamed bytes rather than trusting Content-Length. Cancel oversized
+ * bodies before JSON parsing, and decode UTF-8 incrementally across chunks.
+ * Syntax-valid JSON is still unknown until each endpoint validates its shape.
+ */
 async function readBoundedJson(response: Response): Promise<unknown> {
   if (!response.body) return null;
   const reader = response.body.getReader();
@@ -100,6 +156,11 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   text += decoder.decode();
   try { return JSON.parse(text); } catch { throw new Error('management_response_malformed'); }
 }
+/**
+ * Normalize the supported route-version element representations, including
+ * JSON-encoded data. Return undefined for unknown shapes rather than inventing
+ * an empty backend graph; a route with no readable graph cannot be inspected.
+ */
 function extractElements(value: Record<string, unknown>): unknown {
   if (Array.isArray(value.data)) return value.data;
   if (typeof value.data === 'string') {
@@ -114,6 +175,11 @@ function extractElements(value: Record<string, unknown>): unknown {
   if (isPlainObject(value.config) && Array.isArray(value.config.elements)) return value.config.elements;
   return undefined;
 }
+/**
+ * Resolve the active revision from supported response wrappers. An explicit
+ * version object must be marked active and agree with any deployment pointer.
+ * Do not guess a revision from version ordering or silently use another graph.
+ */
 function extractVersion(value: unknown): { versionId: string; elements?: unknown } | null {
   if (!isPlainObject(value)) return null;
   const result = isPlainObject(value.result) ? value.result : value;
@@ -132,6 +198,13 @@ function extractVersion(value: unknown): { versionId: string; elements?: unknown
   const elements = extractElements(active) ?? extractElements(result);
   return elements === undefined ? { versionId } : { versionId, elements };
 }
+/**
+ * Perform one bounded management GET, with no retry or token/transport fallback.
+ * Redirects are not followed, preventing bearer credentials from being forwarded
+ * to a Location supplied by the response. The abort timer covers fetching and
+ * body consumption and is cleared on every exit. HTTP and success:false errors
+ * propagate without including the upstream payload in the error message.
+ */
 async function managementRequest(url: string, token: string): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort('management request timeout'), MANAGEMENT_REQUEST_TIMEOUT_MS);
@@ -149,42 +222,94 @@ async function managementRequest(url: string, token: string): Promise<unknown> {
     return payload;
   } finally { clearTimeout(timeout); }
 }
+/**
+ * Return a complete route inventory, projecting only stable IDs and route names.
+ * Cloudflare's documented data envelope supplies page and per_page, but does
+ * not require count or total_count. Without totals, full pages require another
+ * read; a short page, including an empty page after an exactly full page, ends
+ * the scan. Explicit totals can instead prove that a full last page is complete.
+ *
+ * Retain the existing unpaged result/data compatibility shape. When that shape
+ * advertises result_info, its counts must prove the entire list is present.
+ * No partial result escapes on later-page failure, duplicates, or limit expiry.
+ */
 export async function listDynamicRoutes(accountId: string, gatewayId: string, token: string): Promise<Array<{ id: string; name: string }>> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
-  const payload = await managementRequest(base, token);
-  if (!isPlainObject(payload)) throw new Error('route_list_malformed');
-  const envelope = isPlainObject(payload.data) ? payload.data : isPlainObject(payload.result) ? payload.result : null;
-  if (!envelope || !Array.isArray(envelope.routes)) throw new Error('route_list_malformed');
-  // This endpoint's supported envelope is a complete inventory, not a page.
-  // Do not invent pagination parameters or treat an advertised partial page as absence.
-  for (const owner of [payload, envelope]) {
-    if ((owner.gateway_id !== undefined && owner.gateway_id !== gatewayId)
-      || owner.has_more === true || owner.hasMore === true || owner.next_cursor || owner.cursor || owner.next || owner.cursors
-      || owner.pagination !== undefined) throw new Error('route_list_incomplete');
-    const paginationFields = ['page', 'count', 'per_page', 'total_count', 'total_pages'];
-    const metadata = [
-      ...(owner.result_info !== undefined ? [owner.result_info] : []),
-      ...(paginationFields.some((key) => Object.hasOwn(owner, key)) ? [owner] : []),
-    ];
-    for (const info of metadata) {
-      if (!isPlainObject(info) || info.page !== 1 || info.count !== envelope.routes.length
-        || !Number.isInteger(info.per_page) || (info.per_page as number) < envelope.routes.length
-        || (info.per_page as number) < 1 || info.total_count !== envelope.routes.length
-        || (info.total_pages !== undefined && info.total_pages !== 1 && !(info.total_pages === 0 && envelope.routes.length === 0))
-        || info.cursor || info.next_cursor || info.next || info.cursors || info.has_more === true || info.hasMore === true) throw new Error('route_list_incomplete');
-    }
-  }
+  const result: Array<{ id: string; name: string }> = [];
   const ids = new Set<string>();
   const names = new Set<string>();
-  return envelope.routes.map((candidate) => {
-    if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !dynamicRouteSchema.safeParse(candidate.name).success
-      || ids.has(candidate.id) || names.has(candidate.name as string)
-      || (candidate.gateway_id !== undefined && candidate.gateway_id !== gatewayId)) throw new Error('route_list_malformed');
-    ids.add(candidate.id);
-    names.add(candidate.name as string);
-    return { id: candidate.id, name: candidate.name as string };
-  });
+  let pageSize: number | undefined;
+  let totalCount: number | undefined;
+  let totalPages: number | undefined;
+  for (let page = 1; page <= MAX_DYNAMIC_ROUTE_PAGES; page += 1) {
+    // Preserve the first request's default page size, then reuse the validated
+    // size reported by Cloudflare. These are page reads, not request retries.
+    const payload = await managementRequest(page === 1 ? base : `${base}?page=${page}&per_page=${pageSize}`, token);
+    if (!isPlainObject(payload)) throw new Error('route_list_malformed');
+    const envelope = isPlainObject(payload.data) ? payload.data : isPlainObject(payload.result) ? payload.result : null;
+    if (!envelope || !Array.isArray(envelope.routes)) throw new Error('route_list_malformed');
+    const paginated = envelope.page !== undefined || envelope.per_page !== undefined;
+    if (page > 1 && !paginated) throw new Error('route_list_incomplete');
+    // Inspect both outer and inner metadata; neither may contradict the other.
+    // Cursor-style continuation is unsupported and therefore fails closed.
+    // Optional totals constrain completion, but their absence is not an error
+    // for the documented page/per_page envelope.
+    for (const owner of [payload, envelope]) {
+      if ((owner.gateway_id !== undefined && owner.gateway_id !== gatewayId)
+        || owner.has_more === true || owner.hasMore === true || owner.next_cursor || owner.cursor || owner.next || owner.cursors
+        || owner.pagination !== undefined) throw new Error('route_list_incomplete');
+      const metadata = [
+        ...(owner.result_info !== undefined ? [owner.result_info] : []),
+        ...(['page', 'count', 'per_page', 'total_count', 'total_pages'].some((key) => Object.hasOwn(owner, key)) ? [owner] : []),
+      ];
+      for (const info of metadata) {
+        // Page numbers must advance exactly and page size must remain stable.
+        // The older unpaged metadata shape retains its complete-count proof.
+        if (!isPlainObject(info) || info.page !== page || !Number.isInteger(info.per_page)
+          || (info.per_page as number) < 1 || (info.per_page as number) > MAX_DYNAMIC_ROUTES
+          || envelope.routes.length > (info.per_page as number)
+          || (pageSize !== undefined && pageSize !== info.per_page)
+          || (info.count !== undefined && info.count !== envelope.routes.length)
+          || (!paginated && (info.count !== envelope.routes.length || info.total_count !== envelope.routes.length))
+          || info.cursor || info.next_cursor || info.next || info.cursors || info.has_more === true || info.hasMore === true) throw new Error('route_list_incomplete');
+        pageSize = info.per_page as number;
+        if (info.total_count !== undefined) {
+          if (!Number.isInteger(info.total_count) || (info.total_count as number) < 0 || (info.total_count as number) > MAX_DYNAMIC_ROUTES
+            || (totalCount !== undefined && totalCount !== info.total_count)) throw new Error('route_list_incomplete');
+          totalCount = info.total_count as number;
+        }
+        if (info.total_pages !== undefined) {
+          if (!Number.isInteger(info.total_pages) || ((info.total_pages as number) < page && !(page === 1 && info.total_pages === 0 && envelope.routes.length === 0))
+            || (info.total_pages as number) > MAX_DYNAMIC_ROUTE_PAGES
+            || (totalPages !== undefined && totalPages !== info.total_pages)) throw new Error('route_list_incomplete');
+          totalPages = info.total_pages as number;
+        }
+      }
+    }
+    // Identity sets span the whole scan. A duplicate could mask a skipped row
+    // during pagination, so it invalidates the inventory rather than deduping.
+    // Any explicitly supplied gateway binding must match the requested gateway.
+    for (const candidate of envelope.routes) {
+      if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !dynamicRouteSchema.safeParse(candidate.name).success
+        || ids.has(candidate.id) || names.has(candidate.name as string)
+        || (candidate.gateway_id !== undefined && candidate.gateway_id !== gatewayId)) throw new Error('route_list_malformed');
+      ids.add(candidate.id);
+      names.add(candidate.name as string);
+      result.push({ id: candidate.id, name: candidate.name as string });
+    }
+    // A short page establishes the count-free endpoint's terminal boundary.
+    // Retain total-proven completion when counts are explicitly supplied,
+    // including a full last page. Contradictory page totals still fail closed.
+    // Exhausted budgets never authorize empty or truncated saved-route cleanup.
+    if (result.length > MAX_DYNAMIC_ROUTES || (totalCount !== undefined && result.length > totalCount)) throw new Error('route_list_incomplete');
+    if (!paginated || envelope.routes.length < (envelope.per_page as number) || result.length === totalCount) {
+      if ((totalCount !== undefined && result.length !== totalCount) || (totalPages !== undefined && totalPages > page)) throw new Error('route_list_incomplete');
+      return result;
+    }
+  }
+  throw new Error('route_list_incomplete');
 }
+/** Safe binding projection: no provider secret, header, or destination URL. */
 export interface NativeProviderConfig {
   id: string;
   provider: string;
@@ -193,13 +318,20 @@ export interface NativeProviderConfig {
   defaultSelection: boolean;
 }
 
+// Normalize only explicit boolean/numeric flags. Truthiness would turn a
+// string such as "false" into an unintended default provider selection.
 function parseDefaultConfig(value: unknown): boolean {
   if (value === true || value === 1) return true;
   if (value === false || value === 0) return false;
   throw new Error('provider_config_list_malformed');
 }
 
-/** Discover gateway-scoped provider bindings while discarding all sensitive fields. */
+/**
+ * Read gateway-scoped Native provider bindings, discarding sensitive fields.
+ * Unlike Dynamic Routing, this endpoint uses result_info with explicit counts.
+ * Page size, total count, optional page total, and unique binding IDs must stay
+ * coherent across the scan. Failure never returns a partial binding inventory.
+ */
 export async function listNativeProviderConfigs(accountId: string, gatewayId: string, token: string): Promise<NativeProviderConfig[]> {
   const result: NativeProviderConfig[] = [];
   const ids = new Set<string>();
@@ -209,6 +341,8 @@ export async function listNativeProviderConfigs(accountId: string, gatewayId: st
   for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
     const payload = await managementRequest(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs?page=${page}&per_page=100`, token);
     if (!isPlainObject(payload) || payload.success !== true || !Array.isArray(payload.result) || !isPlainObject(payload.result_info)) throw new Error('provider_config_list_malformed');
+    // This endpoint's explicit totals, not a short-page heuristic, determine
+    // completion. Reject drift, unsupported cursors, and foreign bindings.
     const info = payload.result_info;
     if (info.page !== page || !Number.isInteger(info.count) || !Number.isInteger(info.per_page) || !Number.isInteger(info.total_count)
       || info.count !== payload.result.length || (info.per_page as number) < 1 || (info.per_page as number) > 100
@@ -242,6 +376,11 @@ export async function listNativeProviderConfigs(accountId: string, gatewayId: st
   throw new Error('provider_config_list_malformed');
 }
 
+/**
+ * Select an explicit sole default, otherwise a sole available binding.
+ * Multiple defaults or multiple non-default candidates are ambiguous: never
+ * choose by list order. No candidate is represented as null, not a guessed ID.
+ */
 export function selectNativeProviderConfig(configs: NativeProviderConfig[], provider: string): NativeProviderConfig | null {
   providerSlugSchema.parse(provider);
   const candidates = configs.filter((config) => config.provider === provider);
@@ -255,7 +394,12 @@ export function defaultBedrockProvider(configs: NativeProviderConfig[]): NativeP
   return selectNativeProviderConfig(configs, 'aws-bedrock');
 }
 
-/** Discover only custom-provider slugs; base URLs, headers, names, and examples are discarded. */
+/**
+ * Read the account-scoped custom-provider namespace for classification.
+ * Only slugs survive; base URLs, headers, names, and examples are discarded.
+ * The bounded scan collects unique slugs until the reported total is reached.
+ * These account-level names are not gateway-scoped Native binding identities.
+ */
 export async function listCustomProviderSlugs(accountId: string, token: string): Promise<Set<string>> {
   const result = new Set<string>();
   for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
@@ -275,6 +419,12 @@ export async function listCustomProviderSlugs(accountId: string, token: string):
   throw new Error('custom_provider_list_malformed');
 }
 
+/**
+ * Classification failure is tolerable only when every requested slug is a
+ * known built-in provider. Unknown slugs require the custom-provider inventory;
+ * failure there must not silently classify a custom provider as Native.
+ * This exception does not substitute credentials or create provider bindings.
+ */
 export async function listCustomProviderSlugsForProviders(
   accountId: string,
   token: string,
@@ -289,6 +439,12 @@ export async function listCustomProviderSlugsForProviders(
   }
 }
 
+/**
+ * Resolve a route name through the complete current inventory, then fetch its
+ * detail by the returned stable ID. Both requests stay scoped to the same
+ * account and gateway. Return only the active revision and readable graph;
+ * absent routes or malformed active details cannot produce inferred backends.
+ */
 export async function loadActiveRouteVersion(accountId: string, gatewayId: string, route: string, token: string): Promise<{ versionId: string; elements: unknown }> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
   const listed = (await listDynamicRoutes(accountId, gatewayId, token)).find((candidate) => candidate.name === route);
