@@ -242,6 +242,9 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
   let totalCount: number | undefined;
   let totalPages: number | undefined;
   for (let page = 1; page <= MAX_DYNAMIC_ROUTE_PAGES; page += 1) {
+    // An advertised page total remains binding even if later responses omit it.
+    // Reject before requesting beyond that boundary; do not return partial rows.
+    if (totalPages !== undefined && page > totalPages) throw new Error('route_list_incomplete');
     // Preserve the first request's default page size, then reuse the validated
     // size reported by Cloudflare. These are page reads, not request retries.
     const payload = await managementRequest(page === 1 ? base : `${base}?page=${page}&per_page=${pageSize}`, token);
