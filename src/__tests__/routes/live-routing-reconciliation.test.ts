@@ -220,7 +220,7 @@ describe('live saved-connection routing reconciliation', () => {
     expect((await reload(f)).revision).toBe(8);
   });
 
-  it.each(['unavailable', 'repeated page', 'changed page size', 'duplicate route', 'page bound'] as const)(
+  it.each(['unavailable', 'repeated page', 'changed page size', 'duplicate route', 'page bound', 'forgotten page bound'] as const)(
     'REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)', async (failure) => {
       const f = await setup();
       const before = await routingSnapshot(f.kv);
@@ -232,7 +232,8 @@ describe('live saved-connection routing reconciliation', () => {
         return Response.json({ success: true, data: {
           page: page > 1 && failure === 'repeated page' ? 1 : page,
           per_page: page > 1 && failure === 'changed page size' ? 2 : 1,
-          routes: [{ id: failure === 'duplicate route' ? 'same' : `id-${page}`,
+          ...(failure === 'forgotten page bound' && page === 1 && { total_pages: 1 }),
+          routes: failure === 'forgotten page bound' && page > 1 ? [] : [{ id: failure === 'duplicate route' ? 'same' : `id-${page}`,
             name: failure === 'duplicate route' ? 'live' : `route-${page}`, gateway_id: 'gateway' }],
         } });
       };
@@ -241,7 +242,8 @@ describe('live saved-connection routing reconciliation', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ routeCatalogStatus: 'unavailable',
         reconciliation: { status: 'unchanged', removedDynamicRoutes: [], removedNativeTargetIds: [], revision: 7 } });
-      expect(requests).toEqual(Array.from({ length: failure === 'page bound' ? 10 : 2 }, (_, index) => index + 1));
+      const expectedPages = failure === 'forgotten page bound' ? 1 : failure === 'page bound' ? 10 : 2;
+      expect(requests).toEqual(Array.from({ length: expectedPages }, (_, index) => index + 1));
       expect(await routingSnapshot(f.kv)).toEqual(before);
       expect((await reload(f)).revision).toBe(7);
     });
