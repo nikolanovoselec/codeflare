@@ -2,7 +2,7 @@ interface ProfileIdentity { id: string; name?: string }
 
 // Presentation metadata only: canonical profile names, hashes and references remain immutable.
 const BUILTIN_PRESENTATION: Record<string, { label: string; basis: string }> = {
-  'bedrock-anthropic-native-provider-default': { label: 'Native Route - AWS Bedrock - Anthropic Messages (Provider default)', basis: 'Reusable protocol candidate, not a release allowlist. Explicit target verification establishes tools/replay and cache reuse; reasoning remains provider-controlled.' },
+  'bedrock-anthropic-native-provider-default': { label: 'Native Route - AWS Bedrock - Anthropic Messages (Provider default)', basis: 'Reusable protocol candidate, not a release allowlist. Explicit target verification establishes tools and exact replay. Input caching is reported independently; reasoning remains provider-controlled.' },
   'workers-ai-kimi-k-thinking': { label: 'Dynamic Route - Workers AI - Kimi', basis: 'Tested with Kimi through Workers AI.' },
   'workers-ai-glm-thinking': { label: 'Dynamic Route - Workers AI - GLM', basis: 'Tested with GLM through Workers AI.' },
   'workers-ai-gemma-thinking': { label: 'Dynamic Route - Workers AI - Gemma', basis: 'Tested with Gemma through Workers AI.' },

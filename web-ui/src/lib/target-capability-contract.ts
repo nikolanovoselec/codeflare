@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { getBuiltInProfile, normalizeCustomProfile } from '../../../src/lib/reasoning-profiles';
-import { parseCapabilitySummary, MAX_CAPABILITY_SUBMISSIONS } from '../../../src/lib/ai-capability-discovery/contract';
+import { MAX_CAPABILITY_SUBMISSIONS } from '../../../src/lib/ai-capability-discovery/contract';
 import type { TargetCapabilityResult } from '../../../src/lib/ai-capability-discovery/contract';
 import type { ReasoningRouteVerification } from '../types';
-import { ReasoningRouteVerificationSchema } from './schemas';
+import { CapabilitySummarySchema, ReasoningRouteVerificationSchema } from './schemas';
 
 export interface TargetDiscoveryResult extends TargetCapabilityResult {
   checkId?: string;
@@ -11,10 +11,7 @@ export interface TargetDiscoveryResult extends TargetCapabilityResult {
   routeVerification?: ReasoningRouteVerification;
   nativeVerification?: { method: 'automated'; checkedAt: string; current: true; discovery?: TargetCapabilityResult['capabilities'] };
 }
-const capabilities = z.unknown().transform((value, context) => {
-  try { return parseCapabilitySummary(value); }
-  catch { context.addIssue({ code: 'custom', message: 'Invalid capability evidence' }); return z.NEVER; }
-});
+const capabilities = CapabilitySummarySchema;
 const profile = z.unknown().transform((value, context) => {
   try {
     const candidate = value as { id?: string; revision?: number; hash?: string };

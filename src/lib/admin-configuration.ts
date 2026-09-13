@@ -456,13 +456,13 @@ export async function readNativeTargetViews(
     try {
       const selected = selectNativeProviderConfig(currentProviders, target.provider);
       const alias = selected?.alias;
-      getProfileForRef(reasoningConfiguration, target.profileRef);
+      const profile = getProfileForRef(reasoningConfiguration, target.profileRef);
       const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
       const classificationCurrent = customProviderCatalogReady
         ? customProviders.has(target.provider) === Boolean(target.customProvider)
         : builtInProvider && !target.customProvider;
       current = Boolean(selected && selected.id === target.providerConfigId && alias === target.providerConfigAlias
-        && classificationCurrent && nativeVerificationMatches(target, gateway));
+        && classificationCurrent && nativeVerificationMatches(target, gateway, profile));
     } catch { /* Missing profile or ambiguous provider keeps this target stale. */ }
     return sanitizeNativeTarget(target, current);
   });
@@ -644,12 +644,14 @@ export async function validateConfigurationValues(
             const receipt = receipts.get(target.id);
             if (!receipt) return target;
             const candidate = { ...target, verification: receipt.verification };
-            if (!nativeVerificationMatches(candidate, gateway)) throw new Error('Native target check receipt is stale');
+            if (!nativeVerificationMatches(candidate, gateway, getProfileForRef(reasoningConfiguration, candidate.profileRef))) throw new Error('Native target check receipt is stale');
             return candidate;
           }) };
           document = { ...document, targets: document.targets.map((target) => {
-            if (!target.enabled || nativeVerificationMatches(target, gateway)) return target;
-            const verification = equivalentCoordinates ? rebindNativeVerificationConnection(target, gateway) : null;
+            if (!target.enabled) return target;
+            const profile = getProfileForRef(reasoningConfiguration, target.profileRef);
+            if (nativeVerificationMatches(target, gateway, profile)) return target;
+            const verification = equivalentCoordinates ? rebindNativeVerificationConnection(target, gateway, profile) : null;
             if (!verification) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
             return { ...target, verification };
           }) };
@@ -916,9 +918,10 @@ export async function executeConfigurationTask(
         for (const target of document.targets) if (target.enabled) {
           const provider = selectNativeProviderConfig(providerConfigs, target.provider);
           const alias = provider?.alias;
-          try { getProfileForRef(reasoningConfiguration, target.profileRef); } catch { throw new Error(`Native target ${target.label} profile is unavailable`); }
+          let profile;
+          try { profile = getProfileForRef(reasoningConfiguration, target.profileRef); } catch { throw new Error(`Native target ${target.label} profile is unavailable`); }
           if (!provider || target.providerConfigId !== provider.id || target.providerConfigAlias !== alias
-            || customProviders.has(target.provider) !== Boolean(target.customProvider) || !nativeVerificationMatches(target, gateway)) {
+            || customProviders.has(target.provider) !== Boolean(target.customProvider) || !nativeVerificationMatches(target, gateway, profile)) {
             throw new Error(`Native target ${target.label} is no longer authorized`);
           }
         }

@@ -20,7 +20,7 @@
 
 <!-- @impl: src/lib/native-ai-target-draft.ts::bedrockAnthropicCandidate --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches -->
 
-New native Anthropic Messages targets reuse `bedrock-anthropic-native-provider-default` revision 1. Its canonical hash comes from the existing profile registry; it has no per-model generated source or profile definition. The `anthropic.claude-*` namespace, optionally preceded by the supported geographic inference-profile prefix, only selects a protocol **candidate**. It does not assert availability, entitlement, reasoning, caching, or streaming support.
+New native Anthropic Messages targets discover reusable audited mappings in `bedrock-anthropic-native-discovered-<24hex>` revisions, content-addressed through the existing canonical custom-profile machinery. Provider-default revision 1 is the exclusive fallback if no configurable form qualifies. No per-model generated source or profile definition is needed. The `anthropic.claude-*` namespace, optionally preceded by the supported geographic inference-profile prefix, only selects a protocol **candidate**. It does not assert availability, entitlement, reasoning, caching, or streaming support.
 
 The existing native administration flow binds the exact authorized provider configuration, model, region, saved transport, profile hash, and adapter version. Model suggestions still come from active Dynamic Route inventory; administrators may enter a documented model identifier and context window. No new catalog service, AWS credentials, polling, or automatic startup probing is introduced. A model that rejects this Runtime Messages contract remains unusable through this adapter; selecting a familiar name never grants capabilities.
 
@@ -30,26 +30,27 @@ The existing native administration flow binds the exact authorized provider conf
 
 The normal flow is now **Select target → Discover → review result → Save**. The dedicated [target capability component](target-capability-discovery.md) automatically chooses the shared contract, verifies it and attaches the existing server-issued receipt. The user does not select/name a profile or click a second Verify. Native automation is deliberately based on the observed Bedrock boundary; other native protocols retain their existing advanced workflow until a separate extension is implemented. Historical profile matching and selected-profile verification share **Advanced: choose a profile**. Discovery and verification report to one visible **Check result** above it, with technical evidence collapsed. Success directs the operator through **Review changes → Confirm Save → next normal session start**; a recheck clears the old result and receipt immediately.
 
-For Native Runtime, this one explicit action uses the existing engine and adapter:
+For Native Runtime, one explicit action uses the existing engine and adapter:
 
-1. Send the existing Pi streaming function canary.
-2. Replay its authentic provider tool turn and the fixed inert result through the same native adapter.
-3. Submit a public approximately 60-KiB prefix with one five-minute checkpoint and a short requested answer.
-4. Repeat that public cache request byte-identically and sequentially.
+1. Test disabled, adaptive Low, Medium, High, XHigh and Max as six distinct audited forms.
+2. For each form, observe reasoning and complete its own Pi function call plus authentic inert-result replay.
+3. After completed tools/replay, measure optional input caching with a public approximately 60-KiB prefix, one five-minute checkpoint and a byte-identical sequential repeat. Do not send a read after an invalid fill.
+4. Assemble successful forms and Minimal→Low only if Low passed. Use Provider default only when no configurable form qualifies.
 
-Native Runtime discovery uses at most four HTTP submissions, no fallback/retry, at most 2,048 output tokens per call and 90 seconds per call, with captures bounded to 8 MiB and the adapter's existing 2-MiB frame limit. The shared UI discloses the larger compatibility-search ceiling of 40 submissions and 10 minutes; native does not exhaust it speculatively. The public prefix is deliberately long but is not a tokenizer/minimum-prefix guarantee.
+Native discovery uses at most 34 HTTP submissions under one 40-submission/10-minute campaign, 2,048 output tokens per call and 90 seconds per call. Six five-call forms plus at most four Provider-default calls bound the campaign; aliases add no calls. Saved transport is exercised, not multiplied into a cross-product. Captures remain bounded to 8 MiB and native frames to 2 MiB. No retries or speculative model substitution occur. The public prefix is not a tokenizer/minimum-prefix guarantee.
 
-An authentication, provider, malformed-stream, or invalid-tool failure stops the affected lifecycle; failed tools do not launch cache checks. A cache failure is reported, not retried with guessed parameters. A refused cache-fill response retains observed cache counters and the unattempted-read distinction without qualifying the target. A native-shaped buffered Dynamic envelope remains rejected with an unexpected-format diagnostic and HTTP/transport context, not a transport-error label. Price depends on the configured model and input/cache/output usage; this is not a free check.
+An authentication, provider, malformed-stream, or invalid-tool failure stops the affected lifecycle; failed tools do not launch cache checks. A cache failure is reported, not retried with guessed parameters. A refused cache-fill response retains observed cache counters and the unattempted-read distinction without granting cache permission or erasing completed tools/replay. Fatal authentication, quota, server, framing, transport and timeout failures still withhold a fresh receipt. A native-shaped buffered Dynamic envelope remains rejected with an unexpected-format diagnostic and HTTP/transport context, not a transport-error label. Price depends on the configured model and input/cache/output usage; this is not a free check.
 
-| Evidence | Meaning and authority |
+| Capability | Meaning and authority |
 | --- | --- |
-| Valid tools + exact replay + positive second-request prefix-read counters without Gateway HIT | Minimum met; permits the target's native Pi checkpoint serialization |
-| Valid tools + exact replay + Gateway HIT | Minimum met by whole-response reuse only; does not enable explicit native checkpoints |
-| Neither qualifying Gateway HIT nor positive prefix reads, or incomplete cache evidence | Inconclusive cache minimum; absent provider counters alone do not negate a qualifying HIT |
-| Minimum + Provider default | Acceptable under the operator's chosen reasoning policy |
-| Above + multiple cold public deltas observed over time before EOF | Optimal for the tested path and policy |
+| Tool calling | Complete tools and exact replay on every included mapping are required for receipt eligibility |
+| Reasoning | Actual levels/aliases, verified disabled, accepted-unverified, or Provider default; no inferred effort strength |
+| Streaming | Incremental cold public deltas before EOF, or buffered/not established, per mapping/operation |
+| Input caching | Positive provider-prefix read, not observed, or not tested; optional for activation |
 
-Success issues a server-held receipt containing a small capability summary, not executable browser-supplied mappings. Save and runtime authorization validate the current binding. A manually asserted generic receipt is rejected. Historical explicit administrator confirmation remains available only for the retained evidence-specific profiles and existing compatibility workflows; it is not an automated capability grade.
+Gateway HIT remains whole-response reuse, never input-prefix proof. Each v2 row binds exact levels and transport to the returned canonical profile through server-owned evidence. No current grade or cumulative capability threshold is published.
+
+Success issues a server-held receipt containing a small capability summary, not executable browser-supplied mappings. Save and runtime authorization validate the current binding. A manually asserted generic receipt is rejected. Historical explicit administrator confirmation remains available only for the retained evidence-specific profiles and existing compatibility workflows; it is not automated capability evidence.
 
 Discovery's identical cache pair certifies the measured reuse mechanism for that target. It is narrower than the prior live changed-answer tool-continuation prefix evidence. The actual locked Pi serializer and complete checkpoint/replay transformations are separately covered offline; future models are not claimed live-certified by synthetic tests.
 
@@ -57,19 +58,21 @@ Discovery's identical cache pair certifies the measured reuse mechanism for that
 
 <!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest -->
 
-Provider-default and discovered normalized contracts retain all seven Pi preferences: Off, Minimal, Low, Medium, High, XHigh, Max. Provider-default models send **no client reasoning override**, regardless of that selection. This is neither fabricated Off nor proof that reasoning occurred. Zero executable effort mappings must not mean zero selectable Pi preferences.
+Dynamic Provider-default and discovered normalized contracts retain all seven Pi preferences: Off, Minimal, Low, Medium, High, XHigh, Max. Native configurable discoveries instead expose their actual successful levels and explicit aliases. Provider-default models send **no client reasoning override**, regardless of that selection. This is neither fabricated Off nor proof that reasoning occurred. Zero executable effort mappings must not mean zero selectable Pi preferences.
 
-Generated single-mapping contracts publish seven client choices without expanding their canonical mappings or receipts; all choices normalize to the one tested mapping. Historical profile selections remain unchanged. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
+Dynamic generated single-mapping contracts retain seven client choices without expanding canonical mappings or receipts; all choices normalize to the one tested mapping. Provider-default permits an Off default preference with a visible no-override/provider-controlled caveat, not a disabled claim. Verified literal native Off requires a completed private observation of absent thinking, including hidden/redacted blocks even when counters are absent. Selected supported Off persists through review, save, reload and startup. Historical profiles remain unchanged. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
 
 Existing Sonnet 5 and Opus 5 saved profiles retain validated disabled/adaptive mappings and aliases. Their exact evidence-model guards prevent a future name from inheriting these controls via a substring. Automatic Opus XHigh/Max still use Invoke; generic Provider default has no such mapped effort and uses Eventstream under auto. Explicit Invoke/Eventstream/compat authority remains unchanged.
 
-AWS documents genuinely different budgeted, adaptive, and adaptive-only reasoning contracts. FoundationModelDetails exposes streaming metadata but not the complete effort/checkpoint/replay contract. Anthropic platform model metadata is not Bedrock transport/entitlement authority. Therefore this change does not guess a native effort vocabulary from the model name or automatically manufacture stronger control profiles. Unknown controls use the accepted provider-default baseline. A future authoritative Bedrock/Cloudflare capability contract is needed for automatic graduated controls beyond that baseline.
+AWS documents distinct budgeted, adaptive and adaptive-only contracts. FoundationModelDetails streaming metadata is not complete effort/checkpoint/replay authority. The six audited request forms are candidates, not model-name capability claims. Each retained mapping requires its own complete lifecycle; failed forms and dangling aliases are excluded. Accepted controls without observable thinking remain unverified as reasoning. No Max→Medium or unfamiliar-model Sonnet alias is fabricated.
+
+Discovery and runtime build the mapped native request and validate replay before choosing operation. Auto uses Eventstream through mapped High and Invoke for mapped XHigh/Max; explicit transports never change. Per-level results preserve High incremental delivery alongside upper-level buffered Invoke evidence. Private thinking-presence/completion observations expose no text, signatures or invented counters.
 
 ## Prompt-cache and replay boundary
 
 <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse -->
 
-Only a target with its own qualifying prefix evidence, or a retained validated historical native profile, publishes `cacheControlFormat: "anthropic"`. Gateway-HIT-only generic targets do not. The Worker independently rejects client checkpoints when that capability is absent. Dynamic targets never receive this serialization.
+Only a target with positive same-target prefix evidence on every enabled selectable semantic mapping/operation, or retained validated historical authority under its original rules, publishes model-wide `cacheControlFormat: "anthropic"`. No-cache, Gateway-HIT-only and mixed cached/uncached profiles remain usable without that flag. Per-level UI facts must not imply model-wide cache permission. The Worker independently rejects client checkpoints when that capability is absent. Dynamic targets never receive this serialization.
 
 Existing five-minute allowlisting, maximum four checkpoints, tool-result marker lifting, uncached/read/write accounting, `cacheRetention: none` semantics, and lifecycle explicit-empty revocation remain intact. Missing optional counters stay unmeasured. Provider thinking is included in output usage exactly once.
 
@@ -83,11 +86,11 @@ Known native stop reasons map explicitly (`tool_use`→`tool_calls`, `end_turn`/
 
 The reusable `dynamic-bedrock-anthropic-provider-default` contract remains for old assignments. Normal Dynamic **Discover** now automatically tests shared OpenAI wire forms and returns a canonical content-addressed configuration with target-bound evidence, not a profile shopping list. The existing narrow complete-name repair and a bounded buffered alternative live behind the shared compatibility boundary. Reasoning, tools/replay and cache must not report conflicting observed backends. Missing Gateway backend headers are recorded as unobserved; multi-distinct-backend certification cannot invent selection from inventory. This certifies the exercised route path only, not every conditional/fallback branch. Operators remain responsible for mixing compatible branches until Cloudflare normalizes them.
 
-The existing broad profile-matching scan is now an Advanced compatibility workflow; its separate Verify step is not the normal user flow. Existing explicit administrator-confirmed Dynamic assignments remain distinctly labelled rather than silently revoked by this new grade. A newly discovered contract cannot use administrator assertion to bypass the cache/tools minimum.
+The existing broad profile-matching scan is now an Advanced compatibility workflow; its separate Verify step is not the normal user flow. Existing explicit administrator-confirmed Dynamic assignments remain distinctly labelled rather than silently revoked by the independent-capability contract. A newly discovered contract cannot use administrator assertion or a generated namespace to bypass exact tools/replay and receipt authority.
 
-Native success does not repair Dynamic input caching. Earlier array-valued cache-marked system prompts failed integrity canaries; other tested Dynamic shapes produced no positive prefix evidence. Keep Dynamic system content string-valued, do not add native checkpoints or cache headers/keys/TTLs. Gateway HIT can satisfy the relaxed minimum, but enabling Dynamic prefix serialization still requires preserved input semantics and positive changed-answer prefix-read evidence through that exact converter. This remains an external limitation.
+Native success does not repair Dynamic input caching. Earlier array-valued cache-marked system prompts failed integrity canaries; other tested Dynamic shapes produced no positive prefix evidence. Keep Dynamic system content string-valued, do not add native checkpoints or cache headers/keys/TTLs. Gateway HIT is only whole-response evidence; enabling Dynamic prefix serialization still requires preserved input semantics and positive changed-answer prefix-read evidence through that exact converter. This remains an external limitation.
 
-The subsequent 2026-09-13 live campaign qualified all four tested targets as **Optimal**: Native Sonnet/Opus showed positive prefix reads; Dynamic Sonnet/Opus showed Gateway MISS → HIT. All passed tools/replay and cold public streaming under the existing request-only DLP policy. The exact calls and limits are in the new Downloads handoff. These observations correct the earlier absence of current Dynamic cache certification, without turning Gateway HIT into prefix-cache evidence or claiming a deployed application test.
+The historical 2026-09-13 live campaign recorded all four tested targets as **Optimal** under the now-retired grading definition: Native Sonnet/Opus showed positive prefix reads; Dynamic Sonnet/Opus showed Gateway MISS → HIT. All passed tools/replay and cold public streaming under the existing request-only DLP policy. The exact calls and limits are in the new Downloads handoff. These observations correct the earlier absence of current Dynamic cache certification, without turning Gateway HIT into prefix-cache evidence or claiming a deployed application test.
 
 ## Upgrade and next-start behavior
 
@@ -95,7 +98,7 @@ The subsequent 2026-09-13 live campaign qualified all four tested targets as **O
 
 Keep the original three feature commits in order. Apply the generic changes together with their tests and CI step. No main backport, provider migration, or deploy is implied.
 
-Old v1/v2/v3 receipts and profile references remain readable but do not authorize v4. Reconfirm a retained evidence-specific profile through the Advanced workflow, or simply **Discover** the target to select and verify reusable handling automatically. A stale historical profile can remain byte-identical and disabled while another target is upgraded; editing or enabling it requires a current canonical profile. No fabricated receipt, automatic rewrite, or recurring per-release profile authoring is required.
+Historical native adapter v1/v2/v3 receipts and profile references remain readable but do not authorize adapter v4. Nested capability evidence v2 changes no outer document version. Strict legacy capability-v1 parsing preserves its original qualification rules: formerly ineligible evidence gains no authority, and load/rebind never upgrades evidence or coverage. Reconfirm a retained evidence-specific profile through the Advanced workflow, or simply **Discover** the target to select and verify reusable handling automatically. A stale historical profile can remain byte-identical and disabled while another target is upgraded; editing or enabling it requires a current canonical profile. No fabricated receipt, automatic rewrite, or recurring per-release profile authoring is required.
 
 After review and Save, normal next session/container start publishes current opaque model capabilities. No hot process mutation, restart, or forced reset is introduced. Before production adoption, the integrating agent still owns CI/review, deployment, and authorized deployed Worker/session/Pi acceptance.
 

@@ -120,6 +120,52 @@ describe('AI routing review', () => {
     }
   });
 
+  it('REQ-ENTERPRISE-046: a deleted Native handle has no fabricated or browser-supplied display name', () => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const target = { id: targetId, label: 'Deleted target' };
+    const policy = { routes: [handle], defaultRoute: handle, reasoning: 'off' };
+    renderReview({ nativeTargets: [{ ...target, label: 'Untrusted replacement' }] }, preview({ changes: [
+      { field: 'nativeTargets', before: [target], after: [] },
+      { field: 'fallbackRouting', after: { enabled: true, ...policy } },
+    ] }), { nativeTargets: [target] });
+    const fallback = screen.getByRole('region', { name: 'Fallback' });
+    expect(within(fallback).getAllByText('Native Route - name unavailable')).toHaveLength(2);
+    expect(fallback).not.toHaveTextContent(handle);
+    expect(fallback).not.toHaveTextContent('Deleted target');
+    expect(fallback).not.toHaveTextContent('Untrusted replacement');
+  });
+
+  it('REQ-ENTERPRISE-046: authoritative Native labels are redacted and generated Native profiles are not Dynamic routes', () => {
+    const token = 'private-token-in-label';
+    const profile = { id: `bedrock-anthropic-native-discovered-${'a'.repeat(24)}`, revision: 1, hash: 'b'.repeat(64), name: 'Native generated profile' };
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const reviewed = { nativeTargets: [{ id: targetId, label: `Model ${token}`, profileRef: profile }],
+      reasoningConfiguration: { customProfileRevisions: [profile], routeAssignments: {} },
+      groupRouting: [{ accessGroup: 'Developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }] };
+    renderReview({ replacementToken: token }, preview({ changes: additions(reviewed) }));
+    const group = within(screen.getByRole('region', { name: 'Group access' })).getByRole('article', { name: 'Developers' });
+    expect(within(group).getAllByText('Native Route - Model [redacted]')).toHaveLength(2);
+    expect(screen.queryByRole('region', { name: 'Dynamic routes' })).toBeNull();
+    expect(document.body.textContent).not.toContain(token);
+    expect(document.body.textContent).not.toContain(handle);
+  });
+
+  it('REQ-ENTERPRISE-045: a Native provider-default Off preference is not reviewed as verified disabled', () => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const reviewed = { nativeTargets: [{ id: targetId, label: 'Provider controlled',
+      profileRef: getBuiltInProfileRef('bedrock-anthropic-native-provider-default') }],
+      fallbackRouting: { enabled: true, routes: [handle], defaultRoute: handle, reasoning: 'off' } };
+    renderReview(reviewed);
+    const fallback = screen.getByRole('region', { name: 'Fallback' });
+    expect(within(fallback).getByText('Provider default')).toBeVisible();
+    expect(fallback).toHaveTextContent('Off preference: no explicit override is sent');
+    expect(fallback).toHaveTextContent('not guaranteed Off');
+    expect(fallback).not.toHaveTextContent('verified disabled');
+  });
+
   it('REQ-ENTERPRISE-069: shows only the authoritative changed route, not the unchanged configuration inventory', () => {
     const routes = ['bedrock_opus', 'development', 'general_usage', 'documentation', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'freestyler'];
     const bedrock = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
@@ -130,7 +176,7 @@ describe('AI routing review', () => {
     // Server normalization is authoritative, even if the browser still holds different raw values.
     const proposed = { ...current, routeContextWindows: { ...current.routeContextWindows, bedrock_opus: 7000000 } };
     renderReview(proposed, preview({ changes: [{ field: 'routeContextWindows', before: current.routeContextWindows, after: { ...current.routeContextWindows, bedrock_opus: 6000000 } }] }), current);
-    const table = screen.getByRole('table', { name: 'Route profiles' });
+    const table = screen.getByRole('table', { name: 'Dynamic routes' });
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     const row = within(table).getByRole('row', { name: /bedrock_opus/ });
     expect(within(row).getByText('5,000,000 tokens')).toBeVisible();
@@ -144,7 +190,7 @@ describe('AI routing review', () => {
   it('REQ-ENTERPRISE-069: shows a removed assignment from the authoritative before state', () => {
     const current = values();
     renderReview(current, preview({ changes: [{ field: 'reasoningConfiguration', before: current.reasoningConfiguration, after: { ...current.reasoningConfiguration, routeAssignments: { development: current.reasoningConfiguration.routeAssignments.development } } }] }), current);
-    const table = screen.getByRole('table', { name: 'Route profiles' });
+    const table = screen.getByRole('table', { name: 'Dynamic routes' });
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(within(table).getByRole('row', { name: /production/ })).toHaveTextContent('Removed');
   });
@@ -161,7 +207,7 @@ describe('AI routing review', () => {
     renderReview();
     expect(within(screen.getByRole('region', { name: 'Connection' })).getByText(gatewayUrl)).toBeVisible();
     expect(screen.queryByText('Preserve saved token')).toBeNull();
-    const table = screen.getByRole('table', { name: 'Route profiles' });
+    const table = screen.getByRole('table', { name: 'Dynamic routes' });
     const development = within(table).getByRole('row', { name: /development/ });
     expect(within(development).getByText('262,144 tokens')).toBeVisible();
     const production = within(table).getByRole('row', { name: /production/ });
@@ -190,7 +236,7 @@ describe('AI routing review', () => {
       { field: 'routeContextWindows', before: { bedrock_opus: 256000 }, after: submitted.routeContextWindows }];
     if (saved) render(() => <AiRoutingSummary values={submitted} current={{}} changes={changes} saved />);
     else renderReview(submitted, preview({ changes }));
-    const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /bedrock_opus/ });
+    const row = within(screen.getByRole('table', { name: 'Dynamic routes' })).getByRole('row', { name: /bedrock_opus/ });
     expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
     expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
     expect(within(row).getByText('Provider default')).toBeVisible();
@@ -215,7 +261,7 @@ describe('AI routing review', () => {
     const submitted = values();
     submitted.dynamicRoutes = ['development'];
     renderReview(submitted);
-    expect(within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /production/ })).toHaveTextContent('Platform reasoning');
+    expect(within(screen.getByRole('table', { name: 'Dynamic routes' })).getByRole('row', { name: /production/ })).toHaveTextContent('Platform reasoning');
     expect(screen.queryByRole('region', { name: 'Other profiles pending save' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Fallback' })).getByRole('list', { name: 'Allowed routes' }).textContent).toBe('development');
   });
@@ -229,7 +275,7 @@ describe('AI routing review', () => {
       { ...custom, id: 'custom-unassigned', name: 'Unassigned profile' },
     ];
     renderReview(submitted, preview({ changes: additions(submitted) }), { reasoningConfiguration: { customProfileRevisions: [{ ...custom, revision: 1 }] } });
-    const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /production/ });
+    const row = within(screen.getByRole('table', { name: 'Dynamic routes' })).getByRole('row', { name: /production/ });
     expect(within(row).getByText('Platform reasoning')).toBeVisible();
     expect(within(row).getByText('Pending save')).toBeVisible();
     expect(row.textContent).not.toContain('Old name');
@@ -267,7 +313,7 @@ describe('AI routing review', () => {
       groupRouting: [{ accessGroup: 'All regions', routes, defaultRoute: routes[0], reasoning: 'off' }],
       defaultRoute: { enabled: true, routes: routes.slice(0, 2), route: routes[0], reasoning: 'off' },
     });
-    const table = screen.getByRole('table', { name: 'Route profiles' });
+    const table = screen.getByRole('table', { name: 'Dynamic routes' });
     expect(within(table).getAllByRole('row')).toHaveLength(25);
     const allowed = within(screen.getByRole('region', { name: 'Group access' })).getByRole('list', { name: 'Allowed routes' });
     expect(within(allowed).getAllByRole('listitem').map((item) => item.textContent)).toEqual(routes);
@@ -351,7 +397,7 @@ describe('AI routing review', () => {
   it('REQ-ENTERPRISE-041: a successful save reuses readable values without pending labels or credential values', () => {
     const { container } = render(() => <AiRoutingSummary values={{ ...values(), replacementToken: 'secret-after-save' }} current={{}}
       changes={[...additions(values()), { field: 'replacementToken', secret: { willReplace: true } }]} saved />);
-    expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
+    expect(screen.getByRole('table', { name: 'Dynamic routes' })).toBeVisible();
     expect(screen.getByText('Platform reasoning')).toBeVisible();
     expect(screen.getByText('Saved token replaced')).toBeVisible();
     expect(screen.queryByText('Pending save')).not.toBeInTheDocument();
@@ -438,7 +484,7 @@ describe('AI routing review', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     await screen.findByRole('heading', { name: 'Confirm Save' });
-    expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
+    expect(screen.getByRole('table', { name: 'Dynamic routes' })).toBeVisible();
     const reviewPanel = screen.getByRole('heading', { name: 'Confirm Save' }).closest('section')!;
     expect(within(reviewPanel).queryByRole('region', { name: 'Fallback' })).toBeNull();
     if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
@@ -477,7 +523,7 @@ describe('AI routing review', () => {
     if (tokenMode === 'replacement') expect(screen.getByText('Saved token replaced')).toBeVisible();
     else expect(screen.queryByText('Saved token preserved')).toBeNull();
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, firstPreview, ['reasoning_observed_path']);
-    expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
+    expect(screen.getByRole('table', { name: 'Dynamic routes' })).toBeVisible();
     expect(screen.getByText('Platform reasoning')).toBeVisible();
     const technical = screen.getByText('Technical details').closest('details')!;
     expect(technical.open).toBe(false);

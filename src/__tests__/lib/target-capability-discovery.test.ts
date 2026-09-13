@@ -110,12 +110,12 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     }
   });
 
-  it('automatically returns a canonical shared configuration and grade, not a profile shopping list', async () => {
+  it('automatically returns a canonical shared configuration and independent evidence, not a profile shopping list', async () => {
     const bodies: any[] = [];
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/never-listed-route', maxCompletionTokens: 256,
       fetcher: vi.fn(async (_url, init) => { const body = JSON.parse(String(init!.body)); bodies.push(body); return response(body, bodies.length === 4 ? 'HIT' : 'MISS'); }) });
     expect(result.assignable).toBe(true);
-    expect(result.capabilities).toMatchObject({ tools: true, replay: true, cache: 'gateway-response', reasoning: 'provider-default', grade: 'Acceptable' });
+    expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'gateway-response', reasoning: 'provider-default' }] });
     expect(result).not.toHaveProperty('matchedProfiles');
     expect(result.profile).toEqual(normalizeCustomProfile(result.profile));
     expect(result.profile!.id).not.toContain('never-listed');
@@ -126,14 +126,16 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(JSON.stringify(result)).not.toContain(coordinates.apiToken);
   });
 
-  it('finds a buffered working contract when SSE does not yield cache evidence, without pretending it streams', async () => {
+  it('finds a buffered working contract when SSE does not yield a tool call, without pretending it streams', async () => {
     const bodies: any[] = [];
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/future-bedrock-route', maxCompletionTokens: 256,
-      fetcher: vi.fn(async (_url, init) => { const body = JSON.parse(String(init!.body)); bodies.push(body); return response(body, !body.stream && bodies.filter((item) => !item.stream).length === 4 ? 'HIT' : 'MISS'); }) });
+      fetcher: vi.fn(async (_url, init) => { const body = JSON.parse(String(init!.body)); bodies.push(body);
+        if (body.stream) return response({ ...body, tools: undefined });
+        return response(body, bodies.filter((item) => !item.stream).length === 4 ? 'HIT' : 'MISS'); }) });
     expect(result.assignable).toBe(true);
     expect(result.attempts).toHaveLength(2);
     expect(result.profile!.compatibility).toEqual({ response: 'buffered', toolNames: 'repeated-complete', transport: 'compat' });
-    expect(result.capabilities).toMatchObject({ cache: 'gateway-response', streaming: 'not-observed', grade: 'Acceptable' });
+    expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ cache: 'gateway-response', streaming: 'not-observed' }] });
     expect(bodies.filter((body) => !body.stream)).toHaveLength(4);
   });
 
@@ -146,7 +148,7 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
       bodies.push(body);
       expect(String(url)).toBe(`https://gateway.ai.cloudflare.com/v1/${coordinates.accountId}/${coordinates.gatewayId}/compat/chat/completions`);
       expect(new Headers(init?.headers).get('cf-aig-max-attempts')).toBe('1');
-      if (body.stream) return response(body); // Complete tools/replay + cache pair, no positive reuse.
+      if (body.stream) return response({ ...body, tools: undefined }); // Valid framing, but no required tool call.
       // Synthetic content-redacted envelope derived from the incident projection's
       // native field shape and tool_use stop. Not an original captured response,
       // nor evidence that Dynamic supports a native adapter.
@@ -163,18 +165,18 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(result.classification).toBe('Inconclusive');
     expect(result.profile).toBeUndefined();
     expect(result.report).toBeUndefined();
-    // Four completed streaming submissions then one buffered tool submission:
+    // One stream without the required tool call, then one buffered submission:
     // no replay of the incompatible envelope, retry, or native/other-contract fallback.
-    expect(fetcher).toHaveBeenCalledTimes(5);
-    expect(result.accounting.httpAttempts).toBe(5);
-    expect(bodies.map((body) => body.stream)).toEqual([true, true, true, true, false]);
-    expect(bodies[4].tools[0].function.name).toBe('codeflare_profile_canary');
-    expect(bodies[4].messages.map((message: any) => message.role)).toEqual(['system', 'user']);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.accounting.httpAttempts).toBe(2);
+    expect(bodies.map((body) => body.stream)).toEqual([true, false]);
+    expect(bodies[1].tools[0].function.name).toBe('codeflare_profile_canary');
+    expect(bodies[1].messages.map((message: any) => message.role)).toEqual(['system', 'user']);
     expect(result.attempts).toHaveLength(2);
-    expect(result.attempts[0]).toMatchObject({ httpAttempts: 4,
-      capabilities: { tools: true, replay: true, cache: 'inconclusive', grade: 'Not qualified' } });
+    expect(result.attempts[0]).toMatchObject({ httpAttempts: 1,
+      capabilities: { schemaVersion: 2, mappings: [{ tools: false, replay: false, cache: 'not-tested' }] } });
     expect(result.attempts[1]).toMatchObject({ httpAttempts: 1, classification: 'Inconclusive',
-      capabilities: { tools: false, replay: false, cache: 'not-tested', grade: 'Not qualified' } });
+      capabilities: { schemaVersion: 2, mappings: [{ tools: false, replay: false, cache: 'not-tested' }] } });
     for (const forbidden of [privateText, responseId, 'synthetic-native-call', coordinates.apiToken]) {
       expect(JSON.stringify(result)).not.toContain(forbidden);
     }
@@ -199,10 +201,10 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
   it('does not confuse absent cache observations with proof that caching is unsupported', async () => {
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/unknown', maxCompletionTokens: 256,
       fetcher: vi.fn(async (_url, init) => response(JSON.parse(String(init!.body)))) });
-    expect(result.assignable).toBe(false);
-    expect(result.classification).toBe('Inconclusive');
-    expect(result.profile).toBeUndefined();
-    expect(result.explanation).toContain('cache');
+    expect(result.assignable).toBe(true);
+    expect(result.classification).toBe('Verified');
+    expect(result.profile).toBeDefined();
+    expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'inconclusive' }] });
   });
 
   it('stops the campaign on authentication failure without trying another contract or transport', async () => {
@@ -272,12 +274,12 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
       expect(result.assignable).toBe(true);
       expect(result.classification).toBe('Verified');
       expect(result.profile?.hash).toBe(capabilityCandidates(false)[2].hash);
-      expect(result.capabilities).toMatchObject({ tools: true, replay: true, cache: 'gateway-response', reasoning: 'observed-enabled', grade: 'Acceptable' });
+      expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'gateway-response', reasoning: 'observed-enabled' }] });
       expect(result.report?.cacheEvidence.backendIdentified).toBe(true);
       expect(fetcher).toHaveBeenCalledTimes(7);
     } else {
       expect(result.attempts[2].diagnostics).toContainEqual(expect.objectContaining({ stage: 'branch-correlation', code: 'backend_changed' }));
-      expect(result.attempts[2].capabilities?.grade).toBe('Not qualified');
+      expect(result.attempts[2].capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'inconclusive' }] });
       expect(result.assignable).toBe(false);
       expect(result.classification).toBe('Inconclusive');
       expect(result.profile).toBeUndefined();
@@ -286,9 +288,9 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
   });
 
   it.each([
-    { reasoningContent: 'private synthetic reasoning content', reasoning: 'observed-enabled', grade: 'Acceptable' },
-    { reasoningContent: '', reasoning: 'unverified', grade: 'Minimum' },
-  ])('grades reasoning content without token counters as $reasoning', async ({ reasoningContent, reasoning, grade }) => {
+    { reasoningContent: 'private synthetic reasoning content', reasoning: 'observed-enabled' },
+    { reasoningContent: '', reasoning: 'accepted-unverified' },
+  ])('reports reasoning content without token counters as $reasoning', async ({ reasoningContent, reasoning }) => {
     const fetcher = enabledMappingFetcher({ reasoningContent });
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/reasoning-content', maxCompletionTokens: 256,
       requireBackendIdentity: true, fetcher });
@@ -297,7 +299,7 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(result.report?.distinctMappings[0].reasoningProbe).toMatchObject({ status: 200, reasoningTokens: null,
       reasoningLength: reasoningContent.length, reasoningField: reasoningContent ? 'reasoning_content' : null });
     expect(JSON.stringify(result)).not.toContain('private synthetic reasoning content');
-    expect(result.capabilities).toMatchObject({ tools: true, replay: true, cache: 'gateway-response', reasoning, grade });
+    expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'gateway-response', reasoning }] });
     expect(fetcher).toHaveBeenCalledTimes(7);
   });
 

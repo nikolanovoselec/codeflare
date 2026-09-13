@@ -78,6 +78,13 @@
 .admin-target-check-result h4 { margin: 0 0 var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--font-medium); }
 .admin-target-check-result p { margin: var(--space-2) 0; }
 .admin-target-check-result .admin-check-next-step { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
+.admin-target-check-result .admin-check-evidence { display: grid; gap: var(--space-3); margin: var(--space-4) 0; }
+.admin-target-check-result .admin-check-evidence > div { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(0, 3fr); gap: var(--space-3); }
+.admin-target-check-result .admin-check-evidence dt { color: var(--color-text-secondary); }
+.admin-target-check-result .admin-check-evidence dd { margin: 0; min-width: 0; }
+.admin-capability-mappings { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.admin-capability-mappings li { display: grid; gap: var(--space-1); }
+.admin-capability-mappings strong { font-size: var(--text-sm); font-weight: var(--font-medium); }
 .admin-target-check-result .admin-technical-details { margin: var(--space-3) 0 0; }
 .admin-target-check-result .admin-technical-details ul { padding-left: var(--space-4); }
 .admin-target-check-result .admin-technical-details li + li { margin-top: var(--space-3); }

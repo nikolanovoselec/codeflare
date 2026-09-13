@@ -1,9 +1,10 @@
 import { discoverPiCompatibility, type DiscoveryInput } from '../reasoning-discovery';
 import { BEDROCK_MESSAGES_DEFAULT_PROFILE } from '../native-ai-target-draft';
 import type { TargetCapabilityResult } from './contract';
-import { MAX_CAPABILITY_SUBMISSIONS } from './contract';
+import { capabilityEvidenceMatches, MAX_CAPABILITY_SUBMISSIONS, type CapabilitySummaryV2 } from './contract';
+import { completedProfileCheck } from '../reasoning-verification';
 export type { TargetCapabilityResult } from './contract';
-import { canonicalHash, getBuiltInProfile, normalizeCustomProfile, type NormalizedReasoningProfile } from '../reasoning-profiles';
+import { canonicalHash, getBuiltInProfile, isCanonicalNativeDiscoveryProfile, normalizeCustomProfile, type PiReasoningLevel, type NormalizedReasoningProfile } from '../reasoning-profiles';
 
 export type TargetCapabilityInput = Omit<DiscoveryInput, 'profile' | 'offCandidateMapping' | 'requireCacheEvidence' | 'endpoint' | 'campaignDeadline'>;
 
@@ -13,7 +14,7 @@ export type TargetCapabilityInput = Omit<DiscoveryInput, 'profile' | 'offCandida
  * Native currently implements only the observed Bedrock Messages boundary;
  * adding Azure would mean a deliberate protocol extension, not URL guessing. */
 export function capabilityCandidates(native: boolean): NormalizedReasoningProfile[] {
-  if (native) return [getBuiltInProfile(BEDROCK_MESSAGES_DEFAULT_PROFILE)!];
+  if (native) return ['off', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => nativeProfile(level === 'low' ? ['minimal', 'low'] : [level as PiReasoningLevel]));
   const baseline = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
   const forms = [undefined, ...[
     'openai-gpt-chat-tools-reasoning', 'workers-ai-gemma-thinking', 'workers-ai-kimi-k-thinking',
@@ -49,45 +50,151 @@ export function capabilityCandidates(native: boolean): NormalizedReasoningProfil
   });
 }
 
-/** One explicit administrator action, no selection/startup/background probes.
- * Failures never trigger model/provider substitutions or production retries.
- * Search is bounded independently of the growing profile/model catalog. */
+function nativeProfile(supported: PiReasoningLevel[]): NormalizedReasoningProfile {
+  const audited = getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
+  const supportedLevels = audited.supportedLevels.filter((level) => supported.includes(level));
+  const semantic = { supportedLevels, removePaths: audited.removePaths,
+    levels: Object.fromEntries(supportedLevels.map((level) => [level, audited.levels[level]])),
+    aliases: supportedLevels.includes('minimal') ? { minimal: 'low' } : {},
+    offSemantics: supportedLevels.includes('off') ? audited.offSemantics : { status: 'unsupported' } };
+  return normalizeCustomProfile({ schemaVersion: 1, revision: 1, enabled: true,
+    id: `bedrock-anthropic-native-discovered-${canonicalHash(semantic).slice(0, 24)}`,
+    name: 'Discovered Bedrock Anthropic controls', family: 'Discovered native protocol', ...semantic,
+    limitations: ['Only completed target-bound mappings are selectable; accepted efforts do not prove graduated fidelity.',
+      ...(supportedLevels.includes('minimal') ? ['Minimal explicitly aliases Low.'] : []),
+      'Cache and incremental delivery are measured separately for each mapping.'] });
+}
+
+/** One submission counter/deadline for the whole explicit action, never per form. */
+function campaign(input: TargetCapabilityInput) {
+  let count = 0;
+  const totals: Record<string, number> = { logicalProbes: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  const deadline = Date.now() + 10 * 60_000;
+  const fetcher = input.fetcher ?? input.fetchImpl ?? fetch;
+  const exhausted = () => count >= MAX_CAPABILITY_SUBMISSIONS || Date.now() >= deadline;
+  const boundedFetch: typeof fetch = async (url, init) => {
+    if (exhausted()) throw new Error('capability_campaign_limit');
+    count++;
+    return fetcher(url, init);
+  };
+  return { count: () => count, exhausted, accounting: () => ({ ...totals, httpAttempts: count }),
+    run: async (profile: NormalizedReasoningProfile) => {
+      const report = await discoverPiCompatibility({ ...input, profile, fetcher: boundedFetch,
+        campaignDeadline: deadline, maxCompletionTokens: Math.min(input.maxCompletionTokens, 2048),
+        timeoutMs: Math.min(input.timeoutMs ?? 90_000, 90_000), requireCacheEvidence: true });
+      for (const key of Object.keys(totals)) totals[key] += report.accounting[key];
+      return report;
+    } };
+}
+
+function nativeBackendConsistent(reports: Record<string, any>[]): boolean {
+  const observations = reports.flatMap((report) => [...report.distinctMappings.flatMap((item: Record<string, any>) =>
+    [item.reasoningProbe, item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean), ...(report.cacheEvidence?.observations ?? [])]);
+  return ['provider', 'model'].every((key) => new Set(observations.map((item) => item.backend?.[key]).filter(Boolean)).size <= 1);
+}
+
+function aggregateNative(profile: NormalizedReasoningProfile, reports: Record<string, any>[], input: TargetCapabilityInput, count: number): Record<string, any> {
+  const first = reports[0];
+  const distinctMappings = reports.flatMap((report) => report.distinctMappings);
+  const capabilities: CapabilitySummaryV2 = { schemaVersion: 2, mappings: reports.flatMap((report) => report.capabilitySummary?.mappings ?? []) };
+  const diagnostics = reports.flatMap((report) => report.diagnostics ?? []);
+  const consistent = nativeBackendConsistent(reports);
+  if (!consistent) diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'backend_changed' });
+  const stopDiscovery = !consistent || reports.some((report) => report.stopDiscovery);
+  const verifiedLevels = reports.flatMap((report) => report.piCompatibility.verifiedLevels);
+  const failedLevels = profile.supportedLevels.filter((level) => !verifiedLevels.includes(level));
+  const assignable = reports.length > 0 && !stopDiscovery && reports.every((report) => report.assignable
+    && completedProfileCheck(report, { supportedLevels: report.normalizedDraft.supportedLevels }))
+    && capabilityEvidenceMatches(capabilities, profile, input.native?.transport);
+  const report: Record<string, any> = { ...first, profileId: profile.id, distinctMappings, diagnostics, stopDiscovery, assignable,
+    classification: assignable ? 'Verified' : 'Inconclusive', capabilitySummary: capabilities,
+    compatibleLevels: reports.flatMap((report) => report.compatibleLevels),
+    piCompatibility: { status: assignable ? 'verified' : 'partial', verifiedLevels, failedLevels },
+    reasoningConfiguration: { ...first?.reasoningConfiguration,
+      off: profile.supportedLevels.includes('off') ? reports.find((report) => report.distinctMappings.some((item: Record<string, any>) => item.levels.includes('off')))?.reasoningConfiguration.off : 'unsupported-by-profile',
+      routeHealthVerified: reports.length > 0 && reports.every((report) => report.reasoningConfiguration.routeHealthVerified) },
+    accounting: { ...Object.fromEntries(['logicalProbes', 'promptTokens', 'completionTokens', 'totalTokens'].map((key) =>
+      [key, reports.reduce((sum, report) => sum + report.accounting[key], 0)])), httpAttempts: count },
+    evidence: { ...first?.evidence, toolReplay: assignable, status: assignable ? 'Verified' : 'Inconclusive' },
+    normalizedDraft: { ...first?.normalizedDraft, profileId: profile.id, supportedLevels: [...profile.supportedLevels],
+      classification: assignable ? 'Verified' : 'Inconclusive', evidence: { ...first?.normalizedDraft?.evidence, toolReplay: assignable, status: assignable ? 'Verified' : 'Inconclusive' } } };
+  // No single-form cache projection can speak for an assembled multiform profile.
+  if (reports.length > 1) delete report.cacheEvidence;
+  if (!completedProfileCheck(report, profile)) { report.assignable = false; report.classification = 'Inconclusive'; }
+  return report;
+}
+
+/** Recheck only the selected immutable native contract, never expand its forms. */
+export async function verifyNativeCapabilityProfile(input: TargetCapabilityInput, profile: NormalizedReasoningProfile): Promise<Record<string, any>> {
+  if (!input.native || !profile.enabled || (profile.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE && !isCanonicalNativeDiscoveryProfile(profile))) {
+    throw new TypeError('Selected native capability profile is not an audited contract');
+  }
+  const canonical = profile.id === BEDROCK_MESSAGES_DEFAULT_PROFILE ? getBuiltInProfile(profile.id)! : normalizeCustomProfile(profile);
+  if (canonicalHash(canonical) !== canonicalHash(profile)) throw new TypeError('Selected native capability profile hash mismatch');
+  const bounded = campaign(input);
+  const reports: Record<string, any>[] = [];
+  const groups = new Map<string, PiReasoningLevel[]>();
+  for (const level of profile.supportedLevels) {
+    const key = canonicalHash(profile.levels[level]);
+    groups.set(key, [...(groups.get(key) ?? []), level]);
+  }
+  const selected = profile.reasoningMode === 'provider-default' ? [profile] : [...groups.values()].map((levels) => ({ ...profile,
+    supportedLevels: levels, levels: Object.fromEntries(levels.map((level) => [level, profile.levels[level]])),
+    aliases: Object.fromEntries(Object.entries(profile.aliases).filter(([level]) => levels.includes(level as PiReasoningLevel))) }));
+  for (const form of selected) {
+    const report = await bounded.run(form);
+    reports.push(report);
+    if (report.stopDiscovery || bounded.exhausted() || !nativeBackendConsistent(reports)) break;
+  }
+  const report = aggregateNative(profile, reports, input, bounded.count());
+  report.accounting = bounded.accounting();
+  return report;
+}
+
+/** Explicit administrator action. Failed forms are diagnostics, not executable levels. */
 export async function discoverTargetCapabilities(input: TargetCapabilityInput): Promise<TargetCapabilityResult> {
   if (!input.native && !input.route.startsWith('dynamic/') && !input.route.startsWith('aws-bedrock/')) {
     throw new TypeError('Native discovery supports the observed Bedrock contract only; this protocol is not supported');
   }
+  const bounded = campaign(input);
   const attempts: TargetCapabilityResult['attempts'] = [];
-  let count = 0;
-  let cacheInconclusive = false;
-  let refusalExplanation: string | undefined;
+  const retained: Array<{ profile: NormalizedReasoningProfile; report: Record<string, any> }> = [];
   let stopped = false;
-  const started = Date.now();
-  const fetcher = input.fetcher ?? input.fetchImpl ?? fetch;
-  const boundedFetch: typeof fetch = async (url, init) => {
-    if (count >= MAX_CAPABILITY_SUBMISSIONS || Date.now() - started >= 10 * 60_000) throw new Error('capability_campaign_limit');
-    count++;
-    return fetcher(url, init);
-  };
-  for (const profile of capabilityCandidates(Boolean(input.native))) {
-    const countBefore = count;
-    const report = await discoverPiCompatibility({ ...input, profile, fetcher: boundedFetch, campaignDeadline: started + 10 * 60_000,
-      maxCompletionTokens: Math.min(input.maxCompletionTokens, 2048), timeoutMs: Math.min(input.timeoutMs ?? 90_000, 90_000), requireCacheEvidence: true });
+  const candidates = capabilityCandidates(Boolean(input.native));
+  if (input.native) candidates.push(getBuiltInProfile(BEDROCK_MESSAGES_DEFAULT_PROFILE)!);
+  for (const profile of candidates) {
+    if (input.native && profile.reasoningMode === 'provider-default' && retained.length) break;
+    const before = bounded.count();
+    const report = await bounded.run(profile);
     attempts.push({ contract: profile.id, classification: report.classification, capabilities: report.capabilitySummary,
-      diagnostics: report.diagnostics ?? [], httpAttempts: count - countBefore });
-    cacheInconclusive ||= report.capabilitySummary?.cache === 'inconclusive';
-    if (report.diagnostics?.some((item: { code: string; stage: string }) => item.code === 'provider_refusal' && item.stage === 'cache-fill')) {
-      refusalExplanation = report.cacheEvidence?.explanation;
+      diagnostics: report.diagnostics ?? [], httpAttempts: bounded.count() - before });
+    if (input.native && !nativeBackendConsistent([...retained.map((item) => item.report), report])) {
+      if (!report.diagnostics.some((item: { code: string }) => item.code === 'backend_changed')) {
+        attempts.at(-1)!.diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'backend_changed' });
+      }
+      attempts.at(-1)!.classification = 'Inconclusive';
+      stopped = true;
+      break;
     }
-    if (report.assignable && !report.stopDiscovery) return { schemaVersion: 1, assignable: true, classification: 'Verified',
-      explanation: 'One working configuration was selected automatically. Review and Save to enable it; only this exercised target path is certified.',
-      capabilities: report.capabilitySummary, profile, report, attempts, accounting: { httpAttempts: count } };
-    if (report.stopDiscovery || count >= MAX_CAPABILITY_SUBMISSIONS || Date.now() - started >= 10 * 60_000) { stopped = true; break; }
+    if (report.stopDiscovery || bounded.exhausted()) { stopped = true; break; }
+    if (report.assignable && completedProfileCheck(report, profile) && capabilityEvidenceMatches(report.capabilitySummary, profile, input.native?.transport)) {
+      retained.push({ profile, report });
+      if (!input.native) break; // Never chase cache via buffered after a working wire lifecycle.
+    }
   }
-  // A bounded campaign cannot prove universal provider impossibility. In
-  // particular, misses and model refusals are not "caching unsupported".
+  if (!stopped && retained.length) {
+    const profile = input.native && retained[0].profile.reasoningMode !== 'provider-default'
+      ? nativeProfile(retained.flatMap((item) => item.profile.supportedLevels)) : retained[0].profile;
+    const report = input.native ? aggregateNative(profile, retained.map((item) => item.report), input, bounded.count()) : retained[0].report;
+    report.accounting = bounded.accounting();
+    if (report.assignable && completedProfileCheck(report, profile)) return { schemaVersion: 1, assignable: true, classification: 'Verified',
+      explanation: report.cacheEvidence?.observations[0]?.effectiveFinishReason === 'content_filter'
+        ? `Working tools and exact replay were verified. ${report.cacheEvidence.explanation}`
+        : 'Working tools and exact replay were verified. Review and Save to enable this target; reasoning, streaming and input caching are independent observations.',
+      capabilities: report.capabilitySummary, profile, report, attempts, accounting: { httpAttempts: bounded.count() } };
+  }
   return { schemaVersion: 1, assignable: false, classification: 'Inconclusive',
-    explanation: refusalExplanation ?? (stopped ? 'Discovery stopped at an authentication, provider, framing, timeout or campaign boundary. Tools/replay and cache minimum was not established; inspect the stage/status diagnostics.'
-      : cacheInconclusive ? 'Tool calling/replay worked, but no qualifying cache reuse was observed with the supported contracts. Minimum is inconclusive, not proof that caching is unsupported.'
-        : 'No tested protocol contract completed the required tool lifecycle and caching. This target cannot be enabled by discovery; the failed stages explain what is missing.'),
-    attempts, accounting: { httpAttempts: count } };
+    explanation: stopped ? 'Discovery stopped at an authentication, provider, framing, timeout or campaign boundary. Inspect the stage diagnostics; no fresh activation proof was issued.'
+      : 'No tested contract completed the required tool lifecycle and exact mapping evidence. Optional cache absence alone does not prevent activation.',
+    attempts, accounting: { httpAttempts: bounded.count() } };
 }

@@ -2,7 +2,7 @@ import { For, Show, createMemo, createUniqueId, type Component } from 'solid-js'
 import type { ConfigurationPreview } from '../../api/client';
 import { operatorTaskLabel } from './administration-presentation';
 import { profileDisplayName } from './pi-profile-presentation';
-import { canonicalJson, getBuiltInProfile } from '../../../../src/lib/reasoning-profiles';
+import { canonicalJson, getBuiltInProfile, isGeneratedNativeProfileId } from '../../../../src/lib/reasoning-profiles';
 import './AiRoutingReview.css';
 
 type Changes = ConfigurationPreview['changes'];
@@ -93,6 +93,13 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const savedProfiles = () => revisions(record(before().reasoningConfiguration).customProfileRevisions);
   const routes = () => changedRoutes(before(), data());
   const nativeTargets = () => revisions(data().nativeTargets);
+  const nativeFor = (route: string) => nativeTargets().find((target) => text(target.handle) === route || `cf-native-${text(target.id)}` === route);
+  // REQ-ENTERPRISE-046: after-state inherits unchanged server targets, never submitted labels.
+  const routeName = (route: string) => {
+    if (!route.startsWith('cf-native-')) return safe()(route || 'Not configured');
+    const target = nativeFor(route);
+    return target && text(target.label) ? safe()(`Native Route - ${text(target.label)}`) : 'Native Route - name unavailable';
+  };
   const groups = () => revisions(data().groupRouting);
   const explicitFallback = () => props.changes.find((change) => change.field === 'fallbackRouting')?.after
     ?? record(props.changes.find((change) => change.field === 'reasoningConfiguration')?.after).fallbackRouting
@@ -107,11 +114,13 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const profileFor = (route: string, state = data()) => record(record(assignmentsFor(state)[route]).activeProfile);
   const customFor = (ref: Record<string, unknown>) => profiles().find((profile) => sameRevision(profile, ref));
   const providerDefault = (route: string) => {
-    const ref = profileFor(route);
+    const ref = route.startsWith('cf-native-') ? record(nativeFor(route)?.profileRef) : profileFor(route);
     const profile = customFor(ref) ?? record(getBuiltInProfile(text(ref.id)));
     return sameRevision(profile, ref) && profile.reasoningMode === 'provider-default';
   };
-  const policyReasoning = (route: unknown, level: unknown) => providerDefault(text(route)) ? 'Provider default' : reasoningLabel(level);
+  const policyReasoning = (route: unknown, level: unknown) => providerDefault(text(route))
+    ? <><span>Provider default</span><br /><small>{reasoningLabel(level)} preference: no explicit override is sent; reasoning remains provider-controlled, not guaranteed Off.</small></>
+    : reasoningLabel(level);
   const nameFor = (ref: Record<string, unknown>) => {
     if (!text(ref.id)) return 'No profile assigned';
     const custom = customFor(ref) ?? savedProfiles().find((profile) => sameRevision(profile, ref));
@@ -119,7 +128,9 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
     return safe()(label === ref.id ? 'Profile name unavailable' : label);
   };
   const pending = (profile: Record<string, unknown>) => !props.saved && !savedProfiles().some((saved) => sameRevision(saved, profile));
-  const unassigned = () => profiles().filter((profile) => !savedProfiles().some((saved) => sameRevision(saved, profile))
+  const unassigned = () => profiles().filter((profile) => !isGeneratedNativeProfileId(text(profile.id))
+    && !savedProfiles().some((saved) => sameRevision(saved, profile))
+    && !nativeTargets().some((target) => sameRevision(record(target.profileRef), profile))
     && !Object.keys(assignments()).some((route) => sameRevision(profileFor(route), profile)));
   const contextWindow = (route: string, state = data()) => {
     const tokens = record(state.routeContextWindows)[route];
@@ -133,7 +144,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
     ? (replacingToken() ? 'Saved token replaced' : 'Saved token preserved')
     : (replacingToken() ? 'Replace saved token' : 'Preserve saved token');
   const routeList = (items: string[]) => <Show when={items.length} fallback={<span>No routes allowed</span>}>
-    <ul class="ai-routing-review-route-list" aria-label="Allowed routes"><For each={items}>{(route) => <li>{safe()(route)}</li>}</For></ul>
+    <ul class="ai-routing-review-route-list" aria-label="Allowed routes"><For each={items}>{(route) => <li>{routeName(route)}</li>}</For></ul>
   </Show>;
 
   return <div class="ai-routing-review-summary">
@@ -146,7 +157,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
       </dl>
     </section></Show>
     <Show when={routes().length || unassigned().length}><section class="ai-routing-review-section" aria-labelledby={`${id}-profiles`}>
-      <h3 id={`${id}-profiles`}>Route profiles</h3>
+      <h3 id={`${id}-profiles`}>Dynamic routes</h3>
       <Show when={routes().length} fallback={<p>No routes configured</p>}>
         <table class="ai-routing-review-routes" aria-labelledby={`${id}-profiles`}>
           <thead><tr><th scope="col">Route</th><th scope="col">Profile</th><th scope="col">Context window</th></tr></thead>
@@ -177,7 +188,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
           <h4>{safe()(text(group.accessGroup))}</h4>
           <dl class="ai-routing-review-values">
             <div><dt>Allowed routes</dt><dd>{routeList(list(group.routes))}</dd></div>
-            <div><dt>Default route</dt><dd>{safe()(text(group.defaultRoute) || 'Not configured')}</dd></div>
+            <div><dt>Default route</dt><dd>{routeName(text(group.defaultRoute))}</dd></div>
             <div><dt>Default reasoning</dt><dd>{policyReasoning(group.defaultRoute, group.reasoning)}</dd></div>
           </dl>
         </article>}</For></div>
@@ -189,7 +200,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
         <p>Applies to users without a matching group policy.</p>
         <dl class="ai-routing-review-values">
           <div><dt>Allowed routes</dt><dd>{routeList(fallbackRoutes())}</dd></div>
-          <div><dt>Default route</dt><dd>{safe()(text(fallbackDefault()) || 'Not configured')}</dd></div>
+          <div><dt>Default route</dt><dd>{routeName(text(fallbackDefault()))}</dd></div>
           <div><dt>Default reasoning</dt><dd>{policyReasoning(fallbackDefault(), fallback().reasoning)}</dd></div>
         </dl>
       </Show>

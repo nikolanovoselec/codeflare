@@ -49,7 +49,7 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     expect(verificationMatches(result.routeVerification, result.profile, connection)).toBe(true);
     expect(verificationMatches({ ...result.routeVerification, capabilities: undefined }, result.profile, connection)).toBe(false);
     expect(verificationMatches({ ...result.routeVerification, method: 'administrator' }, result.profile, connection)).toBe(false);
-    const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId); expect(receipt.verification.capabilities?.cache).toBe('gateway-response');
+    const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId); expect(receipt.verification.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ cache: 'gateway-response' }] });
     const values = { ...config, dynamicRoutes: ['future'], routeContextWindows: { future: 200000 }, routeChecks: { future: result.checkId },
       reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [result.profile], routeAssignments: { future: { activeProfile: result.routeVerification.profileRef, verification: result.routeVerification } } } };
     const saved = await validateConfigurationValues(env, 'aiRouting', 'enterprise', values); expect(saved.fieldErrors ?? {}).toEqual({});
@@ -141,7 +141,7 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
         expect(result.assignable).toBe(true);
         const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId);
         expect(receipt.route).toBe('future');
-        expect(receipt.verification).toMatchObject({ profileRef, scope: 'observed-path', capabilities: { cache: 'gateway-response' } });
+        expect(receipt.verification).toMatchObject({ profileRef, scope: 'observed-path', capabilities: { schemaVersion: 2, mappings: [{ cache: 'gateway-response' }] } });
         expect(verificationMatches(receipt.verification, generated, connection)).toBe(true);
       } else {
         expect.soft(result.assignable).toBe(false);
@@ -154,23 +154,28 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
   });
 
   it('certifies a synthetic future native model through the saved Invoke transport and authentic replay', async () => {
-    const { post, env } = setup(); let calls = 0;
+    const { post, env } = setup(); let calls = 0; let defaultCalls = 0;
     const blocks = [{ type: 'tool_use', id: 'synthetic-call', name: 'codeflare_profile_canary', input: { value: 'ok' } }];
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       if ((init?.method ?? 'GET') === 'GET') return Response.json({ success: true, result: [{ id: 'private-provider-id', provider_slug: 'aws-bedrock', gateway_id: 'synthetic', default_config: true }],
         result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
       calls++; const body = JSON.parse(String(init!.body)); expect(String(url)).toMatch(/\/invoke$/);
-      expect(body).not.toHaveProperty('thinking'); expect(body).not.toHaveProperty('stream');
-      if (calls === 2) expect(body.messages.at(-2).content).toEqual(blocks);
-      return Response.json({ content: calls === 1 ? blocks : [{ type: 'text', text: 'Synthetic result' }], stop_reason: calls === 1 ? 'tool_use' : 'end_turn',
-        usage: { input_tokens: 4, output_tokens: 4, cache_read_input_tokens: calls === 4 ? 8192 : 0 } });
+      expect(body).not.toHaveProperty('stream');
+      // Default is the real fallback only after this synthetic provider rejects
+      // all six explicit forms; no inherited selectable controls are assumed.
+      if (body.thinking !== undefined) return Response.json({ error: { code: 'ValidationException' } }, { status: 400 });
+      defaultCalls++;
+      if (defaultCalls === 2) expect(body.messages.at(-2).content).toEqual(blocks);
+      return Response.json({ content: defaultCalls === 1 ? blocks : [{ type: 'text', text: 'Synthetic result' }], stop_reason: defaultCalls === 1 ? 'tool_use' : 'end_turn',
+        usage: { input_tokens: 4, output_tokens: 4, cache_read_input_tokens: defaultCalls === 4 ? 8192 : 0 } });
     });
     const target = { provider: 'aws-bedrock', model: 'eu.anthropic.claude-synthetic-future-2099-v1:0', label: 'Future native',
       transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', contextWindow: 200000, enabled: false };
     const response = await post({ kind: 'native-provider', target }); expect(response.status, JSON.stringify({ body: await response.clone().json(), calls })).toBe(200);
-    const result: any = await response.json(); expect(result.assignable).toBe(true); expect(calls).toBe(4);
+    const result: any = await response.json(); expect(result.assignable).toBe(true); expect(calls).toBe(10);
+    expect(defaultCalls).toBe(4);
     expect(result.profile).toEqual(getBuiltInProfile('bedrock-anthropic-native-provider-default'));
-    expect(result.capabilities).toMatchObject({ grade: 'Acceptable', cache: 'provider-prefix', nativePromptCache: true });
+    expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ cache: 'provider-prefix', transport: 'bedrock-invoke', reasoning: 'provider-default' }] });
     expect(JSON.stringify(result)).not.toContain('private-provider-id');
     const values = { ...config, nativeTargets: [{ ...target, id: result.targetId, enabled: true,
       profileRef: { id: result.profile.id, revision: result.profile.revision, hash: result.profile.hash } }], nativeChecks: { [result.targetId]: result.checkId } };

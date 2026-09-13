@@ -5,8 +5,7 @@ import { requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { discoverTargetCapabilities } from '../../lib/ai-capability-discovery';
-import { BEDROCK_MESSAGES_DEFAULT_PROFILE } from '../../lib/native-ai-target-draft';
-import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { capabilityEvidenceMatches } from '../../lib/ai-capability-discovery/contract';
 import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
 import { backendDescriptionsSchema, dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listNativeProviderConfigs,
   resolveGatewayConnection, selectNativeProviderConfig } from '../../lib/ai-gateway-management';
@@ -86,7 +85,8 @@ routes.post('/discover', async (c) => {
     if (saved && (!saved.enabled || saved.hash !== profile.hash)) return c.json({ code: 'profile_changed', error: 'The matching contract revision is disabled or changed' }, 409);
     const after = selectNativeProviderConfig(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token), request.target.provider);
     if (!after || after.id !== provider.id || after.alias !== provider.alias) return c.json({ code: 'provider_changed', error: 'Provider binding changed during discovery' }, 409);
-    const profileRef = native ? getBuiltInProfileRef(BEDROCK_MESSAGES_DEFAULT_PROFILE) : { id: profile.id, revision: profile.revision, hash: profile.hash };
+    if (!capabilityEvidenceMatches(result.capabilities, profile, request.target.transport)) return c.json({ ...result, assignable: false });
+    const profileRef = { id: profile.id, revision: profile.revision, hash: profile.hash };
     const target = createNativeTarget({ ...request.target, id: existing?.id, providerConfigId: provider.id, providerConfigAlias: provider.alias, profileRef });
     const verification: NativeTargetVerification = { schemaVersion: 1, targetId: target.id, provider: target.provider, model: target.model,
       providerConfigId: provider.id, ...(provider.alias && { providerConfigAlias: provider.alias }), connectionFingerprint: fingerprint,

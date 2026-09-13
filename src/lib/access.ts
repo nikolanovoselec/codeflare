@@ -885,7 +885,10 @@ export async function resolveRouteCatalog(
         } catch { /* Invalid or unverified saved assignments never activate. */ }
       } else if (ref?.kind === 'native-target' && typeof ref.targetId === 'string') {
         const target = nativeDocument.targets.find((candidate) => candidate.id === ref.targetId);
-        if (!target?.enabled || !nativeVerificationMatches(target, connection)) continue;
+        if (!target?.enabled) continue;
+        let profile;
+        try { profile = getProfileForRef(configuration, target.profileRef); } catch { continue; }
+        if (!nativeVerificationMatches(target, connection, profile)) continue;
         if (currentProviderState === undefined) {
           try { currentProviderState = await currentNativeProviders(connection); } catch { currentProviderState = null; }
         }
@@ -897,8 +900,6 @@ export async function resolveRouteCatalog(
         const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
         if (!selected || selected.id !== target.providerConfigId || alias !== target.providerConfigAlias
           || (target.customProvider ? customCurrent !== true : (customCurrent === true || (!currentProviderState.customProviders && !builtInProvider)))) continue;
-        let profile;
-        try { profile = getProfileForRef(configuration, target.profileRef); } catch { continue; }
         const handle = nativeTargetHandle(target.id);
         eligible.push(handle);
         nativeTargets[handle] = {
@@ -908,7 +909,7 @@ export async function resolveRouteCatalog(
             : target.provider === 'google-ai-studio' ? 'gemini-openai-compat' : 'native-openai-compat',
           transport: target.transport, ...(target.region && { region: target.region }),
           profileRef: target.profileRef, reasoningLevels: [...profile.supportedLevels], label: target.label, contextWindow: target.contextWindow,
-          promptCacheSupported: nativePromptCacheSupported(target),
+          promptCacheSupported: nativePromptCacheSupported(target, profile),
           // Internal authority only: never publish this or provider bindings to Pi.
           // checkedAt is deliberately excluded so an identical reverification
           // does not discard authentic state for an unchanged protocol identity.

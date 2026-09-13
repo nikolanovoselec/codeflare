@@ -1,5 +1,7 @@
 import { Hono, type Context } from 'hono';
 import capabilityRoutes from './ai-capability-discovery';
+import { verifyNativeCapabilityProfile } from '../../lib/ai-capability-discovery';
+import { capabilityEvidenceMatches, isGeneratedDiscoveryProfileId, isGeneratedNativeProfileId } from '../../lib/ai-capability-discovery/contract';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -643,23 +645,26 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
       transport: target.transport, ...(target.region && { region: target.region }), adapterVersion: nativeTargetAdapterVersion(target.provider, target.transport), checkedAt: new Date().toISOString(),
     };
     let report: Record<string, any> | undefined;
-    const genericNative = target.transport !== 'aig-legacy-compat' && target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE;
+    const genericNative = target.transport !== 'aig-legacy-compat'
+      && (target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE || isGeneratedNativeProfileId(target.profileRef.id));
     const discoveredCompat = target.profileRef.id.startsWith('discovered-');
     if ((genericNative || discoveredCompat) && request.data.administratorConfirmed) {
-      return c.json({ error: 'Unknown-model capabilities require explicit tools/replay and cache discovery; administrator confirmation cannot invent this evidence', code: 'capability_verification_required' }, 400);
+      return c.json({ error: 'Discovered capabilities require explicit tools/replay verification; administrator confirmation cannot invent this evidence', code: 'capability_verification_required' }, 400);
     }
     if (!genericNative && target.transport !== 'aig-legacy-compat' && !request.data.administratorConfirmed) {
       return c.json({ error: 'Provider-native Bedrock targets require administrator confirmation of the recorded validation evidence', code: 'administrator_confirmation_required' }, 400);
     }
     if (!request.data.administratorConfirmed) {
-      report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
-        route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,
+      const checkInput = { accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
+        route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`,
         maxCompletionTokens: genericNative ? Math.min(request.data.maxCompletionTokens, 2048) : request.data.maxCompletionTokens,
         compatOnly: true, ...(providerConfigAlias && { byokAlias: providerConfigAlias }),
-        ...(discoveredCompat && { requireCacheEvidence: true }),
-        ...(genericNative && { native: { model: target.model, region: target.region!, transport: target.transport as 'aig-bedrock-anthropic-auto' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' }, requireCacheEvidence: true }) });
+        ...(genericNative && { native: { model: target.model, region: target.region!, transport: target.transport as 'aig-bedrock-anthropic-auto' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' } }) };
+      report = genericNative ? await verifyNativeCapabilityProfile(checkInput, profile as unknown as NormalizedReasoningProfile)
+        : await discoverPiCompatibility({ ...checkInput, profile, ...(discoveredCompat && { requireCacheEvidence: true }) });
       if (!completedProfileCheck(report, profile as unknown as NormalizedReasoningProfile)) return c.json({ ...report, assignable: false });
       if (genericNative || discoveredCompat) {
+        if (!capabilityEvidenceMatches(report.capabilitySummary, profile as unknown as NormalizedReasoningProfile, target.transport)) return c.json({ ...report, assignable: false });
         const after = selectNativeProviderConfig(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token), target.provider);
         if (!after || after.id !== provider.id || after.alias !== provider.alias) return c.json({ error: 'Provider binding changed during verification', code: 'provider_changed' }, 409);
         verification.discovery = report.capabilitySummary;
@@ -718,7 +723,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       }
       // REQ-ENTERPRISE-043: explicit admin authority uses the existing receipt/Save path, never fabricated canary results.
       if (request.data.administratorConfirmed) {
-        if (String(profile.id).startsWith('discovered-')) return c.json({ code: 'capability_verification_required', error: 'Discovered configurations require observed tools/replay and cache evidence; administrator confirmation cannot invent it' }, 400);
+        if (isGeneratedDiscoveryProfileId(String(profile.id))) return c.json({ code: 'capability_verification_required', error: 'Discovered configurations require observed tools/replay evidence; administrator confirmation cannot invent it' }, 400);
         const verification: RouteVerification = {
           schemaVersion: 1, method: 'administrator', profileRef: request.data.profileRef,
           routeVersion: before.inventory.versionId, inventoryDigest: before.inventoryDigest,

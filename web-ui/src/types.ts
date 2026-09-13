@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CapabilitySummary } from '../../src/lib/ai-capability-discovery/contract';
 import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, TerminalModeSchema } from './lib/schemas';
 
 /** Supported agent types for multi-agent sessions */
@@ -102,14 +103,15 @@ export interface NativeAiTargetDraft {
   id?: string; handle?: string; label: string; model: string; contextWindow: number; provider: string;
   transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string;
   profileRef: ProfileRevisionRef; enabled: boolean;
-  verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean };
+  verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean; discovery?: CapabilitySummary };
 }
 export type NativeTargetCheckResult = {
   targetId: string; classification: 'Verified' | 'Administrator-confirmed'; assignable: true; checkId: string;
-  verification: { method: 'automated' | 'administrator'; checkedAt: string; current: true };
+  verification: { method: 'automated' | 'administrator'; checkedAt: string; current: true; discovery?: CapabilitySummary };
 } | {
   assignable: false; classification: string; checkId?: never; verification?: never;
   cacheEvidence?: { explanation: string };
+  capabilitySummary?: CapabilitySummary;
   diagnostics?: ReasoningDiscoveryDiagnostic[];
 };
 
@@ -143,7 +145,7 @@ export interface ReasoningRouteVerification {
   supportedLevels: PiReasoningLevel[];
   scope: 'single-model' | 'observed-path';
   checkedAt: string;
-  capabilities?: import('../../src/lib/ai-capability-discovery/contract').CapabilitySummary;
+  capabilities?: CapabilitySummary;
 }
 
 export type FallbackRouting = { enabled: false } | {
@@ -213,6 +215,7 @@ export interface ReasoningDiscoveryDiagnostic {
 }
 
 export interface ReasoningDiscoveryResult {
+  capabilitySummary?: CapabilitySummary;
   checkId?: string;
   verification?: ReasoningRouteVerification;
   route?: string;

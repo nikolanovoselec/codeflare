@@ -436,7 +436,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(await within(screen.getByRole('region', { name: 'Check result' })).findByText('Administrator-confirmed')).toBeVisible();
     await review();
     const expectSummary = () => {
-      const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /bedrock_opus/ });
+      const row = within(screen.getByRole('table', { name: 'Dynamic routes' })).getByRole('row', { name: /bedrock_opus/ });
       expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
       expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
       expect(within(row).getByText('Provider default')).toBeVisible();
@@ -527,7 +527,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await openRoute('unconfigured');
     expect(screen.getByLabelText('unconfigured Pi compatibility profile')).toHaveValue('');
     await review();
-    expect(within(screen.getByRole('table', { name: 'Route profiles' })).queryByRole('row', { name: /unconfigured/ })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: 'Dynamic routes' })).queryByRole('row', { name: /unconfigured/ })).not.toBeInTheDocument();
     await confirm();
     const savedValues = saved();
     expect(savedValues).toEqual({
@@ -570,7 +570,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.discover).toHaveBeenLastCalledWith({ route: 'development', profileRef: selectedRef, profileDraft: expectedProfile, maxCompletionTokens: 4096 });
     await review();
     const firstPreview = submitted();
-    const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /development/ });
+    const row = within(screen.getByRole('table', { name: 'Dynamic routes' })).getByRole('row', { name: /development/ });
     expect(within(row).getByText('GLM 4.7 Flash')).toBeVisible();
     expect(within(row).getByText('Pending save')).toBeVisible();
     expect(firstPreview.reasoningConfiguration.customProfileRevisions).toEqual([expectedProfile]);
@@ -634,7 +634,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       { accessGroup: 'archivists', routes: ['archive'], defaultRoute: 'archive', reasoning: 'off' },
     ]);
     expect(firstPreview.fallbackRouting).toEqual({ enabled: false });
-    expect(within(screen.getByRole('table', { name: 'Route profiles' })).getByText('Development custom')).toBeVisible();
+    expect(within(screen.getByRole('table', { name: 'Dynamic routes' })).getByText('Development custom')).toBeVisible();
     await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
     await openRoute('archive');
     expect(screen.getByLabelText('archive Pi compatibility profile')).toHaveValue(key(customRef(archived)));
@@ -715,6 +715,6 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), [warning.code]);
     expect(saved().reasoningConfiguration.routeAssignments.development.verification).toEqual(observedProof);
     expect(saved().dynamicRoutes).toEqual(['development']);
-    expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
+    expect(screen.getByRole('table', { name: 'Dynamic routes' })).toBeVisible();
   });
 });

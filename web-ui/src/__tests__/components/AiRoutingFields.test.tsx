@@ -183,9 +183,9 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Synthetic component fixtures; CI reruns the locally verified behavior.
 describe('Structured AI routing', () => {
-  it('REQ-ENTERPRISE-075: explains an inconclusive cache check without enabling the native target', async () => {
+  it('REQ-ENTERPRISE-075: an incomplete native check does not turn absent cache evidence into an unsupported claim', async () => {
     api.native.mockResolvedValueOnce({ assignable: false, classification: 'Inconclusive',
-      cacheEvidence: { explanation: 'Minimum not met: no cache reuse observed; this does not establish unsupported caching.' } });
+      cacheEvidence: { explanation: 'Exact replay was not established. No cache reuse observed; this does not establish unsupported caching.' } });
     const view = mount();
     await addNativeTarget(view);
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Synthetic cache check' } });
@@ -238,7 +238,9 @@ describe('Structured AI routing', () => {
       if (!(checkbox as HTMLInputElement).checked) await fireEvent.click(checkbox);
       await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: handle } });
       const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
-      expect(reasoning).toBeDisabled(); // Admin default is opaque; Pi still has all seven preferences.
+      expect(reasoning).toBeEnabled(); // Off is a preference, not verified provider behavior.
+      expect(within(reasoning).getByRole('option', { name: 'Off (preference)' })).toHaveValue('off');
+      expect(describedText(reasoning)).toMatch(/no explicit override is sent/);
       expect(formValues(view.container).groupRouting[0]).toMatchObject({ defaultRoute: handle });
       await section(view, 'Native routes');
     }
@@ -275,7 +277,10 @@ describe('Structured AI routing', () => {
     await openGroup(view, 'developers');
     const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
     expect(Array.from(reasoning.options, (option) => option.value)).toEqual(levels.length ? [...levels] : ['off']);
-    if (!levels.length) expect(within(reasoning).getByRole('option', { name: 'Provider default' })).toBeVisible();
+    if (!levels.length) {
+      expect(within(reasoning).getByRole('option', { name: 'Off (preference)' })).toBeVisible();
+      expect(reasoning).toBeEnabled();
+    }
     await section(view, 'Connection');
     await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'replacement' } });
     expect(formValues(view.container).nativeTargets[0]).toEqual({ ...before, label: 'Renamed Opus', contextWindow: 240000 });
@@ -1122,13 +1127,13 @@ describe('Structured AI routing', () => {
     await waitFor(() => expect(formValues(view.container).routeChecks.general_usage).toBe('general_usage-check'));
     await openGroup(view, 'developers');
     expect(view.getByLabelText('Fallback default reasoning')).toHaveValue('off');
-    expect(view.getByLabelText('Fallback default reasoning')).toBeDisabled();
+    expect(view.getByLabelText('Fallback default reasoning')).toBeEnabled();
     expect(describedText(view.getByLabelText('Fallback default reasoning'))).toMatch(/only Off/);
     expect(new FormData(view.container.querySelector('form')!).get('reasoning')).toBe('off');
     expect(formValues(view.container).defaultRoute).toEqual({ route: 'general_usage', reasoning: 'off' });
     await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: 'general_usage' } });
     expect(view.getByLabelText('developers default reasoning')).toHaveValue('off');
-    expect(view.getByLabelText('developers default reasoning')).toBeDisabled();
+    expect(view.getByLabelText('developers default reasoning')).toBeEnabled();
     expect(formValues(view.container).groupRouting[0].reasoning).toBe('off');
     await fireEvent.change(view.getByLabelText('Fallback default route'), { target: { value: 'development' } });
     expect(view.getByLabelText('Fallback default reasoning')).toHaveValue('medium');

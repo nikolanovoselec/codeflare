@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor, within } from '@solidjs/testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 import { normalizeCustomProfile, getBuiltInProfile, BUILT_IN_REASONING_PROFILES } from '../../../../src/lib/reasoning-profiles';
+import type { CapabilitySummary } from '../../../../src/lib/ai-capability-discovery/contract';
 
 const api = vi.hoisted(() => ({ discover: vi.fn(), inventory: vi.fn(), catalog: vi.fn(), checkNative: vi.fn(), verify: vi.fn() }));
 vi.mock('../../api/client', () => ({ discoverTargetCapabilities: (...args: unknown[]) => api.discover(...args),
@@ -59,7 +60,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     const panel = await row.findByRole('region', { name: checkResultName });
     expect(row.getAllByRole('region', { name: checkResultName })).toHaveLength(1);
     expect(advanced).not.toContainElement(panel);
-    expect(await within(panel).findByText(/Optimal/i)).toBeVisible();
+    expect(await within(panel).findByText('Ready for review')).toBeVisible();
     expect(within(panel).getByText(/Review changes/i)).toBeVisible();
     expect(within(panel).getByText(/Confirm Save/i)).toBeVisible();
     expect(within(panel).getByText(/next (?:normal )?session/i)).toBeVisible();
@@ -69,7 +70,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await fireEvent.click(detailSummary);
     expect(within(panel).getByText(/Gateway HIT/i)).toBeVisible();
     await fireEvent.click(detailSummary);
-    expect(within(panel).getByText(/Optimal/i)).toBeVisible();
+    expect(within(panel).getByText('Ready for review')).toBeVisible();
     expect(advanced.open).toBe(false);
     expect(formValues(view.container).routeChecks['brand-new-route']).toBe('synthetic-check');
     expect(formValues(view.container).reasoningConfiguration.routeAssignments['brand-new-route'].activeProfile).toEqual(ref);
@@ -142,7 +143,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Rechecked native' } });
     await fireEvent.click(view.getByRole('button', { name: 'Discover capabilities for native target 1' }));
     await waitFor(() => expect(formValues(view.container).nativeChecks[targetId]).toBe('synthetic-check'));
-    expect(view.getByText('Optimal')).toBeVisible();
+    expect(view.getByText('Ready for review')).toBeVisible();
     const row = within(view.getByRole('article', { name: 'Rechecked native native target' }));
     // Reach the existing recheck path before asserting its stale-evidence bug;
     // disclosure consolidation is independently covered above.
@@ -152,11 +153,13 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await fireEvent.click(row.getByRole('button', { name: /^Verify Profile$/i }));
 
     // A recheck withdraws old authority immediately, not only on its response.
-    expect(row.queryByText('Optimal')).toBeNull();
+    expect(row.queryByText('Ready for review')).toBeNull();
     expect(formValues(view.container).nativeChecks[targetId]).toBeNull();
     expect(formValues(view.container).nativeTargets[0].enabled).toBe(false);
     finish({ targetId, assignable: false, classification: 'Inconclusive',
-      cacheEvidence: { explanation: 'Cache reuse was not observed. Retry the check before enabling this target.' } });
+      capabilitySummary: { schemaVersion: 2, mappings: [{ levels: [], transport: 'bedrock-eventstream', tools: true,
+        replay: false, reasoning: 'provider-default', streaming: 'incremental', cache: 'inconclusive' }] },
+      cacheEvidence: { explanation: 'Exact replay was not established. Cache reuse was not observed.' } });
     await waitFor(() => expect(row.getByRole('button', { name: /^Verify Profile$/i })).toBeEnabled());
     await fireEvent.click(summary);
 
@@ -164,7 +167,14 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     expect(row.getAllByRole('region', { name: checkResultName })).toHaveLength(1);
     expect(summary.closest('details')).not.toContainElement(panel);
     expect(within(panel).getByText(/cache reuse was not observed/i)).toBeVisible();
-    expect(row.queryByText('Optimal')).toBeNull();
+    const toolFact = within(panel).getByText('Tool calling', { selector: 'dt' }).nextElementSibling!;
+    const streamFact = within(panel).getByText('Streaming', { selector: 'dt' }).nextElementSibling!;
+    expect(toolFact).toBeVisible();
+    expect(toolFact).toHaveTextContent('Tool call succeeded; exact replay not verified');
+    expect(streamFact).toBeVisible();
+    expect(streamFact).toHaveTextContent('Incremental public deltas observed');
+    expect(api.checkNative).toHaveBeenCalledTimes(1);
+    expect(row.queryByText('Ready for review')).toBeNull();
     expect(formValues(view.container).nativeChecks[targetId]).toBeNull();
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: targetId, enabled: false });
     expect(row.getByRole('button', { name: /Configure Native Route/i })).toHaveTextContent(/not ready/i);
@@ -227,7 +237,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     const discover = await view.findByRole('button', { name: 'Discover capabilities for brand-new-route' });
     await waitFor(() => expect(discover).toBeEnabled());
     await fireEvent.click(discover);
-    expect(await view.findByText('Optimal')).toBeVisible();
+    expect(await view.findByText('Ready for review')).toBeVisible();
     expect(api.discover).toHaveBeenCalledTimes(1);
     expect(api.discover).toHaveBeenCalledWith({ kind: 'dynamic-route', route: 'brand-new-route' });
     const values: any = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!));
@@ -239,14 +249,15 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     expect(view.queryByRole('button', { name: /^Assign profile/ })).toBeNull();
   });
 
-  it('shows a precise minimum failure without creating or authorizing a profile', async () => {
+  it('shows incomplete replay without creating or authorizing a profile', async () => {
     api.discover.mockResolvedValue({ ...result, assignable: false, profile: undefined, checkId: undefined, routeVerification: undefined,
-      classification: 'Inconclusive', explanation: 'Tools worked, but no cache reuse was observed; caching is inconclusive.' });
+      classification: 'Inconclusive', explanation: 'Tool call succeeded, but exact replay was not established.',
+      capabilities: { ...capabilities, replay: false, cache: 'inconclusive', grade: 'Not qualified' } });
     const view = setup();
     await fireEvent.click(await view.findByRole('button', { name: 'Configure brand-new-route' }));
     const discover = await view.findByRole('button', { name: 'Discover capabilities for brand-new-route' });
     await waitFor(() => expect(discover).toBeEnabled()); await fireEvent.click(discover);
-    expect(await view.findByText(/Tools worked, but no cache reuse/)).toBeVisible();
+    expect(await view.findByText(/Tool call succeeded, but exact replay/)).toBeVisible();
     const values: any = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!));
     expect(values.reasoningConfiguration.customProfileRevisions).toEqual([]);
     expect(values.routeChecks['brand-new-route']).toBeNull();
@@ -269,7 +280,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     expect(discovery.getByText(/at most 40 submissions, 2,048 output tokens each, 90 seconds per request and 10 minutes overall/)).toBeVisible();
     expect(api.discover).not.toHaveBeenCalled();
     await fireEvent.click(view.getByRole('button', { name: 'Discover capabilities for native target 1' }));
-    expect(await view.findByText('Optimal')).toBeVisible();
+    expect(await view.findByText('Ready for review')).toBeVisible();
     const values: any = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!));
     expect(values.nativeTargets[0]).toMatchObject({ id: targetId, enabled: true, transport: 'aig-bedrock-anthropic-auto',
       model: 'eu.anthropic.claude-synthetic-future-2099-v1:0', profileRef: { id: native.id, revision: native.revision, hash: native.hash } });
@@ -475,6 +486,84 @@ describe('Independent capability evidence and administrator default preferences'
     expect(values.reasoningConfiguration.routeAssignments['brand-new-route']?.verification).toBeUndefined();
     expect(values.dynamicRoutes).toEqual([]);
     expect(values.groupRouting).toEqual([]);
+  });
+
+  it.each([false, true])('REQ-ENTERPRISE-074: exact generated Native levels and mixed delivery survive adoption/hydration (saved: %s)', async (saved) => {
+    const template = getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
+    const levels = ['off', 'minimal', 'low', 'high', 'xhigh', 'max'] as const;
+    const native = normalizeCustomProfile({ id: `bedrock-anthropic-native-discovered-${'a'.repeat(24)}`,
+      name: 'Discovered native mappings', schemaVersion: 1, revision: 1, enabled: true,
+      supportedLevels: [...levels], levels: Object.fromEntries(levels.map((level) => [level, template.levels[level]])),
+      removePaths: template.removePaths, aliases: { minimal: 'low' }, offSemantics: template.offSemantics });
+    const nativeRef = { id: native.id, revision: native.revision, hash: native.hash };
+    const evidence: CapabilitySummary = { schemaVersion: 2, mappings: [
+      { levels: ['off'], transport: 'bedrock-eventstream', tools: true, replay: true, reasoning: 'verified-disabled', streaming: 'incremental', cache: 'inconclusive' },
+      { levels: ['minimal', 'low'], transport: 'bedrock-eventstream', tools: true, replay: true, reasoning: 'observed-enabled', streaming: 'incremental', cache: 'inconclusive' },
+      { levels: ['high'], transport: 'bedrock-eventstream', tools: true, replay: true, reasoning: 'observed-enabled', streaming: 'incremental', cache: 'provider-prefix' },
+      { levels: ['xhigh'], transport: 'bedrock-invoke', tools: true, replay: true, reasoning: 'accepted-unverified', streaming: 'not-observed', cache: 'not-tested' },
+      { levels: ['max'], transport: 'bedrock-invoke', tools: true, replay: true, reasoning: 'observed-enabled', streaming: 'not-observed', cache: 'inconclusive' },
+    ] };
+    const verification = { method: 'automated', checkedAt: proof.checkedAt, current: true, discovery: evidence };
+    const target = { id: targetId, label: 'Independent native', model, provider: 'aws-bedrock', contextWindow: 200000,
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', enabled: true, profileRef: nativeRef };
+    const policy = { routes: [`cf-native-${targetId}`], defaultRoute: `cf-native-${targetId}`, reasoning: 'off' };
+    api.discover.mockResolvedValue({ ...result, capabilities: evidence, profile: native, routeVerification: undefined, targetId,
+      nativeVerification: verification });
+    const view = setup(saved ? { nativeTargets: [{ ...target, verification }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [native], routeAssignments: {} },
+      groupRouting: [{ accessGroup: 'engineering', ...policy }], fallbackRouting: { enabled: true, ...policy } } : {});
+    let panel: HTMLElement;
+    if (saved) {
+      await view.findByText('Connected · 1 routes readable');
+      await fireEvent.click(view.getByRole('button', { name: 'Native routes' }));
+      await fireEvent.click(view.getByRole('button', { name: /Configure Native Route/i }));
+      panel = view.getByRole('region', { name: checkResultName });
+    } else panel = await discover(view, 'native');
+    const streaming = visibleCapability(panel, 'Streaming');
+    expect(within(streaming).getByText('High · Bedrock Eventstream').closest('li')).toHaveTextContent('Incremental public deltas observed');
+    for (const level of ['Xhigh', 'Max']) {
+      const row = within(streaming).getByText(`${level} · Bedrock Invoke`).closest('li')!;
+      expect(row).toHaveTextContent('Incremental delivery not observed');
+      expect(row).not.toHaveTextContent('deltas observed before completion');
+    }
+    const reasoning = visibleCapability(panel, 'Reasoning');
+    expect(within(reasoning).getByText('Off verified disabled')).toBeVisible();
+    expect(within(reasoning).getByText(/Minimal → Low \(alias\)/)).toBeVisible();
+    const cache = visibleCapability(panel, 'Input caching');
+    expect(within(cache).getByText('High · Bedrock Eventstream').closest('li')).toHaveTextContent('Provider-prefix read verified');
+    expect(within(cache).getByText('Max · Bedrock Invoke').closest('li')).toHaveTextContent('Not observed');
+    expect(formValues(view.container).nativeTargets).toEqual([target]);
+    expect(formValues(view.container).reasoningConfiguration.customProfileRevisions).toEqual([native]);
+    for (const field of ['verification', 'discoveryResult', 'checkResult', 'busy', 'verificationRequest']) {
+      expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty(field);
+    }
+    const row = within(view.getByRole('article', { name: 'Independent native native target' }));
+    await fireEvent.click(row.getByText(advancedName));
+    expect(row.getByRole('button', { name: 'Verify Profile' })).toBeEnabled();
+    expect(row.queryByRole('button', { name: 'Mark as verified' })).toBeNull();
+    expect(row.getByLabelText('Native target 1 profile')).toHaveValue(`${native.id}\u001f${native.revision}\u001f${native.hash}`);
+    await fireEvent.click(view.getByRole('button', { name: 'Access & fallback' }));
+    if (!saved) await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
+    const selector = view.getByLabelText('engineering default reasoning') as HTMLSelectElement;
+    expect(Array.from(selector.options, (option) => option.value)).toEqual([...levels]);
+    expect(selector).toBeEnabled();
+    if (saved) {
+      expect(selector).toHaveValue('off');
+      expect(view.getByLabelText('Fallback default reasoning')).toHaveValue('off');
+      expect(api.discover).not.toHaveBeenCalled();
+    } else {
+      await fireEvent.change(selector, { target: { value: 'off' } });
+      expect(api.discover).toHaveBeenCalledTimes(1);
+      expect(formValues(view.container).nativeChecks[targetId]).toBe('synthetic-check');
+    }
+    expect(formValues(view.container).groupRouting).toEqual([{ accessGroup: 'engineering', ...policy }]);
+    expect(formValues(view.container).dynamicRoutes).toEqual([]);
+    await fireEvent.click(view.getByRole('button', { name: 'Dynamic routes' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure brand-new-route' }));
+    expect(Array.from((view.getByLabelText('brand-new-route Pi compatibility profile') as HTMLSelectElement).options, (option) => option.value))
+      .not.toContain(`${native.id}\u001f${native.revision}\u001f${native.hash}`);
+    expect(api.checkNative).not.toHaveBeenCalled();
+    expect(api.verify).not.toHaveBeenCalled();
   });
 
   it.each(['dynamic', 'native'] as const)('REQ-ENTERPRISE-045: %s receipt permits an Off default preference and access without inventing cache or saving', async (kind) => {

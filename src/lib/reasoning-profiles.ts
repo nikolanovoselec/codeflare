@@ -95,6 +95,14 @@ const RESPONSE_PATHS = new Set([
   'usage.completion_tokens_details.reasoning_tokens',
 ]);
 
+export function isGeneratedNativeProfileId(id: string): boolean {
+  return /^bedrock-anthropic-native-discovered-[a-f0-9]{24}$/.test(id);
+}
+
+export function isGeneratedDiscoveryProfileId(id: string): boolean {
+  return id.startsWith('discovered-') || isGeneratedNativeProfileId(id);
+}
+
 export function isPiReasoningLevel(value: unknown): value is PiReasoningLevel {
   return typeof value === 'string' && (PI_REASONING_LEVELS as readonly string[]).includes(value);
 }
@@ -607,9 +615,36 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
     ...(validatedAgainst.length > 0 && { validatedAgainst }),
     ...(sanitizedEvidence.length > 0 && { evidence: sanitizedEvidence }), builtIn: false,
   };
+  if (id.startsWith('bedrock-anthropic-native-discovered-') && !isCanonicalNativeDiscoveryProfile(core)) {
+    throw new Error('generated native profile must use audited native reasoning mappings');
+  }
   const hash = canonicalHash(core);
   if (value.hash !== undefined && value.hash !== hash) throw new Error('custom profile canonical hash does not match its revision');
   return { ...core, hash };
+}
+
+/** Protocol admission only, never target authority. Generated native contracts
+ * retain the six audited forms and the sole explicit Minimal → Low alias. */
+export function isCanonicalNativeDiscoveryProfile(profile: Pick<NormalizedReasoningProfile,
+  'id' | 'reasoningMode' | 'compatibility' | 'supportedLevels' | 'removePaths' | 'levels' | 'aliases' | 'offSemantics'>): boolean {
+  if (!isGeneratedNativeProfileId(profile.id) || profile.reasoningMode !== undefined || profile.compatibility !== undefined
+    || profile.supportedLevels.length === 0 || new Set(profile.supportedLevels).size !== profile.supportedLevels.length
+    || canonicalJson([...profile.removePaths].sort()) !== canonicalJson([...BEDROCK_NATIVE_REMOVALS].sort())
+    || Object.keys(profile.levels).length !== profile.supportedLevels.length
+    || Object.entries(profile.aliases).some(([level, target]) => level !== 'minimal' || target !== 'low')
+    || (profile.supportedLevels.includes('minimal')
+      ? profile.aliases.minimal !== 'low' || !profile.supportedLevels.includes('low')
+      : Object.keys(profile.aliases).length !== 0)) return false;
+  if (canonicalJson(profile.offSemantics) !== canonicalJson(profile.supportedLevels.includes('off')
+    ? { status: 'explicit-value', path: 'thinking.type', value: 'disabled' } : { status: 'unsupported' })) return false;
+  return profile.supportedLevels.every((level) => {
+    if (!isPiReasoningLevel(level)) return false;
+    const expected = level === 'off' ? [{ path: 'thinking.type', value: 'disabled' }]
+      : flattenMapping(bedrockAdaptive(level === 'minimal' ? 'low' : level));
+    const writes = profile.levels[level];
+    const sorted = (items: ScalarWrite[]) => [...items].sort((a, b) => a.path.localeCompare(b.path));
+    return writes !== undefined && canonicalJson(sorted(writes)) === canonicalJson(sorted(expected));
+  });
 }
 
 function deletePath(target: Record<string, unknown>, path: string): void {

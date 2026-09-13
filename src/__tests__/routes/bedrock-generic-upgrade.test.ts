@@ -52,7 +52,8 @@ describe('REQ-ENTERPRISE-074 existing native receipt upgrade', () => {
       const response = await post({ target, maxCompletionTokens: 256 });
       expect(response.status).toBe(200);
       const check: any = await response.json();
-      expect(check).toMatchObject({ assignable: true, report: { capabilitySummary: { grade: 'Acceptable', nativePromptCache: true } } });
+      expect(check).toMatchObject({ assignable: true, report: { capabilitySummary: { schemaVersion: 2,
+        mappings: [{ levels: [], transport: 'bedrock-invoke', tools: true, replay: true, cache: 'provider-prefix' }] } } });
       expect(calls).toBe(4);
       expect(JSON.stringify(check)).not.toContain('SYNTHETIC-NOT-LIVE');
       const values = { gatewayUrl: connection.gatewayUrl, gatewayId: connection.gatewayId, replacementToken: '', dynamicRoutes: [],

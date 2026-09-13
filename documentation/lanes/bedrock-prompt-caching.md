@@ -18,7 +18,7 @@
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-The historical measurements below remain model/transport-specific evidence. The subsequent [generic model support contract](bedrock-generic-model-support.md) removes the new-model profile-authoring requirement, uses adapter v4, and distinguishes canonical backend mappings from the seven selectable Pi preferences published for provider-default and generated normalized contracts. The operator now also accepts Gateway HIT as minimum cache qualification; it is still not proof of provider prefix reuse or permission to enable native checkpoints on Dynamic Routes.
+The historical measurements below remain model/transport-specific evidence. The current [generic model support contract](bedrock-generic-model-support.md) uses adapter v4, discovers actual native mappings and preserves Dynamic seven-preference normalization. Tool calling, reasoning, streaming and input caching are independent; cache is optional for activation. Gateway HIT is whole-response reuse, never input-prefix evidence or permission to enable native checkpoints on Dynamic Routes.
 
 ## Provider cache versus Gateway cache
 
@@ -42,7 +42,7 @@ AWS documents implicit and explicit prompt caching for Claude Sonnet 5 and Claud
 
 Cache writes are not cache reads, and thinking is already included in output tokens.
 
-In a later 2026-09-13 discovery incident, existing logs showed a 29,779-token Native cache write followed by provider refusal; no paired read was sent. The checkpoint was preserved. Discovery now reports the refusal/write/unattempted-read boundary without treating refused output as success or casting doubt on the prior positive Native read evidence. The independent Dynamic MISS cause remains unresolved; diagnostic changes do not alter cache policy or guarantee future reuse.
+In a later 2026-09-13 discovery incident, existing logs showed a 29,779-token Native cache write followed by provider refusal; no paired read was sent. The checkpoint was preserved. Discovery now reports the refusal/write/unattempted-read boundary without treating refused output as cache success or casting doubt on prior positive Native read evidence. An optional cache refusal does not erase independently completed tools/replay; fatal authentication, quota, server, framing, transport and timeout boundaries remain unchanged. The independent Dynamic MISS cause remains unresolved; diagnostic changes do not alter cache policy or guarantee future reuse.
 
 The locked `@earendil-works/pi-ai` 0.85.1 OpenAI parser subtracts reads and writes from total prompt tokens to recover uncached input. Missing or malformed optional cache counters remain absent; a provider-reported zero is preserved. The aggregate write counter includes all TTL buckets and must not be added to its own TTL breakdown again.
 
@@ -52,7 +52,7 @@ Invoke JSON, Invoke's synthesized SSE and Eventstream's terminal SSE use this on
 
 <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent -->
 
-The second change enables the already-existing Pi 0.85.1 OpenAI serializer's Anthropic cache format **only for eligible native Runtime handles**. It is a per-model capability, not a provider-wide switch. The Worker remains authoritative for provider binding, target model, region, reasoning profile, and credentials.
+The second change enables the already-existing Pi 0.85.1 OpenAI serializer's Anthropic cache format **only for eligible native Runtime handles**. It is a per-model capability, not a provider-wide switch. For nested v2 discovery evidence, every enabled selectable semantic mapping/operation needs positive same-target provider-prefix reads. Mixed profiles remain usable without the model-wide flag; their per-level cache facts remain visible. Gateway HIT, including replayed positive counters, cannot grant prefix permission. Historical authority retains its original rules. The Worker remains authoritative for provider binding, target model, region, reasoning profile and credentials, and rejects checkpoints without permission before inference.
 
 | Boundary | Responsibility | Why it exists |
 | --- | --- | --- |

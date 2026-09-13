@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { capabilityMinimum } from './ai-capability-discovery/contract';
-import { canonicalJson, type ProfileRevisionRef, type ReasoningProfileId } from './reasoning-profiles';
+import { capabilityEvidenceMatches, isGeneratedDiscoveryProfileId, isGeneratedNativeProfileId, legacyCapabilityQualifies, parseCapabilitySummary } from './ai-capability-discovery/contract';
+import { canonicalJson, getBuiltInProfile, type NormalizedReasoningProfile, type ProfileRevisionRef, type ReasoningProfileId } from './reasoning-profiles';
 import type { GatewayConnection } from './ai-gateway-management';
 import { connectionFingerprint } from './reasoning-verification';
 import {
@@ -64,7 +64,7 @@ function enforceNativeTransport(value: { provider?: string; model: string; trans
   if (profileId === 'bedrock-anthropic-native-opus-stream' && transport !== 'aig-bedrock-anthropic-eventstream') context.addIssue({ code: 'custom', message: 'Opus streaming profile requires eventstream transport', path: ['transport'] });
   if (profileId === 'bedrock-anthropic-native-opus-invoke' && transport !== 'aig-bedrock-anthropic-invoke') context.addIssue({ code: 'custom', message: 'Opus Invoke profile requires Invoke transport', path: ['transport'] });
   if (profileId === 'bedrock-anthropic-native-opus-auto' && transport !== 'aig-bedrock-anthropic-auto') context.addIssue({ code: 'custom', message: 'Opus automatic profile requires automatic transport', path: ['transport'] });
-  if (transport === 'aig-bedrock-anthropic-auto' && profileId !== BEDROCK_MESSAGES_DEFAULT_PROFILE && profileId !== 'bedrock-anthropic-native-sonnet' && profileId !== 'bedrock-anthropic-native-opus-auto') context.addIssue({ code: 'custom', message: 'Automatic transport requires a compatible Bedrock protocol profile', path: ['profileRef'] });
+  if (transport === 'aig-bedrock-anthropic-auto' && !isGeneratedNativeProfileId(profileId) && profileId !== BEDROCK_MESSAGES_DEFAULT_PROFILE && profileId !== 'bedrock-anthropic-native-sonnet' && profileId !== 'bedrock-anthropic-native-opus-auto') context.addIssue({ code: 'custom', message: 'Automatic transport requires a compatible Bedrock protocol profile', path: ['profileRef'] });
 }
 const labelSchema = z.string().trim().min(1).max(128).regex(NATIVE_TEXT_PATTERN);
 const hashSchema = z.string().regex(NATIVE_HASH_PATTERN);
@@ -107,11 +107,10 @@ const nativeVerificationSchema = z.object({
   providerConfigId: z.string().min(1).max(128), providerConfigAlias: providerAliasSchema.optional(), connectionFingerprint: hashSchema,
   profileRef: nativeProfileRefSchema, transport: transportSchema, region: regionSchema.optional(), adapterVersion: adapterVersionSchema,
   checkedAt: z.string().datetime(), capabilities: z.object({ streaming: z.literal(true), tools: z.literal(true), replay: z.literal(true) }).strict().optional(),
-  discovery: z.object({ schemaVersion: z.literal(1), tools: z.boolean(), replay: z.boolean(),
-    cache: z.enum(['provider-prefix', 'gateway-response', 'inconclusive', 'not-tested']), nativePromptCache: z.boolean(),
-    reasoning: z.enum(['provider-default', 'observed-enabled', 'unverified']), streaming: z.enum(['incremental', 'not-observed']),
-    grade: z.enum(['Minimum', 'Acceptable', 'Optimal', 'Not qualified']),
-  }).strict().optional(),
+  discovery: z.unknown().transform((value, context) => {
+    try { return parseCapabilitySummary(value); }
+    catch { context.addIssue({ code: 'custom', message: 'Invalid capability evidence' }); return z.NEVER; }
+  }).optional(),
 }).strict().superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
 export type NativeTargetVerification = z.infer<typeof nativeVerificationSchema>;
 
@@ -192,10 +191,10 @@ export function reconcileNativeTargets(
   }) });
 }
 
-export function nativeVerificationMatches(target: NativeAiTarget, connection: GatewayConnection): boolean {
+export function nativeVerificationMatches(target: NativeAiTarget, connection: GatewayConnection, profile?: NormalizedReasoningProfile): boolean {
   const proof = target.verification;
   const fingerprint = connectionFingerprint(connection);
-  return Boolean(proof && fingerprint && genericDiscoveryQualifies(target) && proof.targetId === target.id
+  return Boolean(proof && fingerprint && genericDiscoveryQualifies(target, profile) && proof.targetId === target.id
     && (proof.provider ?? 'aws-bedrock') === target.provider && Boolean(proof.customProvider) === Boolean(target.customProvider)
     && proof.model === target.model && proof.providerConfigId === target.providerConfigId
     && proof.providerConfigAlias === target.providerConfigAlias && proof.connectionFingerprint === fingerprint
@@ -203,26 +202,35 @@ export function nativeVerificationMatches(target: NativeAiTarget, connection: Ga
     && proof.adapterVersion === nativeTargetAdapterVersion(target.provider, target.transport));
 }
 
-function genericDiscoveryQualifies(target: NativeAiTarget): boolean {
-  if (target.profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE && !target.profileRef.id.startsWith('discovered-')) return true;
+function genericDiscoveryQualifies(target: NativeAiTarget, profile?: NormalizedReasoningProfile): boolean {
+  if (target.profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE && !isGeneratedDiscoveryProfileId(target.profileRef.id)) return true;
   const evidence = target.verification?.discovery;
-  return Boolean(target.verification?.method !== 'administrator' && capabilityMinimum(evidence));
+  if (!evidence || target.verification?.method === 'administrator') return false;
+  // Historical evidence remains governed by its original rules, never upgraded.
+  if (evidence.schemaVersion === 1) return legacyCapabilityQualifies(evidence);
+  const selected = profile ?? getBuiltInProfile(target.profileRef.id);
+  return Boolean(selected && canonicalJson({ id: selected.id, revision: selected.revision, hash: selected.hash }) === canonicalJson(target.profileRef)
+    && capabilityEvidenceMatches(evidence, selected, target.transport));
 }
 
 /** Called only after full verification, canonical-profile and provider-binding
  * checks. Legacy validated profiles retain their original checkpoint contract;
  * an unknown-model generic target must have its own prefix-read evidence. */
-export function nativePromptCacheSupported(target: NativeAiTarget): boolean {
-  return target.provider === 'aws-bedrock' && target.transport !== 'aig-legacy-compat'
-    && (target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE
-      ? genericDiscoveryQualifies(target) && target.verification?.discovery?.nativePromptCache === true
-      : target.profileRef.id === 'bedrock-anthropic-native-sonnet' || target.profileRef.id.startsWith('bedrock-anthropic-native-opus-'));
+export function nativePromptCacheSupported(target: NativeAiTarget, profile?: NormalizedReasoningProfile): boolean {
+  if (target.provider !== 'aws-bedrock' || target.transport === 'aig-legacy-compat') return false;
+  if (target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE || isGeneratedNativeProfileId(target.profileRef.id)) {
+    const evidence = target.verification?.discovery;
+    if (!evidence || !genericDiscoveryQualifies(target, profile)) return false;
+    return evidence.schemaVersion === 1 ? evidence.nativePromptCache === true
+      : evidence.mappings.length > 0 && evidence.mappings.every((mapping) => mapping.cache === 'provider-prefix');
+  }
+  return target.profileRef.id === 'bedrock-anthropic-native-sonnet' || target.profileRef.id.startsWith('bedrock-anthropic-native-opus-');
 }
 
-export function rebindNativeVerificationConnection(target: NativeAiTarget, connection: GatewayConnection): NativeTargetVerification | null {
+export function rebindNativeVerificationConnection(target: NativeAiTarget, connection: GatewayConnection, profile?: NormalizedReasoningProfile): NativeTargetVerification | null {
   const proof = target.verification;
   const fingerprint = connectionFingerprint(connection);
-  if (!proof || !fingerprint || !genericDiscoveryQualifies(target) || proof.targetId !== target.id
+  if (!proof || !fingerprint || !genericDiscoveryQualifies(target, profile) || proof.targetId !== target.id
     || (proof.provider ?? 'aws-bedrock') !== target.provider || Boolean(proof.customProvider) !== Boolean(target.customProvider)
     || proof.model !== target.model || proof.providerConfigId !== target.providerConfigId
     || proof.providerConfigAlias !== target.providerConfigAlias

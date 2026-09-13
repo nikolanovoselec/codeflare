@@ -391,8 +391,8 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     });
     const result = await discoverPiCompatibility({ ...input(), fetcher });
     expect(result.assignable).toBe(true);
-    expect(result.capabilitySummary).toMatchObject({ tools: true, replay: true, cache: 'provider-prefix', nativePromptCache: true,
-      reasoning: 'provider-default', streaming: 'not-observed', grade: 'Acceptable' });
+    expect(result.capabilitySummary).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'provider-prefix',
+      reasoning: 'provider-default', streaming: 'not-observed' }] });
     expect(requests).toHaveLength(4);
     expect(requests[1].messages.at(-2).content).toEqual(authentic);
     expect(requests[2]).toEqual(requests[3]);
@@ -409,7 +409,9 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     const responseId = 'synthetic-refused-fill-response-id';
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ url: String(url), body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
-      if (requests.length <= 2) return bedrockToolResponse(requests.length === 1 ? authentic : final, 'eventstream');
+      if (nativeForm(requests.at(-1)!.body) !== 'default') return Response.json({ error: { code: 'ValidationException' } }, { status: 400 });
+      const defaultCount = requests.filter((request) => nativeForm(request.body) === 'default').length;
+      if (defaultCount <= 2) return bedrockToolResponse(defaultCount === 1 ? authentic : final, 'eventstream');
       // Derived from the allowlisted fields in codeflare-discovery-failures-2026-09-13.md/.json.
       // Framing/CRCs, event layout, IDs and text are synthetic, NOT captured AWS wire.
       // No incident cache-status header was retained, so none is invented here.
@@ -432,41 +434,45 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     const result: Record<string, any> = entrypoint === 'selected-profile'
       ? await discoverPiCompatibility(campaign) : await discoverTargetCapabilities(campaign);
 
-    expect(result.assignable).toBe(false);
-    expect(result.classification).toBe('Inconclusive');
-    // Actual outbound submissions are a paid-I/O contract: tool + replay + fill,
-    // never a paired read, retry, fallback, or another model/transport.
-    expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(result.accounting.httpAttempts).toBe(3);
-    expect(requests.map(({ url }) => url)).toEqual(Array(3).fill(
+    expect(result.assignable).toBe(true);
+    expect(result.classification).toBe('Verified');
+    // Normal discovery rejects each of the six configurable forms once before
+    // default's tool + replay + fill. A refused fill never submits a read.
+    const total = entrypoint === 'selected-profile' ? 3 : 9;
+    expect(fetcher).toHaveBeenCalledTimes(total);
+    expect(result.accounting.httpAttempts).toBe(total);
+    expect(requests.map(({ url }) => url)).toEqual(Array(total).fill(
       `https://gateway.ai.cloudflare.com/v1/${selected.accountId}/${selected.gatewayId}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-synthetic-future-2099-v1%3A0/invoke-with-response-stream`));
-    expect(requests[1].body.messages.at(-2).content).toEqual(authentic);
-    expect(requests[1].body.messages.at(-1).content).toEqual([{ type: 'tool_result', tool_use_id: 'synthetic-call', content: 'ok' }]);
-    expect(requests[2].body.system.at(-1).cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
-    expect(requests[2].body).not.toHaveProperty('tools');
+    const defaultRequests = requests.filter((request) => nativeForm(request.body) === 'default');
+    expect(defaultRequests).toHaveLength(3);
+    expect(defaultRequests[1].body.messages.at(-2).content).toEqual(authentic);
+    expect(defaultRequests[1].body.messages.at(-1).content).toEqual([{ type: 'tool_result', tool_use_id: 'synthetic-call', content: 'ok' }]);
+    expect(defaultRequests[2].body.system.at(-1).cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(defaultRequests[2].body).not.toHaveProperty('tools');
     for (const { body, headers } of requests) {
       expect(headers.get('cf-aig-max-attempts')).toBe('1');
       expect(body.max_tokens).toBe(2048);
-      expect(body).not.toHaveProperty('thinking');
       expect(body).not.toHaveProperty('stream');
     }
+    for (const { body } of defaultRequests) expect(body).not.toHaveProperty('thinking');
     for (const forbidden of [privateText, responseId, 'synthetic private block', 'synthetic-signature-not-live', 'synthetic-token']) {
       expect(JSON.stringify(result)).not.toContain(forbidden);
     }
-    const capabilities = entrypoint === 'selected-profile' ? result.capabilitySummary : result.attempts[0].capabilities;
-    expect(capabilities).toMatchObject({ tools: true, replay: true, cache: 'inconclusive', nativePromptCache: false, grade: 'Not qualified' });
+    const capabilities = entrypoint === 'selected-profile' ? result.capabilitySummary : result.attempts.at(-1).capabilities;
+    expect(capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'inconclusive' }] });
     if (entrypoint === 'selected-profile') {
       expect(result.distinctMappings[0].toolLifecycle).toMatchObject({ passed: true, stage: 'complete' });
       expect(result.cacheEvidence.observations).toEqual([expect.objectContaining({ status: 200, valid: false,
         effectiveFinishReason: 'content_filter', promptTokens: 29810, completionTokens: 126,
         cacheWriteTokens: 29779, cacheReadTokens: 0 })]);
     } else {
-      expect(result.attempts).toHaveLength(1);
-      expect(result.attempts[0].httpAttempts).toBe(3);
-      expect(result.profile).toBeUndefined();
-      expect(result.report).toBeUndefined();
+      expect(result.attempts).toHaveLength(7);
+      expect(result.attempts.slice(0, 6).every((attempt: any) => attempt.httpAttempts === 1)).toBe(true);
+      expect(result.attempts.at(-1).httpAttempts).toBe(3);
+      expect(result.profile.reasoningMode).toBe('provider-default');
+      expect(result.report.distinctMappings[0].toolLifecycle).toMatchObject({ passed: true, stage: 'complete' });
     }
-    const diagnostics = entrypoint === 'selected-profile' ? result.diagnostics : result.attempts[0].diagnostics;
+    const diagnostics = entrypoint === 'selected-profile' ? result.diagnostics : result.attempts.at(-1).diagnostics;
     expect(diagnostics).toEqual([expect.objectContaining({ stage: 'cache-fill', code: 'provider_refusal',
       status: 200, transport: 'bedrock-eventstream', effectiveFinishReason: 'content_filter',
       cacheWriteTokens: 29779, cacheReadTokens: 0, cacheReadAttempted: false })]);
@@ -490,9 +496,9 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     });
     const result = await discoverPiCompatibility({ ...input(false), fetcher });
     expect(calls).toBe(4);
-    expect(result.assignable).toBe(cache === 'HIT');
-    expect(result.capabilitySummary).toMatchObject({ cache: cache === 'HIT' ? 'gateway-response' : 'inconclusive', nativePromptCache: false });
-    if (cache === 'MISS') expect(result.classification).toBe('Inconclusive');
+    expect(result.assignable).toBe(true);
+    expect(result.capabilitySummary).toMatchObject({ schemaVersion: 2, mappings: [{ cache: cache === 'HIT' ? 'gateway-response' : 'inconclusive' }] });
+    expect(result.classification).toBe('Verified');
     expect(result.cacheEvidence.observations[1].backend).toEqual({ provider: 'aws-bedrock', model: 'synthetic-backend' });
   });
 
@@ -501,7 +507,7 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     const result = await discoverPiCompatibility({ ...input(), fetcher });
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(result.assignable).toBe(false);
-    expect(result.capabilitySummary).toMatchObject({ tools: false, cache: 'not-tested' });
+    expect(result.capabilitySummary).toMatchObject({ schemaVersion: 2, mappings: [{ tools: false, cache: 'not-tested' }] });
     expect(JSON.stringify(result)).not.toContain('secret provider diagnostic');
   });
 

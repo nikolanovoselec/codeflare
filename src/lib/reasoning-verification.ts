@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { capabilityMinimum } from './ai-capability-discovery/contract';
+import { capabilityEvidenceMatches, isGeneratedDiscoveryProfileId } from './ai-capability-discovery/contract';
 import { canonicalHash, canonicalJson, type NormalizedReasoningProfile, type PiReasoningLevel } from './reasoning-profiles';
 import { PI_WIRE_CANARY_VERSION } from './reasoning-discovery';
 import { inventoryDynamicRoute, type DynamicRouteInventory, type DynamicRouteVersionInput } from './dynamic-route-inventory';
@@ -79,7 +79,7 @@ export function verificationMatches(
   connection: GatewayConnection,
   current?: CheckedRouteInventory,
 ): boolean {
-  if (!verification || !profile.enabled || (profile.id.startsWith('discovered-') && (verification.method === 'administrator' || !capabilityMinimum(verification.capabilities)))
+  if (!verification || !profile.enabled || (isGeneratedDiscoveryProfileId(profile.id) && (verification.method === 'administrator' || !capabilityEvidenceMatches(verification.capabilities, profile)))
     || verification.canaryVersion !== PI_WIRE_CANARY_VERSION
     || canonicalJson(verification.profileRef) !== canonicalJson({ id: profile.id, revision: profile.revision, hash: profile.hash })
     || canonicalJson(verification.supportedLevels) !== canonicalJson(profile.supportedLevels)
@@ -95,7 +95,7 @@ export function rebindVerificationConnection(
   current: CheckedRouteInventory,
 ): RouteVerification | null {
   const fingerprint = connectionFingerprint(connection);
-  if (!verification || !fingerprint || (profile.id.startsWith('discovered-') && (verification.method === 'administrator' || !capabilityMinimum(verification.capabilities))) || current.inventory.models.length === 0
+  if (!verification || !fingerprint || (isGeneratedDiscoveryProfileId(profile.id) && (verification.method === 'administrator' || !capabilityEvidenceMatches(verification.capabilities, profile))) || current.inventory.models.length === 0
     || verification.canaryVersion !== PI_WIRE_CANARY_VERSION
     || canonicalJson(verification.profileRef) !== canonicalJson({ id: profile.id, revision: profile.revision, hash: profile.hash })
     || canonicalJson(verification.supportedLevels) !== canonicalJson(profile.supportedLevels)

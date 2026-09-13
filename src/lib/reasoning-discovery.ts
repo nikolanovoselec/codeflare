@@ -3,10 +3,11 @@
 // SHA-256 f0f68dbb8415d5aaccf2d3b03002153be2dbbdb61bde3c209384d687dc5a2985
 // Its validation fixture is SHA-256 a5ccaea163d5920eb2ece172b8b7048751a383467272ad704c39bdabc0a0405b.
 
-import { validateRequestPath } from './reasoning-profiles';
+import { getBuiltInProfile, validateRequestPath } from './reasoning-profiles';
+import type { CapabilityMapping, CapabilitySummaryV2 } from './ai-capability-discovery/contract';
 import { repairRepeatedCompleteToolNames } from './openai-sse-tool-name-repair';
-import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockReplayState } from './bedrock-anthropic-native-adapter';
-import { bedrockAnthropicCandidate, type BedrockCapabilitySummary } from './native-ai-target-draft';
+import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockReplayState, type BedrockThinkingObservation } from './bedrock-anthropic-native-adapter';
+import { bedrockAnthropicCandidate } from './native-ai-target-draft';
 import { compatibilityRequest, compatibilityResponse, type CompatibilityWire } from './ai-capability-discovery/compatibility-wire';
 
 export const PI_WIRE_CANARY_VERSION = 'pi-openai-completions-0.84.4-canary-v1';
@@ -80,8 +81,10 @@ export interface DiscoveryInput {
   byokAlias?: string;
   // Trusted server-selected coordinates, never browser-provided URLs/headers.
   native?: { model: string; region: string; transport: 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto' };
+  /** Collect independent capability evidence, including an optional cache pair.
+   * Historical name retained for callers; cache reuse does not gate activation. */
   requireCacheEvidence?: boolean;
-  /** Multi-backend inventory requires response identities for cache qualification. */
+  /** Multi-backend inventory requires response identities for lifecycle qualification. */
   requireBackendIdentity?: boolean;
   /** Trusted campaign deadline. Legacy single-profile checks omit it. */
   campaignDeadline?: number;
@@ -124,6 +127,7 @@ interface ChatCompletionsAttempt {
   response: Response;
   attempts: number;
   transport: 'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream';
+  nativeObservation?: { value?: BedrockThinkingObservation };
 }
 
 function clone<T>(value: T): T {
@@ -321,8 +325,21 @@ function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offC
   if (typeof input.apiToken !== 'string' || input.apiToken.length < 8) throw new TypeError('Worker-side API token is required');
 
   const profile = normalizeProfile(input.profile);
-  if (input.native && (input.route !== `aws-bedrock/${input.native.model}` || !bedrockAnthropicCandidate(input.native.model)
-    || profile.reasoningMode !== 'provider-default')) throw new TypeError('Native discovery requires the selected Anthropic provider-default contract');
+  if (input.native) {
+    if (input.route !== `aws-bedrock/${input.native.model}` || !bedrockAnthropicCandidate(input.native.model)
+      || !['aig-bedrock-anthropic-auto', 'aig-bedrock-anthropic-invoke', 'aig-bedrock-anthropic-eventstream'].includes(input.native.transport)) {
+      throw new TypeError('Native discovery requires the selected Anthropic contract');
+    }
+    bedrockAnthropicGatewayPath(input.native.region, input.native.model, 'invoke');
+    const audited = normalizeProfile(getBuiltInProfile('bedrock-anthropic-native-opus-auto'));
+    const canonical = (semantic: SemanticMapping) => stableStringify({ mapping: semantic.mapping, removePaths: [...new Set(semantic.removePaths)].sort() });
+    if (profile.compatibility || input.offCandidateMapping !== undefined
+      || (profile.reasoningMode === 'provider-default'
+        ? profile.supportedLevels.length !== 0 || stableStringify(input.profile && (input.profile as PlainObject).levels) !== '{}'
+        : profile.supportedLevels.some((level) => canonical(profile.levels[level]!) !== canonical(audited.levels[level]!)))) {
+      throw new TypeError('Native discovery permits only audited disabled/adaptive mappings');
+    }
+  }
   if (input.requireCacheEvidence && groupMappings(profile).length !== 1) throw new TypeError('Capability certification requires one exact executable mapping');
   const offCandidate = input.offCandidateMapping === undefined ? undefined : normalizeStandaloneMapping(input.offCandidateMapping);
   const groups = groupMappings(profile);
@@ -708,21 +725,22 @@ async function requestUnadaptedCompletions(input: ChatCompletionsAttemptInput): 
     if (!input.replayState || !input.accountId || !input.gatewayId) throw new TypeError('Native discovery requires server-held replay and gateway coordinates');
     const configured = input.native.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
       : input.native.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
-    const operation = selectBedrockAnthropicTransport(configured);
     const body = await buildBedrockAnthropicRequest({ ...input.body, max_tokens: input.body.max_completion_tokens }, input.replayState);
+    const operation = selectBedrockAnthropicTransport(configured, body.output_config?.effort);
     const url = `https://gateway.ai.cloudflare.com/v1/${input.accountId}/${input.gatewayId}${bedrockAnthropicGatewayPath(input.native.region, input.native.model, operation)}`;
     const upstream = await fetchWithTimeout(fetcher, url, { method: 'POST',
       headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, 'cf-aig-max-attempts': '1', 'content-type': 'application/json',
         ...(operation === 'eventstream' && { accept: 'application/vnd.amazon.eventstream' }),
         ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }) }, body: JSON.stringify(body),
     }, Math.min(timeoutMs, 90_000), 1);
-    const response = await adaptBedrockAnthropicResponse(upstream, operation, input.replayState, true);
+    const nativeObservation: { value?: BedrockThinkingObservation } = {};
+    const response = await adaptBedrockAnthropicResponse(upstream, operation, input.replayState, true, (value) => { nativeObservation.value = value; });
     // Read cache observations at the Gateway boundary, before native response
     // translation drops transport headers. No secret headers are propagated.
     for (const name of ['cf-aig-cache-status', 'cf-aig-provider', 'cf-aig-model']) {
       const value = upstream.headers.get(name); if (value) response.headers.set(name, value);
     }
-    return { response, attempts: 1, transport: operation === 'invoke' ? 'bedrock-invoke' : 'bedrock-eventstream' };
+    return { response, attempts: 1, transport: operation === 'invoke' ? 'bedrock-invoke' : 'bedrock-eventstream', nativeObservation };
   }
   if (input.compatOnly) {
     const compatBody = clone(input.body);
@@ -885,12 +903,16 @@ async function executeReasoningProbe(common: CommonRequest, request: PlainObject
     transport: attempt.transport,
     httpAttempts: attempt.attempts,
     finishReason: parsed.effectiveFinishReason,
+    effectiveFinishReason: parsed.effectiveFinishReason,
     finishReasonRepaired: parsed.finishReasonRepaired,
     doneRepaired: parsed.doneRepaired,
     malformedEvents: parsed.malformedEvents,
     contentLength: summary.contentLength,
     contentHash: summary.contentHash,
-    backend: gatewayObservation(attempt.response).backend,
+    ...gatewayObservation(attempt.response),
+    publicDeltaTimes: summary.publicDeltaTimes, eofTime: summary.eofTime,
+    ...(common.native && { nativeThinkingObserved: attempt.nativeObservation?.value?.thinkingPresent === true,
+      nativeObservationCompleted: attempt.nativeObservation?.value?.completed === true }),
     reasoningField: parsed.reasoningBlocks[0]?.signature ?? null,
     reasoningLength: reasoning.length,
     reasoningHash: await digest(reasoning),
@@ -1058,7 +1080,7 @@ function mappingDiagnostics(items: Array<Record<string, any>>): DiscoveryDiagnos
     const reasoningFailure = probeDiagnostic(probe, levels, 'reasoning');
     if (reasoningFailure) diagnostics.push(reasoningFailure);
     else if (levels.includes('off')) {
-      if (probe.reasoningLength > 0 || probe.reasoningTokens > 0) diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'off_not_disabled' });
+      if (probe.reasoningLength > 0 || probe.reasoningTokens > 0 || probe.nativeThinkingObserved === true || probe.nativeObservationCompleted === false) diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'off_not_disabled' });
       else if (probe.finishReason === 'length') diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'completion_limit' });
     }
     const tool = item.toolLifecycle;
@@ -1125,6 +1147,7 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
     { role: 'system', content: common.native ? [{ type: 'text', text: prefix, cache_control: { type: 'ephemeral', ttl: '5m' } }] : prefix },
     { role: 'user', content: 'Reply with a numbered list of 32 short fictional labels. Do not use tools.' },
   ], stream: true, stream_options: { include_usage: true }, max_completion_tokens: maxCompletionTokens }, semantic);
+  request.max_completion_tokens = maxCompletionTokens;
   const observations: Array<Record<string, any>> = [];
   for (let index = 0; index < 2; index++) {
     try {
@@ -1153,18 +1176,18 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
     && observations[0].transport === observations[1].transport;
   const second = observations[1];
   const prefixRead = complete && second.cacheStatus !== 'HIT' && second.cacheReadTokens > 0;
-  const cache: BedrockCapabilitySummary['cache'] = prefixRead ? 'provider-prefix'
+  const cache: CapabilityMapping['cache'] = prefixRead ? 'provider-prefix'
     : complete && second.cacheStatus === 'HIT' ? 'gateway-response' : 'inconclusive';
   // Cached delivery and synthesized Invoke SSE are never cold-generation proof.
   const incremental = common.compatibility?.response !== 'buffered' && observations.some((item) => item.valid && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
     && item.publicDeltaTimes.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
     && item.publicDeltaTimes[0] + 5 < item.eofTime);
   return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(compatibilityRequest(request, common.compatibility))),
-    explanation: !backendConsistent ? 'Reasoning, tool or cache observations identify different backends. Minimum is inconclusive for one exercised route path; this is not an all-branches requirement.'
+    explanation: !backendConsistent ? 'Reasoning, tool or cache observations identify different backends. Evidence cannot certify one exercised route path; this is not an all-branches requirement.'
       : observations[0]?.effectiveFinishReason === 'content_filter'
-        ? `The provider refused the cache-fill response.${Number.isSafeInteger(observations[0].cacheWriteTokens) && observations[0].cacheWriteTokens >= 0 ? ` Provider cache write: ${observations[0].cacheWriteTokens} tokens.` : ''} Cache-read was not attempted. Minimum remains unconfirmed; a write alone does not qualify.`
-      : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Minimum is not met; unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
-      : cache === 'gateway-response' ? 'Gateway HIT satisfies the minimum; this is whole-response reuse, not proof of provider input-prefix reuse.'
+        ? `The provider refused the cache-fill response.${Number.isSafeInteger(observations[0].cacheWriteTokens) && observations[0].cacheWriteTokens >= 0 ? ` Provider cache write: ${observations[0].cacheWriteTokens} tokens.` : ''} Cache-read was not attempted. A write alone does not prove input caching.`
+      : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
+      : cache === 'gateway-response' ? 'Gateway HIT is whole-response reuse, not proof of provider input-prefix reuse.'
         : 'Positive provider prefix-cache reads observed on the native/compat request actually tested.' };
 }
 
@@ -1271,7 +1294,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   const offItem = distinctMappings.find((item) => (item.levels as ReasoningLevel[]).includes('off'));
   const off = profile.supportedLevels.includes('off')
     ? offItem?.reasoningProbe.status === 200 && offItem.reasoningProbe.reasoningLength === 0
-      && !(offItem.reasoningProbe.reasoningTokens > 0) && offItem.reasoningProbe.finishReason !== 'length'
+      && !(offItem.reasoningProbe.reasoningTokens > 0) && offItem.reasoningProbe.finishReason === 'stop'
+      && offItem.reasoningProbe.malformedEvents === 0
+      && (!input.native || (offItem.reasoningProbe.nativeObservationCompleted === true && offItem.reasoningProbe.nativeThinkingObserved === false))
       ? 'verified-disabled'
       : offItem?.reasoningProbe.status === 200 ? 'not-disabled' : 'not-verified'
     : offCandidateEvidence?.status === 200 && (offCandidateEvidence.reasoningLength as number) > 0
@@ -1284,7 +1309,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   // A capped reasoning observation may still validate an enabled mode through its complete
   // tool lifecycle. A capped tool call/replay, or an unproven off mode, never does.
   const compatibleLevels = verifiedLevels.filter((level) => !diagnostics.some((diagnostic) => diagnostic.levels.includes(level)));
-  const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit');
+  const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit' || diagnostic.code === 'provider_refusal');
   let stopDiscovery = diagnostics.some(stopsDiscovery);
   let assignable = !stopped
     && allToolsPassed
@@ -1308,7 +1333,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
           : 'unsupported';
 
   let cacheEvidence: Awaited<ReturnType<typeof discoverCache>> | undefined;
-  let capabilitySummary: BedrockCapabilitySummary | undefined;
+  let capabilitySummary: CapabilitySummaryV2 | undefined;
   if (input.requireCacheEvidence) {
     if (assignable) {
       // Keep the successful leg; do not replay a known REST 404 for every probe.
@@ -1322,9 +1347,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       // failures; a cache-only 403 must not disappear into an empty list.
       cacheEvidence.observations.forEach((observation, index) => {
         const stage = index === 0 ? 'cache-fill' : 'cache-read';
-        const failure = probeDiagnostic(observation, [], stage);
+        const failure = probeDiagnostic(observation, groups[0].levels, stage);
         if (failure) diagnostics.push({ ...failure, cacheReadAttempted: cacheEvidence!.observations.length > 1 });
-        else if (!observation.valid) diagnostics.push({ levels: [], stage, code: observation.effectiveFinishReason === 'length' ? 'completion_limit' : 'incomplete_final_response' });
+        else if (!observation.valid) diagnostics.push({ levels: groups[0].levels, stage, code: observation.effectiveFinishReason === 'length' ? 'completion_limit' : 'incomplete_final_response', cacheReadAttempted: cacheEvidence!.observations.length > 1 });
       });
       stopDiscovery ||= diagnostics.some(stopsDiscovery);
       if (!cacheEvidence.backendConsistent) diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'backend_changed' });
@@ -1332,22 +1357,43 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
         diagnostics.push({ levels: [], stage: 'cache-read', code: 'cache_reuse_unobserved' });
       }
     }
-    const cache = cacheEvidence?.cache ?? 'not-tested';
-    let minimum = assignable && !stopDiscovery && (cache === 'provider-prefix' || cache === 'gateway-response');
-    if (minimum && input.requireBackendIdentity && !cacheEvidence?.backendIdentified) {
-      minimum = false;
+    // Backend identity is independent of cache qualification. Optional failures
+    // with no identity cannot erase identified lifecycle evidence, but conflicting
+    // known observations can never be combined into a fictitious capable path.
+    const lifecycleObservations = distinctMappings.flatMap((item) => [item.reasoningProbe, item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean);
+    const observations = [...lifecycleObservations, ...(cacheEvidence?.observations ?? [])];
+    const backendConsistent = ['provider', 'model'].every((key) => new Set(observations.map((item) => item.backend?.[key]).filter(Boolean)).size <= 1);
+    const backendIdentified = lifecycleObservations.length > 0 && lifecycleObservations.every((item) => item.backend?.provider && item.backend?.model);
+    if (!backendConsistent || (assignable && input.requireBackendIdentity && !backendIdentified)) {
+      assignable = false;
       stopDiscovery = true;
-      diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'observed_backend_unidentified' });
+      const code = !backendConsistent ? 'backend_changed' : 'observed_backend_unidentified';
+      if (!diagnostics.some((item) => item.code === code)) diagnostics.push({ levels: [], stage: 'branch-correlation', code });
     }
-    const reasoning = profile.reasoningMode === 'provider-default' ? 'provider-default'
-      : distinctMappings.some((item) => item.reasoningProbe?.reasoningTokens > 0 || item.reasoningProbe?.reasoningLength > 0)
-        ? 'observed-enabled' : 'unverified';
-    capabilitySummary = { schemaVersion: 1, tools: allToolsPassed, replay: allToolsPassed, cache,
-      nativePromptCache: Boolean(input.native && cache === 'provider-prefix'), reasoning,
-      streaming: cacheEvidence?.incremental ? 'incremental' : 'not-observed',
-      grade: minimum ? reasoning === 'unverified' ? 'Minimum' : cacheEvidence?.incremental ? 'Optimal' : 'Acceptable' : 'Not qualified' };
-    if (assignable && !minimum) classification = 'Inconclusive';
-    assignable = minimum;
+    const incremental = common.compatibility?.response !== 'buffered' && observations.some((item) => item.status === 200
+      && item.malformedEvents === 0 && item.valid !== false && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
+      && item.publicDeltaTimes?.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
+      && item.publicDeltaTimes[0] + 5 < item.eofTime);
+    const item = distinctMappings[0];
+    const reasoning: CapabilityMapping['reasoning'] = profile.reasoningMode === 'provider-default' ? 'provider-default'
+      : off === 'verified-disabled' ? 'verified-disabled'
+        : item?.reasoningProbe?.reasoningTokens > 0 || item?.reasoningProbe?.reasoningLength > 0 || item?.reasoningProbe?.nativeThinkingObserved === true
+          ? 'observed-enabled' : item?.reasoningProbe?.status === 200 ? 'accepted-unverified' : 'not-tested';
+    const observedTransport = item?.toolLifecycle.first?.transport ?? item?.reasoningProbe?.transport;
+    const nativeEffort = groups[0].semantic.mapping.output_config as PlainObject | undefined;
+    const configured = input.native?.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
+      : input.native?.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
+    const transport: CapabilityMapping['transport'] = observedTransport ?? (input.native
+      ? selectBedrockAnthropicTransport(configured, nativeEffort?.effort as string | undefined) === 'invoke' ? 'bedrock-invoke' : 'bedrock-eventstream'
+      : common.compatOnly ? 'compat' : 'rest');
+    capabilitySummary = { schemaVersion: 2, mappings: [{ levels: [...groups[0].levels], transport,
+      tools: Boolean(item?.toolLifecycle.first?.status === 200 && item.toolLifecycle.first.malformedEvents === 0
+        && item.toolLifecycle.first.toolCallCount === 1 && item.toolLifecycle.first.toolNames?.[0] === CANARY_TOOL_NAME
+        && item.toolLifecycle.first.effectiveFinishReason === 'tool_calls' && item.toolLifecycle.stage !== 'tool-call-validation'),
+      replay: allToolsPassed, cache: cacheEvidence?.cache ?? 'not-tested', reasoning,
+      streaming: incremental ? 'incremental' : 'not-observed' }] };
+    assignable &&= !stopDiscovery;
+    if (stopDiscovery || (!assignable && backendConsistent === false)) classification = 'Inconclusive';
   }
   replay.clear(); // No signed/provider state in reports, receipts, logs or persistent discovery storage.
   return {

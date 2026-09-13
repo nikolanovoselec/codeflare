@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import { parseCapabilitySummary } from '../../../src/lib/ai-capability-discovery/contract';
+
+// REQ-ENTERPRISE-074: one strict shared decoder for current and historical evidence.
+export const CapabilitySummarySchema = z.unknown().transform((value, context) => {
+  try { return parseCapabilitySummary(value); }
+  catch { context.addIssue({ code: 'custom', message: 'Invalid capability evidence' }); return z.NEVER; }
+});
 
 // Agent type enum
 export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
@@ -95,10 +102,7 @@ export const ReasoningRouteVerificationSchema = z.object({
   supportedLevels: z.array(PiReasoningLevelSchema),
   scope: z.enum(['single-model', 'observed-path']),
   checkedAt: z.string(),
-  capabilities: z.object({ schemaVersion: z.literal(1), tools: z.boolean(), replay: z.boolean(), nativePromptCache: z.boolean(),
-    cache: z.enum(['provider-prefix', 'gateway-response', 'inconclusive', 'not-tested']),
-    reasoning: z.enum(['provider-default', 'observed-enabled', 'unverified']), streaming: z.enum(['incremental', 'not-observed']),
-    grade: z.enum(['Minimum', 'Acceptable', 'Optimal', 'Not qualified']) }).strict().optional(),
+  capabilities: CapabilitySummarySchema.optional(),
 });
 
 export const ReasoningRouteInventorySchema = z.object({
@@ -133,6 +137,7 @@ export const ReasoningDiscoveryDiagnosticSchema = z.object({
 });
 
 export const ReasoningDiscoveryResultSchema = z.object({
+  capabilitySummary: CapabilitySummarySchema.optional(),
   checkId: z.string().optional(),
   verification: ReasoningRouteVerificationSchema.optional(),
   classification: z.string(),

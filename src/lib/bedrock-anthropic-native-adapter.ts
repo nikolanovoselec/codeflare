@@ -6,6 +6,10 @@ export interface BedrockReplayState {
   save(toolId: string, content: unknown[]): Promise<void>;
 }
 
+/** Internal observation only: no private content, signatures, or invented usage. */
+export interface BedrockThinkingObservation { completed: true; thinkingPresent: boolean }
+export type BedrockThinkingObserver = (observation: BedrockThinkingObservation) => void;
+
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_REPLAY_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
@@ -309,12 +313,13 @@ function openAiStopReason(reason: unknown): 'stop' | 'tool_calls' | 'length' | '
   throw new Error('Unsupported or missing native Bedrock stop reason');
 }
 
-async function adaptInvoke(response: Response, state: BedrockReplayState, streamRequested: boolean): Promise<Response> {
+async function adaptInvoke(response: Response, state: BedrockReplayState, streamRequested: boolean, observe?: BedrockThinkingObserver): Promise<Response> {
   if (!response.ok) return response;
   const native = await response.json() as JsonObject;
   if (!plain(native) || !Array.isArray(native.content)) throw new Error('Invalid native Bedrock response');
   const finishReason = openAiStopReason(native.stop_reason);
   await persistReplay(native.content, state);
+  observe?.({ completed: true, thinkingPresent: native.content.some((block: JsonObject) => block.type === 'thinking' || block.type === 'redacted_thinking') });
   const text = native.content.filter((block: unknown) => plain(block) && block.type === 'text' && typeof block.text === 'string').map((block: any) => block.text).join('');
   const calls = native.content.filter((block: unknown) => plain(block) && block.type === 'tool_use').map((block: any) => ({
     id: block.id, type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
@@ -421,7 +426,7 @@ function sse(data: unknown): Uint8Array {
   return encoder.encode(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
 }
 
-async function adaptEventstream(response: Response, state: BedrockReplayState): Promise<Response> {
+async function adaptEventstream(response: Response, state: BedrockReplayState, observe?: BedrockThinkingObserver): Promise<Response> {
   if (!response.ok || !response.body) return response;
   let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   const blocks = new Map<number, JsonObject>();
@@ -497,6 +502,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
         if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
         const finishReason = openAiStopReason(stopReason);
         await persistReplay([...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block), state);
+        observe?.({ completed: true, thinkingPresent: [...blocks.values()].some((block) => block.type === 'thinking' || block.type === 'redacted_thinking') });
         controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: finishReason }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
         controller.enqueue(sse('[DONE]'));
       } catch {
@@ -507,6 +513,6 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
   return new Response(body, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
-export async function adaptBedrockAnthropicResponse(response: Response, transport: BedrockAnthropicTransport, state: BedrockReplayState, streamRequested = false): Promise<Response> {
-  return transport === 'eventstream' ? adaptEventstream(response, state) : adaptInvoke(response, state, streamRequested);
+export async function adaptBedrockAnthropicResponse(response: Response, transport: BedrockAnthropicTransport, state: BedrockReplayState, streamRequested = false, observe?: BedrockThinkingObserver): Promise<Response> {
+  return transport === 'eventstream' ? adaptEventstream(response, state, observe) : adaptInvoke(response, state, streamRequested, observe);
 }
