@@ -46,5 +46,6 @@ WORKERS="${GRAPHIFY_SAFE_WORKERS:-1}"
 ulimit -v "$CAP_KB"
 
 export GRAPHIFY_MAX_WORKERS="$WORKERS"
+export GRAPHIFY_NO_TIPS=1
 
 exec graphify update "$@"
