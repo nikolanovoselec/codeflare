@@ -53,8 +53,8 @@ describe('REQ-ENTERPRISE-074 existing native receipt upgrade', () => {
       expect(confirmed).toMatchObject({ assignable: true, classification: 'Administrator-confirmed',
         checkId: expect.any(String), verification: { method: 'administrator', current: true } });
       expect(confirmed).not.toHaveProperty('report');
-      expect(confirmed.verification).not.toHaveProperty('discovery');
-      expect(confirmed.verification).not.toHaveProperty('capabilities');
+      expect(confirmed).not.toHaveProperty('verification.discovery');
+      expect(confirmed).not.toHaveProperty('verification.capabilities');
       expect(calls).toBe(0);
       const response = await post({ target, maxCompletionTokens: 256 });
       expect(response.status).toBe(200);

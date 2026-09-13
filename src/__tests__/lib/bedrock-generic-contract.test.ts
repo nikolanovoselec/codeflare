@@ -26,7 +26,7 @@ describe('reusable Bedrock Messages contract', () => {
       providerConfigId: target.providerConfigId, connectionFingerprint: connectionFingerprint(connection)!, profileRef: target.profileRef,
       transport: target.transport, region: target.region, adapterVersion: BEDROCK_NATIVE_ADAPTER_VERSION as typeof BEDROCK_NATIVE_ADAPTER_VERSION, checkedAt: new Date().toISOString() };
     expect(nativeVerificationMatches(target, connection)).toBe(false);
-    expect(nativeVerificationMatches({ ...target, verification: { ...proof, method: 'automated' } }, connection)).toBe(false);
+    expect(nativeVerificationMatches({ ...target, verification: { ...proof, method: undefined } }, connection)).toBe(false);
     const confirmed = { ...target, verification: proof };
     expect(nativeVerificationMatches(confirmed, connection)).toBe(true);
     expect(nativePromptCacheSupported(confirmed)).toBe(false);

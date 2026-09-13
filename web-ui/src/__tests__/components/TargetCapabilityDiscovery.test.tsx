@@ -586,7 +586,7 @@ describe('Independent capability evidence and administrator default preferences'
     await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
     const policy = view.getByRole('button', { name: 'engineering policy' });
     if (policy.getAttribute('aria-expanded') !== 'true') await fireEvent.click(policy);
-    const label = kind === 'dynamic' ? 'Dynamic Route - brand-new-route' : 'Native Route - Independent native';
+    const label = kind === 'dynamic' ? 'Dynamic Route - brand-new-route' : 'Native Route - AWS Bedrock - Independent native';
     const allowed = view.getByRole('checkbox', { name: `engineering ${label} route` });
     expect(allowed).toBeEnabled();
     // Adding a group selects its sole eligible route; discovery alone did not.

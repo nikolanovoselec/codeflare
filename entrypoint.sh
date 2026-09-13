@@ -3594,7 +3594,7 @@ COPILOT_BYOK_EOF
         def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         def display_name($route):
             ($displaynames[$route] // "" | if type == "string" then gsub("^\\s+|\\s+$"; "") else "" end) as $display
-            | (if ($route | test("^cf-native-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"; "i"))
+            | (if ($displaynames | has($route))
                then "Native Route - " else "Dynamic Route - " end)
               + (if $display != "" then $display else $route end);
         # Pi 0.85.1 emits block-level checkpoints and honors cacheRetention:none.
