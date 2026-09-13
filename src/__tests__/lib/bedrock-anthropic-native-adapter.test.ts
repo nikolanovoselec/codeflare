@@ -483,7 +483,15 @@ describe('Bedrock Anthropic native adapter', () => {
   it.each([
     ['invalid frame checksum', (() => { const frame = eventstreamFrame({ type: 'message_stop' }); frame[frame.length - 1] ^= 1; return [frame]; })(), state()],
     ['truncated frame', [eventstreamFrame({ type: 'message_start', message: { id: 'msg' } }).subarray(0, 15)], state()],
-    ['replay persistence failure', [eventstreamFrame({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: 'opaque-state' } }), eventstreamFrame({ type: 'content_block_stop', index: 0 }), eventstreamFrame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_1', name: 'lookup', input: {} } }), eventstreamFrame({ type: 'content_block_stop', index: 1 }), eventstreamFrame({ type: 'message_stop' })], { load: vi.fn(), save: vi.fn(async () => { throw new Error('storage unavailable'); }) }],
+    ['replay persistence failure', [
+      eventstreamFrame({ type: 'message_start', message: { id: 'synthetic-persistence' } }),
+      eventstreamFrame({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: 'opaque-state' } }),
+      eventstreamFrame({ type: 'content_block_stop', index: 0 }),
+      eventstreamFrame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_1', name: 'lookup', input: {} } }),
+      eventstreamFrame({ type: 'content_block_stop', index: 1 }),
+      eventstreamFrame({ type: 'message_delta', delta: { stop_reason: 'tool_use' } }),
+      eventstreamFrame({ type: 'message_stop' }),
+    ], { load: vi.fn(), save: vi.fn(async () => { throw new Error('storage unavailable'); }) }],
   ])('REQ-ENTERPRISE-080: emits a terminal SSE error for %s', async (_label, chunks, replay) => {
     const body = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks as Uint8Array[]) controller.enqueue(chunk); controller.close(); } });
     const response = await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay as BedrockReplayState);
@@ -491,18 +499,21 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(text).toContain('"error"');
     expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
     expect(text).toContain('data: [DONE]');
+    expect(text).not.toMatch(/"finish_reason":"[^"]+"/);
+    if (_label === 'replay persistence failure') expect(replay.save).toHaveBeenCalledTimes(1);
   });
 
   it('REQ-ENTERPRISE-080: rejects trailing corruption before emitting a successful stream terminator', async () => {
     const corrupt = eventstreamFrame({ type: 'message_start', message: { id: 'trailing' } });
     corrupt[corrupt.length - 1] ^= 1;
-    const chunks = [eventstreamFrame({ type: 'message_stop' }), corrupt];
+    const valid = new Uint8Array(await bedrockToolResponse([tool], 'eventstream').arrayBuffer());
+    const chunks = [valid, corrupt];
     const replay = state();
     const body = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
     const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
     expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
     expect(replay.save).not.toHaveBeenCalled();
-    expect(text).not.toContain('"finish_reason":"stop"');
+    expect(text).not.toMatch(/"finish_reason":"[^"]+"/);
     expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
   });
 
@@ -512,15 +523,16 @@ describe('Bedrock Anthropic native adapter', () => {
     ['missing bytes after stop', bedrockEventFrame('chunk', {})],
   ])('REQ-ENTERPRISE-080: rejects %s without a successful finish', async (_label, badFrame) => {
     const replay = state();
+    const valid = new Uint8Array(await bedrockToolResponse([tool], 'eventstream').arrayBuffer());
     const body = new ReadableStream<Uint8Array>({ start(controller) {
-      controller.enqueue(eventstreamFrame({ type: 'message_stop' }));
+      controller.enqueue(valid);
       controller.enqueue(badFrame);
       controller.close();
     } });
     const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
     expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
     expect(text).not.toContain('private');
-    expect(text).not.toContain('"finish_reason":"stop"');
+    expect(text).not.toMatch(/"finish_reason":"[^"]+"/);
     expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
     expect(replay.save).not.toHaveBeenCalled();
   });

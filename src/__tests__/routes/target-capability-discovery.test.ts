@@ -8,6 +8,7 @@ import { validateConfigurationValues } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { readRouteCheck, verificationMatches } from '../../lib/reasoning-verification';
 import { getBuiltInProfile } from '../../lib/reasoning-profiles';
+import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 
 vi.mock('../../middleware/auth', () => ({ authMiddleware: async (_c: any, next: any) => next(), requireAdmin: async (_c: any, next: any) => next() }));
 afterEach(() => vi.restoreAllMocks());
@@ -17,7 +18,7 @@ function setup() {
   kv._store.set(SETUP_KEYS.AIG_GATEWAY_URL, connection.gatewayUrl); kv._store.set(SETUP_KEYS.AIG_GATEWAY_ID, connection.gatewayId);
   const env = { KV: kv, ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: connection.gatewayUrl, AIG_GATEWAY_ID: connection.gatewayId, AIG_TOKEN: connection.token } as unknown as Env;
   const app = new Hono(); app.use('*', async (c, next) => { c.env = env; await next(); }); app.route('/reasoning', reasoningRoutes);
-  return { kv, env, post: (body: unknown) => app.request('/reasoning/capabilities/discover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) };
+  return { kv, env, post: (body: unknown, path = '/reasoning/capabilities/discover') => app.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) };
 }
 const config = { gatewayUrl: connection.gatewayUrl, gatewayId: connection.gatewayId, replacementToken: '', dynamicRoutes: [],
   defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: {}, groupRouting: [], fallbackRouting: { enabled: false },
@@ -56,6 +57,51 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     const access = await loadEnterpriseRouteConfig(env, ['engineering']); expect(access.routeCatalog).toEqual(['future']);
     expect(access.promptCacheTargets).toBeUndefined(); // A Gateway HIT never grants native checkpoint serialization.
     expect(calls).toBe(4);
+  });
+
+  describe.each(['/reasoning/capabilities/discover', '/reasoning/discover'])('%s backend identity authority', (path) => {
+    it.each([false, true])('requires response identities on a multi-backend route (identified: %s)', async (identified) => {
+      const { kv, post } = setup(); let calls = 0;
+      const generated = capabilityCandidates(false)[0];
+      const profileRef = { id: generated.id, revision: generated.revision, hash: generated.hash };
+      const multiBackend = [topology[0],
+        { ...topology[1], outputs: { success: { elementId: 'end' }, failure: { elementId: 'backup' } } },
+        { id: 'backup', type: 'model', properties: { provider: 'other-provider', model: 'synthetic-backup-2099' }, outputs: { success: { elementId: 'end' } } },
+        topology[2]];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        if ((init?.method ?? 'GET') === 'GET') {
+          if (String(url).endsWith('/routes')) return Response.json({ data: { routes: [{ id: 'id', name: 'future' }] } });
+          return Response.json({ result: { version: { version_id: 'v1', active: true, data: multiBackend } } });
+        }
+        expect(String(url)).toContain('/compat/chat/completions');
+        const body = JSON.parse(String(init!.body)); calls++;
+        expect(body.model).toBe('dynamic/future');
+        const delta = calls === 1 ? { tool_calls: [{ index: 0, id: 'synthetic-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] } : { content: 'Synthetic result.' };
+        return new Response(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: calls === 1 ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 8192, completion_tokens: 20 } })}\n\ndata: [DONE]\n\n`,
+          { headers: { 'content-type': 'text/event-stream', 'cf-aig-cache-status': calls === 4 ? 'HIT' : 'MISS',
+            ...(identified && { 'cf-aig-provider': 'unlisted-provider', 'cf-aig-model': 'synthetic-future-2099' }) } });
+      });
+      const response = await post(path === '/reasoning/discover'
+        ? { route: 'future', profileRef, profileDraft: generated }
+        : { kind: 'dynamic-route', route: 'future' }, path);
+      const result: any = await response.json();
+      expect(response.status, JSON.stringify(result)).toBe(200);
+      expect(calls).toBe(4);
+      if (identified) {
+        // All observations identify one exercised backend; the fallback need not be probed.
+        expect(result.assignable).toBe(true);
+        const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId);
+        expect(receipt.route).toBe('future');
+        expect(receipt.verification).toMatchObject({ profileRef, scope: 'observed-path', capabilities: { cache: 'gateway-response' } });
+        expect(verificationMatches(receipt.verification, generated, connection)).toBe(true);
+      } else {
+        expect.soft(result.assignable).toBe(false);
+        expect.soft(result).not.toHaveProperty('checkId');
+        expect.soft(result).not.toHaveProperty('verification');
+        expect.soft(result).not.toHaveProperty('routeVerification');
+        expect([...kv._store.keys()].filter((key) => key.startsWith('admin:reasoning:check:'))).toEqual([]);
+      }
+    });
   });
 
   it('certifies a synthetic future native model through the saved Invoke transport and authentic replay', async () => {

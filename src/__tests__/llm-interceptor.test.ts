@@ -1272,9 +1272,8 @@ describe('native provider authorization and compat dispatch', () => {
         .mockResolvedValueOnce(bedrockToolResponse(signed, 'eventstream'))
         .mockImplementationOnce(async (input: RequestInfo | URL) => {
           const request = input as Request; secondUrl = request.url;
-          // Fail a dispatch regression immediately instead of waiting for the
-          // Invoke JSON reader to hang on the deliberately withheld EOF.
-          expect(secondUrl).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`);
+          // The bounded consumer below must fail on buffering itself, not
+          // merely on the operation URL. Keep EOF withheld until public text.
           const native = JSON.parse(await request.text());
           expect(native.messages[1].content).toEqual(signed);
           return new Response(stream, { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
@@ -1286,36 +1285,52 @@ describe('native provider authorization and compat dispatch', () => {
         tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }],
       }) });
       const question = { role: 'user', content: 'Synthetic tool request' };
-      const first = await readOpenAiToolTurn(await interceptor.fetch(request([question])));
-      const response = await interceptor.fetch(request([question, first.message,
-        { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: '{"value":"ok"}' }]));
-      expect(secondUrl).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`);
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let wire = '';
-      while (!wire.includes('First part. ')) {
-        const next = await reader.read();
-        expect(next.done).toBe(false);
-        wire += decoder.decode(next.value, { stream: true });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Native replay must deliver public text before withheld EOF and then finish within the test deadline')), 2000);
+      });
+      try {
+        const initial = await Promise.race([interceptor.fetch(request([question])), deadline]);
+        const first = await Promise.race([readOpenAiToolTurn(initial), deadline]);
+        const response = await Promise.race([interceptor.fetch(request([question, first.message,
+          { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: '{"value":"ok"}' }])), deadline]);
+        reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let wire = '';
+        while (!wire.includes('First part. ')) {
+          const next = await Promise.race([reader.read(), deadline]);
+          expect(next.done).toBe(false);
+          wire += decoder.decode(next.value, { stream: true });
+        }
+        expect(secondUrl).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`);
+        expect(wire).not.toMatch(/"finish_reason":"[^"]+"/);
+        expect(wire).not.toContain('[DONE]');
+        for (const event of [
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Second part.' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } },
+          { type: 'message_stop' },
+        ]) upstream.enqueue(bedrockChunkFrame(event));
+        upstream.close();
+        for (;;) {
+          const next = await Promise.race([reader.read(), deadline]);
+          if (next.done) break;
+          wire += decoder.decode(next.value, { stream: true });
+        }
+        expect(wire).toContain('Second part.');
+        expect(wire).toContain('"finish_reason":"stop"');
+        expect(wire).toContain('"cached_tokens":1024');
+        expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
+        expect(wire).not.toContain('synthetic-hidden-signature');
+        expect(wire).not.toContain('synthetic hidden reasoning');
+        expect(JSON.stringify(ciphertext)).not.toContain('synthetic-hidden-signature');
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      } finally {
+        clearTimeout(timer);
+        try { upstream.close(); } catch { /* Already closed or cancelled. */ }
+        if (reader) { void reader.cancel().catch(() => {}); reader.releaseLock(); }
       }
-      expect(wire).not.toMatch(/"finish_reason":"[^"]+"/);
-      expect(wire).not.toContain('[DONE]');
-      for (const event of [
-        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Second part.' } },
-        { type: 'content_block_stop', index: 0 },
-        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } },
-        { type: 'message_stop' },
-      ]) upstream.enqueue(bedrockChunkFrame(event));
-      upstream.close();
-      for (;;) { const next = await reader.read(); if (next.done) break; wire += decoder.decode(next.value, { stream: true }); }
-      expect(wire).toContain('Second part.');
-      expect(wire).toContain('"finish_reason":"stop"');
-      expect(wire).toContain('"cached_tokens":1024');
-      expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
-      expect(wire).not.toContain('synthetic-hidden-signature');
-      expect(wire).not.toContain('synthetic hidden reasoning');
-      expect(JSON.stringify(ciphertext)).not.toContain('synthetic-hidden-signature');
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('REQ-ENTERPRISE-073/077: validates signed continuation before Eventstream and keeps state private', async () => {

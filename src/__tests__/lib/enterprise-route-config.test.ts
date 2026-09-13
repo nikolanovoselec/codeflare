@@ -5,7 +5,8 @@ import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle } from '../../lib/native-ai-targets';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
-import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { getBuiltInProfileRef, normalizeCustomProfile, PI_REASONING_LEVELS, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
+import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 
@@ -32,6 +33,35 @@ function saved(kv = createMockKV()) {
 }
 
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
+  it('REQ-ENTERPRISE-035/058: publishes seven Pi choices without inventing seven discovered reasoning mappings', async () => {
+    const kv = createMockKV();
+    const env = makeEnv(kv);
+    const profile = capabilityCandidates(false).find((candidate) => candidate.levels.medium?.some((write) => write.path === 'reasoning_effort'))!;
+    const profileRef = { id: profile.id, revision: profile.revision, hash: profile.hash };
+    const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [profile],
+      routeAssignments: { normalized: { activeProfile: profileRef } },
+    }, { gatewayUrl: routingGatewayUrl, token: 'fixture-token' });
+    configuration.routeAssignments.normalized.verification!.capabilities = {
+      schemaVersion: 1, tools: true, replay: true, cache: 'gateway-response', nativePromptCache: false,
+      reasoning: 'observed-enabled', streaming: 'not-observed', grade: 'Acceptable',
+    };
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['normalized']);
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, configuration);
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['normalized'], defaultRoute: 'normalized', reasoning: 'max' } });
+    kv._set(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, { normalized: 200000 });
+
+    const published = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(published.routeCatalog).toEqual(['normalized']);
+    expect(published.routeReasoningLevels.normalized).toEqual([...PI_REASONING_LEVELS]);
+    // Selectable client preferences are not seven independently verified controls.
+    expect(profile.supportedLevels).toEqual(['medium']);
+    expect(configuration.routeAssignments.normalized.verification!.supportedLevels).toEqual(['medium']);
+    for (const preference of PI_REASONING_LEVELS) {
+      expect(translateRuntimeReasoningRequest({ reasoning_effort: preference }, profile, published.defaultReasoning).reasoning_effort).toBe('medium');
+    }
+    expect(published.promptCacheTargets).toBeUndefined();
+    expect(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(JSON.stringify(configuration));
+  });
   it.each(['provider-prefix', 'gateway-response', 'inconclusive'] as const)('REQ-ENTERPRISE-074: publishes synthetic future model capabilities only from qualifying %s evidence', async (cache) => {
     const { kv, env } = saved(); env.AIG_TOKEN = `generic-${cache}-synthetic`;
     const target = createNativeTarget({ label: 'Synthetic future contract', model: 'eu.anthropic.claude-synthetic-future-2099-v1:0',

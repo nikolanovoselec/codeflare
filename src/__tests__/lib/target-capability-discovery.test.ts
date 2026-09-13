@@ -8,15 +8,29 @@ import { normalizeCustomProfile } from '../../lib/reasoning-profiles';
 const coordinates = { accountId: 'a'.repeat(32), gatewayId: 'synthetic', apiToken: 'synthetic-token' };
 const tool = { role: 'assistant', content: null, tool_calls: [{ id: 'synthetic-call', type: 'function',
   function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] };
-function response(body: any, cache = 'MISS') {
+function response(body: any, cache = 'MISS', evidence: { model?: string; reasoningContent?: string; reasoningTokens?: number } = {}) {
   const isTool = Array.isArray(body.tools) && !body.messages.some((message: any) => message.role === 'tool');
-  const message: any = isTool ? tool : { role: 'assistant', content: 'Synthetic public result.' };
+  const message: any = isTool ? tool : { role: 'assistant', content: 'Synthetic public result.',
+    ...(evidence.reasoningContent !== undefined && { reasoning_content: evidence.reasoningContent }) };
   const finish_reason = isTool ? 'tool_calls' : 'stop';
-  const usage = { prompt_tokens: 8192, completion_tokens: 16 };
-  const headers = { 'cf-aig-cache-status': cache, 'cf-aig-provider': 'synthetic-provider', 'cf-aig-model': 'never-listed-model-2099' };
+  const usage = { prompt_tokens: 8192, completion_tokens: 16,
+    ...(evidence.reasoningTokens !== undefined && { completion_tokens_details: { reasoning_tokens: evidence.reasoningTokens } }) };
+  const headers = { 'cf-aig-cache-status': cache, 'cf-aig-provider': 'synthetic-provider', 'cf-aig-model': evidence.model ?? 'never-listed-model-2099' };
   if (!body.stream) return Response.json({ choices: [{ message, finish_reason }], usage }, { headers });
   return new Response(`data: ${JSON.stringify({ choices: [{ delta: { ...message, ...(isTool && { tool_calls: message.tool_calls!.map((call: any) => ({ ...call, index: 0 })) }) }, finish_reason }], usage })}\n\ndata: [DONE]\n\n`,
     { headers: { ...headers, 'content-type': 'text/event-stream' } });
+}
+
+// Reject the two provider-default candidates at the HTTP boundary, then exercise
+// the real finite enabled mapping: reasoning, tool call, replay, cache fill/read.
+function enabledMappingFetcher(evidence: Parameters<typeof response>[2]) {
+  let enabledCalls = 0;
+  return vi.fn(async (_url, init) => {
+    const body = JSON.parse(String(init!.body));
+    if (body.reasoning_effort !== 'medium') return Response.json({ error: { code: 'invalid_parameter' } }, { status: 400 });
+    const stage = enabledCalls++ % 5;
+    return response(body, stage === 4 ? 'HIT' : 'MISS', stage === 0 ? evidence : {});
+  });
 }
 
 describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
@@ -96,6 +110,73 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(result.attempts[0].diagnostics).toContainEqual(expect.objectContaining({ stage: 'cache-fill', code: 'request_rejected', status: 403,
       providerCode: 'Unauthorized', providerType: 'authentication_error', transport: 'compat' }));
     expect(JSON.stringify(result)).not.toContain('private provider detail');
+  });
+
+  it.each([
+    { stage: 'cache-fill', failedCall: 3 },
+    { stage: 'cache-read', failedCall: 4 },
+  ])('stops after malformed HTTP 200 SSE at $stage without trying another contract', async ({ stage, failedCall }) => {
+    const bodies: any[] = [];
+    const privateBody = 'private malformed cache payload';
+    const fetcher = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init!.body));
+      bodies.push(body);
+      if (bodies.length === failedCall) return new Response(`data: {"private":"${privateBody}"\n\ndata: [DONE]\n\n`,
+        { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      // A later candidate would work, so continuing cannot hide behind misses.
+      return response(body, body.tools ? 'MISS' : 'HIT');
+    });
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/malformed-cache', maxCompletionTokens: 256, fetcher });
+    expect(result.attempts[0].diagnostics).toContainEqual(expect.objectContaining({ stage, code: 'malformed_response', status: 200, transport: 'compat' }));
+    expect(JSON.stringify(result)).not.toContain(privateBody);
+    expect(fetcher).toHaveBeenCalledTimes(failedCall);
+    expect(result.accounting.httpAttempts).toBe(failedCall);
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0].classification).toBe('Inconclusive');
+    expect(result.assignable).toBe(false);
+    expect(result.classification).toBe('Inconclusive');
+    expect(result.profile).toBeUndefined();
+    expect(result.report).toBeUndefined();
+  });
+
+  it.each([
+    { reasoningModel: 'other-backend-model', sameBackend: false },
+    { reasoningModel: 'never-listed-model-2099', sameBackend: true },
+  ])('qualifies token-backed reasoning with tools/cache only on the same backend ($sameBackend)', async ({ reasoningModel, sameBackend }) => {
+    const fetcher = enabledMappingFetcher({ model: reasoningModel, reasoningTokens: 8 });
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/reasoning-backends', maxCompletionTokens: 256,
+      requireBackendIdentity: true, fetcher });
+    if (sameBackend) {
+      expect(result.assignable).toBe(true);
+      expect(result.classification).toBe('Verified');
+      expect(result.profile?.hash).toBe(capabilityCandidates(false)[2].hash);
+      expect(result.capabilities).toMatchObject({ tools: true, replay: true, cache: 'gateway-response', reasoning: 'observed-enabled', grade: 'Acceptable' });
+      expect(result.report?.cacheEvidence.backendIdentified).toBe(true);
+      expect(fetcher).toHaveBeenCalledTimes(7);
+    } else {
+      expect(result.attempts[2].diagnostics).toContainEqual(expect.objectContaining({ stage: 'branch-correlation', code: 'backend_changed' }));
+      expect(result.attempts[2].capabilities?.grade).toBe('Not qualified');
+      expect(result.assignable).toBe(false);
+      expect(result.classification).toBe('Inconclusive');
+      expect(result.profile).toBeUndefined();
+      expect(result.report).toBeUndefined();
+    }
+  });
+
+  it.each([
+    { reasoningContent: 'private synthetic reasoning content', reasoning: 'observed-enabled', grade: 'Acceptable' },
+    { reasoningContent: '', reasoning: 'unverified', grade: 'Minimum' },
+  ])('grades reasoning content without token counters as $reasoning', async ({ reasoningContent, reasoning, grade }) => {
+    const fetcher = enabledMappingFetcher({ reasoningContent });
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/reasoning-content', maxCompletionTokens: 256,
+      requireBackendIdentity: true, fetcher });
+    expect(result.assignable).toBe(true);
+    expect(result.profile?.hash).toBe(capabilityCandidates(false)[2].hash);
+    expect(result.report?.distinctMappings[0].reasoningProbe).toMatchObject({ status: 200, reasoningTokens: null,
+      reasoningLength: reasoningContent.length, reasoningField: reasoningContent ? 'reasoning_content' : null });
+    expect(JSON.stringify(result)).not.toContain('private synthetic reasoning content');
+    expect(result.capabilities).toMatchObject({ tools: true, replay: true, cache: 'gateway-response', reasoning, grade });
+    expect(fetcher).toHaveBeenCalledTimes(7);
   });
 
   it('does not issue multi-backend certification when the exercised backend cannot be identified', async () => {
