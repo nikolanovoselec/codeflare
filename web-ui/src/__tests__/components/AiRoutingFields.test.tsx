@@ -183,6 +183,74 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Synthetic component fixtures; CI reruns the locally verified behavior.
 describe('Structured AI routing', () => {
+  it('REQ-ENTERPRISE-034: shows only live Gateway routes and drops deleted route settings after a successful inventory', async () => {
+    const deleted = ['bedrock_opus', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'development', 'documentation', 'freestyler', 'general_usage'];
+    const live = ['Planning', 'Operations', 'Development', 'Review'];
+    api.catalog.mockResolvedValueOnce({ ...catalog, routes: live });
+    const saved = { ...current, dynamicRoutes: deleted,
+      routeContextWindows: Object.fromEntries(deleted.map((route) => [route, 200000])),
+      reasoningConfiguration: { ...current.reasoningConfiguration,
+        routeAssignments: Object.fromEntries(deleted.map((route) => [route, { activeProfile: glmRef }])) } };
+    const view = mount(saved);
+    await view.findByText('Connected · 4 routes readable');
+    await waitFor(() => expect(api.inventory).toHaveBeenCalledTimes(4));
+    expect(view.getAllByRole('article').map((row) => row.getAttribute('aria-label'))).toEqual(live.map((route) => `${route} route`));
+    expect(view.getByText('0 ready / 4 routes')).toBeVisible();
+    for (const route of deleted) {
+      expect(view.queryByRole('button', { name: `Configure ${route}` })).toBeNull();
+      expect(draftConfiguration(view.container).routeAssignments).not.toHaveProperty(route);
+    }
+    expect(api.inventory.mock.calls.map(([route]) => route)).toEqual(live);
+    expect(formValues(view.container).routeContextWindows).toEqual({});
+    expect(formValues(view.container).dynamicRoutes).toEqual([]);
+    expect(formValues(view.container).groupRouting.every((group: { routes: string[] }) => group.routes.length === 0)).toBe(true);
+    expect(api.discover).not.toHaveBeenCalled();
+    expect(api.native).not.toHaveBeenCalled();
+    expect(view.submit).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-034: an authoritative empty route inventory removes all saved Dynamic routes without discovery or Save', async () => {
+    api.catalog.mockResolvedValueOnce({ ...catalog, routes: [] });
+    const view = mount();
+    await view.findByText('Connected · 0 routes readable');
+    expect(view.queryByRole('article')).toBeNull();
+    expect(view.getByText('0 ready / 0 routes')).toBeVisible();
+    expect(view.getByText(/No routes available/)).toBeVisible();
+    expect(draftConfiguration(view.container).routeAssignments).toEqual({});
+    expect(api.inventory).not.toHaveBeenCalled();
+    expect(api.discover).not.toHaveBeenCalled();
+    expect(view.submit).not.toHaveBeenCalled();
+  });
+
+  it.each(['ready', 'unavailable'] as const)('REQ-ENTERPRISE-052: missing Native providers remove their routes only after authoritative inventory (%s)', async (providerCatalogStatus) => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const native = { id: targetId, label: 'Deleted provider route', model: 'eu.anthropic.claude-synthetic-2099', provider: 'aws-bedrock',
+      transport: 'aig-legacy-compat', contextWindow: 200000, profileRef: savedNativeCustomRef, enabled: true,
+      verification: { method: 'administrator', checkedAt: '2026-09-13T12:00:00Z', current: true } };
+    api.catalog.mockResolvedValueOnce({ ...catalog, providers: [], providerCatalogStatus });
+    const view = mount({ ...current, nativeTargets: [native],
+      reasoningConfiguration: { ...current.reasoningConfiguration, customProfileRevisions: [savedNativeCustom] },
+      groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      fallbackRouting: { enabled: true, routes: [handle], defaultRoute: handle, reasoning: 'off' } });
+    await openNative(view);
+    expect(view.queryByRole('article', { name: 'Deleted provider route native target' })).toBeNull();
+    const values = formValues(view.container);
+    if (providerCatalogStatus === 'ready') {
+      expect(values.nativeTargets).toEqual([]);
+      expect(JSON.stringify(values.groupRouting)).not.toContain(handle);
+      expect(JSON.stringify(values.fallbackRouting)).not.toContain(handle);
+    } else {
+      expect(values.nativeTargets).toHaveLength(1); // A failed read is not proof of deletion.
+      expect(values.nativeTargets[0].id).toBe(targetId);
+      expect(view.getByText(/Provider discovery is unavailable/)).toBeVisible();
+    }
+    expect(draftConfiguration(view.container).customProfileRevisions).toEqual([savedNativeCustom]);
+    expect(api.native).not.toHaveBeenCalled();
+    expect(api.nativeDiscover).not.toHaveBeenCalled();
+    expect(view.submit).not.toHaveBeenCalled();
+  });
+
   it('REQ-ENTERPRISE-075: an incomplete native check does not turn absent cache evidence into an unsupported claim', async () => {
     api.native.mockResolvedValueOnce({ assignable: false, classification: 'Inconclusive',
       cacheEvidence: { explanation: 'Exact replay was not established. No cache reuse observed; this does not establish unsupported caching.' } });
@@ -842,7 +910,9 @@ describe('Structured AI routing', () => {
     api.inventory.mockImplementation(async (route: string) => ({ ...routeInventory(route), legs: routeInventory(route).legs.map((leg) => ({ ...leg, provider: 'workers-ai' })) }));
     api.discover.mockResolvedValueOnce(verifiedReport('development', kimiRef, 'observed-path'));
     const view = mount(); await ready(view); await verifyProfile(view);
-    expect(await view.findByText('Compatible · backup untested', { exact: true })).toBeVisible();
+    const pill = await view.findByText('Compatible · backup untested', { exact: true });
+    expect(pill).toBeVisible();
+    expect(pill).toHaveAttribute('data-state', 'passed'); // Existing green success treatment; the backup warning remains.
     expect(view.getByText(/Other backends remain untested/)).toBeVisible();
     expect(view.queryByText('Verified', { exact: true })).toBeNull();
     expect(draftConfiguration(view.container).routeAssignments.development).toEqual({ activeProfile: kimiRef, routeVersion: 'development-v2', verification: proof('development', kimiRef, 'observed-path') });

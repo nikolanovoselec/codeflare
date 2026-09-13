@@ -142,6 +142,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it('REQ-ENTERPRISE-044: automatic inventory cleanup advances the review revision without saving unrelated edits', async () => {
+    const live = aiRouting();
+    api.configuration.mockResolvedValueOnce(configuration({ ...live,
+      dynamicRoutes: ['development', 'obsolete-route'],
+      reasoningConfiguration: { ...live.reasoningConfiguration,
+        routeAssignments: { ...live.reasoningConfiguration.routeAssignments, 'obsolete-route': { activeProfile: ref } } },
+    }, 7)).mockResolvedValue(configuration(live, 8));
+    api.catalog.mockResolvedValueOnce({ ...catalog(), reconciliation: {
+      status: 'applied', removedDynamicRoutes: ['obsolete-route'], removedNativeTargetIds: [], revision: 8,
+    } });
+    mount();
+    await screen.findByText('Connected · 1 routes readable');
+    await openRoute('development');
+    expect(screen.queryByRole('button', { name: 'Configure obsolete-route' })).toBeNull();
+    const contextWindow = screen.getByLabelText('development context window');
+    await fireEvent.input(contextWindow, { target: { value: '196608' } });
+    await review();
+    expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 8, expect.objectContaining({
+      routeContextWindows: { development: 196608 },
+    }));
+    expect(submitted().reasoningConfiguration.routeAssignments).not.toHaveProperty('obsolete-route');
+    expect(api.start).not.toHaveBeenCalled();
+    expect(api.discover).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])('REQ-ENTERPRISE-044: eight routes with only Bedrock verified remain untouched after inventory failures (other assignments: %s)', async (assigned) => {
     const routes = ['bedrock_opus', 'development', 'general_usage', 'documentation', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'freestyler'];
     const bedrock = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
