@@ -5490,11 +5490,16 @@ None.
 **Acceptance Criteria:**
 
 1. A separate Recreate icon action appears whenever the dashboard displays Retry upgrade and is absent outside that state. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: hides Recreate backup outside Retry upgrade state (%s)) -->
-2. Selecting the backup invokes full recreation rather than retry or session creation and reports the returned completion counts. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation) -->
-3. Active updates exclude overlapping operations and hide the backup until settlement. <!-- @impl: web-ui/src/stores/session.ts::runPreseedUpdate --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery hides during an update and returns after settlement) -->
-4. Failed recreation displays the error and leaves explicit recovery available. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt) -->
+2. Selecting the backup invokes full recreation rather than retry or session creation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation) -->
+3. Successful recreation reports the returned completion counts. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation) -->
+4. Active updates exclude overlapping operations. <!-- @impl: web-ui/src/stores/session.ts::runPreseedUpdate --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) -->
+5. The backup remains hidden during active updates and returns after settlement when recovery is still needed. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery hides during an update and returns after settlement) -->
+6. Failed recreation displays the error and leaves explicit recovery available. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt) -->
 
-**Constraints:** Successful recreation does not replace authoritative applied-status reconciliation. Existing server admission remains unchanged.
+**Constraints:**
+
+- Successful recreation does not replace authoritative applied-status reconciliation.
+- Existing server admission remains unchanged.
 
 **Priority:** P1
 

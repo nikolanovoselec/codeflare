@@ -1152,7 +1152,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     await waitFor(() => expect(storageApi.recreateAgentConfigs).toHaveBeenCalledTimes(1));
     expect(sessionStore.runPreseedUpdate).toHaveBeenCalledWith(storageApi.recreateAgentConfigs);
-    expect(screen.getByRole('status')).toHaveTextContent('Recreated 1 agent config file(s). Removed 1 file(s) from previous mode.');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Recreated 1 agent config file(s). Removed 1 file(s) from previous mode.'));
     expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
     expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
   });
