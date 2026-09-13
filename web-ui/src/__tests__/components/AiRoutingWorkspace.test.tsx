@@ -234,7 +234,7 @@ describe('Administrator route workspace', () => {
     expect(values(view.container).dynamicRoutes).not.toContain('development');
     await fireEvent.click(view.getByRole('button', { name: 'Mark development as verified' }));
     await waitFor(() => expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: ref, administratorConfirmed: true })));
-    expect(await view.findByText('Administrator-confirmed')).toBeVisible();
+    expect(await within(view.getByRole('region', { name: 'Check result' })).findByText('Administrator-confirmed')).toBeVisible();
     expect(view.queryByRole('table', { name: 'Selected profile checks' })).toBeNull();
     await section(view, 'Access & fallback');
     await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' }));

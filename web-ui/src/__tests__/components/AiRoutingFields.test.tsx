@@ -578,7 +578,9 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
-    api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
+    api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'))
+      .mockResolvedValueOnce({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Verified', assignable: true,
+        checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
     const view = mount(checkedCurrent());
     await addNativeTarget(view);
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });

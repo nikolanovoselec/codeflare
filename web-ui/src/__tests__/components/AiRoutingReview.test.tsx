@@ -366,7 +366,10 @@ describe('AI routing review', () => {
       const verify = screen.getByRole('button', { name: `Verify Profile for ${route}` });
       await waitFor(() => expect(verify).toBeEnabled());
       await fireEvent.click(verify);
-      expect(await within(screen.getByRole('article', { name: `${route} route` })).findByText('Check passed. Assign access and confirm Save to activate this draft.')).toBeVisible();
+      const result = within(within(screen.getByRole('article', { name: `${route} route` })).getByRole('region', { name: 'Check result' }));
+      expect(await result.findByText('Check passed · live-verified')).toBeVisible();
+      expect(result.getByText('Review changes')).toBeVisible();
+      expect(result.getByText('Confirm Save')).toBeVisible();
       expect(api.discover).toHaveBeenCalledWith({ route, profileRef: refs[route], gateway, maxCompletionTokens: 4096 });
       expect(api.inventory).toHaveBeenCalledWith(route, { gateway });
     }

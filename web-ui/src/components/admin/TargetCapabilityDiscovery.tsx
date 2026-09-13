@@ -11,9 +11,9 @@ export const TargetCapabilityDiscovery: Component<{ label: string; disabled: boo
   <button type="button" class="admin-primary-button" aria-label={`Discover capabilities for ${props.label}`}
     disabled={props.disabled || props.busy} onClick={props.onDiscover}>{props.busy ? 'Discovering…' : 'Discover'}</button>
   <p class="admin-field-help">Discover selects and verifies a working configuration. No profile choice or second Verify step is needed after success.</p>
-  <p class="admin-field-help">Uses provider credits · up to {MAX_CAPABILITY_SUBMISSIONS} submissions.</p>
-  <details class="admin-discovery-budget"><summary>Live check cost and limits</summary>
-    <p>This explicit check uses synthetic provider requests (at most {MAX_CAPABILITY_SUBMISSIONS} submissions, 2,048 output tokens each, 90 seconds per request and 10 minutes overall). It never changes Gateway settings or executes a real tool.</p>
+  <p class="admin-field-help">Uses provider credits: at most {MAX_CAPABILITY_SUBMISSIONS} submissions, 2,048 output tokens each, 90 seconds per request and 10 minutes overall.</p>
+  <details class="admin-discovery-budget"><summary>Live check details</summary>
+    <p>This explicit check uses synthetic provider requests. It never changes Gateway settings or executes a real tool.</p>
     <p>Minimum requires tools with replay and cache reuse. Provider-default reasoning is accepted. Optimal adds incremental streaming.</p>
   </details>
 </section>;
@@ -33,7 +33,7 @@ export const TargetCheckResult: Component<{ title: string; ready?: boolean; busy
 
 export const DiscoveryCheckEvidence: Component<{ result: TargetDiscoveryResult }> = (props) => <>
   <p>{props.result.assignable ? props.result.explanation : reasoningCheckSummary({ classification: props.result.classification,
-    diagnostics: props.result.attempts.at(-1)?.diagnostics.flatMap((entry) => {
+    diagnostics: props.result.attempts[props.result.attempts.length - 1]?.diagnostics.flatMap((entry) => {
       const parsed = ReasoningDiscoveryDiagnosticSchema.safeParse(entry); return parsed.success ? [parsed.data] : [];
     }) }, props.result.explanation)}</p>
   <details class="admin-technical-details"><summary>Discovery details</summary>

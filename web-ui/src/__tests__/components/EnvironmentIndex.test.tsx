@@ -106,7 +106,10 @@ async function verifyRoute(name = 'development') {
   const button = screen.getByRole('button', { name: `Verify Profile for ${name}` });
   await waitFor(() => expect(button).toBeEnabled());
   await fireEvent.click(button);
-  expect(await within(screen.getByRole('article', { name: `${name} route` })).findByText('Check passed. Assign access and confirm Save to activate this draft.')).toBeVisible();
+  const result = within(within(screen.getByRole('article', { name: `${name} route` })).getByRole('region', { name: 'Check result' }));
+  expect(await result.findByText('Check passed · live-verified')).toBeVisible();
+  expect(result.getByText('Review changes')).toBeVisible();
+  expect(result.getByText('Confirm Save')).toBeVisible();
 }
 const draft = (container: HTMLElement): ReasoningConfiguration => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
 const submitted = (): SubmittedRouting => api.preview.mock.calls[api.preview.mock.calls.length - 1]![2];
@@ -377,7 +380,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       const action = screen.getByRole('button', { name: 'Mark development as verified' });
       await waitFor(() => expect(action).toBeEnabled());
       await fireEvent.click(action);
-      expect(await screen.findByText('Administrator-confirmed')).toBeVisible();
+      expect(await within(screen.getByRole('region', { name: 'Check result' })).findByText('Administrator-confirmed')).toBeVisible();
       expect(screen.queryByRole('table', { name: 'Selected profile checks' })).toBeNull();
     } else await verifyRoute();
     expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: ref, ...(method && { administratorConfirmed: true }), maxCompletionTokens: 4096 });
@@ -430,7 +433,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const action = screen.getByRole('button', { name: `Mark ${route} as verified` });
     await waitFor(() => expect(action).toBeEnabled());
     await fireEvent.click(action);
-    expect(await screen.findByText('Administrator-confirmed')).toBeVisible();
+    expect(await within(screen.getByRole('region', { name: 'Check result' })).findByText('Administrator-confirmed')).toBeVisible();
     await review();
     const expectSummary = () => {
       const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /bedrock_opus/ });

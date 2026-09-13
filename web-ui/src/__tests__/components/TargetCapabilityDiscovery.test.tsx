@@ -46,7 +46,12 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     expect(row.getAllByText(advancedName)).toHaveLength(1);
     expect(advanced.open).toBe(false);
     expect(row.getByLabelText('brand-new-route Pi compatibility profile')).not.toBeVisible();
-    expect(row.queryByRole('button', { name: /Verify Profile|Mark .* as verified|Discover Profile/i })).toBeNull();
+    // Closed details retain their controls in the DOM; assert visibility, not absence.
+    for (const name of ['Discover Profile for brand-new-route', 'Verify Profile for brand-new-route']) {
+      const control = row.getByRole('button', { name, hidden: true });
+      expect(advanced).toContainElement(control);
+      expect(control).not.toBeVisible();
+    }
     const discover = row.getByRole('button', { name: 'Discover capabilities for brand-new-route' });
     await waitFor(() => expect(discover).toBeEnabled());
     await fireEvent.click(discover);
