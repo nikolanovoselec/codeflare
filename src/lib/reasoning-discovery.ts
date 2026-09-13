@@ -81,6 +81,8 @@ export interface DiscoveryInput {
   // Trusted server-selected coordinates, never browser-provided URLs/headers.
   native?: { model: string; region: string; transport: 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto' };
   requireCacheEvidence?: boolean;
+  /** Multi-backend inventory requires response identities for cache qualification. */
+  requireBackendIdentity?: boolean;
   /** Trusted campaign deadline. Legacy single-profile checks omit it. */
   campaignDeadline?: number;
 }
@@ -878,6 +880,7 @@ async function executeReasoningProbe(common: CommonRequest, request: PlainObject
     malformedEvents: parsed.malformedEvents,
     contentLength: summary.contentLength,
     contentHash: summary.contentHash,
+    backend: gatewayObservation(attempt.response).backend,
     reasoningField: parsed.reasoningBlocks[0]?.signature ?? null,
     reasoningLength: reasoning.length,
     reasoningHash: await digest(reasoning),
@@ -997,11 +1000,17 @@ interface DiscoveryDiagnostic {
   stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response' | 'cache-fill' | 'cache-read' | 'branch-correlation';
   code: 'completion_limit' | 'no_tool_call' | 'invalid_tool_call' | 'replay_rejected' | 'request_rejected'
     | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large'
-    | 'off_not_disabled' | 'incomplete_final_response' | 'cache_reuse_unobserved' | 'backend_changed';
+    | 'off_not_disabled' | 'incomplete_final_response' | 'cache_reuse_unobserved' | 'backend_changed' | 'observed_backend_unidentified';
   status?: number;
   transport?: string;
   providerCode?: string | number;
   providerType?: string;
+}
+
+function stopsDiscovery(diagnostic: DiscoveryDiagnostic): boolean {
+  return ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
+    || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
+    || (diagnostic.status !== undefined && diagnostic.status >= 500);
 }
 
 function probeDiagnostic(probe: Record<string, any> | null, levels: ReasoningLevel[], stage: DiscoveryDiagnostic['stage']): DiscoveryDiagnostic | null {
@@ -1087,7 +1096,7 @@ function gatewayObservation(response: Response): Record<string, unknown> {
  * Native markers never leak into Dynamic conversion. A MISS is inconclusive:
  * model-specific prefix thresholds, placement and best-effort reuse still apply.
  */
-async function discoverCache(common: CommonRequest, route: string, maxCompletionTokens: number, toolObservations: Array<Record<string, any>>, semantic: SemanticMapping) {
+async function discoverCache(common: CommonRequest, route: string, maxCompletionTokens: number, mappingObservations: Array<Record<string, any>>, semantic: SemanticMapping) {
   const marker = crypto.randomUUID();
   // Large enough to exercise documented 4,096-token minima with ordinary text,
   // but not a tokenizer claim or a promise of a hit for an unknown future model.
@@ -1116,9 +1125,9 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
     }
   }
   // Certify the exercised path, not every configured fallback. But never join
-  // known tools-on-A and cache-on-B into a fictitious capable backend. Missing
-  // Gateway identity remains explicitly unobserved, not invented from inventory.
-  const allObservations = [...toolObservations, ...observations];
+  // known reasoning/tools-on-A and cache-on-B into a fictitious capable backend.
+  // Missing Gateway identity stays unobserved, not invented from inventory.
+  const allObservations = [...mappingObservations, ...observations];
   const backendConsistent = ['provider', 'model'].every((key) => new Set(allObservations.map((item) => item.backend?.[key]).filter(Boolean)).size <= 1);
   const backendIdentified = allObservations.every((item) => item.backend?.provider && item.backend?.model);
   const complete = backendConsistent && observations.length === 2 && observations.every((item) => item.valid)
@@ -1132,7 +1141,7 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
     && item.publicDeltaTimes.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
     && item.publicDeltaTimes[0] + 5 < item.eofTime);
   return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(compatibilityRequest(request, common.compatibility))),
-    explanation: !backendConsistent ? 'Tool and cache observations identify different backends. Minimum is inconclusive for one exercised route path; this is not an all-branches requirement.'
+    explanation: !backendConsistent ? 'Reasoning, tool or cache observations identify different backends. Minimum is inconclusive for one exercised route path; this is not an all-branches requirement.'
       : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Minimum is not met; unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
       : cache === 'gateway-response' ? 'Gateway HIT satisfies the minimum; this is whole-response reuse, not proof of provider input-prefix reuse.'
         : 'Positive provider prefix-cache reads observed on the native/compat request actually tested.' };
@@ -1255,10 +1264,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   // tool lifecycle. A capped tool call/replay, or an unproven off mode, never does.
   const compatibleLevels = verifiedLevels.filter((level) => !diagnostics.some((diagnostic) => diagnostic.levels.includes(level)));
   const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit');
-  let stopDiscovery = diagnostics.some((diagnostic) =>
-    ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
-    || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
-    || (diagnostic.status !== undefined && diagnostic.status >= 500));
+  let stopDiscovery = diagnostics.some(stopsDiscovery);
   let assignable = !stopped
     && allToolsPassed
     && !reasoningTransportFailures
@@ -1287,10 +1293,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       // Keep the successful leg; do not replay a known REST 404 for every probe.
       if (distinctMappings[0]?.toolLifecycle.first?.transport === 'compat') common.compatOnly = true;
       cacheEvidence = await discoverCache(common, input.route, Math.min(input.maxCompletionTokens, 2048),
-        distinctMappings.flatMap((item) => [item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean), groups[0].semantic);
+        distinctMappings.flatMap((item) => [item.reasoningProbe, item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean), groups[0].semantic);
       accounting.logicalProbes += cacheEvidence.observations.length;
       for (const observation of cacheEvidence.observations) addEvidence(accounting, observation);
-      stopDiscovery ||= cacheEvidence.observations.some((item) => item.status === null || [401, 403, 429].includes(item.status) || item.status >= 500);
       // The dedicated discovery screen returns per-contract diagnostics even
       // when no profile qualifies. Keep cache failures as actionable as tool
       // failures; a cache-only 403 must not disappear into an empty list.
@@ -1300,15 +1305,21 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
         if (failure) diagnostics.push(failure);
         else if (!observation.valid) diagnostics.push({ levels: [], stage, code: observation.effectiveFinishReason === 'length' ? 'completion_limit' : 'incomplete_final_response' });
       });
+      stopDiscovery ||= diagnostics.some(stopsDiscovery);
       if (!cacheEvidence.backendConsistent) diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'backend_changed' });
       else if (cacheEvidence.cache === 'inconclusive' && cacheEvidence.observations.length === 2 && cacheEvidence.observations.every((item) => item.valid)) {
         diagnostics.push({ levels: [], stage: 'cache-read', code: 'cache_reuse_unobserved' });
       }
     }
     const cache = cacheEvidence?.cache ?? 'not-tested';
-    const minimum = assignable && (cache === 'provider-prefix' || cache === 'gateway-response');
+    let minimum = assignable && !stopDiscovery && (cache === 'provider-prefix' || cache === 'gateway-response');
+    if (minimum && input.requireBackendIdentity && !cacheEvidence?.backendIdentified) {
+      minimum = false;
+      stopDiscovery = true;
+      diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'observed_backend_unidentified' });
+    }
     const reasoning = profile.reasoningMode === 'provider-default' ? 'provider-default'
-      : distinctMappings.some((item) => item.reasoningProbe?.reasoningTokens > 0 || item.reasoningProbe?.reasoning?.some((block: { length: number }) => block.length > 0))
+      : distinctMappings.some((item) => item.reasoningProbe?.reasoningTokens > 0 || item.reasoningProbe?.reasoningLength > 0)
         ? 'observed-enabled' : 'unverified';
     capabilitySummary = { schemaVersion: 1, tools: allToolsPassed, replay: allToolsPassed, cache,
       nativePromptCache: Boolean(input.native && cache === 'provider-prefix'), reasoning,

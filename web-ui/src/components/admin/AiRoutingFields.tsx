@@ -231,8 +231,16 @@ const AiRoutingFields: Component<Props> = (props) => {
     const profile = assignableProfiles().find((candidate) => candidate.id === nativeProfileId(target));
     return profile ? profileRefFromEntry(profile) : undefined;
   };
-  const profilesForTarget = (target: NativeDraft) => assignableProfiles().filter((profile) => target.transport && target.transport !== 'aig-legacy-compat'
-    ? profile.id === nativeProfileId(target) || profile.id === target.profileRef.id : !profile.id.startsWith('bedrock-anthropic-native-'));
+  const profilesForTarget = (target: NativeDraft) => {
+    // Discovery changes the selected ref, not the saved target's Advanced choices.
+    // A changed model/provider/transport does not inherit that historical choice.
+    const saved = initialNativeDrafts.find((prior) => target.id && prior.id === target.id
+      && prior.provider === target.provider && prior.model === target.model
+      && prior.transport === target.transport && prior.region === target.region);
+    return assignableProfiles().filter((profile) => target.transport && target.transport !== 'aig-legacy-compat'
+      ? profile.id === nativeProfileId(target) || profile.id === target.profileRef.id || profile.id === saved?.profileRef.id
+      : !profile.id.startsWith('bedrock-anthropic-native-'));
+  };
   const supportedLevels = (name: string) => {
     if (name.startsWith('cf-native-')) return findProfile(nativeTargets().find((target) => nativeHandle(target) === name)?.profileRef)?.supportedLevels ?? [];
     return findProfile(routeByName(name)?.assignment.activeProfile)?.supportedLevels ?? [];

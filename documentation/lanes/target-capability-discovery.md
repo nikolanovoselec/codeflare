@@ -1,6 +1,24 @@
 # Target capability discovery
 
+**Audience:** Operators, Developers
+
+**Owns:** explicit target discovery, shared contract selection, evidence grades, campaign bounds, and diagnostic limitations. **Does not own:** provider availability, access policy, cache policy, or deployed acceptance.
+
+## Contents
+
+- [Normal administrator flow](#normal-administrator-flow)
+- [Dedicated boundary](#dedicated-boundary)
+- [Contracts, not a model list](#contracts-not-a-model-list)
+- [Evidence and qualification](#evidence-and-qualification)
+- [Bounds and security](#bounds-and-security)
+- [Evidence and remaining boundaries](#evidence-and-remaining-boundaries)
+- [Authoritative references](#authoritative-references)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
+
 ## Normal administrator flow
+
+<!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields -->
 
 1. Select a gateway-owned Dynamic Route, or select the configured Amazon Bedrock provider and enter/select its exact authorized model, region and context window.
 2. Click **Discover**. No profile selection, naming, JSON editing or separate Verify action is required.
@@ -28,6 +46,8 @@ The component is not a second routing architecture, catalog service, background 
 
 ## Contracts, not a model list
 
+<!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse -->
+
 Native Anthropic Messages uses the existing shared `bedrock-anthropic-native-provider-default` revision 1 and native adapter v4. The model namespace is a protocol candidate only: actual availability, entitlement and usable wire behavior must be established for the selected target. Discovery never substitutes the model, provider binding, region or saved transport. Existing Invoke or compat selections are not silently changed to Eventstream.
 
 Dynamic and direct-Bedrock compatibility candidates are content-addressed **shared request forms**. The finite search begins with Provider default, then the already audited normalized enabled request forms from OpenAI, Workers AI and Mesh. Equivalent forms are deduplicated; each is tested with streaming first and bounded completed JSON second. These are potential wire forms, not assertions about the selected model. Native controls are not copied into Dynamic requests. Search stops at the first qualifying configuration, respecting the user's priority of tools/replay and cache ahead of reasoning-level fidelity or streaming.
@@ -40,10 +60,12 @@ For a buffered contract, the Worker validates completed OpenAI JSON and sends on
 
 ## Evidence and qualification
 
+<!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityMinimum --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache -->
+
 | Grade | Required observation |
 | --- | --- |
 | Minimum | Valid tool call and exact tool-result lifecycle, plus positive provider prefix-cache read **or Gateway HIT** |
-| Acceptable | Minimum plus accepted Provider-default reasoning, or observed enabled reasoning under the tested normalized mapping |
+| Acceptable | Minimum plus Provider-default policy, or visible reasoning output / positive structured reasoning-token evidence under the tested normalized mapping |
 | Optimal | Acceptable plus multiple public deltas spread over time before EOF, excluding cached delivery, native Invoke and synthesized buffered SSE |
 | Not qualified | Minimum not established; no discovery receipt/enablement |
 
@@ -51,11 +73,15 @@ Gateway HIT satisfies the explicitly agreed relaxed cache threshold, but remains
 
 Tools/replay are checked before the cache pair. One fresh public marker is reused in two identical sequential cache requests; no custom keys, TTL overrides, purges or sharing changes are made. The roughly 60-KiB public prefix is intentionally bounded, but its model token count is not assumed (the current live Claude samples used about 29.8k cached-prefix tokens). Each native request uses only the existing supported five-minute checkpoint translation. This repeated-request measurement is narrower than changed-answer prefix reuse; the prior live report covers that stronger native experiment.
 
-Evidence qualifies only the exercised Dynamic branch. Different **known** backends cannot contribute tools and cache to one imaginary result. A multi-distinct-backend route needs the selected provider/model response identity to correlate its observations; absent identity is inconclusive, not an all-branches test. Other branches remain explicitly unverified and must be configured compatibly by the operator until Cloudflare provides post-selection normalization.
+Evidence qualifies only the exercised Dynamic branch. Different **known** backends cannot contribute reasoning, tools/replay and cache to one imaginary result. A multi-distinct-backend route needs the selected provider/model response identity to correlate its observations; absent identity is inconclusive, not an all-branches test. Other branches remain explicitly unverified and must be configured compatibly by the operator until Cloudflare provides post-selection normalization.
 
-All seven Pi preferences remain selectable. Provider default sends no reasoning override and does not assert Off, visible thinking, or graduated effort. A discovered normalized enabled form maps every preference to that one evidenced form; it does not claim seven controls. Existing evidence-specific Sonnet/Opus native profiles keep their validated disabled/adaptive mappings and aliases. The old automatic Opus XHigh/Max Invoke rule is not imposed on future model names.
+The intended client contract keeps all seven Pi preferences selectable; Provider default sends no reasoning override and does not assert Off, visible thinking, or graduated effort. A discovered normalized enabled form maps every preference to that one evidenced form; it does not claim seven controls. Existing evidence-specific Sonnet/Opus native profiles keep their validated disabled/adaptive mappings and aliases. The old automatic Opus XHigh/Max Invoke rule is not imposed on future model names.
+
+**Checkpoint limitation (PR1086):** generated enabled contracts still publish only their tested level. Their seven-choice publication awaits the corrected test's behavioral RED; provider-default models already offer seven choices. Worker normalization alone does not prove picker availability. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest -->
 
 ## Bounds and security
+
+<!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches -->
 
 An explicit Discover is bounded at **40 HTTP submissions**, 2,048 output tokens each, 90 seconds per request and 10 minutes overall. The complete current search needs at most 38 submissions; ordinary Provider-default success uses four, including native Runtime success. Limits do not grow with the catalog. There are no automatic retries, model substitutions or real tool executions. Authentication, rate-limit, provider/server, malformed-stream and timeout boundaries stop further probing; a specific validation incompatibility may allow the next supported contract. Tests are not promised free; input/cache/output usage is billed by the configured provider.
 
@@ -69,7 +95,11 @@ Requests use only server-constructed gateway paths and authenticated provider in
 
 Offline regressions exercise unfamiliar synthetic model names through discovery → receipt → Save → authorization, shared runtime parity, temporal streaming before withheld stop/EOF, old-document upgrades, opt-out/empty revocation and the actual locked Pi 0.85.1 serializer/parser. Synthetic fixtures prove generic behavior, not that an unreleased model exists. The existing CI Pi lane runs `scripts/verify-bedrock-pi-prompt-cache.mjs`; no CI/deployment was dispatched by this diagnostic task.
 
-An additional ten live submissions used **actual local Pi 0.85.1**, its real OpenAI serializer/parser, the discovered contracts and this branch's local translation boundary. Both Dynamic Routes and Native Sonnet passed their complete two-call lifecycles. Native Sonnet's changed-answer continuation read 30,256 cached prefix tokens. Native Opus's first replay returned HTTP 200, positive prefix reuse and public text but ended with Pi `error`; its original raw terminal reason was not captured, so the cause remains inconclusive. A separate two-call diagnostic with a simpler public instruction passed unchanged model/transport/exact replay and read 30,200 cached tokens. Preserve both observations: the later pass is not a fix or an explanation of the earlier error. All four have successful real-Pi samples; universal prompt/model reliability and deployed-session acceptance are not claimed. Total fresh inference in this task: 26 submissions, with no automatic retries or resource mutations.
+An additional ten live submissions used **actual local Pi 0.85.1**, its real OpenAI serializer/parser, the discovered contracts and this branch's local translation boundary. Both Dynamic Routes and Native Sonnet passed their complete two-call lifecycles. Native Sonnet's changed-answer continuation read 30,256 cached prefix tokens.
+
+Native Opus's first replay returned HTTP 200, positive prefix reuse and public text but ended with Pi `error`. Its original raw terminal reason was not captured; the error remains unresolved. A separate two-call diagnostic with a simpler public instruction passed unchanged model/transport/exact replay and read 30,200 cached tokens. That later pass is neither a fix nor an explanation of the original error.
+
+All four have successful real-Pi samples; universal prompt/model reliability and deployed-session acceptance are not claimed. Total fresh inference in that diagnostic task: 26 submissions, with no automatic retries or resource mutations.
 
 Adoption: retain all prior feature commits, integrate the complete feature on develop with review/CI, explicitly Discover affected targets and review/Save, then exercise normal next-start deployed sessions. No push, deployment, forced restart or silent migration is part of this handoff. See the sanitized Downloads handoff for commit/test/request ledgers.
 
@@ -85,3 +115,20 @@ Accessed 2026-09-13. Documentation establishes contracts, not live capability of
 - [AWS prompt caching](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html): model-dependent thresholds and best-effort reuse.
 - [AWS adaptive thinking](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-adaptive-thinking.html).
 - [AWS FoundationModelDetails](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_FoundationModelDetails.html): a streaming flag is not complete reasoning/cache/replay metadata.
+
+## Requirement and Source Map
+
+| Section / contract | Requirement | Primary source symbols |
+|---|---|---|
+| Normal flow and retained Advanced | [REQ-ENTERPRISE-034](../../sdd/spec/enterprise-mode.md#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-075](../../sdd/spec/enterprise-mode.md#req-enterprise-075-provider-native-bedrock-administration-authority) | `src/routes/admin/ai-capability-discovery.ts::routes`, `web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields` |
+| Shared contracts, grading, bounds and backend correlation | [REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-033](../../sdd/spec/enterprise-mode.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence) | `src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities`, `src/lib/reasoning-discovery.ts::discoverPiCompatibility` |
+| Cache qualification, not policy mutation | [REQ-ENTERPRISE-083](../../sdd/spec/enterprise-mode.md#req-enterprise-083-native-bedrock-prompt-cache-checkpoints) | `src/lib/reasoning-discovery.ts::discoverCache`, `src/lib/native-ai-targets.ts::nativePromptCacheSupported` |
+| Reasoning preferences and publication | [REQ-ENTERPRISE-072](../../sdd/spec/enterprise-mode.md#req-enterprise-072-provider-native-bedrock-reasoning-profiles), [REQ-ENTERPRISE-058](../../sdd/spec/enterprise-mode.md#req-enterprise-058-native-model-container-publication) | `src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest`, `src/lib/access.ts::loadEnterpriseRouteConfig` |
+| Authority and confidential replay | [REQ-ENTERPRISE-074](../../sdd/spec/enterprise-mode.md#req-enterprise-074-provider-native-bedrock-target-identity), [REQ-ENTERPRISE-073](../../sdd/spec/enterprise-mode.md#req-enterprise-073-provider-native-bedrock-replay-integrity) | `src/lib/native-ai-targets.ts::nativeVerificationMatches`, `src/lib/bedrock-anthropic-native-adapter.ts::assistantContent` |
+
+## Related Documentation
+
+- [Administration and historical usage](administration-analytics.md#enterprise-capability-profiles)
+- [Generic Anthropic Bedrock model support](bedrock-generic-model-support.md)
+- [Bedrock prompt caching](bedrock-prompt-caching.md)
+- [AD74 transport history and current amendment](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)

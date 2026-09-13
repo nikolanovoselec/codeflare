@@ -12,6 +12,7 @@
  * documentation/lanes/bedrock-prompt-caching.md.
  */
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,6 +37,7 @@ const model = {
     cacheControlFormat: 'anthropic', supportsLongCacheRetention: false },
 };
 
+await test('REQ-ENTERPRISE-083: locked Pi preserves checkpoint opt-in, opt-out and exact replay', { timeout: 10_000 }, async () => {
 // These are protocol/capability cases, not release-name fixtures. The generic
 // contract has no model list; the third case is a Gateway-HIT-only target whose
 // minimum passed but which must NOT publish native prefix checkpoints to Pi.
@@ -142,3 +144,4 @@ for (const contract of [
   assert.equal((await call()).stopReason, 'stop'); assert.equal(calls, 2);
 }
 console.log('PASS: locked Pi native and discovered buffered contracts, checkpoint opt-out/opt-in/revocation, exact synthetic replay, confidential state, and usage accounting; zero network calls.');
+});

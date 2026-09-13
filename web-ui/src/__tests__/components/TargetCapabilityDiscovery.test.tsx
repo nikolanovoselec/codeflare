@@ -72,6 +72,10 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-synthetic-future-2099-v1:0' } });
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Future native' } });
+    // Billable limits must be visible before the operator authorizes the check.
+    const discovery = within(view.getByRole('region', { name: 'native target 1 capability discovery' }));
+    expect(discovery.getByText(/at most 40 submissions, 2,048 output tokens each, 90 seconds per request and 10 minutes overall/)).toBeVisible();
+    expect(api.discover).not.toHaveBeenCalled();
     await fireEvent.click(view.getByRole('button', { name: 'Discover capabilities for native target 1' }));
     expect(await view.findByText('Optimal')).toBeVisible();
     const values: any = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!));

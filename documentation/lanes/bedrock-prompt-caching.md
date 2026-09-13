@@ -1,6 +1,24 @@
 # Bedrock prompt caching
 
-The historical measurements below remain model/transport-specific evidence. The subsequent [generic model support contract](bedrock-generic-model-support.md) removes the new-model profile-authoring requirement, uses adapter v4, and corrects the distinction between zero executable reasoning mappings and seven selectable Pi preferences. The operator now also accepts Gateway HIT as minimum cache qualification; it is still not proof of provider prefix reuse or permission to enable native checkpoints on Dynamic Routes.
+**Audience:** Operators, Developers
+
+**Owns:** native checkpoint translation, cache accounting, and historical cache/stream measurements. **Does not own:** target qualification, model availability, or deployment acceptance.
+
+## Contents
+
+- [Provider cache versus Gateway cache](#provider-cache-versus-gateway-cache)
+- [Usage translation](#usage-translation)
+- [Checkpoint translation and ownership](#checkpoint-translation-and-ownership)
+- [Live evidence, not synthetic capability claims](#live-evidence-not-synthetic-capability-claims)
+- [Dynamic Route boundary](#dynamic-route-boundary)
+- [Cherry-pick / reimplementation contract](#cherry-pick--reimplementation-contract)
+- [Reproducible local checks](#reproducible-local-checks)
+- [Streaming boundary](#streaming-boundary)
+- [Evidence and references](#evidence-and-references)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
+
+The historical measurements below remain model/transport-specific evidence. The subsequent [generic model support contract](bedrock-generic-model-support.md) removes the new-model profile-authoring requirement, uses adapter v4, and distinguishes zero executable reasoning mappings from the intended seven selectable Pi preferences. The [PR1086 generated-enabled publication limitation](target-capability-discovery.md#evidence-and-qualification) remains unfixed. The operator now also accepts Gateway HIT as minimum cache qualification; it is still not proof of provider prefix reuse or permission to enable native checkpoints on Dynamic Routes.
 
 ## Provider cache versus Gateway cache
 
@@ -9,6 +27,8 @@ Bedrock prompt caching reuses an input prefix and still generates a new answer. 
 AWS documents implicit and explicit prompt caching for Claude Sonnet 5 and Claude Opus 5, including `InvokeModelWithResponseStream`. Explicit checkpoints use native `cache_control` blocks. This documentation establishes provider capability, not a live hit through every Cloudflare transport.
 
 ## Usage translation
+
+<!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::openAiUsage -->
 
 `openAiUsage` in `src/lib/bedrock-anthropic-native-adapter.ts` preserves the provider's distinct input categories:
 
@@ -25,6 +45,8 @@ Cache writes are not cache reads, and thinking is already included in output tok
 Invoke JSON, Invoke's synthesized SSE and Eventstream's terminal SSE use this one conversion. The accounting converter itself changes no request controls or transport selection. Pi's OpenAI parser does not separately price one-hour writes; do not claim exact mixed-TTL billing from the aggregate alone.
 
 ## Checkpoint translation and ownership
+
+<!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent -->
 
 The second change enables the already-existing Pi 0.85.1 OpenAI serializer's Anthropic cache format **only for eligible native Runtime handles**. It is a per-model capability, not a provider-wide switch. The Worker remains authoritative for provider binding, target model, region, reasoning profile, and credentials.
 
@@ -74,6 +96,8 @@ Every initial call ended `tool_use`; every exact replay ended `end_turn` and del
 
 ## Dynamic Route boundary
 
+<!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported -->
+
 The exact active `bedrock_sonnet` and `bedrock_opus` routes still resolve through Gateway `/compat/chat/completions`. Their existing plain-system Pi tool call/replay works with the existing repeated-complete-tool-name repair. No new Dynamic reasoning levels or cache capability are published.
 
 Do not copy the native Pi cache flag onto Dynamic models: on both inspected routes a public phrase supplied only in a cache-marked array-valued system prompt failed the tool-input integrity canary, whereas string-valued system prompts passed. The token counts also fell from thousands to hundreds in the array case. This establishes a compatibility regression for that input shape, not the internal implementation of Cloudflare's converter. Native success cannot certify Dynamic prefix forwarding or cache accounting.
@@ -90,9 +114,14 @@ The remaining external contract to resolve is Cloudflare's preservation of Bedro
 
 1. Apply the cache-accounting repair first; it is independent and does not change paid request bodies.
 2. Apply checkpoint translation and its complete capability plumbing together. Publishing Pi's flag without native translation is incomplete; enabling it provider-wide breaks the Dynamic boundary.
-3. The checkpoint commit uses adapter v2; the subsequent streaming-continuation commit uses `bedrock-anthropic-native-v3`. v1/v2 target documents remain readable, but old receipts must not authorize v3. The Opus-auto profile is revision 2 because its recorded transport behavior changed; reasoning mappings did not change. The existing native flow requires explicit administrator confirmation of recorded validation evidence, not an automatic paid verification. Do not fabricate or migrate receipts.
+3. Preserve the historical upgrade boundaries:
+   - The checkpoint commit uses adapter v2; streaming continuation uses `bedrock-anthropic-native-v3`. v1/v2 documents remain readable, but old receipts must not authorize v3.
+   - Opus-auto revision 2 records changed transport behavior, not changed reasoning mappings.
+   - That native flow requires explicit administrator confirmation of recorded validation evidence, not automatic paid verification. Do not fabricate or migrate receipts.
 4. Keep all existing Dynamic/compat configuration unchanged. Native region and saved transport identity remain unchanged too. Do not flatten a Dynamic Route into a direct model call or silently migrate an Invoke target.
-5. Apply the streaming-continuation commit separately if wanted. It removes forced Invoke after validated tool replay for the already stream-supported mappings. Explicit Invoke targets and automatic Opus XHigh/Max remain Invoke. It does not bypass Gateway response inspection, add fallback, or claim a deployed-session test.
+5. Apply streaming continuation separately if wanted:
+   - It removes forced Invoke after validated tool replay for already stream-supported mappings. Explicit Invoke targets and automatic Opus XHigh/Max remain Invoke.
+   - It does not bypass Gateway response inspection, add fallback, or claim a deployed-session test.
 
 The code comments explain the non-obvious prefix boundaries, trust boundary, signed-state invariants, counter arithmetic, and version invalidation. They deliberately do not claim that caching fixes buffering.
 
@@ -112,6 +141,8 @@ This test injects its only HTTP implementation, makes **zero network calls**, an
 
 ## Streaming boundary
 
+<!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse -->
+
 The native adapter streams Eventstream public text incrementally. At the inspected develop baseline, active tool continuations selected Invoke, whose client SSE is synthesized only after complete upstream JSON. The third commit now preserves the stream-supported operation after exact replay validation; the cache-accounting and checkpoint commits remain independent. Explicit Invoke targets and automatic Opus XHigh/Max still have synthesized, non-incremental SSE. Input caching does not change that operation's delivery model. No fake character timers or transport migration are introduced.
 
 ## Evidence and references
@@ -126,3 +157,20 @@ The native adapter streams Eventstream public text incrementally. At the inspect
 - Pi accounting source: `package/dist/api/openai-completions.js::parseChunkUsage` in the [locked 0.85.1 package](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz), verified against `preseed/agents/pi/package-lock.json` integrity.
 
 Documentation accessed 2026-09-12. Regression fixtures are synthetic; they contain no live provider thinking or signatures.
+
+## Requirement and Source Map
+
+| Section / contract | Requirement | Source symbols |
+|---|---|---|
+| Usage translation | [REQ-ENTERPRISE-076](../../sdd/spec/enterprise-mode.md#req-enterprise-076-provider-native-bedrock-protocol-translation) | `bedrock-anthropic-native-adapter.ts::openAiUsage` |
+| Checkpoints and Dynamic exclusion | [REQ-ENTERPRISE-083](../../sdd/spec/enterprise-mode.md#req-enterprise-083-native-bedrock-prompt-cache-checkpoints) | `access.ts::loadEnterpriseRouteConfig`, `native-ai-targets.ts::nativePromptCacheSupported`, `bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest` |
+| Authentic replay | [REQ-ENTERPRISE-073](../../sdd/spec/enterprise-mode.md#req-enterprise-073-provider-native-bedrock-replay-integrity) | `bedrock-anthropic-native-adapter.ts::assistantContent` |
+| Streaming and completion | [REQ-ENTERPRISE-077](../../sdd/spec/enterprise-mode.md#req-enterprise-077-provider-native-bedrock-transport-dispatch), [REQ-ENTERPRISE-080](../../sdd/spec/enterprise-mode.md#req-enterprise-080-provider-native-bedrock-stream-completion) | `bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport`, `adaptBedrockAnthropicResponse` |
+
+Source symbols above are under `src/lib/`; measurements are historical evidence, not deployed acceptance.
+
+## Related Documentation
+
+- [Generic Anthropic Bedrock model support](bedrock-generic-model-support.md)
+- [Target capability discovery](target-capability-discovery.md)
+- [Administration and historical usage](administration-analytics.md#enterprise-capability-profiles)

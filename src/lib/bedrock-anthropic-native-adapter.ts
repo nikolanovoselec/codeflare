@@ -123,7 +123,7 @@ function reconstructToolCalls(message: JsonObject): JsonObject[] {
 
 // Classify original OpenAI messages, before tool results become native user blocks.
 // Pi's synthetic image-result user messages cannot establish a new text turn.
-export function classifyBedrockToolTurn(messages: unknown[]): { start: number; replay: boolean } {
+function classifyBedrockToolTurn(messages: unknown[]): { start: number; replay: boolean } {
   const pending = new Set<string>();
   const seen = new Set<string>();
   let ambiguous = false;

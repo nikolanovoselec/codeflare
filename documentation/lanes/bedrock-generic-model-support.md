@@ -1,12 +1,32 @@
 # Generic Anthropic Bedrock model support
 
+**Audience:** Operators, Developers
+
+**Owns:** the reusable native Bedrock contract, reasoning semantics, target authority, and upgrades. **Does not own:** model availability, discovery UI details, historical probe ledgers, or deployment acceptance.
+
+## Contents
+
+- [Contract, not a model-release checklist](#contract-not-a-model-release-checklist)
+- [Explicit discovery and qualification](#explicit-discovery-and-qualification)
+- [Reasoning semantics](#reasoning-semantics)
+- [Prompt-cache and replay boundary](#prompt-cache-and-replay-boundary)
+- [Dynamic remains a separate transport](#dynamic-remains-a-separate-transport)
+- [Upgrade and next-start behavior](#upgrade-and-next-start-behavior)
+- [Verification and references](#verification-and-references)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
+
 ## Contract, not a model-release checklist
+
+<!-- @impl: src/lib/native-ai-target-draft.ts::bedrockAnthropicCandidate --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches -->
 
 New native Anthropic Messages targets reuse `bedrock-anthropic-native-provider-default` revision 1. Its canonical hash comes from the existing profile registry; it has no per-model generated source or profile definition. The `anthropic.claude-*` namespace, optionally preceded by the supported geographic inference-profile prefix, only selects a protocol **candidate**. It does not assert availability, entitlement, reasoning, caching, or streaming support.
 
 The existing native administration flow binds the exact authorized provider configuration, model, region, saved transport, profile hash, and adapter version. Model suggestions still come from active Dynamic Route inventory; administrators may enter a documented model identifier and context window. No new catalog service, AWS credentials, polling, or automatic startup probing is introduced. A model that rejects this Runtime Messages contract remains unusable through this adapter; selecting a familiar name never grants capabilities.
 
 ## Explicit discovery and qualification
+
+<!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache -->
 
 The normal flow is now **Select target → Discover → review result → Save**. The dedicated [target capability component](target-capability-discovery.md) automatically chooses the shared contract, verifies it and attaches the existing server-issued receipt. The user does not select/name a profile or click a second Verify. Native automation is deliberately based on the observed Bedrock boundary; other native protocols retain their existing advanced workflow until a separate extension is implemented. Historical profile matching and selected-profile verification remain under Advanced.
 
@@ -33,13 +53,19 @@ Discovery's identical cache pair certifies the measured reuse mechanism for that
 
 ## Reasoning semantics
 
-All seven Pi preferences remain: Off, Minimal, Low, Medium, High, XHigh, Max. Provider-default models send **no client reasoning override**, regardless of that selection. This is neither fabricated Off nor proof that reasoning occurred. The profile has zero executable effort mappings, not zero selectable Pi preferences.
+<!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest -->
+
+The intended client contract retains all seven Pi preferences: Off, Minimal, Low, Medium, High, XHigh, Max. Provider-default models send **no client reasoning override**, regardless of that selection. This is neither fabricated Off nor proof that reasoning occurred. Zero executable effort mappings must not mean zero selectable Pi preferences.
+
+**Checkpoint limitation (PR1086):** generated enabled contracts still publish only their tested level; [their seven-choice correction awaits behavioral RED](target-capability-discovery.md#evidence-and-qualification). Provider-default models already offer seven choices. Runtime normalization alone does not establish picker availability. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
 
 Existing Sonnet 5 and Opus 5 saved profiles retain validated disabled/adaptive mappings and aliases. Their exact evidence-model guards prevent a future name from inheriting these controls via a substring. Automatic Opus XHigh/Max still use Invoke; generic Provider default has no such mapped effort and uses Eventstream under auto. Explicit Invoke/Eventstream/compat authority remains unchanged.
 
 AWS documents genuinely different budgeted, adaptive, and adaptive-only reasoning contracts. FoundationModelDetails exposes streaming metadata but not the complete effort/checkpoint/replay contract. Anthropic platform model metadata is not Bedrock transport/entitlement authority. Therefore this change does not guess a native effort vocabulary from the model name or automatically manufacture stronger control profiles. Unknown controls use the accepted provider-default baseline. A future authoritative Bedrock/Cloudflare capability contract is needed for automatic graduated controls beyond that baseline.
 
 ## Prompt-cache and replay boundary
+
+<!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse -->
 
 Only a target with its own qualifying prefix evidence, or a retained validated historical native profile, publishes `cacheControlFormat: "anthropic"`. Gateway-HIT-only generic targets do not. The Worker independently rejects client checkpoints when that capability is absent. Dynamic targets never receive this serialization.
 
@@ -51,7 +77,9 @@ Known native stop reasons map explicitly (`tool_use`→`tool_calls`, `end_turn`/
 
 ## Dynamic remains a separate transport
 
-The reusable `dynamic-bedrock-anthropic-provider-default` contract remains for old assignments. Normal Dynamic **Discover** now automatically tests shared OpenAI wire forms and returns a canonical content-addressed configuration with target-bound evidence, not a profile shopping list. The existing narrow complete-name repair and a bounded buffered alternative live behind the shared compatibility boundary. Tools/replay and cache must not report conflicting observed backends. Missing Gateway backend headers are recorded as unobserved; multi-distinct-backend certification cannot invent selection from inventory. This certifies the exercised route path only, not every conditional/fallback branch. Operators remain responsible for mixing compatible branches until Cloudflare normalizes them.
+<!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse -->
+
+The reusable `dynamic-bedrock-anthropic-provider-default` contract remains for old assignments. Normal Dynamic **Discover** now automatically tests shared OpenAI wire forms and returns a canonical content-addressed configuration with target-bound evidence, not a profile shopping list. The existing narrow complete-name repair and a bounded buffered alternative live behind the shared compatibility boundary. Reasoning, tools/replay and cache must not report conflicting observed backends. Missing Gateway backend headers are recorded as unobserved; multi-distinct-backend certification cannot invent selection from inventory. This certifies the exercised route path only, not every conditional/fallback branch. Operators remain responsible for mixing compatible branches until Cloudflare normalizes them.
 
 The existing broad profile-matching scan is now an Advanced compatibility workflow; its separate Verify step is not the normal user flow. Existing explicit administrator-confirmed Dynamic assignments remain distinctly labelled rather than silently revoked by this new grade. A newly discovered contract cannot use administrator assertion to bypass the cache/tools minimum.
 
@@ -60,6 +88,8 @@ Native success does not repair Dynamic input caching. Earlier array-valued cache
 The subsequent 2026-09-13 live campaign qualified all four tested targets as **Optimal**: Native Sonnet/Opus showed positive prefix reads; Dynamic Sonnet/Opus showed Gateway MISS → HIT. All passed tools/replay and cold public streaming under the existing request-only DLP policy. The exact calls and limits are in the new Downloads handoff. These observations correct the earlier absence of current Dynamic cache certification, without turning Gateway HIT into prefix-cache evidence or claiming a deployed application test.
 
 ## Upgrade and next-start behavior
+
+<!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
 
 Keep the original three feature commits in order. Apply the generic changes together with their tests and CI step. No main backport, provider migration, or deploy is implied.
 
@@ -83,3 +113,19 @@ Official documentation accessed 2026-09-13:
 - [Cloudflare Bedrock forwarding](https://developers.cloudflare.com/ai-gateway/usage/providers/bedrock/): Runtime BYOK and separate compatibility paths.
 - [Cloudflare Dynamic usage](https://developers.cloudflare.com/ai-gateway/features/dynamic-routing/usage/): selected-backend headers.
 - [Cloudflare caching](https://developers.cloudflare.com/ai-gateway/features/caching/): whole-response reuse, distinct from provider input caching.
+
+## Requirement and Source Map
+
+| Section / contract | Requirement | Primary source symbols |
+|---|---|---|
+| Reusable identity and reasoning | [REQ-ENTERPRISE-072](../../sdd/spec/enterprise-mode.md#req-enterprise-072-provider-native-bedrock-reasoning-profiles), [REQ-ENTERPRISE-074](../../sdd/spec/enterprise-mode.md#req-enterprise-074-provider-native-bedrock-target-identity) | `src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest`, `src/lib/native-ai-targets.ts::nativeVerificationMatches` |
+| Explicit discovery and Dynamic separation | [REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-075](../../sdd/spec/enterprise-mode.md#req-enterprise-075-provider-native-bedrock-administration-authority) | `src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities`, `capabilityCandidates` |
+| Checkpoints and replay | [REQ-ENTERPRISE-083](../../sdd/spec/enterprise-mode.md#req-enterprise-083-native-bedrock-prompt-cache-checkpoints), [REQ-ENTERPRISE-073](../../sdd/spec/enterprise-mode.md#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-079](../../sdd/spec/enterprise-mode.md#req-enterprise-079-provider-native-bedrock-replay-confidentiality) | `src/lib/native-ai-targets.ts::nativePromptCacheSupported`, `src/lib/bedrock-anthropic-native-adapter.ts::assistantContent` |
+| Transport and terminal success | [REQ-ENTERPRISE-077](../../sdd/spec/enterprise-mode.md#req-enterprise-077-provider-native-bedrock-transport-dispatch), [REQ-ENTERPRISE-080](../../sdd/spec/enterprise-mode.md#req-enterprise-080-provider-native-bedrock-stream-completion) | `src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport`, `adaptBedrockAnthropicResponse` |
+| Upgrade and publication | [REQ-ENTERPRISE-058](../../sdd/spec/enterprise-mode.md#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-083](../../sdd/spec/enterprise-mode.md#req-enterprise-083-native-bedrock-prompt-cache-checkpoints) | `src/lib/native-ai-targets.ts::nativeVerificationMatches`, `src/lib/access.ts::loadEnterpriseRouteConfig` |
+
+## Related Documentation
+
+- [Target capability discovery](target-capability-discovery.md)
+- [Bedrock prompt caching](bedrock-prompt-caching.md)
+- [Administration and historical usage](administration-analytics.md#enterprise-capability-profiles)

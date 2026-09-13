@@ -5,11 +5,7 @@ import { MAX_CAPABILITY_SUBMISSIONS } from './contract';
 export type { TargetCapabilityResult } from './contract';
 import { canonicalHash, getBuiltInProfile, normalizeCustomProfile, type NormalizedReasoningProfile } from '../reasoning-profiles';
 
-export interface TargetCapabilityInput extends Omit<DiscoveryInput, 'profile' | 'offCandidateMapping' | 'requireCacheEvidence' | 'endpoint' | 'campaignDeadline'> {
-  /** Multiple possible backend identities need actual response identity before
-   * tools and cache observations can be attributed to one exercised branch. */
-  requireBackendIdentity?: boolean;
-}
+export type TargetCapabilityInput = Omit<DiscoveryInput, 'profile' | 'offCandidateMapping' | 'requireCacheEvidence' | 'endpoint' | 'campaignDeadline'>;
 
 /** These are audited request *forms*, not model capability assertions. Existing
  * profiles supply the finite protocol vocabulary; their model labels/provenance
@@ -75,10 +71,6 @@ export async function discoverTargetCapabilities(input: TargetCapabilityInput): 
     const countBefore = count;
     const report = await discoverPiCompatibility({ ...input, profile, fetcher: boundedFetch, campaignDeadline: started + 10 * 60_000,
       maxCompletionTokens: Math.min(input.maxCompletionTokens, 2048), timeoutMs: Math.min(input.timeoutMs ?? 90_000, 90_000), requireCacheEvidence: true });
-    if (report.assignable && input.requireBackendIdentity && !report.cacheEvidence?.backendIdentified) {
-      report.assignable = false; report.stopDiscovery = true; report.classification = 'Inconclusive';
-      report.diagnostics.push({ code: 'observed_backend_unidentified', stage: 'branch-correlation', levels: [] });
-    }
     attempts.push({ contract: profile.id, classification: report.classification, capabilities: report.capabilitySummary,
       diagnostics: report.diagnostics ?? [], httpAttempts: count - countBefore });
     cacheInconclusive ||= report.capabilitySummary?.cache === 'inconclusive';

@@ -49,6 +49,9 @@ When public workflows or consumers change, update the owning document in the [pr
 | [Security](lanes/security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |
 | [Configuration](lanes/configuration.md) | Default-mode configuration and public runtime behavior | Operators |
 | [Administration and historical usage](lanes/administration-analytics.md) | Environment changes, D1 history, reports, retention, and rollout checks | Operators, Developers |
+| [Target capability discovery](lanes/target-capability-discovery.md) | Explicit discovery, shared contracts, evidence grades, and bounded qualification | Operators, Developers |
+| [Generic Anthropic Bedrock model support](lanes/bedrock-generic-model-support.md) | Reusable native contract, reasoning semantics, authority, and upgrades | Operators, Developers |
+| [Bedrock prompt caching](lanes/bedrock-prompt-caching.md) | Native checkpoints, usage accounting, and historical cache/stream evidence | Operators, Developers |
 | [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
 | [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
 | [CI/CD & Testing](lanes/ci-cd.md) | Public workflow behavior and test-suite structure | Developers |

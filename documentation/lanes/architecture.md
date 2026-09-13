@@ -132,13 +132,15 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Inputs:** Intercepted OpenAI-wire requests, the authorized catalog of Dynamic Route and opaque native handles, route capability profiles, matched configured user-access groups, and Worker-held gateway configuration.
 
-**Outputs:** Authenticated REST-first Dynamic Route requests with supported reasoning translation, direct compat native/custom-provider requests governed by selected immutable profiles and provider-specific adapters, normalized streamed responses, or bounded fail-closed configuration errors before gateway fetch.
+**Outputs:** Authenticated Dynamic requests bound to compat by discovered contracts (REST-first for historical assignments), compat native/custom-provider or native Bedrock Runtime requests under saved authority, normalized responses, or bounded fail-closed configuration errors before gateway fetch.
 
 **State owned:** No durable state; it receives request-scoped and session-scoped props from the Container DO.
 
 **Does not own:** Provider keys, Access policy, per-group configuration, or agent model selection UI.
 
-**Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`.
+**Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates -->
+
+**Discovery contract:** [REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection); [Target capability discovery](target-capability-discovery.md).
 
 **Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-047](../../sdd/spec/enterprise-mode.md#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/enterprise-mode.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](../../sdd/spec/enterprise-mode.md#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-058](../../sdd/spec/enterprise-mode.md#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-059](../../sdd/spec/enterprise-mode.md#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-060](../../sdd/spec/enterprise-mode.md#req-enterprise-060-native-target-input-validation), [REQ-ENTERPRISE-061](../../sdd/spec/enterprise-mode.md#req-enterprise-061-native-target-administration-projection)
 
@@ -583,8 +585,8 @@ A session created from a repository keeps its clone directive in session metadat
 ```mermaid
 flowchart LR
     C["Container agent"] -->|"Placeholder credential + canonical level"| I["LlmInterceptor"]
-    I -->|"Valid Dynamic Route"| D["REST-first dynamic/route"]
-    I -->|"Authorized native/custom handle"| N["Direct compat native/custom"]
+    I -->|"Valid Dynamic Route"| D["Discovered compat / historical REST-first"]
+    I -->|"Authorized native/custom handle"| N["Saved compat / Bedrock Runtime"]
     I -->|"Invalid profile, capability, or authorization"| F["Bounded failure"]
     F --> C
     D --> G["Customer AI Gateway"]
@@ -595,9 +597,11 @@ flowchart LR
     I --> C
 ```
 
-Interception is wired before container start so the platform CA is available to the workload. Gateway URL, token, provider binding, and runtime selectors remain Worker-side; administration accepts exact model IDs, while containers receive only opaque handles. Dynamic Routes retain REST-first dispatch and translate Pi's canonical level through the selected route profile. Authorized native/custom-provider handles use direct compat dispatch governed by their selected immutable profiles. Bedrock alone receives repeated-complete tool-name repair, Gemini alone receives thought-signature exposure and replay, and other providers receive no provider-specific wire repair. Missing routing, stale authorization, unsupported controls, and invalid profiles fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+Interception is wired before container start so the platform CA is available to the workload. Gateway URL, token, provider binding, and runtime selectors remain Worker-side; administration accepts exact model IDs, while containers receive only opaque handles. New discovered compatibility contracts explicitly bind `/compat/chat/completions`; historical Dynamic assignments retain REST-first/404 fallback. Both translate Pi's canonical level through the selected profile. Native/custom-provider handles retain their saved compat or Bedrock Runtime authority. Discovered compat contracts include narrow complete-tool-name repair; historical provider-specific repair remains Bedrock tool names and Gemini thought-signature replay. Missing routing, stale authorization, unsupported controls, and invalid profiles fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
 
 **Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch), [REQ-ENTERPRISE-051](../../sdd/spec/enterprise-mode.md#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/enterprise-mode.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-054](../../sdd/spec/enterprise-mode.md#req-enterprise-054-native-target-profile-and-lifecycle-administration), [REQ-ENTERPRISE-055](../../sdd/spec/enterprise-mode.md#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-058](../../sdd/spec/enterprise-mode.md#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-059](../../sdd/spec/enterprise-mode.md#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-060](../../sdd/spec/enterprise-mode.md#req-enterprise-060-native-target-input-validation), [REQ-ENTERPRISE-061](../../sdd/spec/enterprise-mode.md#req-enterprise-061-native-target-administration-projection)
+
+**Discovery boundary:** [REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection); [Target capability discovery](target-capability-discovery.md#contracts-not-a-model-list). <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse -->
 
 ### Strict Gateway Egress
 

@@ -737,6 +737,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
         profile,
         maxCompletionTokens: request.data.maxCompletionTokens,
         requireCacheEvidence: profile.id === 'dynamic-bedrock-anthropic-provider-default' || String(profile.id).startsWith('discovered-'),
+        requireBackendIdentity: new Set(before.inventory.models.map((model) => `${model.provider}/${model.model}`)).size > 1,
       });
       logger.info('Reasoning discovery completed', {
         initiatedBy: c.get('user')?.email ?? 'unknown',

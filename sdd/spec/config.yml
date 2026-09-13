@@ -41,6 +41,7 @@ enforce_tdd: true
 # Codeflare-specific layout: tests live in src/__tests__, host/__tests__,
 # web-ui/src/__tests__, and landing/src/__tests__.
 test_globs:
+  - "scripts/verify-bedrock-pi-prompt-cache.mjs"
   - "scripts/ci/impeccable-engine.py"
   - "scripts/ci/impeccable-engine-source.py"
   - "scripts/ci/rclone-bookkeeping_test.go"

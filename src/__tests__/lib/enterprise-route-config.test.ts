@@ -5,7 +5,7 @@ import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle } from '../../lib/native-ai-targets';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
-import { getBuiltInProfileRef, normalizeCustomProfile, PI_REASONING_LEVELS, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
+import { getBuiltInProfileRef, normalizeCustomProfile, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { SETUP_KEYS } from '../../lib/kv-keys';
@@ -52,11 +52,11 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
 
     const published = await loadEnterpriseRouteConfig(env, ['engineering']);
     expect(published.routeCatalog).toEqual(['normalized']);
-    expect(published.routeReasoningLevels.normalized).toEqual([...PI_REASONING_LEVELS]);
+    expect(published.routeReasoningLevels.normalized).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
     // Selectable client preferences are not seven independently verified controls.
     expect(profile.supportedLevels).toEqual(['medium']);
     expect(configuration.routeAssignments.normalized.verification!.supportedLevels).toEqual(['medium']);
-    for (const preference of PI_REASONING_LEVELS) {
+    for (const preference of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const) {
       expect(translateRuntimeReasoningRequest({ reasoning_effort: preference }, profile, published.defaultReasoning).reasoning_effort).toBe('medium');
     }
     expect(published.promptCacheTargets).toBeUndefined();
