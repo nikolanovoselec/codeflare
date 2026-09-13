@@ -8,14 +8,16 @@ The existing native administration flow binds the exact authorized provider conf
 
 ## Explicit discovery and qualification
 
-Discover Profile offers the reusable template with `Compatible, unverified` status and no inference. **Verify Profile** is a separate explicit billable action using the existing discovery engine and receipt/Save workflow:
+The normal flow is now **Select target → Discover → review result → Save**. The dedicated [target capability component](target-capability-discovery.md) automatically chooses the shared contract, verifies it and attaches the existing server-issued receipt. The user does not select/name a profile or click a second Verify. Native automation is deliberately based on the observed Bedrock boundary; other native protocols retain their existing advanced workflow until a separate extension is implemented. Historical profile matching and selected-profile verification remain under Advanced.
+
+For Native Runtime, this one explicit action uses the existing engine and adapter:
 
 1. Send the existing Pi streaming function canary.
 2. Replay its authentic provider tool turn and the fixed inert result through the same native adapter.
 3. Submit a public approximately 60-KiB prefix with one five-minute checkpoint and a short requested answer.
 4. Repeat that public cache request byte-identically and sequentially.
 
-Native discovery uses at most four HTTP submissions, no fallback/retry, at most 2,048 output tokens per call and 90 seconds per call, with captures bounded to 8 MiB and the adapter's existing 2-MiB frame limit. The public prefix is deliberately long but is not a tokenizer/minimum-prefix guarantee. An authentication, provider, malformed-stream, or invalid-tool failure stops the affected lifecycle; failed tools do not launch cache checks. A cache failure is reported, not retried with guessed parameters. Price depends on the configured model and input/cache/output usage; this is not a free check.
+Native Runtime discovery uses at most four HTTP submissions, no fallback/retry, at most 2,048 output tokens per call and 90 seconds per call, with captures bounded to 8 MiB and the adapter's existing 2-MiB frame limit. The shared UI discloses the larger compatibility-search ceiling of 40 submissions and 10 minutes; native does not exhaust it speculatively. The public prefix is deliberately long but is not a tokenizer/minimum-prefix guarantee. An authentication, provider, malformed-stream, or invalid-tool failure stops the affected lifecycle; failed tools do not launch cache checks. A cache failure is reported, not retried with guessed parameters. Price depends on the configured model and input/cache/output usage; this is not a free check.
 
 | Evidence | Meaning and authority |
 | --- | --- |
@@ -49,17 +51,19 @@ Known native stop reasons map explicitly (`tool_use`→`tool_calls`, `end_turn`/
 
 ## Dynamic remains a separate transport
 
-The reusable `dynamic-bedrock-anthropic-provider-default` contract and its narrow complete-name SSE repair remain. Explicit Verify for that profile now also records the cache minimum. Tools/replay and cache must not report conflicting observed backends. Missing Gateway backend headers are recorded as unobserved; configured inventory must not fabricate the selected backend. This certifies the exercised route path only, not every conditional/fallback branch. Operators remain responsible for mixing compatible branches until Cloudflare normalizes them.
+The reusable `dynamic-bedrock-anthropic-provider-default` contract remains for old assignments. Normal Dynamic **Discover** now automatically tests shared OpenAI wire forms and returns a canonical content-addressed configuration with target-bound evidence, not a profile shopping list. The existing narrow complete-name repair and a bounded buffered alternative live behind the shared compatibility boundary. Tools/replay and cache must not report conflicting observed backends. Missing Gateway backend headers are recorded as unobserved; multi-distinct-backend certification cannot invent selection from inventory. This certifies the exercised route path only, not every conditional/fallback branch. Operators remain responsible for mixing compatible branches until Cloudflare normalizes them.
 
-The existing broad profile-matching scan remains a candidate-discovery mechanism, not new Bedrock cache certification; its recommendation must pass the selected profile's Verify step. Existing explicit administrator-confirmed Dynamic assignments remain distinctly labelled rather than silently revoked by this new grade.
+The existing broad profile-matching scan is now an Advanced compatibility workflow; its separate Verify step is not the normal user flow. Existing explicit administrator-confirmed Dynamic assignments remain distinctly labelled rather than silently revoked by this new grade. A newly discovered contract cannot use administrator assertion to bypass the cache/tools minimum.
 
 Native success does not repair Dynamic input caching. Earlier array-valued cache-marked system prompts failed integrity canaries; other tested Dynamic shapes produced no positive prefix evidence. Keep Dynamic system content string-valued, do not add native checkpoints or cache headers/keys/TTLs. Gateway HIT can satisfy the relaxed minimum, but enabling Dynamic prefix serialization still requires preserved input semantics and positive changed-answer prefix-read evidence through that exact converter. This remains an external limitation.
+
+The subsequent 2026-09-13 live campaign qualified all four tested targets as **Optimal**: Native Sonnet/Opus showed positive prefix reads; Dynamic Sonnet/Opus showed Gateway MISS → HIT. All passed tools/replay and cold public streaming under the existing request-only DLP policy. The exact calls and limits are in the new Downloads handoff. These observations correct the earlier absence of current Dynamic cache certification, without turning Gateway HIT into prefix-cache evidence or claiming a deployed application test.
 
 ## Upgrade and next-start behavior
 
 Keep the original three feature commits in order. Apply the generic changes together with their tests and CI step. No main backport, provider migration, or deploy is implied.
 
-Old v1/v2/v3 receipts and profile references remain readable but do not authorize v4. Reconfirm a retained evidence-specific profile through the existing explicit workflow, or choose the reusable contract and explicitly Verify it. A stale historical profile can remain byte-identical and disabled while another target is upgraded; editing or enabling it requires a current canonical profile. No fabricated receipt, automatic rewrite, or recurring per-release profile authoring is required.
+Old v1/v2/v3 receipts and profile references remain readable but do not authorize v4. Reconfirm a retained evidence-specific profile through the Advanced workflow, or simply **Discover** the target to select and verify reusable handling automatically. A stale historical profile can remain byte-identical and disabled while another target is upgraded; editing or enabling it requires a current canonical profile. No fabricated receipt, automatic rewrite, or recurring per-release profile authoring is required.
 
 After review and Save, normal next session/container start publishes current opaque model capabilities. No hot process mutation, restart, or forced reset is introduced. Before production adoption, the integrating agent still owns CI/review, deployment, and authorized deployed Worker/session/Pi acceptance.
 
