@@ -738,7 +738,7 @@ const AiRoutingFields: Component<Props> = (props) => {
           <div class="admin-native-target-heading">
             <button type="button" class="admin-route-toggle" aria-label={`Configure ${title()}`} aria-expanded={expandedNative() === index} aria-controls={`native-panel-${index}`} onClick={() => setExpandedNative(expandedNative() === index ? undefined : index)}>
               <span><strong>{title()}</strong><small>{target().label || 'New target'}</small></span>
-              <span class="admin-check-pill" data-state={nativeReady(target()) ? 'passed' : 'unclear'}>{nativeReady(target()) ? target().verification?.method === 'administrator' ? 'Administrator-confirmed' : 'Live-verified' : target().busy ? 'Checking…' : 'Not ready'}</span><span class="admin-route-chevron" aria-hidden="true">›</span>
+              <span class="admin-check-pill" data-state={nativeReady(target()) ? 'passed' : 'unclear'}>{nativeReady(target()) ? target().verification?.method === 'administrator' ? 'Administrator-confirmed' : 'Verified' : target().busy ? 'Checking…' : 'Not ready'}</span><span class="admin-route-chevron" aria-hidden="true">›</span>
             </button>
             <button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${target().label || title()}`} disabled={target().busy} onClick={() => {
               if (target().id) setNativeChecks((checks) => Object.fromEntries(Object.entries(checks).filter(([id]) => id !== target().id)));

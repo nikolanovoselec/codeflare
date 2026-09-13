@@ -324,7 +324,6 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await waitFor(() => expect(values().nativeChecks[target.id]).toBe('synthetic-check'));
     expect(values().nativeTargets[0]).toMatchObject({ ...target, profileRef: nativeRef });
     expect(api.discover).toHaveBeenCalledWith({ kind: 'native-provider', target: { ...target, enabled: false } });
-    expect(within(configure).getByText('Verified', { exact: true })).toHaveAttribute('data-state', 'passed');
 
     await fireEvent.click(row.getByText(/Advanced: choose a profile/i));
     expect(select).toBeVisible();

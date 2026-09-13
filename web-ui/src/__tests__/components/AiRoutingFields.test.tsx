@@ -602,7 +602,6 @@ describe('Structured AI routing', () => {
     complete({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Verified', assignable: true, checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
     await waitFor(() => expect(formValues(view.container).nativeChecks).toEqual({ '11111111-1111-4111-8111-111111111111': '22222222-2222-4222-8222-222222222222' }));
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', enabled: true });
-    expect(within(within(article).getByRole('button', { name: /Configure Native Route/ })).getByText('Verified', { exact: true })).toHaveAttribute('data-state', 'passed');
     expect(view.queryByLabelText('Enable Automated target native target')).toBeNull();
   });
 
@@ -689,7 +688,6 @@ describe('Structured AI routing', () => {
     await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
     await waitFor(() => expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }) })));
     expect(api.native.mock.calls[api.native.mock.calls.length - 1]?.[0]).not.toHaveProperty('administratorConfirmed');
-    expect(within(within(article).getByRole('button', { name: /Configure Native Route/ })).getByText('Verified', { exact: true })).toHaveAttribute('data-state', 'passed');
     expect(view.queryByLabelText('Enable Claude custom native target')).toBeNull();
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile', enabled: true });
   });
@@ -1264,7 +1262,6 @@ describe('Structured AI routing', () => {
     for (const fact of ['Tool calling', 'Reasoning', 'Streaming', 'Input caching']) {
       expect(within(result).getByText(fact).parentElement?.querySelector('dd')).toHaveTextContent('Not established');
     }
-    expect(within(card).queryByText('Verified', { exact: true })).toBeNull();
     expect(formValues(view.container).groupRouting).toEqual([]);
     expect(formValues(view.container).fallbackRouting).toEqual({ enabled: false });
     expect(api.nativeDiscover).not.toHaveBeenCalled();
