@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { discoverPiCompatibility, type DiscoveryInput } from '../../lib/reasoning-discovery';
 import { getBuiltInProfile } from '../../lib/reasoning-profiles';
-import { bedrockToolResponse } from '../helpers/bedrock-eventstream';
+import { discoverTargetCapabilities } from '../../lib/ai-capability-discovery';
+import { bedrockChunkFrame, bedrockToolResponse } from '../helpers/bedrock-eventstream';
 
 const input = (native = true) => ({ accountId: '0123456789abcdef0123456789abcdef', gatewayId: 'synthetic', apiToken: 'synthetic-token',
   route: native ? 'aws-bedrock/eu.anthropic.claude-synthetic-future-2099-v1:0' : 'dynamic/synthetic',
@@ -42,6 +43,81 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     expect(report).not.toContain('synthetic-signature');
     expect(report).not.toContain('synthetic private block');
     expect(report).not.toContain('synthetic-token');
+  });
+
+  it.each(['selected-profile', 'normal-discovery'] as const)('REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)', async (entrypoint) => {
+    const requests: Array<{ url: string; body: any; headers: Headers }> = [];
+    const privateText = 'Synthetic withheld provider refusal text, not an incident quotation.';
+    const responseId = 'synthetic-refused-fill-response-id';
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
+      if (requests.length <= 2) return bedrockToolResponse(requests.length === 1 ? authentic : final, 'eventstream');
+      // Derived from the allowlisted fields in codeflare-discovery-failures-2026-09-13.md/.json.
+      // Framing/CRCs, event layout, IDs and text are synthetic, NOT captured AWS wire.
+      // No incident cache-status header was retained, so none is invented here.
+      const events = [
+        { type: 'message_start', message: { id: responseId, model: 'claude', usage: { input_tokens: 31 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: privateText } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber' } },
+          usage: { input_tokens: 31, output_tokens: 126, cache_creation_input_tokens: 29779, cache_read_input_tokens: 0 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        for (const event of events) controller.enqueue(bedrockChunkFrame(event));
+        controller.close();
+      } }), { status: 200, headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
+    });
+    const selected = input();
+    const campaign = { ...selected, native: { ...selected.native!, transport: 'aig-bedrock-anthropic-eventstream' as const }, fetcher };
+    const result: Record<string, any> = entrypoint === 'selected-profile'
+      ? await discoverPiCompatibility(campaign) : await discoverTargetCapabilities(campaign);
+
+    expect(result.assignable).toBe(false);
+    expect(result.classification).toBe('Inconclusive');
+    // Actual outbound submissions are a paid-I/O contract: tool + replay + fill,
+    // never a paired read, retry, fallback, or another model/transport.
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(result.accounting.httpAttempts).toBe(3);
+    expect(requests.map(({ url }) => url)).toEqual(Array(3).fill(
+      `https://gateway.ai.cloudflare.com/v1/${selected.accountId}/${selected.gatewayId}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-synthetic-future-2099-v1%3A0/invoke-with-response-stream`));
+    expect(requests[1].body.messages.at(-2).content).toEqual(authentic);
+    expect(requests[1].body.messages.at(-1).content).toEqual([{ type: 'tool_result', tool_use_id: 'synthetic-call', content: 'ok' }]);
+    expect(requests[2].body.system.at(-1).cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(requests[2].body).not.toHaveProperty('tools');
+    for (const { body, headers } of requests) {
+      expect(headers.get('cf-aig-max-attempts')).toBe('1');
+      expect(body.max_tokens).toBe(2048);
+      expect(body).not.toHaveProperty('thinking');
+      expect(body).not.toHaveProperty('stream');
+    }
+    for (const forbidden of [privateText, responseId, 'synthetic private block', 'synthetic-signature-not-live', 'synthetic-token']) {
+      expect(JSON.stringify(result)).not.toContain(forbidden);
+    }
+    const capabilities = entrypoint === 'selected-profile' ? result.capabilitySummary : result.attempts[0].capabilities;
+    expect(capabilities).toMatchObject({ tools: true, replay: true, cache: 'inconclusive', nativePromptCache: false, grade: 'Not qualified' });
+    if (entrypoint === 'selected-profile') {
+      expect(result.distinctMappings[0].toolLifecycle).toMatchObject({ passed: true, stage: 'complete' });
+      expect(result.cacheEvidence.observations).toEqual([expect.objectContaining({ status: 200, valid: false,
+        effectiveFinishReason: 'content_filter', promptTokens: 29810, completionTokens: 126,
+        cacheWriteTokens: 29779, cacheReadTokens: 0 })]);
+    } else {
+      expect(result.attempts).toHaveLength(1);
+      expect(result.attempts[0].httpAttempts).toBe(3);
+      expect(result.profile).toBeUndefined();
+      expect(result.report).toBeUndefined();
+    }
+    const diagnostics = entrypoint === 'selected-profile' ? result.diagnostics : result.attempts[0].diagnostics;
+    expect(diagnostics).toEqual([expect.objectContaining({ stage: 'cache-fill', code: 'provider_refusal',
+      status: 200, transport: 'bedrock-eventstream', effectiveFinishReason: 'content_filter',
+      cacheWriteTokens: 29779, cacheReadTokens: 0, cacheReadAttempted: false })]);
+    if (entrypoint === 'normal-discovery') {
+      expect(result.explanation).toMatch(/refus/i);
+      expect(result.explanation).toMatch(/cache[- ]fill/i);
+      expect(result.explanation).toMatch(/29,?779/);
+      expect(result.explanation).toMatch(/cache[- ]read.*(?:not (?:run|attempted|submitted)|never|unattempted)/i);
+    }
   });
 
   it.each(['HIT', 'MISS'])('accepts Dynamic Gateway %s honestly, without native serialization or an all-branches gate', async (cache) => {

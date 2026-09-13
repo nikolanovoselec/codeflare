@@ -61,6 +61,52 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(bodies.filter((body) => !body.stream)).toHaveLength(4);
   });
 
+  it('REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification', async () => {
+    const bodies: any[] = [];
+    const privateText = 'Synthetic redacted native content, not an incident quotation.';
+    const responseId = 'synthetic-buffered-native-response-id';
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      expect(String(url)).toBe(`https://gateway.ai.cloudflare.com/v1/${coordinates.accountId}/${coordinates.gatewayId}/compat/chat/completions`);
+      expect(new Headers(init?.headers).get('cf-aig-max-attempts')).toBe('1');
+      if (body.stream) return response(body); // Complete tools/replay + cache pair, no positive reuse.
+      // Synthetic content-redacted envelope derived from the incident projection's
+      // native field shape and tool_use stop. Not an original captured response,
+      // nor evidence that Dynamic supports a native adapter.
+      return Response.json({ model: 'anthropic/claude-opus-5', id: responseId, type: 'message', role: 'assistant',
+        content: [{ type: 'text', text: privateText },
+          { type: 'tool_use', id: 'synthetic-native-call', name: 'codeflare_profile_canary', input: { value: 'ok' } }],
+        stop_reason: 'tool_use', stop_sequence: null, stop_details: null,
+        usage: { input_tokens: 445, output_tokens: 55, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }, { status: 200 });
+    });
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/buffered-native-envelope', maxCompletionTokens: 2048, fetcher });
+
+    expect(result.assignable).toBe(false);
+    expect(result.classification).toBe('Inconclusive');
+    expect(result.profile).toBeUndefined();
+    expect(result.report).toBeUndefined();
+    // Four completed streaming submissions then one buffered tool submission:
+    // no replay of the incompatible envelope, retry, or native/other-contract fallback.
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(result.accounting.httpAttempts).toBe(5);
+    expect(bodies.map((body) => body.stream)).toEqual([true, true, true, true, false]);
+    expect(bodies[4].tools[0].function.name).toBe('codeflare_profile_canary');
+    expect(bodies[4].messages.map((message: any) => message.role)).toEqual(['system', 'user']);
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts[0]).toMatchObject({ httpAttempts: 4,
+      capabilities: { tools: true, replay: true, cache: 'inconclusive', grade: 'Not qualified' } });
+    expect(result.attempts[1]).toMatchObject({ httpAttempts: 1, classification: 'Inconclusive',
+      capabilities: { tools: false, replay: false, cache: 'not-tested', grade: 'Not qualified' } });
+    for (const forbidden of [privateText, responseId, 'synthetic-native-call', coordinates.apiToken]) {
+      expect(JSON.stringify(result)).not.toContain(forbidden);
+    }
+    expect(result.attempts[1].diagnostics).toEqual([expect.objectContaining({ stage: 'tool-call',
+      code: 'unexpected_response_format', status: 200, transport: 'compat' })]);
+    expect(result.attempts[1].diagnostics).not.toContainEqual(expect.objectContaining({ code: 'transport_error' }));
+  });
+
   it('automatically tries a documented mapping after a default tool-call incompatibility', async () => {
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/unknown-compatible-model', maxCompletionTokens: 256,
       fetcher: vi.fn(async (_url, init) => {

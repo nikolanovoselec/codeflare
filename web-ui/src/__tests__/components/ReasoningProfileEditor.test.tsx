@@ -80,6 +80,7 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
     await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'mesh route' })).getByText(/Advanced: choose a profile/i));
     await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for mesh' }));
     await view.findByText('Create a custom Pi profile');
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', maxCompletionTokens: 4096 });
@@ -175,6 +176,42 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(view.container).not.toHaveTextContent('PRIVATE');
     expect(view.container.querySelector('textarea, pre')).toBeNull();
   });
+  it.each([
+    {
+      code: 'provider_refusal', stage: 'cache-fill',
+      diagnostic: { status: 200, effectiveFinishReason: 'content_filter', cacheWriteTokens: 29779, cacheReadTokens: 0, cacheReadAttempted: false },
+      messages: [/provider.*refus|refus.*provider/i, /cache[- ]fill/i, /29,?779/, /cache[- ]read.*(?:not (?:attempted|run)|never)|(?:not (?:attempted|run)|never).*cache[- ]read/i],
+      misleading: /cach(?:e|ing).*(?:not supported|unsupported)|(?:not supported|unsupported).*cach(?:e|ing)/i,
+    },
+    {
+      code: 'cache_reuse_unobserved', stage: 'cache-read', diagnostic: {},
+      messages: [/cache reuse/i, /not observed|no .*reuse|neither/i, /Gateway HIT/i, /provider.*(?:cache[- ]read|prefix[- ]read)/i],
+      misleading: /connection failed|caching (?:is )?unsupported/i,
+    },
+    {
+      code: 'unexpected_response_format', stage: 'tool-call', diagnostic: { status: 200 },
+      messages: [/(?:unexpected|wrong|incompatible).*response (?:format|envelope)|response (?:format|envelope).*(?:unexpected|wrong|incompatible)/i],
+      misleading: /connection failed|check (?:the )?AI Gateway (?:connection|before retrying)/i,
+    },
+  ])('REQ-ENTERPRISE-035: Advanced discovery explains $code and leaves the route unassignable', async ({ code, stage, diagnostic, messages, misleading }) => {
+    // Synthetic allowlisted incident projection; no provider body or positive read is invented.
+    discoverMock.mockResolvedValueOnce({ classification: 'Inconclusive', assignable: false,
+      profileDraft: discoveredDraft, diagnostics: [{ levels: [], stage, code, ...diagnostic, body: 'PRIVATE PROVIDER BODY' }] });
+    // Exercise the existing matcher directly so RED identifies the diagnostic,
+    // independently of the new route-panel/disclosure structure.
+    const view = standalone();
+    const editor = await view.findByRole('region', { name: 'Discover compatibility for mesh' });
+    const alert = await within(editor).findByRole('alert');
+    for (const message of messages) expect(alert).toHaveTextContent(message);
+    expect(alert).toBeVisible();
+    expect(alert).not.toHaveTextContent(misleading);
+    expect(editor).not.toHaveTextContent('PRIVATE');
+    expect(within(editor).queryByRole('button', { name: /Create.*Assign|^Assign profile$/i })).toBeNull();
+    expect(view.onSave).not.toHaveBeenCalled();
+    expect(view.onSelectProfile).not.toHaveBeenCalled();
+    expect(discoverMock).toHaveBeenCalledTimes(1);
+  });
+
   it('prioritizes fatal gateway failure over earlier budget exhaustion', () => {
     expect(reasoningCheckSummary({ classification: 'Inconclusive', diagnostics: [{ levels: ['high'], stage: 'tool-call', code: 'completion_limit' }, { levels: ['off'], stage: 'reasoning', code: 'request_rejected', status: 401 }] })).toMatch(/401/);
   });
@@ -200,8 +237,10 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: ['mesh', 'retired'] }} />);
     await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'mesh route' })).getByText(/Advanced: choose a profile/i));
     expect(view.getByRole('button', { name: 'Discover Profile for mesh' })).toBeEnabled();
     await fireEvent.click(view.getByRole('button', { name: 'Configure retired' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'retired route' })).getByText(/Advanced: choose a profile/i));
     expect(view.getByRole('button', { name: 'Discover Profile for retired' })).toBeDisabled();
     expect(discoverMock).not.toHaveBeenCalled();
   });

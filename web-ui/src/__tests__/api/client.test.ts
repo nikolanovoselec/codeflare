@@ -25,6 +25,7 @@ import {
   getReasoningCatalog,
   getReasoningRouteInventory,
   discoverReasoningCompatibility,
+  checkNativeTarget,
   getConfigurationRun,
   getConfigurationRuns,
   getUsageReportDeliveries,
@@ -54,6 +55,26 @@ describe('API Client', () => {
     mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
       managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
     await expect(getBatchSessionStatus({ includePreseedCheck: true })).rejects.toThrow();
+  });
+
+  it('REQ-ENTERPRISE-075: retains sanitized Native cache-refusal evidence through API parsing', async () => {
+    const diagnostic = { levels: [], stage: 'cache-fill', code: 'provider_refusal', status: 200,
+      transport: 'bedrock-eventstream', effectiveFinishReason: 'content_filter',
+      cacheWriteTokens: 29779, cacheReadTokens: 0, cacheReadAttempted: false };
+    mockFetch.mockResolvedValueOnce(Response.json({ assignable: false, classification: 'Inconclusive',
+      diagnostics: [{ ...diagnostic, body: 'PRIVATE_PROVIDER_CONTENT', signature: 'PRIVATE_SIGNATURE' }],
+      cacheEvidence: { explanation: 'Provider refused the cache-fill canary; cache read was not attempted.',
+        observations: [{ content: 'PRIVATE_PROVIDER_CONTENT' }] },
+      rawResponse: 'PRIVATE_PROVIDER_CONTENT' }));
+    const result = await checkNativeTarget({ target: { provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5',
+      label: 'Native refusal fixture', region: 'eu-central-1', transport: 'aig-bedrock-anthropic-eventstream',
+      contextWindow: 200000, enabled: false,
+      profileRef: { id: 'bedrock-anthropic-native-provider-default', revision: 1, hash: 'a'.repeat(64) } } });
+    expect(result).toEqual({ assignable: false, classification: 'Inconclusive', diagnostics: [diagnostic],
+      cacheEvidence: { explanation: 'Provider refused the cache-fill canary; cache read was not attempted.' } });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_');
+    expect(result).not.toHaveProperty('checkId');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   // ==========================================================================
