@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { capabilityMinimum } from './ai-capability-discovery/contract';
 import { canonicalJson, type ProfileRevisionRef, type ReasoningProfileId } from './reasoning-profiles';
 import type { GatewayConnection } from './ai-gateway-management';
 import { connectionFingerprint } from './reasoning-verification';
@@ -108,8 +109,8 @@ const nativeVerificationSchema = z.object({
   checkedAt: z.string().datetime(), capabilities: z.object({ streaming: z.literal(true), tools: z.literal(true), replay: z.literal(true) }).strict().optional(),
   discovery: z.object({ schemaVersion: z.literal(1), tools: z.boolean(), replay: z.boolean(),
     cache: z.enum(['provider-prefix', 'gateway-response', 'inconclusive', 'not-tested']), nativePromptCache: z.boolean(),
-    reasoning: z.literal('provider-default'), streaming: z.enum(['incremental', 'not-observed']),
-    grade: z.enum(['Acceptable', 'Optimal', 'Not qualified']),
+    reasoning: z.enum(['provider-default', 'observed-enabled', 'unverified']), streaming: z.enum(['incremental', 'not-observed']),
+    grade: z.enum(['Minimum', 'Acceptable', 'Optimal', 'Not qualified']),
   }).strict().optional(),
 }).strict().superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
 export type NativeTargetVerification = z.infer<typeof nativeVerificationSchema>;
@@ -203,12 +204,9 @@ export function nativeVerificationMatches(target: NativeAiTarget, connection: Ga
 }
 
 function genericDiscoveryQualifies(target: NativeAiTarget): boolean {
-  if (target.profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE) return true;
+  if (target.profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE && !target.profileRef.id.startsWith('discovered-')) return true;
   const evidence = target.verification?.discovery;
-  return Boolean(target.verification?.method !== 'administrator' && evidence?.tools && evidence.replay
-    && ['provider-prefix', 'gateway-response'].includes(evidence.cache)
-    && (!evidence.nativePromptCache || evidence.cache === 'provider-prefix')
-    && evidence.grade === (evidence.streaming === 'incremental' ? 'Optimal' : 'Acceptable'));
+  return Boolean(target.verification?.method !== 'administrator' && capabilityMinimum(evidence));
 }
 
 /** Called only after full verification, canonical-profile and provider-binding

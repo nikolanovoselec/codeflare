@@ -11,16 +11,7 @@ export const BEDROCK_MESSAGES_DEFAULT_PROFILE = 'bedrock-anthropic-native-provid
 /** Target evidence, not a model catalog or a generated executable profile.
  * Gateway whole-response reuse satisfies the operator's minimum, but only a
  * provider-prefix observation can authorize Pi's native checkpoint serializer. */
-export interface BedrockCapabilitySummary {
-  schemaVersion: 1;
-  tools: boolean;
-  replay: boolean;
-  cache: 'provider-prefix' | 'gateway-response' | 'inconclusive' | 'not-tested';
-  nativePromptCache: boolean;
-  reasoning: 'provider-default';
-  streaming: 'incremental' | 'not-observed';
-  grade: 'Acceptable' | 'Optimal' | 'Not qualified';
-}
+export type { CapabilitySummary as BedrockCapabilitySummary } from './ai-capability-discovery/contract';
 
 /** A protocol candidate, never a claim of availability or capabilities. The
  * namespace admits new releases without a source change; authenticated binding

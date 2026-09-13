@@ -30,6 +30,10 @@ export interface NormalizedReasoningProfile {
   enabled: boolean;
   ingressContract: 'ai-gateway-chat-completions';
   reasoningMode?: 'provider-default';
+  /** A bounded wire contract, not arbitrary endpoint/header transformation.
+   * Included in the canonical hash so changing buffering/repair invalidates
+   * target verification. Omission preserves every historical profile. */
+  compatibility?: { response: 'stream' | 'buffered'; toolNames: 'strict' | 'repeated-complete'; transport?: 'compat' };
   supportedLevels: PiReasoningLevel[];
   unsupportedLevels: PiReasoningLevel[];
   removePaths: string[];
@@ -481,7 +485,7 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
     'id', 'name', 'description', 'operatorNotes', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract',
     'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'levelMappings', 'aliases', 'offSemantics',
     'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations',
-    'originallyCreatedAgainst', 'provenance', 'validatedAgainst', 'evidence', 'builtIn', 'reasoningMode',
+    'originallyCreatedAgainst', 'provenance', 'validatedAgainst', 'evidence', 'builtIn', 'reasoningMode', 'compatibility',
   ]);
   const unknownField = Object.keys(value).find((key) => !allowedFields.has(key));
   if (unknownField) throw new Error(`custom profile has unknown field ${unknownField}`);
@@ -497,6 +501,15 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
   if (value.ingressContract !== undefined && value.ingressContract !== 'ai-gateway-chat-completions') throw new Error('custom profile ingress contract is unsupported');
   if (value.reasoningMode !== undefined && value.reasoningMode !== 'provider-default') throw new Error('custom profile reasoning mode is unsupported');
   const providerDefault = value.reasoningMode === 'provider-default';
+  let compatibility: NormalizedReasoningProfile['compatibility'];
+  if (value.compatibility !== undefined) {
+    const wire = asRecord(value.compatibility, 'compatibility');
+    if (Object.keys(wire).some((key) => !['response', 'toolNames', 'transport'].includes(key))
+      || !['stream', 'buffered'].includes(String(wire.response))
+      || wire.transport !== undefined && wire.transport !== 'compat'
+      || !['strict', 'repeated-complete'].includes(String(wire.toolNames))) throw new Error('Unsupported compatibility contract');
+    compatibility = { response: wire.response as 'stream' | 'buffered', toolNames: wire.toolNames as 'strict' | 'repeated-complete', ...(wire.transport === 'compat' && { transport: 'compat' as const }) };
+  }
   if (providerDefault && (!Array.isArray(value.supportedLevels) || value.supportedLevels.length !== 0)) throw new Error('provider-default supportedLevels must be empty');
   const supportedLevels: PiReasoningLevel[] = providerDefault ? [] : validateLevels(value.supportedLevels, 'supportedLevels');
   const unsupportedLevels = PI_REASONING_LEVELS.filter((level) => !supportedLevels.includes(level));
@@ -585,6 +598,7 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
     id, name, ...(description !== undefined && { description }), ...(operatorNotes !== undefined && { operatorNotes }), family, schemaVersion: 1 as const, revision: revision as number,
     enabled: value.enabled, ingressContract: 'ai-gateway-chat-completions' as const, supportedLevels, unsupportedLevels,
     ...(providerDefault && { reasoningMode: 'provider-default' as const }),
+    ...(compatibility && { compatibility }),
     removePaths, levels, aliases, offSemantics,
     toolCompatibility: { status: 'unverified' as const, levels: [] as PiReasoningLevel[] }, recognizedResponseFields,
     validatedTransports: [] as Array<'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream'>, classification: 'Compatible, unverified' as const,

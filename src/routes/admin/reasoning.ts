@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import capabilityRoutes from './ai-capability-discovery';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -124,7 +125,7 @@ function sanitizeEvidenceSummary(value: unknown): Record<string, unknown> | unde
 
 function sanitizeProfile(profile: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const key of ['id', 'name', 'description', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract', 'reasoningMode', 'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'aliases', 'offSemantics', 'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations']) {
+  for (const key of ['id', 'name', 'description', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract', 'reasoningMode', 'compatibility', 'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'aliases', 'offSemantics', 'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations']) {
     if (profile[key] !== undefined) result[key] = profile[key];
   }
   const originallyCreatedAgainst = sanitizeProvenance(profile.originallyCreatedAgainst);
@@ -391,6 +392,7 @@ function buildInventoryResponse(
 
 const reasoningRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 reasoningRoutes.use('*', authMiddleware);
+reasoningRoutes.route('/capabilities', capabilityRoutes);
 
 type ReasoningContext = Context<{ Bindings: Env; Variables: AuthVariables }>;
 
@@ -642,7 +644,8 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
     };
     let report: Record<string, any> | undefined;
     const genericNative = target.transport !== 'aig-legacy-compat' && target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE;
-    if (genericNative && request.data.administratorConfirmed) {
+    const discoveredCompat = target.profileRef.id.startsWith('discovered-');
+    if ((genericNative || discoveredCompat) && request.data.administratorConfirmed) {
       return c.json({ error: 'Unknown-model capabilities require explicit tools/replay and cache discovery; administrator confirmation cannot invent this evidence', code: 'capability_verification_required' }, 400);
     }
     if (!genericNative && target.transport !== 'aig-legacy-compat' && !request.data.administratorConfirmed) {
@@ -653,9 +656,10 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
         route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,
         maxCompletionTokens: genericNative ? Math.min(request.data.maxCompletionTokens, 2048) : request.data.maxCompletionTokens,
         compatOnly: true, ...(providerConfigAlias && { byokAlias: providerConfigAlias }),
+        ...(discoveredCompat && { requireCacheEvidence: true }),
         ...(genericNative && { native: { model: target.model, region: target.region!, transport: target.transport as 'aig-bedrock-anthropic-auto' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' }, requireCacheEvidence: true }) });
       if (!completedProfileCheck(report, profile as unknown as NormalizedReasoningProfile)) return c.json({ ...report, assignable: false });
-      if (genericNative) {
+      if (genericNative || discoveredCompat) {
         const after = selectNativeProviderConfig(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token), target.provider);
         if (!after || after.id !== provider.id || after.alias !== provider.alias) return c.json({ error: 'Provider binding changed during verification', code: 'provider_changed' }, 409);
         verification.discovery = report.capabilitySummary;
@@ -714,6 +718,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       }
       // REQ-ENTERPRISE-043: explicit admin authority uses the existing receipt/Save path, never fabricated canary results.
       if (request.data.administratorConfirmed) {
+        if (String(profile.id).startsWith('discovered-')) return c.json({ code: 'capability_verification_required', error: 'Discovered configurations require observed tools/replay and cache evidence; administrator confirmation cannot invent it' }, 400);
         const verification: RouteVerification = {
           schemaVersion: 1, method: 'administrator', profileRef: request.data.profileRef,
           routeVersion: before.inventory.versionId, inventoryDigest: before.inventoryDigest,
@@ -731,7 +736,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
         route: `dynamic/${request.data.route}`,
         profile,
         maxCompletionTokens: request.data.maxCompletionTokens,
-        requireCacheEvidence: profile.id === 'dynamic-bedrock-anthropic-provider-default',
+        requireCacheEvidence: profile.id === 'dynamic-bedrock-anthropic-provider-default' || String(profile.id).startsWith('discovered-'),
       });
       logger.info('Reasoning discovery completed', {
         initiatedBy: c.get('user')?.email ?? 'unknown',
@@ -749,6 +754,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
           inventoryDigest: after.inventoryDigest, connectionFingerprint: connectionFingerprint(gateway)!,
           canaryVersion: PI_WIRE_CANARY_VERSION, supportedLevels: [...(profile as unknown as NormalizedReasoningProfile).supportedLevels],
           scope: after.scope, checkedAt: new Date().toISOString(),
+          ...(String(profile.id).startsWith('discovered-') && { capabilities: report.capabilitySummary }),
         };
         const checkId = await issueRouteCheck(c.env.KV, request.data.route, verification);
         return c.json({ ...report, checkId, verification, ...(verification.scope === 'observed-path' && { warnings: ['observed_path_only'] }) });

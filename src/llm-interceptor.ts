@@ -48,6 +48,7 @@ import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { canonicalHash, translateRuntimeReasoningRequest } from './lib/reasoning-profiles';
+import { compatibilityRequest, compatibilityResponse, type CompatibilityWire } from './lib/ai-capability-discovery/compatibility-wire';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
 import { verificationMatches } from './lib/reasoning-verification';
 import { getAigConfig } from './lib/aig-config';
@@ -407,6 +408,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
     let nativeRequest = false;
     let effectiveAdapter = '';
+    let compatibilityWire: CompatibilityWire | undefined;
+    let compatClientStreaming = false;
     let nativeBedrockUrl = '';
     let nativeBedrockTransport: BedrockAnthropicTransport | null = null;
     let nativeBedrockState: BedrockReplayState | null = null;
@@ -479,6 +482,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               });
             }
             if (native.transport === 'aig-legacy-compat') {
+              compatibilityWire = profile.compatibility;
+              compatClientStreaming = payload.stream === true;
+              payload = compatibilityRequest(payload, compatibilityWire);
               payload.model = `${nativeProviderSelector(native.provider, native.customProvider)}/${native.model}`;
               if (native.provider === 'google-ai-studio') restoreGeminiThoughtSignatures(payload);
             } else {
@@ -543,8 +549,11 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
             effectiveAdapter = profile.id;
+            compatibilityWire = profile.compatibility;
+            compatClientStreaming = payload.stream === true;
             try {
               payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+              payload = compatibilityRequest(payload, compatibilityWire);
             } catch {
               return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
                 status: 400, headers: { 'Content-Type': 'application/json' },
@@ -577,8 +586,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
 
     let upstream: Response;
     try {
-      upstream = nativeRequest ? await sendTo(nativeBedrockUrl || compatUrl, compatHeaders, nativeBedrockUrl ? outboundBody : stripOpenAiOnlyFields(outboundBody as string)) : await sendTo(restUrl, restHeaders);
-      if (!nativeRequest && upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
+      const directCompat = nativeRequest || compatibilityWire?.transport === 'compat';
+      upstream = directCompat ? await sendTo(nativeBedrockUrl || compatUrl, compatHeaders, nativeBedrockUrl ? outboundBody : stripOpenAiOnlyFields(outboundBody as string)) : await sendTo(restUrl, restHeaders);
+      if (!directCompat && upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
         // Compat reaches non-OpenAI providers (e.g. google-ai-studio) that reject
         // OpenAI-only fields (store, prompt_cache_key) with a 400; strip them on
         // THIS leg only, so the REST/OpenAI leg above keeps prompt caching intact.
@@ -607,6 +617,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         return new Response(JSON.stringify({ error: 'Invalid native Bedrock response', code: 'INVALID_NATIVE_RESPONSE' }), { status: 502, headers: { 'Content-Type': 'application/json' } });
       }
     }
+    try { upstream = await compatibilityResponse(upstream, compatibilityWire, compatClientStreaming); }
+    catch {
+      return Response.json({ error: 'Invalid verified compatibility response', code: 'INVALID_COMPATIBILITY_RESPONSE' }, { status: 502 });
+    }
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
@@ -617,7 +631,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const isStreamingChat =
       contentType.includes('text/event-stream') && url.pathname.endsWith('/chat/completions');
     const normalizedBody = upstream.body && isStreamingChat
-      && (effectiveAdapter === 'bedrock-anthropic-compat' || effectiveAdapter === 'dynamic-bedrock-anthropic-provider-default')
+      && (compatibilityWire?.toolNames === 'repeated-complete' || effectiveAdapter === 'bedrock-anthropic-compat' || effectiveAdapter === 'dynamic-bedrock-anthropic-provider-default')
       ? upstream.body.pipeThrough(repairRepeatedCompleteToolNames(declaredToolNames)) : upstream.body;
     const responseBody = normalizedBody && isStreamingChat && !nativeBedrockTransport
       ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;

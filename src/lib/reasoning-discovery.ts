@@ -7,6 +7,7 @@ import { validateRequestPath } from './reasoning-profiles';
 import { repairRepeatedCompleteToolNames } from './openai-sse-tool-name-repair';
 import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockReplayState } from './bedrock-anthropic-native-adapter';
 import { bedrockAnthropicCandidate, type BedrockCapabilitySummary } from './native-ai-target-draft';
+import { compatibilityRequest, compatibilityResponse, type CompatibilityWire } from './ai-capability-discovery/compatibility-wire';
 
 export const PI_WIRE_CANARY_VERSION = 'pi-openai-completions-0.84.4-canary-v1';
 
@@ -54,6 +55,7 @@ interface DiscoveryProfile {
   reasoningMode: 'pi-levels' | 'provider-default';
   supportedLevels: ReasoningLevel[];
   levels: Partial<Record<ReasoningLevel, SemanticMapping>>;
+  compatibility?: CompatibilityWire;
 }
 
 interface DiscoveryEndpoint {
@@ -79,6 +81,8 @@ export interface DiscoveryInput {
   // Trusted server-selected coordinates, never browser-provided URLs/headers.
   native?: { model: string; region: string; transport: 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto' };
   requireCacheEvidence?: boolean;
+  /** Trusted campaign deadline. Legacy single-profile checks omit it. */
+  campaignDeadline?: number;
 }
 
 export interface ParsedPiSse {
@@ -110,6 +114,8 @@ interface ChatCompletionsAttemptInput {
   byokAlias?: string;
   native?: DiscoveryInput['native'];
   replayState?: BedrockReplayState;
+  compatibility?: CompatibilityWire;
+  campaignDeadline?: number;
 }
 
 interface ChatCompletionsAttempt {
@@ -255,7 +261,10 @@ function normalizeProfile(raw: unknown): DiscoveryProfile {
     if (!(level in rawLevels)) throw new TypeError(`Missing mapping for level: ${level}`);
     levels[level] = normalizeLevelMapping(rawLevels[level], profileRemovePaths);
   }
-  return { id: raw.id, reasoningMode, supportedLevels, levels };
+  const compatibility = isPlainObject(raw.compatibility) ? raw.compatibility as CompatibilityWire : undefined;
+  if (compatibility && (!['stream', 'buffered'].includes(compatibility.response)
+    || !['strict', 'repeated-complete'].includes(compatibility.toolNames))) throw new TypeError('Unsupported compatibility contract');
+  return { id: raw.id, reasoningMode, supportedLevels, levels, compatibility };
 }
 
 function normalizeStandaloneMapping(raw: unknown): SemanticMapping {
@@ -312,7 +321,7 @@ function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offC
   const profile = normalizeProfile(input.profile);
   if (input.native && (input.route !== `aws-bedrock/${input.native.model}` || !bedrockAnthropicCandidate(input.native.model)
     || profile.reasoningMode !== 'provider-default')) throw new TypeError('Native discovery requires the selected Anthropic provider-default contract');
-  if (input.requireCacheEvidence && profile.reasoningMode !== 'provider-default') throw new TypeError('Capability certification currently requires provider-default reasoning');
+  if (input.requireCacheEvidence && groupMappings(profile).length !== 1) throw new TypeError('Capability certification requires one exact executable mapping');
   const offCandidate = input.offCandidateMapping === undefined ? undefined : normalizeStandaloneMapping(input.offCandidateMapping);
   const groups = groupMappings(profile);
   const reasoningProbeCount = groups.length + (offCandidate ? 1 : 0);
@@ -668,6 +677,13 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
  * prompt_cache_key from the replayed request.
  */
 async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
+  const remaining = input.campaignDeadline === undefined ? DEFAULT_TIMEOUT_MS : input.campaignDeadline - Date.now();
+  if (remaining <= 0) throw new DiscoveryAttemptError('timeout', 0);
+  const attempt = await requestUnadaptedCompletions({ ...input, timeoutMs: Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, remaining), body: compatibilityRequest(input.body, input.compatibility) });
+  return { ...attempt, response: await compatibilityResponse(attempt.response, input.compatibility, input.body.stream === true) };
+}
+
+async function requestUnadaptedCompletions(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
   const fetcher = input.fetcher ?? fetch;
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxResponseBytes = input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
@@ -807,6 +823,8 @@ interface CommonRequest {
   compatOnly?: boolean;
   byokAlias?: string;
   repairToolNames?: boolean;
+  compatibility?: CompatibilityWire;
+  campaignDeadline?: number;
   native?: DiscoveryInput['native'];
   replayState?: BedrockReplayState;
 }
@@ -976,19 +994,25 @@ function groupMappings(profile: DiscoveryProfile): Array<{ levels: ReasoningLeve
 
 interface DiscoveryDiagnostic {
   levels: ReasoningLevel[];
-  stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response';
+  stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response' | 'cache-fill' | 'cache-read' | 'branch-correlation';
   code: 'completion_limit' | 'no_tool_call' | 'invalid_tool_call' | 'replay_rejected' | 'request_rejected'
     | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large'
-    | 'off_not_disabled' | 'incomplete_final_response';
+    | 'off_not_disabled' | 'incomplete_final_response' | 'cache_reuse_unobserved' | 'backend_changed';
   status?: number;
   transport?: string;
+  providerCode?: string | number;
+  providerType?: string;
 }
 
 function probeDiagnostic(probe: Record<string, any> | null, levels: ReasoningLevel[], stage: DiscoveryDiagnostic['stage']): DiscoveryDiagnostic | null {
   if (!probe) return null;
   const boundary = {
     ...(typeof probe.status === 'number' ? { status: probe.status } : {}),
-    ...(['rest', 'compat'].includes(probe.transport) ? { transport: String(probe.transport) } : {}),
+    ...(['rest', 'compat', 'bedrock-invoke', 'bedrock-eventstream'].includes(probe.transport) ? { transport: String(probe.transport) } : {}),
+    // Only fields already projected by sanitizedError belong here. Reapply the
+    // grammar at the public boundary; a provider message/body is never a code.
+    ...((typeof probe.code === 'number' && Number.isFinite(probe.code) || typeof probe.code === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(probe.code)) ? { providerCode: probe.code as string | number } : {}),
+    ...(typeof probe.type === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(probe.type) ? { providerType: probe.type } : {}),
   };
   for (const code of ['timeout', 'transport_error', 'malformed_response', 'response_too_large'] as const) {
     if (probe.code === code) return { levels, stage, code, ...boundary };
@@ -1063,16 +1087,16 @@ function gatewayObservation(response: Response): Record<string, unknown> {
  * Native markers never leak into Dynamic conversion. A MISS is inconclusive:
  * model-specific prefix thresholds, placement and best-effort reuse still apply.
  */
-async function discoverCache(common: CommonRequest, route: string, maxCompletionTokens: number, toolObservations: Array<Record<string, any>>) {
+async function discoverCache(common: CommonRequest, route: string, maxCompletionTokens: number, toolObservations: Array<Record<string, any>>, semantic: SemanticMapping) {
   const marker = crypto.randomUUID();
   // Large enough to exercise documented 4,096-token minima with ordinary text,
   // but not a tokenizer claim or a promise of a hit for an unknown future model.
   const prefix = `Public Codeflare cache canary ${marker}. Ignore the fictional inventory; follow the user request.\n`
     + Array.from({ length: 2048 }, (_, index) => `Item ${index}: amber birch cedar.`).join('\n');
-  const request: PlainObject = { model: route, messages: [
+  const request: PlainObject = applySemanticMapping({ model: route, messages: [
     { role: 'system', content: common.native ? [{ type: 'text', text: prefix, cache_control: { type: 'ephemeral', ttl: '5m' } }] : prefix },
     { role: 'user', content: 'Reply with a numbered list of 32 short fictional labels. Do not use tools.' },
-  ], stream: true, stream_options: { include_usage: true }, max_completion_tokens: maxCompletionTokens };
+  ], stream: true, stream_options: { include_usage: true }, max_completion_tokens: maxCompletionTokens }, semantic);
   const observations: Array<Record<string, any>> = [];
   for (let index = 0; index < 2; index++) {
     try {
@@ -1104,10 +1128,10 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
   const cache: BedrockCapabilitySummary['cache'] = prefixRead ? 'provider-prefix'
     : complete && second.cacheStatus === 'HIT' ? 'gateway-response' : 'inconclusive';
   // Cached delivery and synthesized Invoke SSE are never cold-generation proof.
-  const incremental = observations.some((item) => item.valid && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
+  const incremental = common.compatibility?.response !== 'buffered' && observations.some((item) => item.valid && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
     && item.publicDeltaTimes.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
     && item.publicDeltaTimes[0] + 5 < item.eofTime);
-  return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(request)),
+  return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(compatibilityRequest(request, common.compatibility))),
     explanation: !backendConsistent ? 'Tool and cache observations identify different backends. Minimum is inconclusive for one exercised route path; this is not an all-branches requirement.'
       : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Minimum is not met; unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
       : cache === 'gateway-response' ? 'Gateway HIT satisfies the minimum; this is whole-response reuse, not proof of provider input-prefix reuse.'
@@ -1126,9 +1150,11 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     fetcher,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxResponseBytes: input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
-    compatOnly: input.compatOnly,
+    compatOnly: input.compatOnly || profile.compatibility?.transport === 'compat',
     byokAlias: input.byokAlias,
-    repairToolNames: profile.id === 'bedrock-anthropic-compat' || profile.id === 'dynamic-bedrock-anthropic-provider-default',
+    repairToolNames: profile.compatibility?.toolNames === 'repeated-complete' || profile.id === 'bedrock-anthropic-compat' || profile.id === 'dynamic-bedrock-anthropic-provider-default',
+    compatibility: profile.compatibility,
+    campaignDeadline: input.campaignDeadline,
     native: input.native,
     ...(input.native && { replayState: { load: async (id: string) => replay.get(id) ?? null,
       save: async (id: string, blocks: unknown[]) => { replay.set(id, clone(blocks)); } } }),
@@ -1261,17 +1287,33 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       // Keep the successful leg; do not replay a known REST 404 for every probe.
       if (distinctMappings[0]?.toolLifecycle.first?.transport === 'compat') common.compatOnly = true;
       cacheEvidence = await discoverCache(common, input.route, Math.min(input.maxCompletionTokens, 2048),
-        distinctMappings.flatMap((item) => [item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean));
+        distinctMappings.flatMap((item) => [item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean), groups[0].semantic);
       accounting.logicalProbes += cacheEvidence.observations.length;
       for (const observation of cacheEvidence.observations) addEvidence(accounting, observation);
       stopDiscovery ||= cacheEvidence.observations.some((item) => item.status === null || [401, 403, 429].includes(item.status) || item.status >= 500);
+      // The dedicated discovery screen returns per-contract diagnostics even
+      // when no profile qualifies. Keep cache failures as actionable as tool
+      // failures; a cache-only 403 must not disappear into an empty list.
+      cacheEvidence.observations.forEach((observation, index) => {
+        const stage = index === 0 ? 'cache-fill' : 'cache-read';
+        const failure = probeDiagnostic(observation, [], stage);
+        if (failure) diagnostics.push(failure);
+        else if (!observation.valid) diagnostics.push({ levels: [], stage, code: observation.effectiveFinishReason === 'length' ? 'completion_limit' : 'incomplete_final_response' });
+      });
+      if (!cacheEvidence.backendConsistent) diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'backend_changed' });
+      else if (cacheEvidence.cache === 'inconclusive' && cacheEvidence.observations.length === 2 && cacheEvidence.observations.every((item) => item.valid)) {
+        diagnostics.push({ levels: [], stage: 'cache-read', code: 'cache_reuse_unobserved' });
+      }
     }
     const cache = cacheEvidence?.cache ?? 'not-tested';
     const minimum = assignable && (cache === 'provider-prefix' || cache === 'gateway-response');
+    const reasoning = profile.reasoningMode === 'provider-default' ? 'provider-default'
+      : distinctMappings.some((item) => item.reasoningProbe?.reasoningTokens > 0 || item.reasoningProbe?.reasoning?.some((block: { length: number }) => block.length > 0))
+        ? 'observed-enabled' : 'unverified';
     capabilitySummary = { schemaVersion: 1, tools: allToolsPassed, replay: allToolsPassed, cache,
-      nativePromptCache: Boolean(input.native && cache === 'provider-prefix'), reasoning: 'provider-default',
+      nativePromptCache: Boolean(input.native && cache === 'provider-prefix'), reasoning,
       streaming: cacheEvidence?.incremental ? 'incremental' : 'not-observed',
-      grade: minimum ? cacheEvidence?.incremental ? 'Optimal' : 'Acceptable' : 'Not qualified' };
+      grade: minimum ? reasoning === 'unverified' ? 'Minimum' : cacheEvidence?.incremental ? 'Optimal' : 'Acceptable' : 'Not qualified' };
     if (assignable && !minimum) classification = 'Inconclusive';
     assignable = minimum;
   }

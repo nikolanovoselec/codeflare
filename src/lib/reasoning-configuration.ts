@@ -13,6 +13,7 @@ import {
   type ScalarValue,
   type ScalarWrite,
 } from './reasoning-profiles';
+import { parseCapabilitySummary, type CapabilitySummary } from './ai-capability-discovery/contract';
 
 export interface RouteVerification {
   schemaVersion: 1;
@@ -25,6 +26,7 @@ export interface RouteVerification {
   supportedLevels: PiReasoningLevel[];
   scope: 'single-model' | 'observed-path';
   checkedAt: string;
+  capabilities?: CapabilitySummary;
 }
 type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'native-target'; targetId: string };
 export type FallbackRouting = { enabled: false } | {
@@ -124,7 +126,7 @@ function parseRef(value: unknown, label: string): ProfileRevisionRef {
 export function parseRouteVerification(value: unknown): RouteVerification {
   const label = 'route verification';
   const record = asRecord(value, label);
-  assertOnly(record, ['schemaVersion', 'profileRef', 'routeVersion', 'inventoryDigest', 'connectionFingerprint', 'canaryVersion', 'supportedLevels', 'scope', 'checkedAt', 'method'], label);
+  assertOnly(record, ['schemaVersion', 'profileRef', 'routeVersion', 'inventoryDigest', 'connectionFingerprint', 'canaryVersion', 'supportedLevels', 'scope', 'checkedAt', 'method', 'capabilities'], label);
   if (record.method !== undefined && record.method !== 'administrator') throw new Error(`${label}.method is invalid`);
   if (record.schemaVersion !== 1) throw new Error(`${label}.schemaVersion must be 1`);
   const profileRef = parseRef(record.profileRef, `${label}.profileRef`);
@@ -151,6 +153,7 @@ export function parseRouteVerification(value: unknown): RouteVerification {
     connectionFingerprint: hash(record.connectionFingerprint, 'connectionFingerprint'),
     canaryVersion: record.canaryVersion,
     supportedLevels: [...record.supportedLevels], scope: record.scope, checkedAt,
+    ...(record.capabilities !== undefined && { capabilities: parseCapabilitySummary(record.capabilities) }),
   };
 }
 
