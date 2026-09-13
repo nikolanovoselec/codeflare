@@ -31,7 +31,7 @@ const CloudflareProviderChooser: Component<CloudflareProviderChooserProps> = (pr
       type="password"
       value={props.clientSecret}
       onInput={(v) => props.onClientSecretChange(v)}
-      placeholder={props.clientSecretSet ? 'Saved — enter a new secret to replace' : 'Cloudflare OAuth Client Secret'}
+      placeholder={props.clientSecretSet ? 'Saved. Enter a new secret to replace it.' : 'Cloudflare OAuth Client Secret'}
     />
   </div>
 );

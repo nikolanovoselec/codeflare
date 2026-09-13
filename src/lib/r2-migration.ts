@@ -675,7 +675,7 @@ export async function advanceMigration(
           // migration must not read a misleading "99%" (the H2 backstop then stops advancing until admin).
           ...(stuckCount >= MAX_VERIFY_RETRIES ? { halted: true } : {}),
           lastError: stuckCount >= MAX_VERIFY_RETRIES
-            ? `verify failed at ${r.failedKey} after ${stuckCount} attempts; halting (un-migratable object — admin review)`
+            ? `verify failed at ${r.failedKey} after ${stuckCount} attempts; halting (un-migratable object; admin review required)`
             : `verify failed at ${r.failedKey}; re-migrating`,
         }, false);
         return;

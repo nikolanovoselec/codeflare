@@ -134,7 +134,7 @@ export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResul
       || props.result.piCompatibility?.verifiedLevels.includes(level) ? 'passed' : 'unclear';
   };
   return <div class="admin-check-overview">
-    <Show when={props.levels.length > 0} fallback={<p><strong>Provider default</strong> — all seven Pi preferences normalize here; no distinct provider effort or Off claim.</p>}>
+    <Show when={props.levels.length > 0} fallback={<p><strong>Provider default</strong>: all seven Pi preferences normalize here; no distinct provider effort or Off claim.</p>}>
     <table class="admin-check-table">
       <caption>Selected profile checks</caption>
       <thead><tr><th scope="col">Level</th><th scope="col">Compatibility</th><th scope="col">Tool call</th><th scope="col">Tool replay</th></tr></thead>

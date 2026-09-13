@@ -100,7 +100,7 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
             type="password"
             value={props.personalAccessToken}
             onInput={props.onPersonalAccessTokenChange}
-            placeholder={props.personalAccessTokenSet ? 'Saved — enter a new PAT to replace' : 'github_pat_...'}
+            placeholder={props.personalAccessTokenSet ? 'Saved. Enter a new PAT to replace it.' : 'github_pat_...'}
           />
         </div>
 
@@ -113,7 +113,7 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
           <Input
             value={props.publicKey}
             onInput={props.onPublicKeyChange}
-            placeholder={props.publicKeyFingerprint ? 'Saved — enter a new key to replace' : '64 lowercase hex characters'}
+            placeholder={props.publicKeyFingerprint ? 'Saved. Enter a new key to replace it.' : '64 lowercase hex characters'}
           />
         </div>
 

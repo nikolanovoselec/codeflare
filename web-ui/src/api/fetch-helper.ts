@@ -79,7 +79,7 @@ export async function baseFetch<T>(
     || response.status === 0
     || (response.status >= 300 && response.status < 400)
   ) {
-    throw expiredSessionError('Authentication redirect detected — session may have expired');
+    throw expiredSessionError('Authentication redirect detected. Your session may have expired.');
   }
 
   if (!response.ok) {
@@ -91,7 +91,7 @@ export async function baseFetch<T>(
     // Show a clean auth message instead of dumping raw HTML into the UI.
     if (body && isHtmlResponse(response, body)) {
       throw expiredSessionError(
-        'Authentication expired — please refresh the page to log in again',
+        'Authentication expired. Please refresh the page to log in again.',
         body,
       );
     }
@@ -104,7 +104,7 @@ export async function baseFetch<T>(
     // never-resolving promise hung the bootstrap promise, leaving the SPA stuck on
     // its loading shell = the blank/white page on return-from-background.
     if (response.status === 401) {
-      const redirectError = expiredSessionError('Session expired — redirecting to sign in', body);
+      const redirectError = expiredSessionError('Session expired. Redirecting to sign in.', body);
       if (redirectError.authRedirect) throw redirectError;
     }
 
@@ -132,7 +132,7 @@ export async function baseFetch<T>(
 
   const text = await response.text();
   if (isHtmlResponse(response, text)) {
-    throw expiredSessionError('Authentication expired — redirecting to sign in', text);
+    throw expiredSessionError('Authentication expired. Redirecting to sign in.', text);
   }
   if (!text) {
     if (options.schema) {

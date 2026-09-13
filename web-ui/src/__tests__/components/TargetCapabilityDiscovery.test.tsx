@@ -433,6 +433,7 @@ describe('Independent capability evidence and administrator default preferences'
     const cache = visibleCapability(panel, 'Input caching');
     expect(cache).toHaveTextContent(/inconclusive|not (?:observed|established|verified)|unverified/i);
     expect(cache).not.toHaveTextContent(/unsupported|not supported/i);
+    expect(panel).not.toHaveTextContent(/\u2014/);
     expect(within(panel).getByText(/Review changes/i)).toBeVisible();
     expect(panel).not.toHaveTextContent(/\b(?:Minimum|Acceptable|Optimal|Not qualified)\b/i);
     expect(formValues(view.container).dynamicRoutes).toEqual([]);

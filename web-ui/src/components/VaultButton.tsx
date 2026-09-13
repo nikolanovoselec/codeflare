@@ -42,7 +42,7 @@ const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: str
   },
   preparing: {
     title: 'Preparing your Vault…',
-    message: 'Preparing your Vault — the terminal may briefly stop accepting input for a few seconds. It will come right back.',
+    message: 'Preparing your Vault. The terminal may briefly stop accepting input for a few seconds. It will come right back.',
     enabled: false,
   },
   armed: {

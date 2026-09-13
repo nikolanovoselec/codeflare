@@ -464,7 +464,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
             <Show when={sessionStore.bucketMigrationPending}>
               <div class="dashboard-migration-notice" role="status" data-testid="dashboard-migration-pending">
-                Storage update pending — close your running sessions to apply it.
+                Storage update pending. Close your running sessions to apply it.
               </div>
             </Show>
 

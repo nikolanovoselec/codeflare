@@ -790,7 +790,7 @@ const Layout: Component<LayoutProps> = (props) => {
       {/* Auth expiry banner — shown when background polling detects expired session */}
       <Show when={sessionStore.authExpired}>
         <div class="layout-auth-banner" data-testid="auth-expired-banner">
-          <span>Session expired — please re-authenticate to continue.</span>
+          <span>Session expired. Please re-authenticate to continue.</span>
           <button type="button" onClick={() => window.location.reload()}>
             Refresh
           </button>

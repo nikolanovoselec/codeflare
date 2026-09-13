@@ -54,7 +54,7 @@ const reasoningFact = (row: EvidenceRow): string => row.reasoning === 'provider-
 const streamingFact = (row: EvidenceRow): string => row.streaming === 'incremental' ? 'Incremental public deltas observed before completion'
   : row.streaming === 'not-tested' ? 'Not tested' : 'Incremental delivery not observed; delivery may be buffered';
 const cacheFact = (row: EvidenceRow): string => row.cache === 'provider-prefix' ? 'Provider-prefix read verified'
-  : row.cache === 'not-tested' ? 'Not tested' : 'Not observed — input-prefix reuse remains inconclusive';
+  : row.cache === 'not-tested' ? 'Not tested' : 'Not observed. Input-prefix reuse remains inconclusive.';
 const toolFact = (row: EvidenceRow): string => row.tools && row.replay ? 'Verified with exact replay'
   : row.tools ? 'Tool call succeeded; exact replay not verified' : 'Not verified';
 // Historical result prose can contain retired rankings, but never display them as current capability claims.
