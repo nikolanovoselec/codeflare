@@ -1,42 +1,44 @@
 /**
- * Read-only Cloudflare AI Gateway management boundary.
+ * A failed route lookup must not delete saved routes.
  *
- * Callers resolve saved or draft connection coordinates before invoking these
- * readers. Requests target the Cloudflare management API, never a URL returned
- * by an upstream payload. This module does not change gateways, routes, provider
- * credentials, or saved application settings.
+ * These helpers read Cloudflare AI Gateway configuration. Callers supply the
+ * saved or draft connection, and we build management API URLs from its account
+ * and gateway IDs. We never follow URLs from a response or write gateway
+ * configuration, provider credentials, routes, or saved application settings.
  *
- * Dynamic Routing uses a data.routes/page/per_page envelope; provider bindings
- * use result/result_info. Their completion rules are deliberately separate.
- * A failed inventory must throw rather than return accumulated rows: downstream
- * reconciliation treats a successful complete list as authority for absence.
- * Relevant SDK contract:
+ * Dynamic Routing returns data.routes with page/per_page. Provider bindings use
+ * result/result_info. Keep those pagination rules separate: requiring provider
+ * count fields on a Dynamic response rejects a valid route list.
+ *
+ * The route and Native binding readers throw on incomplete inventories. Returning
+ * the rows collected so far would let reconciliation mistake unread routes or
+ * bindings for deleted ones. The Dynamic Routing SDK contract is here:
  * https://github.com/cloudflare/cloudflare-typescript/blob/main/src/resources/ai-gateway/dynamic-routing.ts
  */
 import { z } from 'zod';
 import type { Env } from '../types';
 import { getAigConfig } from './aig-config';
 
-// The byte and timeout limits apply to each request, including body consumption.
-// Inventory limits bound sequential reads; they are application safety budgets,
-// not claims about Cloudflare account quotas or endpoint maximums.
+// Allow 1 MiB and 10 seconds per request, including reading the response body.
+// Each inventory scan also has a page and row limit. These are our budgets;
+// they do not describe Cloudflare account quotas or endpoint limits.
 const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
 const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
 const MAX_PROVIDER_CONFIG_PAGES = 10;
 const MAX_PROVIDER_CONFIGS = 1000;
 const MAX_DYNAMIC_ROUTE_PAGES = 10;
 const MAX_DYNAMIC_ROUTES = 1000;
-// Only these built-in slugs may proceed when custom-provider classification is
-// unavailable. This set is not a model-version or provider-config allowlist.
+// We can recognize these built-in slugs even if the custom-provider lookup
+// fails. This list does not restrict model versions or provider configurations.
 const KNOWN_NATIVE_PROVIDERS = new Set(['aws-bedrock', 'google-ai-studio', 'openai']);
 const providerSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const providerAliasSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
-// Route names also become dictionary keys in routing configuration. Exclude
-// prototype-sensitive keys as well as path separators and control characters.
+// Saved routing uses these names as dictionary keys. Reject __proto__ and
+// similar keys, along with path separators and control characters.
 export const dynamicRouteSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
   .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
-// A draft is an inspection overlay, not permission to persist a connection.
-// Account API URLs contain no gateway name, so that form needs an explicit ID.
+// Inspect draft connections without saving them. An account API URL has no
+// gateway name in its path, so the draft must supply a separate gateway ID.
 export const gatewayDraftSchema = z.object({
   gatewayUrl: z.string().trim().max(512).refine((value) => parseGatewayUrl(value) !== null),
   gatewayId: dynamicRouteSchema.optional(),
@@ -46,8 +48,8 @@ export const gatewayDraftSchema = z.object({
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
   }
 });
-// Administrator-authored descriptions are bounded display metadata. They do not
-// identify a backend authoritatively or override the gateway's route topology.
+// Administrators can label backends for display. Those descriptions neither
+// prove a backend's identity nor change the route graph owned by the gateway.
 export const backendDescriptionsSchema = z.record(
   z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase())),
   z.string().trim().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/),
@@ -57,8 +59,8 @@ export interface GatewayConnection { gatewayUrl?: string; gatewayId?: string; to
 export interface ParsedGatewayUrl { accountId: string; gatewayId?: string; kind: 'legacy' | 'account-api'; canonicalUrl: string }
 export interface ConnectionStatus { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string }
 
-// JSON boundaries remain unknown until narrowed. These helpers check object
-// shape and bounded, nonempty strings; endpoint-specific schemas follow below.
+// Start with basic object and string checks on untrusted JSON. Each endpoint
+// then checks its own fields; a JSON object alone tells us very little.
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -66,11 +68,13 @@ function safeString(value: unknown, maxLength = 512): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(value);
 }
 /**
- * Accept only supported HTTPS Cloudflare URL shapes and extract coordinates.
- * Embedded credentials and non-default ports are rejected. Legacy gateway URLs
- * carry both IDs and reject query/fragment suffixes; account API forms retain
- * only the account root, discarding inference-path/query/fragment details.
- * Management readers reconstruct their own fixed-origin URLs from those IDs.
+ * The two URL forms carry different information. A legacy gateway URL contains
+ * both the account and gateway IDs; an account API URL supplies only the account.
+ * Both must use HTTPS, without embedded credentials or a non-default port.
+ *
+ * Legacy URLs cannot include a query or fragment. For account API URLs, keep
+ * the account root and drop the inference path, query and fragment. The readers
+ * below build fixed-origin management URLs from the extracted IDs.
  */
 export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | null {
   if (!raw) return null;
@@ -91,7 +95,7 @@ export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | nul
   }
   return null;
 }
-/** A gateway embedded in a legacy URL takes precedence over a separate draft ID. */
+/** Use the gateway named in a legacy URL, even if a separate ID was supplied. */
 export function gatewayCoordinates(connection: GatewayConnection): { accountId: string; gatewayId: string } | null {
   const parsed = parseGatewayUrl(connection.gatewayUrl);
   if (!parsed) return null;
@@ -99,10 +103,12 @@ export function gatewayCoordinates(connection: GatewayConnection): { accountId: 
   return gatewayId && dynamicRouteSchema.safeParse(gatewayId).success ? { accountId: parsed.accountId, gatewayId } : null;
 }
 /**
- * Overlay validated draft values on the saved connection without writing them.
- * getAigConfig remains the sole owner of credential decryption and precedence;
- * an omitted or blank replacement token keeps the saved token. A legacy URL
- * owns its gateway name, while account API URLs use the separate gateway ID.
+ * Apply validated draft values for this inspection without saving them.
+ * Leave credential loading and decryption to getAigConfig. A missing or blank
+ * replacement token means keep the saved token, not clear it.
+ *
+ * Take the gateway name from a legacy URL. Account API URLs need the separate
+ * gateway ID from the draft, or the saved ID when the draft omits it.
  */
 export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): Promise<GatewayConnection> {
   const saved = await getAigConfig(env);
@@ -114,16 +120,18 @@ export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): 
     token: draft?.replacementToken?.trim() || saved.token,
   };
 }
-// Keep only HTTP status across the management boundary, not response bodies,
-// Authorization headers, or provider configuration details.
+// The HTTP status is enough to classify this failure. Keep response bodies,
+// Authorization headers and provider details out of the error.
 class GatewayManagementError extends Error {
   constructor(public readonly status: number) { super('management_request_failed'); }
 }
 /**
- * Only an actual management HTTP 401/403 is classified as permission denial.
- * Transport, payload, and completeness errors are unavailable, not evidence
- * that saved credentials were lost. Management Read and inference Run access
- * are distinct; successful inference alone does not prove inspection access.
+ * Report permission denial only after a management HTTP 401 or 403.
+ * A timeout or rejected response shape does not prove that credentials were
+ * lost. Neither does an incomplete inventory. Report those as unavailable.
+ *
+ * AI Gateway Read allows inspection; Run allows inference. A working model
+ * request is not enough to establish management access.
  */
 export function connectionStatus(error?: unknown, missing = false): ConnectionStatus {
   if (missing) return { status: 'missing', message: 'Configure an AI Gateway URL and API token.' };
@@ -134,9 +142,10 @@ export function connectionStatus(error?: unknown, missing = false): ConnectionSt
   return { status: 'ready', message: 'AI Gateway route inspection is available.' };
 }
 /**
- * Count streamed bytes rather than trusting Content-Length. Cancel oversized
- * bodies before JSON parsing, and decode UTF-8 incrementally across chunks.
- * Syntax-valid JSON is still unknown until each endpoint validates its shape.
+ * Count the bytes we actually receive. Content-Length is not a safe limit.
+ * Cancel oversized bodies before parsing, and keep the UTF-8 decoder state
+ * between chunks so a split character survives. Each endpoint still has to
+ * validate the parsed JSON against its own response shape.
  */
 async function readBoundedJson(response: Response): Promise<unknown> {
   if (!response.body) return null;
@@ -157,9 +166,9 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   try { return JSON.parse(text); } catch { throw new Error('management_response_malformed'); }
 }
 /**
- * Normalize the supported route-version element representations, including
- * JSON-encoded data. Return undefined for unknown shapes rather than inventing
- * an empty backend graph; a route with no readable graph cannot be inspected.
+ * Route versions can hold elements directly or inside JSON-encoded data.
+ * Read the supported wrappers below and return undefined for anything else.
+ * An unreadable graph is not an empty graph; callers must stop inspection.
  */
 function extractElements(value: Record<string, unknown>): unknown {
   if (Array.isArray(value.data)) return value.data;
@@ -176,9 +185,9 @@ function extractElements(value: Record<string, unknown>): unknown {
   return undefined;
 }
 /**
- * Resolve the active revision from supported response wrappers. An explicit
- * version object must be marked active and agree with any deployment pointer.
- * Do not guess a revision from version ordering or silently use another graph.
+ * Find the active revision in the supported response wrappers. If the response
+ * has an explicit version object, require its active flag and check it against
+ * any deployment pointer. Picking the newest-looking version would be a guess.
  */
 function extractVersion(value: unknown): { versionId: string; elements?: unknown } | null {
   if (!isPlainObject(value)) return null;
@@ -199,11 +208,13 @@ function extractVersion(value: unknown): { versionId: string; elements?: unknown
   return elements === undefined ? { versionId } : { versionId, elements };
 }
 /**
- * Perform one bounded management GET, with no retry or token/transport fallback.
- * Redirects are not followed, preventing bearer credentials from being forwarded
- * to a Location supplied by the response. The abort timer covers fetching and
- * body consumption and is cleared on every exit. HTTP and success:false errors
- * propagate without including the upstream payload in the error message.
+ * Make one management GET. There are no retries and no alternate credentials
+ * or transports. Do not follow redirects: a response's Location must not decide
+ * where we send the bearer token.
+ *
+ * Keep the timeout running until the body has been read, then clear it even on
+ * failure. Reject HTTP errors and success:false without copying the response
+ * payload into an error message.
  */
 async function managementRequest(url: string, token: string): Promise<unknown> {
   const controller = new AbortController();
@@ -223,15 +234,17 @@ async function managementRequest(url: string, token: string): Promise<unknown> {
   } finally { clearTimeout(timeout); }
 }
 /**
- * Return a complete route inventory, projecting only stable IDs and route names.
- * Cloudflare's documented data envelope supplies page and per_page, but does
- * not require count or total_count. Without totals, full pages require another
- * read; a short page, including an empty page after an exactly full page, ends
- * the scan. Explicit totals can instead prove that a full last page is complete.
+ * Collect the complete route list and return only stable IDs and names.
+ * Cloudflare documents page and per_page in the data envelope. It does not
+ * require count or total_count. Do not make those fields a condition of access.
  *
- * Retain the existing unpaged result/data compatibility shape. When that shape
- * advertises result_info, its counts must prove the entire list is present.
- * No partial result escapes on later-page failure, duplicates, or limit expiry.
+ * Without totals, keep reading full pages until a short page arrives. An exactly
+ * full last page needs one more read, which returns an empty page. Explicit
+ * row totals can prove completion without that extra request.
+ *
+ * Also accept the existing unpaged result/data shape. If it includes result_info,
+ * the counts must show that the entire list is present. Throw on a failed later
+ * page or duplicate identity, and when a limit stops us before completion.
  */
 export async function listDynamicRoutes(accountId: string, gatewayId: string, token: string): Promise<Array<{ id: string; name: string }>> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
@@ -242,21 +255,21 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
   let totalCount: number | undefined;
   let totalPages: number | undefined;
   for (let page = 1; page <= MAX_DYNAMIC_ROUTE_PAGES; page += 1) {
-    // An advertised page total remains binding even if later responses omit it.
-    // Reject before requesting beyond that boundary; do not return partial rows.
+    // Keep the page total once we have it. A later response cannot erase it.
+    // Stop before an out-of-range request rather than return an incomplete list.
     if (totalPages !== undefined && page > totalPages) throw new Error('route_list_incomplete');
-    // Preserve the first request's default page size, then reuse the validated
-    // size reported by Cloudflare. These are page reads, not request retries.
+    // Let Cloudflare choose the first page size, then keep using that validated
+    // size. Each subsequent request reads a new page; it does not retry a failure.
     const payload = await managementRequest(page === 1 ? base : `${base}?page=${page}&per_page=${pageSize}`, token);
     if (!isPlainObject(payload)) throw new Error('route_list_malformed');
     const envelope = isPlainObject(payload.data) ? payload.data : isPlainObject(payload.result) ? payload.result : null;
     if (!envelope || !Array.isArray(envelope.routes)) throw new Error('route_list_malformed');
     const paginated = envelope.page !== undefined || envelope.per_page !== undefined;
     if (page > 1 && !paginated) throw new Error('route_list_incomplete');
-    // Inspect both outer and inner metadata; neither may contradict the other.
-    // Cursor-style continuation is unsupported and therefore fails closed.
-    // Optional totals constrain completion, but their absence is not an error
-    // for the documented page/per_page envelope.
+    // Check metadata on both the response and its route envelope. They must
+    // agree. We cannot follow cursor pagination here, so reject it rather than
+    // claim the list is complete. Honor totals when supplied, but do not demand
+    // them from the documented page/per_page response.
     for (const owner of [payload, envelope]) {
       if ((owner.gateway_id !== undefined && owner.gateway_id !== gatewayId)
         || owner.has_more === true || owner.hasMore === true || owner.next_cursor || owner.cursor || owner.next || owner.cursors
@@ -266,8 +279,8 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
         ...(['page', 'count', 'per_page', 'total_count', 'total_pages'].some((key) => Object.hasOwn(owner, key)) ? [owner] : []),
       ];
       for (const info of metadata) {
-        // Page numbers must advance exactly and page size must remain stable.
-        // The older unpaged metadata shape retains its complete-count proof.
+        // Require the page we asked for and keep the same size across pages.
+        // The older unpaged shape still needs counts proving a complete list.
         if (!isPlainObject(info) || info.page !== page || !Number.isInteger(info.per_page)
           || (info.per_page as number) < 1 || (info.per_page as number) > MAX_DYNAMIC_ROUTES
           || envelope.routes.length > (info.per_page as number)
@@ -289,9 +302,9 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
         }
       }
     }
-    // Identity sets span the whole scan. A duplicate could mask a skipped row
-    // during pagination, so it invalidates the inventory rather than deduping.
-    // Any explicitly supplied gateway binding must match the requested gateway.
+    // Check IDs and names across every page. Silently deduplicating could hide
+    // a skipped route, which would make cleanup unsafe. Reject duplicates and
+    // any row that names a gateway other than the one we requested.
     for (const candidate of envelope.routes) {
       if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !dynamicRouteSchema.safeParse(candidate.name).success
         || ids.has(candidate.id) || names.has(candidate.name as string)
@@ -300,10 +313,9 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
       names.add(candidate.name as string);
       result.push({ id: candidate.id, name: candidate.name as string });
     }
-    // A short page establishes the count-free endpoint's terminal boundary.
-    // Retain total-proven completion when counts are explicitly supplied,
-    // including a full last page. Contradictory page totals still fail closed.
-    // Exhausted budgets never authorize empty or truncated saved-route cleanup.
+    // A short page ends the scan when there are no row totals. Supplied totals
+    // can also prove that a full page is the last one, but all counts must agree.
+    // Reaching our budget is not proof that any unread routes have disappeared.
     if (result.length > MAX_DYNAMIC_ROUTES || (totalCount !== undefined && result.length > totalCount)) throw new Error('route_list_incomplete');
     if (!paginated || envelope.routes.length < (envelope.per_page as number) || result.length === totalCount) {
       if ((totalCount !== undefined && result.length !== totalCount) || (totalPages !== undefined && totalPages > page)) throw new Error('route_list_incomplete');
@@ -312,7 +324,7 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
   }
   throw new Error('route_list_incomplete');
 }
-/** Safe binding projection: no provider secret, header, or destination URL. */
+/** Keep binding metadata only. Never include secrets, headers or destination URLs. */
 export interface NativeProviderConfig {
   id: string;
   provider: string;
@@ -321,8 +333,8 @@ export interface NativeProviderConfig {
   defaultSelection: boolean;
 }
 
-// Normalize only explicit boolean/numeric flags. Truthiness would turn a
-// string such as "false" into an unintended default provider selection.
+// Accept boolean flags and numeric 0/1 only. The string "false" is truthy in
+// JavaScript; treating it as a flag could select the wrong default provider.
 function parseDefaultConfig(value: unknown): boolean {
   if (value === true || value === 1) return true;
   if (value === false || value === 0) return false;
@@ -330,10 +342,10 @@ function parseDefaultConfig(value: unknown): boolean {
 }
 
 /**
- * Read gateway-scoped Native provider bindings, discarding sensitive fields.
- * Unlike Dynamic Routing, this endpoint uses result_info with explicit counts.
- * Page size, total count, optional page total, and unique binding IDs must stay
- * coherent across the scan. Failure never returns a partial binding inventory.
+ * Read Native provider bindings for this gateway and leave out sensitive fields.
+ * This endpoint uses result_info with explicit counts, unlike Dynamic Routing.
+ * Keep the page size and total count consistent, check any page total, and reject
+ * repeated binding IDs. A failed scan must not return the bindings read so far.
  */
 export async function listNativeProviderConfigs(accountId: string, gatewayId: string, token: string): Promise<NativeProviderConfig[]> {
   const result: NativeProviderConfig[] = [];
@@ -344,8 +356,9 @@ export async function listNativeProviderConfigs(accountId: string, gatewayId: st
   for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
     const payload = await managementRequest(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs?page=${page}&per_page=100`, token);
     if (!isPlainObject(payload) || payload.success !== true || !Array.isArray(payload.result) || !isPlainObject(payload.result_info)) throw new Error('provider_config_list_malformed');
-    // This endpoint's explicit totals, not a short-page heuristic, determine
-    // completion. Reject drift, unsupported cursors, and foreign bindings.
+    // Use this endpoint's totals to decide when we are done. A short page alone
+    // is not enough. Reject conflicting metadata and cursor pagination; check
+    // each binding's gateway below.
     const info = payload.result_info;
     if (info.page !== page || !Number.isInteger(info.count) || !Number.isInteger(info.per_page) || !Number.isInteger(info.total_count)
       || info.count !== payload.result.length || (info.per_page as number) < 1 || (info.per_page as number) > 100
@@ -380,9 +393,9 @@ export async function listNativeProviderConfigs(accountId: string, gatewayId: st
 }
 
 /**
- * Select an explicit sole default, otherwise a sole available binding.
- * Multiple defaults or multiple non-default candidates are ambiguous: never
- * choose by list order. No candidate is represented as null, not a guessed ID.
+ * Use the one binding marked default. With no default, a single candidate is
+ * also safe to select. Throw when either choice is ambiguous; list order is
+ * not an administrator's preference. Return null when there are no candidates.
  */
 export function selectNativeProviderConfig(configs: NativeProviderConfig[], provider: string): NativeProviderConfig | null {
   providerSlugSchema.parse(provider);
@@ -392,16 +405,18 @@ export function selectNativeProviderConfig(configs: NativeProviderConfig[], prov
   return defaults[0] ?? candidates[0] ?? null;
 }
 
-/** Preserve the established Bedrock helper while using the generic selection rule. */
+/** Keep the Bedrock entry point, using the same selection rule as other providers. */
 export function defaultBedrockProvider(configs: NativeProviderConfig[]): NativeProviderConfig | null {
   return selectNativeProviderConfig(configs, 'aws-bedrock');
 }
 
 /**
- * Read the account-scoped custom-provider namespace for classification.
- * Only slugs survive; base URLs, headers, names, and examples are discarded.
- * The bounded scan collects unique slugs until the reported total is reached.
- * These account-level names are not gateway-scoped Native binding identities.
+ * Look up custom-provider slugs across the account so callers can classify them.
+ * Discard base URLs, headers, names and examples. Collect unique slugs within
+ * the scan limits until their count reaches the reported total.
+ *
+ * These are account-level provider names. Do not use them as IDs for Native
+ * bindings on a particular gateway.
  */
 export async function listCustomProviderSlugs(accountId: string, token: string): Promise<Set<string>> {
   const result = new Set<string>();
@@ -423,10 +438,12 @@ export async function listCustomProviderSlugs(accountId: string, token: string):
 }
 
 /**
- * Classification failure is tolerable only when every requested slug is a
- * known built-in provider. Unknown slugs require the custom-provider inventory;
- * failure there must not silently classify a custom provider as Native.
- * This exception does not substitute credentials or create provider bindings.
+ * If the custom-provider lookup fails, we can still recognize the known built-in
+ * slugs. Any unknown slug needs that lookup to succeed. Otherwise we could call
+ * a custom provider Native without evidence.
+ *
+ * This exception only handles classification. It neither changes credentials
+ * nor creates a provider binding.
  */
 export async function listCustomProviderSlugsForProviders(
   accountId: string,
@@ -443,10 +460,10 @@ export async function listCustomProviderSlugsForProviders(
 }
 
 /**
- * Resolve a route name through the complete current inventory, then fetch its
- * detail by the returned stable ID. Both requests stay scoped to the same
- * account and gateway. Return only the active revision and readable graph;
- * absent routes or malformed active details cannot produce inferred backends.
+ * Look up the route name in the complete current inventory, then fetch its
+ * details by the returned stable ID. Use the same account and gateway for both
+ * requests. Return the active revision with its readable graph, or throw if the
+ * route is missing or its active details cannot be read. Do not guess backends.
  */
 export async function loadActiveRouteVersion(accountId: string, gatewayId: string, route: string, token: string): Promise<{ versionId: string; elements: unknown }> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
