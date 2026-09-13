@@ -176,6 +176,7 @@ jobs:
               - 'scripts/verify-bedrock-pi-prompt-cache.mjs'
               - 'src/lib/bedrock-anthropic-native-adapter.ts'
               - 'src/lib/reasoning-profiles.ts'
+              - 'src/lib/ai-capability-discovery/**'
               - 'scripts/patch-pi-native-model-display.mjs'
               - 'entrypoint.sh'
               - 'host/__fixtures__/enterprise-pi-startup.mjs'

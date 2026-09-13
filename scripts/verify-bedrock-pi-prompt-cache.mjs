@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildBedrockAnthropicRequest, adaptBedrockAnthropicResponse } from '../src/lib/bedrock-anthropic-native-adapter.ts';
 import { getBuiltInProfile, translateRuntimeReasoningRequest } from '../src/lib/reasoning-profiles.ts';
+import { compatibilityRequest, compatibilityResponse } from '../src/lib/ai-capability-discovery/compatibility-wire.ts';
 
 const piRoot = resolve(process.argv[2] ?? 'preseed/agents/pi/node_modules/@earendil-works/pi-ai');
 const { version } = JSON.parse(await readFile(resolve(piRoot, 'package.json'), 'utf8'));
@@ -104,4 +105,40 @@ for (const contract of [
   assert.equal((await invoke()).stopReason, 'stop');
   assert.equal(calls, 2);
 }
-console.log('PASS: locked Pi, legacy/generic contracts, checkpoint opt-out/opt-in/revocation, exact synthetic replay, confidential state, and usage accounting; zero network calls.');
+// A discovered buffered contract still owes Pi a valid OpenAI tool lifecycle.
+// This is intentionally one completed chunk, NOT incremental-generation proof.
+// Verify the real locked serializer/parser rather than a locally invented Pi.
+{
+  const wire = { response: 'buffered', toolNames: 'repeated-complete', transport: 'compat' };
+  const target = { ...model, id: 'synthetic-dynamic', compat: { supportsDeveloperRole: false } };
+  const context = { systemPrompt: 'Public synthetic context.', tools: [{ name: 'lookup', description: 'Inert synthetic tool.',
+    parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] } }],
+    messages: [{ role: 'user', content: 'Use lookup with value ok.', timestamp: 0 }] };
+  let calls = 0;
+  const fetch = async (_url, init) => {
+    const incoming = JSON.parse(init.body);
+    const body = compatibilityRequest(incoming, wire);
+    assert.equal(body.stream, false); assert.equal(body.stream_options, undefined);
+    assert.equal(JSON.stringify(body).includes('cache_control'), false);
+    if (calls === 1) {
+      const toolResult = body.messages.find(message => message.role === 'tool');
+      assert.equal(toolResult.tool_call_id, 'synthetic-buffered-tool');
+      const assistant = body.messages.find(message => message.role === 'assistant');
+      assert.equal(assistant.tool_calls[0].id, 'synthetic-buffered-tool');
+      assert.deepEqual(JSON.parse(assistant.tool_calls[0].function.arguments), { value: 'ok' });
+    }
+    assert.ok(calls < 2);
+    const initial = calls++ === 0;
+    return compatibilityResponse(Response.json({ choices: [{ message: initial
+      ? { role: 'assistant', content: null, tool_calls: [{ id: 'synthetic-buffered-tool', type: 'function', function: { name: 'lookup', arguments: '{"value":"ok"}' } }] }
+      : { role: 'assistant', content: 'Synthetic completed answer.' }, finish_reason: initial ? 'tool_calls' : 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 4 } }), wire, true);
+  };
+  const call = async () => { const events = stream(target, context, { apiKey: 'synthetic-placeholder', fetch, maxRetries: 0, maxTokens: 512 });
+    for await (const _ of events) { /* Actual Pi parser. */ } return events.result(); };
+  const first = await call(); assert.equal(first.stopReason, 'toolUse');
+  const tool = first.content.find(block => block.type === 'toolCall'); assert.equal(tool.name, 'lookup'); assert.deepEqual(tool.arguments, { value: 'ok' });
+  context.messages.push(first, { role: 'toolResult', toolCallId: tool.id, toolName: tool.name, content: [{ type: 'text', text: '{"value":"ok"}' }], isError: false, timestamp: 1 });
+  assert.equal((await call()).stopReason, 'stop'); assert.equal(calls, 2);
+}
+console.log('PASS: locked Pi native and discovered buffered contracts, checkpoint opt-out/opt-in/revocation, exact synthetic replay, confidential state, and usage accounting; zero network calls.');
