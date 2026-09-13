@@ -5480,3 +5480,33 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-213: Dashboard full recreation recovery
+
+**Intent:** Users can invoke the existing full recreation operation directly from failed-upgrade recovery.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A separate Recreate icon action appears whenever the dashboard displays Retry upgrade and is absent outside that state. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: hides Recreate backup outside Retry upgrade state (%s)) -->
+2. Selecting the backup invokes full recreation rather than retry or session creation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation) -->
+3. Successful recreation reports the returned completion counts. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup uses the existing full Recreate operation without retry or session creation) -->
+4. Active updates exclude overlapping operations. <!-- @impl: web-ui/src/stores/session.ts::runPreseedUpdate --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) -->
+5. The backup remains hidden during active updates and returns after settlement when recovery is still needed. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery hides during an update and returns after settlement) -->
+6. Failed recreation displays the error and leaves explicit recovery available. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt) -->
+
+**Constraints:**
+
+- Successful recreation does not replace authoritative applied-status reconciliation.
+- Existing server admission remains unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-STOR-037](storage.md#req-stor-037-page-local-managed-seed-action-coordination)
+
+**Verification:** Automated component and store tests
+
+**Status:** Implemented
+
+---

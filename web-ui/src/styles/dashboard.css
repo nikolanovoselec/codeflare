@@ -261,6 +261,28 @@
   background: var(--color-accent-hover);
 }
 
+/* A separate square recovery action, never a percentage of the row. */
+.dashboard-new-session-wrapper .dashboard-recreate-btn {
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-recreate-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.dashboard-recovery-message {
+  margin: var(--space-2) 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 /* Section Dividers */
 .dashboard-section-divider {
   display: flex;

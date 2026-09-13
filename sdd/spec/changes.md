@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-14
+
+- **Dashboard upgrade recovery backup** (REQ-AGENT-213; REQ-AGENT-049 AC6 unchanged). Retry upgrade now has a separate compact Recreate icon action matching Settings' full recreation and shared update exclusion. Recovery errors remain visible; session admission and authoritative applied-status checks are unchanged.
+
 ## 2026-09-13
 
 - **Dynamic inventory pagination correction** (REQ-ENTERPRISE-034/047). Cloudflare documents `data.page`, `data.per_page` and `data.routes`, not mandatory count/total fields. Without totals, full pages require further reads until a short terminal page, within ten pages/1,000 routes. Explicit totals retain complete-page authority. Failed/incoherent pages preserve saved state. CI 34775265997 reproduced nine regressions; the correction awaits GREEN verification and deployment acceptance.
