@@ -121,6 +121,7 @@ vi.mock('../../stores/session', async () => {
       get preseedUpgrading() { return _preseedUpgrading; },
       preseedUpgradeFailed: false,
       retryPreseedUpgrade: vi.fn().mockResolvedValue(undefined),
+      runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
       get managedReleaseStatus() { return _managedReleaseStatus; },
@@ -1137,6 +1138,39 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
     expect(storageApi.recreateAgentConfigs).not.toHaveBeenCalled();
     expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-049: recovery backup uses the existing full Recreate operation without retry or session creation', async () => {
+    upgradeRecovery.preseedUpgradeFailed = true;
+    vi.mocked(storageApi.recreateAgentConfigs).mockResolvedValue({ success: true, written: ['file'], skipped: [], deleted: [] });
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' }));
+
+    await waitFor(() => expect(storageApi.recreateAgentConfigs).toHaveBeenCalledTimes(1));
+    expect(sessionStore.runPreseedUpdate).toHaveBeenCalledWith(storageApi.recreateAgentConfigs);
+    expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
+    expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('REQ-AGENT-049: recovery backup exposes Recreate failure and allows another explicit attempt', async () => {
+    upgradeRecovery.preseedUpgradeFailed = true;
+    vi.mocked(storageApi.recreateAgentConfigs).mockRejectedValueOnce(new Error('Storage unavailable'));
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+    const button = screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' });
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Storage unavailable'));
+    expect(button).toBeEnabled();
+    expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['normal', 'in-flight', 'pending', 'migration'] as const)('REQ-AGENT-049: hides Recreate backup outside Retry upgrade state (%s)', (state) => {
+    upgradeRecovery.preseedUpgradeFailed = state !== 'normal';
+    (sessionStore as any)._setPreseedUpgrading(state === 'in-flight');
+    (sessionStore as any)._setManagedReleaseStatus(state === 'pending' ? 'update_pending' : null);
+    (sessionStore as any)._setBucketMigrating(state === 'migration');
+    render(() => <Dashboard {...defaultProps} />);
+    expect(screen.queryByRole('button', { name: 'Recreate Agent Skills & Rules' })).not.toBeInTheDocument();
   });
 
   it.each(['in-flight upgrade', 'update_pending'] as const)('REQ-STOR-037: Retry upgrade cannot bypass %s gating', (blockedBy) => {
