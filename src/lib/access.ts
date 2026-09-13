@@ -765,8 +765,14 @@ export async function loadEnterpriseRouteConfig(
   const modelDisplayNames: Record<string, string> = {};
   for (const route of resolved.routeCatalog) {
     const assignment = configuration.routeAssignments[route];
-    if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
-    else {
+    if (assignment) {
+      const profile = getRouteReasoningProfile(configuration, route);
+      // Client preferences normalize to the discovered mapping; canonical evidence stays unchanged.
+      const preferences: PiReasoningLevel[] = profile.id.startsWith('discovered-') && profile.supportedLevels.length === 1
+        ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+        : [...profile.supportedLevels];
+      routeReasoningLevels[route] = preferences;
+    } else {
       const target = resolved.nativeTargets[route];
       if (target) { routeReasoningLevels[route] = [...target.reasoningLevels]; modelDisplayNames[route] = target.label; }
     }

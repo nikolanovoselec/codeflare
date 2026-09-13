@@ -43,7 +43,7 @@ Native Runtime discovery uses at most four HTTP submissions, no fallback/retry, 
 | --- | --- |
 | Valid tools + exact replay + positive second-request prefix-read counters without Gateway HIT | Minimum met; permits the target's native Pi checkpoint serialization |
 | Valid tools + exact replay + Gateway HIT | Minimum met by whole-response reuse only; does not enable explicit native checkpoints |
-| No hit / absent counters / rejected or capped cache probe | Inconclusive, minimum not met; not proof that caching is universally unsupported |
+| Neither qualifying Gateway HIT nor positive prefix reads, or incomplete cache evidence | Inconclusive cache minimum; absent provider counters alone do not negate a qualifying HIT |
 | Minimum + Provider default | Acceptable under the operator's chosen reasoning policy |
 | Above + multiple cold public deltas observed over time before EOF | Optimal for the tested path and policy |
 
@@ -55,9 +55,9 @@ Discovery's identical cache pair certifies the measured reuse mechanism for that
 
 <!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest -->
 
-The intended client contract retains all seven Pi preferences: Off, Minimal, Low, Medium, High, XHigh, Max. Provider-default models send **no client reasoning override**, regardless of that selection. This is neither fabricated Off nor proof that reasoning occurred. Zero executable effort mappings must not mean zero selectable Pi preferences.
+Provider-default and discovered normalized contracts retain all seven Pi preferences: Off, Minimal, Low, Medium, High, XHigh, Max. Provider-default models send **no client reasoning override**, regardless of that selection. This is neither fabricated Off nor proof that reasoning occurred. Zero executable effort mappings must not mean zero selectable Pi preferences.
 
-**Checkpoint limitation (PR1086):** generated enabled contracts still publish only their tested level; [their seven-choice correction awaits behavioral RED](target-capability-discovery.md#evidence-and-qualification). Provider-default models already offer seven choices. Runtime normalization alone does not establish picker availability. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
+Generated single-mapping contracts publish seven client choices without expanding their canonical mappings or receipts; all choices normalize to the one tested mapping. Historical profile selections remain unchanged. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
 
 Existing Sonnet 5 and Opus 5 saved profiles retain validated disabled/adaptive mappings and aliases. Their exact evidence-model guards prevent a future name from inheriting these controls via a substring. Automatic Opus XHigh/Max still use Invoke; generic Provider default has no such mapped effort and uses Eventstream under auto. Explicit Invoke/Eventstream/compat authority remains unchanged.
 

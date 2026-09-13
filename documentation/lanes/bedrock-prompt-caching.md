@@ -18,7 +18,7 @@
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-The historical measurements below remain model/transport-specific evidence. The subsequent [generic model support contract](bedrock-generic-model-support.md) removes the new-model profile-authoring requirement, uses adapter v4, and distinguishes zero executable reasoning mappings from the intended seven selectable Pi preferences. The [PR1086 generated-enabled publication limitation](target-capability-discovery.md#evidence-and-qualification) remains unfixed. The operator now also accepts Gateway HIT as minimum cache qualification; it is still not proof of provider prefix reuse or permission to enable native checkpoints on Dynamic Routes.
+The historical measurements below remain model/transport-specific evidence. The subsequent [generic model support contract](bedrock-generic-model-support.md) removes the new-model profile-authoring requirement, uses adapter v4, and distinguishes canonical backend mappings from the seven selectable Pi preferences published for provider-default and generated normalized contracts. The operator now also accepts Gateway HIT as minimum cache qualification; it is still not proof of provider prefix reuse or permission to enable native checkpoints on Dynamic Routes.
 
 ## Provider cache versus Gateway cache
 
