@@ -87,7 +87,8 @@ COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs
 COPY openvscode/extension-persistence-policy.json ../extension-persistence-policy.json
 COPY openvscode/claude/managed-settings.mjs openvscode/claude/managed-settings.d.mts ../claude/
 COPY openvscode/agent-sidebar/src/ ./src/
-RUN npm run typecheck && NODE_ENV=production npm run build
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1", "Browser IDE build requires Node 22.21.1")' && \
+    npm run typecheck && NODE_ENV=production npm run build
 
 RUN mkdir -p /out/extension /out/welcome/dist && \
     cp package.json /out/extension/package.json && \
@@ -105,7 +106,8 @@ FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00
 
 COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
-RUN CLAUDE_VSCODE_NAMESPACE="$(node -p 'require("/tmp/official-claude.json").namespace')" && \
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1", "Browser IDE build requires Node 22.21.1")' && \
+    CLAUDE_VSCODE_NAMESPACE="$(node -p 'require("/tmp/official-claude.json").namespace')" && \
     CLAUDE_VSCODE_NAME="$(node -p 'require("/tmp/official-claude.json").name')" && \
     CLAUDE_VSCODE_VERSION="$(node -p 'require("/tmp/official-claude.json").version')" && \
     CLAUDE_VSCODE_PLATFORM="$(node -p 'require("/tmp/official-claude.json").targetPlatform')" && \
@@ -131,7 +133,8 @@ FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00
 
 COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
 COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
-RUN /usr/local/bin/node --input-type=module -e \
+RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1", "Browser IDE build requires Node 22.21.1")' && \
+    /usr/local/bin/node --input-type=module -e \
       'const { stageSidebarExtension } = await import("file:///tmp/codeflare-sidebar-extension/dist/package-extension.mjs"); await stageSidebarExtension({ sourceDirectory: "/tmp/codeflare-sidebar-extension", claudeSourceDirectory: "/tmp/official-claude-extension", rootDirectory: "/out/openvscode" });' && \
     rm -rf /tmp/codeflare-sidebar-extension /tmp/official-claude-extension && \
     test -f /out/openvscode/extensions/pi/codeflare-agent-sidebar/dist/extension.cjs && \

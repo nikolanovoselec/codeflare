@@ -74,7 +74,10 @@ Multi-agent support, preseed system, and session modes.
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
 4. Native JavaScript entrypoints are warmed without requiring a JITI artifact; their native import must be observed. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
 
-**Constraints:** Native-import evidence is not a V8 cache-hit measurement or an end-to-end startup-time guarantee. Restored user content that differs from the image may legitimately require new compilation.
+**Constraints:**
+
+- Native-import evidence is not a V8 cache-hit measurement or an end-to-end startup-time guarantee.
+- Restored user content that differs from the image may legitimately require new compilation.
 
 **Priority:** P1
 
