@@ -161,7 +161,7 @@ while [ "$#" -gt 0 ]; do
     artifact="$(node "$VERIFY_SCRIPT" --jiti-cache-path "$1" "$CACHE_DIR")"
     mkdir -p "$(dirname "$artifact")"
     printf 'compiled\\n' > "$artifact"
-    if [ "$JITI_DEBUG" = 1 ]; then printf '[jiti] [cache] [hit] %s\\n' "$1"; fi
+    if [ "$JITI_DEBUG" = 1 ]; then printf '[jiti] [cache] [hit] %s ~> %s\\n' "$1" "$artifact"; fi
   fi
   shift
 done
@@ -284,7 +284,10 @@ for (let source of sources) {
   const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
   mkdirSync(dirname(artifact), { recursive: true });
   writeFileSync(artifact, stripTypeScriptTypes(readFileSync(source, 'utf8')));
-  if (process.env.JITI_DEBUG === '1') console.log(source.endsWith('.js') ? '[jiti] [native] [import]' : '[jiti] [cache] [hit]', source);
+  if (process.env.JITI_DEBUG === '1') {
+    const displayedSource = source.replace(process.cwd(), '.');
+    console.log(source.endsWith('.js') ? '[jiti] [native] [import] ' + displayedSource : '[jiti] [cache] [hit] ' + displayedSource + ' ~> ' + artifact.replace(process.cwd(), '.'));
+  }
 }
 `);
     chmodSync(pi, 0o755);
