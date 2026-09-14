@@ -354,6 +354,18 @@ jobs:
             --entrypoint /usr/local/bin/node "$IMAGE" \
             --test /codeflare/host/__tests__/safe-local-check-image.test.js
 
+      - name: Verify bundled image tooling offline
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -e CODEFLARE_IMAGE_TEST=1 \
+            -v "$GITHUB_WORKSPACE:/codeflare:ro" \
+            --entrypoint /usr/local/bin/node "$IMAGE" \
+            --test /codeflare/host/__tests__/basic-image-tooling.test.js
+
       - name: Verify packaged Pi native display and identity
         if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
         env:

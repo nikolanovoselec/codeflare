@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-14
 
+- **Build-bundled basic image tooling** ([REQ-OPS-062](operations.md#req-ops-062-build-bundled-basic-image-tooling)). Include pip, Pillow, SVG rendering, ImageMagick and DejaVu fonts for offline SVG/PNG/JPEG artwork and conversion. System security policies remain intact; no runtime downloads or image-generation provider are added.
+
 - **Ordinary Storage access during managed updates** (REQ-ENTERPRISE-030 AC7). Bypass managed readiness only for nonempty requests entirely outside possible managed namespaces. Managed roots, overlapping prefixes and mixed selections retain fail-closed checks. Upload, multipart and delete routes share the guard; downloads, authentication and encryption-migration restrictions are unchanged.
 
 - **Bedrock compatibility repairs stay transport-scoped** ([REQ-ENTERPRISE-084](enterprise-mode.md#req-enterprise-084-bedrock-dynamic-route-image-compatibility), [REQ-ENTERPRISE-073](enterprise-mode.md#req-enterprise-073-provider-native-bedrock-replay-integrity)). Dynamic discovery records native Anthropic image-block translation only for homogeneous Amazon Bedrock Anthropic route inventories; mixed routes retain OpenAI data URIs. Native Runtime deterministically aliases only completed foreign historical tool IDs rejected by the live Anthropic Messages alphabet, preserving assistant/result correlation while active authentic replay remains exact and fail-closed.

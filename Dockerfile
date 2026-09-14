@@ -160,6 +160,12 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     python-is-python3 \
     # graphify (uv tool install) needs venv module for isolated tool envs
     python3-venv \
+    # Offline image creation and conversion (Debian-maintained runtime packages)
+    python3-pip \
+    python3-pil \
+    librsvg2-bin \
+    imagemagick \
+    fonts-dejavu-core \
     # Version control
     git \
     # Editors

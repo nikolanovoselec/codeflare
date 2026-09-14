@@ -1633,3 +1633,25 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Status:** Implemented
 
 ---
+
+### REQ-OPS-062: Build-bundled basic image tooling
+
+**Intent:** Agents can produce ordinary image assets without installing a graphics stack in each session.
+
+**Applies To:** All session users
+
+**Acceptance Criteria:**
+
+1. The built image renders SVG to PNG and converts PNG to JPEG without network access, preserving dimensions and image content. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+2. Python provides Pillow and bundled fonts for local image manipulation and text rendering. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+3. Pip is available both through system Python and in newly created virtual environments without downloading pip at session startup. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+
+**Constraints:** Use the base distribution's maintained packages. Preserve system-Python and ImageMagick security policies. No model weights, external generation provider, or startup package installation.
+
+**Priority:** P1
+
+**Verification:** Built-image offline behavioral smoke in the container image workflow.
+
+**Status:** Implemented
+
+---
