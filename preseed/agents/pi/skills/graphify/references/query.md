@@ -8,9 +8,11 @@ Use the first-party native Pi tools for every graphify query - repo, Vault, and 
 - Trace/path: `graphify_query({ question, mode: "dfs" })` or `graphify_path` - "how does X reach Y"; Graphify 0.9.34+ follows edge direction by default, so an absent reverse path is meaningful rather than a cue to silently traverse edges backwards
 - Node details: `graphify_explain({ concept })`
 
-Answer using **only** what the tool output contains. Quote `source_location` when citing a specific fact. If the graph lacks enough information, say so - do not hallucinate edges.
+Treat graph output as navigation evidence, not proof against current source. Quote `source_location` when citing a graph fact and preserve every edge direction. Verify relevant source before explaining implementation; discard paths contradicted by current source, even after a graph refresh. If evidence is insufficient, say so—do not invent edges.
 
-CLI fallback - only if a native tool returns an error, rerun it with an explicit `--graph`:
+A “no path” result is not a tool failure. Do not silently switch to undirected traversal; if direction is intentionally ignored, label that result explicitly.
+
+For an unavailable native tool, activate its exact name through `capability` and use the exposed schema. Before any CLI fallback for a remaining execution error, read `graphify <command> --help` rather than guessing arguments, and supply an explicit `--graph`:
 
 ```bash
 graphify query "<question>" --graph <repo>/graphify-out/graph.json         # active repo

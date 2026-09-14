@@ -157,7 +157,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD136](#ad136-managed-environments-reconcile-signed-releases-before-session-start) | Reconcile signed managed-environment releases before session start | The dashboard applies signed releases as direct marker-resumable R2 deltas, avoiding a second materializer and running-session conflicts. | Architecture, Security, Storage, Supply Chain | Active |
 | [AD137](#ad137-inline-chat-is-edit-first-and-responses-support-is-explicit) | Make Inline Chat edit-first with explicit Responses support | Editor turns reserve no-change for safe exceptions, force the result tool on recognized OpenAI payloads, and request provider summaries without changing Qwen. | Architecture, Security | Active |
 | ~~[AD138](#ad138-context-mode-is-on-by-default-in-pi)~~ | ~~Enable context-mode by default in Pi~~ | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) restores disabled startup after provider-boundary measurement showed default context schemas outweighed prompt compaction. | Agents, Architecture, Reliability | Superseded |
-| [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index) | Generate one compact Pi skill index per mode | The seed compiler indexes each mode's model-invocable source skills and suppresses duplicate native catalog entries without removing explicit invocation paths. | Agents, Architecture, Performance | Active |
+| ~~[AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index)~~ | ~~Generate one compact Pi skill index per mode~~ | [AD154](#ad154-pi-discovers-skills-through-native-metadata-and-generated-invocation-policy) replaces the eager index with native metadata discovery while preserving original invocation restrictions. | Agents, Architecture, Performance | Superseded |
 | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | Fresh containers keep context-mode installed but disabled, while Pi sends five bootstrap tool schemas and activates registered optional tools through capability only when required. | Agents, Architecture, Performance | Active |
 | [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
 | ~~[AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint)~~ | ~~Define delivery review and joint completion~~ | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) retains automatic delivery while replacing clone-local completion and durable recovery with user-scoped markers and ephemeral rounds. | Agents, Architecture, Build / Container | Superseded |
@@ -172,6 +172,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) | Resolve lifecycle ownership outside eventual KV | Persisted container state governs terminal and managed-mutation admission while local startup and transport ownership guard dashboard projections. | Architecture, Session lifecycle, Storage | Active |
 | [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) | Generalize native and custom provider compat dispatch | Authorized opaque targets use exact Worker-owned selectors and immutable profiles, with provider-specific wire adapters only where evidence requires them. | Architecture, Security | Active |
 | [AD153](#ad153-session-capture-compaction-preserves-durable-memory) | Compact cold session captures through the existing sync lifecycle | Daily compaction keeps a filename-derived one-month hot set, relocates graph provenance, deletes exact local sources, and publishes the result with one bisync. | Architecture, Memory, Storage | Active |
+| [AD154](#ad154-pi-discovers-skills-through-native-metadata-and-generated-invocation-policy) | Discover Pi skills through native metadata | Existing capability search uses native winners and generated eligibility policy without an eager index, a new executor, or context-lifecycle changes. | Agents, Architecture, Performance | Active |
 ---
 
 ## Decisions
@@ -3926,11 +3927,11 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Category:** Agents, Architecture, Performance
 
-**Status:** Accepted (2026-08-23).
+**Status:** Superseded (2026-09-14) by [AD154](#ad154-pi-discovers-skills-through-native-metadata-and-generated-invocation-policy); originally accepted 2026-08-23.
 
 **Context:** Pi's native model-visible skill catalog repeats XML framing and absolute paths for every skill. That representation dominated the measured provider-boundary prompt even after descriptions and permanent policy were compressed. Removing skill files or maintaining a second routing registry would reduce bytes by weakening discovery or creating a source that can drift from the actual source-root projection. <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection -->
 
-**Decision:** The shared seed compiler derives a deterministic `name — purpose` index from each final source root after mode resolution and appends it to that mode's generated Pi `AGENTS.md`. Every model-invocable indexed name maps to the conventional `~/.pi/agent/skills/<name>/SKILL.md` path. The compiler then suppresses duplicate native XML entries without deleting skill documents or changing explicit `/skill:name` invocation. Skills already restricted to explicit user, command, event, or reviewer invocation remain installed but absent from the model-invocable index. Codeflare's public fallback and codeflare-curation's managed source each generate their own index through the same pinned compiler; no generated index synchronizes between repositories. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex -->
+**Decision:** The shared seed compiler derives a deterministic `name — purpose` index from each final source root after mode resolution and appends it to that mode's generated Pi `AGENTS.md`. Every model-invocable indexed name maps to the conventional `~/.pi/agent/skills/<name>/SKILL.md` path. The compiler then suppresses duplicate native XML entries without deleting skill documents or changing explicit `/skill:name` invocation. Skills already restricted to explicit user, command, event, or reviewer invocation remain installed but absent from the model-invocable index. Codeflare's public fallback and codeflare-curation's managed source each generate their own index through the same pinned compiler; no generated index synchronizes between repositories. [Historical implementation](https://github.com/nikolanovoselec/codeflare/blob/8dd5e5893addcb741ea1155530f80c6343afd39b/scripts/agent-seed-core.mjs#L485).
 
 **Alternatives rejected:** Patch Pi's XML formatter; add a runtime search tool or persistent registry; maintain content-router tables; delete optional skills; synchronize a generated public index into curation; or raise the prompt cap. These add runtime machinery, duplicate inventory ownership, lose capabilities, omit curated content, or abandon the reduction goal.
 
@@ -4221,5 +4222,23 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 **Consequences:** Recent captures remain cheap to inspect and older source text stays reachable in one deterministic file. Failures remain unstamped and retryable through the existing synchronization lifecycle. The archive can grow, and filename dates only approximate one month, but no model chooses what memory survives. Daily work reuses the existing bisync and graph lock rather than adding a service, credential path, or rollout setting.
 
 **Related REQs:** [REQ-MEM-023](../../sdd/spec/memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory), [REQ-VAULT-032](../../sdd/spec/vault.md#req-vault-032-session-archive-ownership-and-extraction-boundary), [REQ-STOR-052](../../sdd/spec/storage.md#req-stor-052-session-capture-compaction-converges-through-bisync), [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions).
+
+---
+
+### AD154: Pi discovers skills through native metadata and generated invocation policy
+
+**Category:** Agents, Architecture, Performance
+
+**Status:** Accepted (2026-09-14). Supersedes [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index).
+
+**Context:** The [historical eager index](https://github.com/nikolanovoselec/codeflare/blob/8dd5e5893addcb741ea1155530f80c6343afd39b/scripts/agent-seed-core.mjs#L485) repeats skill inventory on every request. Relevance-ranked discovery replaces incidental description matches using Pi's selected skill metadata and native read paths. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension -->
+
+**Decision:** Extend existing capability search to return relevant tools and eligible skills with concise purposes and actual read paths. The compiler records original invocation eligibility before suppressing duplicate native catalog entries; runtime discovery observes Pi's selected metadata without changing context or active tools. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension -->
+
+**Alternatives rejected:** A separate skill executor, hand-maintained routing registry, package patches, custom context eviction, or relocation of eager Git/review policy would add machinery or change unrelated behavior.
+
+**Consequences:** Skills remain installed, original restrictions and project trust remain authoritative, and needed guidance is read natively. Constitution, Git/review rules, local-execution gates, package catalogs, and tool lifecycles remain unchanged. Public and managed projections use the same compiler contract; publication does not itself prove live adoption.
+
+**Related REQs:** [REQ-AGENT-095](../../sdd/spec/agents.md#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation), [REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt).
 
 ---

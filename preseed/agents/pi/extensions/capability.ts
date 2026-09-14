@@ -3,12 +3,20 @@ import {
   activateRegisteredTools,
   activationGroup,
   searchCapabilities,
+  eligibleSkillSnapshot,
+  parseCapabilityQuery,
+  formatCapabilityMatches,
+  cleanCapabilityText,
+  clipCapabilityText,
+  type LoadedSkill,
+  type SkillCandidate,
   type RegisteredTool,
   type ToolActivationPi,
 } from "./capability-helpers";
 
 type ExtensionAPI = ToolActivationPi & {
   registerTool(tool: unknown): void;
+  on(event: string, handler: (event: unknown, ctx: { isProjectTrusted?(): boolean }) => void): void;
 };
 
 type CapabilityParams = {
@@ -17,12 +25,18 @@ type CapabilityParams = {
 };
 
 export function capabilityExtension(pi: ExtensionAPI): void {
+  let skills: SkillCandidate[] | undefined;
+  pi.on("session_start", () => { skills = undefined; });
+  pi.on("before_agent_start", (event, ctx) => {
+    const loaded = (event as { systemPromptOptions?: { skills?: readonly LoadedSkill[] } }).systemPromptOptions?.skills;
+    skills = loaded ? eligibleSkillSnapshot(loaded, ctx.isProjectTrusted?.() === true) : undefined;
+  });
   pi.registerTool({
     name: "capability",
     label: "Tool Search",
-    description: "Search or activate registered Pi tools only; load skills by reading their SKILL.md.",
+    description: "Search tools and skills; skill results include read paths. name activates an exact tool.",
     parameters: Type.Object({
-      query: Type.Optional(Type.String({ description: "Capability to search for." })),
+      query: Type.Optional(Type.String({ description: "Search; optional tool: or skill: prefix." })),
       name: Type.Optional(Type.String({ description: "Exact tool name to activate." })),
     }),
     async execute(_id: string, params: CapabilityParams) {
@@ -46,14 +60,17 @@ export function capabilityExtension(pi: ExtensionAPI): void {
       }
 
       const query = params.query?.trim();
-      if (!query) throw new Error("Provide query or name.");
-      const matches = searchCapabilities({ query, tools: pi.getAllTools() });
+      if (!query || !parseCapabilityQuery(query).query) throw new Error("Provide query or name.");
+      if (!skills && parseCapabilityQuery(query).kind === "skill") {
+        return { content: [{ type: "text", text: "Skill metadata unavailable; submit a prompt before skill lookup." }], details: { matches: [] } };
+      }
+      const matches = searchCapabilities({ query, tools: pi.getAllTools(), skills });
       return {
         content: [{
           type: "text",
           text: matches.length > 0
-            ? matches.map((match) => `${match.name} — ${match.description}`).join("\n")
-            : `No tools found for: ${query}`,
+            ? formatCapabilityMatches(matches)
+            : `No capabilities found for: ${JSON.stringify(clipCapabilityText(cleanCapabilityText(query), 120))}`,
         }],
         details: { matches },
       };
