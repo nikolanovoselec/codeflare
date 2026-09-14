@@ -4231,7 +4231,7 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 
 **Status:** Accepted (2026-09-14). Supersedes [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index).
 
-**Context:** The eager index repeats skill inventory on every request, while incidental description matches produce noisy tool results. Pi already supplies selected skill metadata and native file loading.
+**Context:** The [historical eager index](https://github.com/nikolanovoselec/codeflare/blob/8dd5e5893addcb741ea1155530f80c6343afd39b/scripts/agent-seed-core.mjs#L485) repeats skill inventory on every request. Relevance-ranked discovery replaces incidental description matches using Pi's selected skill metadata and native read paths. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension -->
 
 **Decision:** Extend existing capability search to return relevant tools and eligible skills with concise purposes and actual read paths. The compiler records original invocation eligibility before suppressing duplicate native catalog entries; runtime discovery observes Pi's selected metadata without changing context or active tools. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension -->
 

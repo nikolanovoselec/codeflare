@@ -4241,20 +4241,22 @@ None.
 **Constraints:**
 
 - Activation uses Pi's public API additively.
-- Activation groups, reset, Goal/Plan/Inline, and context-mode ownership are unchanged.
-- Exact eligible discovery names win over ranked matches.
-- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score 6, and 75% of each kind's best score.
-- Weak matches never pad results.
+- Groups, reset, Goal/Plan/Inline, and context-mode ownership remain unchanged.
+- Optional `tool:`/`skill:` prefixes are case-insensitive.
+- Exact eligible names outrank other matches.
+- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score at least 6, and 75% of each kind's best score.
+- No weak-match padding.
 - Metadata refreshes before agent start and clears on session start.
-- Missing snapshots disable skill lookup only.
-- Search never mutates prompts, messages, or active tools.
-- Discovery performs no body reads, directory scans, or server connections.
+- Without snapshots, skill-only lookup reports unavailable metadata; tool search remains available.
+- Search preserves prompts, messages, and active tools.
+- No discovery body reads, directory scans, or server connections.
 - Versioned policy reads are bounded to 1 MiB and fail closed.
-- Results retain distinct identities and JSON-quoted skill paths.
-- Purposes cap at 100 code points; identities and paths survive the 600-point response target.
-- Pi owns context after native reads.
-- Context-mode remains an unmodified dependency.
-- Review, CI, memory, and Vault requests remain unchanged and exactly once.
+- Structured matches retain kind, name, description, and skill-only filePath.
+- Skill paths are JSON-quoted.
+- Purposes cap at 100 code points; identities/paths survive the 600-point target.
+- Pi owns native-read context.
+- Context-mode remains unmodified.
+- Review/CI/memory/Vault requests remain unchanged and exactly once.
 
 **Priority:** P1
 
