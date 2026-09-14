@@ -158,8 +158,8 @@
     },
     {
       "id": "visible-skill-catalog",
-      "covers": ["all model-invocable baseline skill names", "all model-invocable trigger descriptions", "each model-invocable final source-root skill"],
-      "destination": "AGENTS.md",
+      "covers": ["all model-invocable baseline skill names through native metadata discovery", "all model-invocable trigger descriptions through relevant capability search", "each model-invocable final source-root skill through native reads preserving original invocation eligibility"],
+      "destination": "lazy-skill",
       "owner": "generated-seed-compiler"
     },
     {

@@ -206,7 +206,7 @@ function existingGraphCloneNotice(repo: string): { message: string; level: "info
   };
 }
 
-function graphSummary(repo: string): string | undefined {
+function graphSummary(repo: string, compactPrompt = false): string | undefined {
   const graphPath = join(repo, "graphify-out", "graph.json");
   if (!existsSync(graphPath)) return undefined;
   const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/vault-graph.json, the cumulative graph; the graph.json beside it is a copy each merge refreshes and is empty until the first extraction. Global graph: /home/user/.graphify/global-graph.json.";
@@ -214,7 +214,8 @@ function graphSummary(repo: string): string | undefined {
     // Skip the synchronous parse on very large graphs; reading a multi-MB graph at
     // session start would block the agent. 30MB mirrors the Claude session-start guard.
     if (statSync(graphPath).size > 31457280) {
-      return `Graphify repo graph available for ${basename(repo)} at ${graphPath} (large graph; node counts skipped). ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+      const summary = `Graphify repo graph available for ${basename(repo)} at ${graphPath} (large graph; node counts skipped).`;
+      return compactPrompt ? summary : `${summary} ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
     }
     const graph = JSON.parse(readFileSync(graphPath, "utf8")) as { nodes?: unknown[]; links?: unknown[]; edges?: unknown[]; built_at_commit?: string };
     const nodes = Array.isArray(graph.nodes) ? graph.nodes.length : 0;
@@ -231,9 +232,11 @@ function graphSummary(repo: string): string | undefined {
           : ` Stale: built at ${built.slice(0, 12)}, repo HEAD is ${head.slice(0, 12)}.`
         : ` Built at ${built.slice(0, 12)}.`;
     }
-    return `Graphify repo graph available for ${repoIdentity(repo)}: ${nodes} nodes, ${links} links at ${graphPath}.${branchText}${freshness} ${layout} Pi automatically retries graphify_query/path/explain against this active repo graph if the native tool resolves /home/user/workspace/graphify-out. Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+    const summary = `Graphify repo graph available for ${repoIdentity(repo)}: ${nodes} nodes, ${links} links at ${graphPath}.${branchText}${freshness}`;
+    return compactPrompt ? summary : `${summary} ${layout} Pi automatically retries graphify_query/path/explain against this active repo graph if the native tool resolves /home/user/workspace/graphify-out. Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   } catch {
-    return `Graphify repo graph available for ${basename(repo)} at ${graphPath}. ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+    const summary = `Graphify repo graph available for ${basename(repo)} at ${graphPath}.`;
+    return compactPrompt ? summary : `${summary} ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   }
 }
 
@@ -662,7 +665,7 @@ export default function (pi: ExtensionAPI) {
     const repo = activeRepo(ctx);
     const parts = [String(event?.systemPrompt ?? "")];
     if (repo) {
-      const summary = graphSummary(repo);
+      const summary = graphSummary(repo, true);
       if (summary) parts.push(`<codeflare_graphify>\n${summary}\n</codeflare_graphify>`);
     }
     const vaultMtime = newestVaultMtime();

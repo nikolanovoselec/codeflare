@@ -188,9 +188,21 @@ export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piP
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
 
+    const skillPolicy = JSON.parse(await readFile(path.join(agentDir, 'capability-skill-policy.json'), 'utf8'));
+    if (skillPolicy.version !== 1 || !Array.isArray(skillPolicy.skills)) {
+      throw new Error(`invalid Pi skill policy for ${mode}`);
+    }
+    for (const entry of skillPolicy.skills) {
+      const loaded = skills.find((skill) => (
+        skill.name === entry.name && skill.filePath === `~/.pi/agent/${entry.path}`
+      ));
+      if (!loaded || loaded.visible) throw new Error(`Pi skill policy resource is missing or duplicated: ${entry.name}`);
+    }
+
     return {
       mode,
       ...budget,
+      skillPolicy,
       catalogChars: catalog.length,
       discoveredSkills: skills.length,
       visibleSkills: skills.filter((skill) => skill.visible).length,
