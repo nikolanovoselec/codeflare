@@ -3792,7 +3792,7 @@ None.
 2. Broad Codeflare capability or onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
 3. A capability question scoped to a repository, file, component, failure, or task remains contextual instead of opening the generic tour. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @manual: Compare broad and repository-scoped capability questions in Pi. -->
 4. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare the current managed release with the baked fallback and generated target inventory. -->
-5. Pi's default generated skill index includes `codeflare-capabilities`, so a model can discover and invoke the router from the always-loaded rule. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+5. Pi's default generated invocation policy preserves `codeflare-capabilities` eligibility for metadata-backed discovery without an eager index. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 
 **Constraints:**
 
@@ -4187,23 +4187,29 @@ None.
 
 ### REQ-AGENT-095: Compact Pi Skill Catalog
 
-**Intent:** Pi must start with a focused model-visible skill catalog that preserves the canonical policy and discovers proactive workflows without loading specialized bodies into every turn.
+**Intent:** Pi must discover eligible skills from native metadata without an eager skill index or specialized bodies in every turn, preserving canonical policy and original invocation restrictions.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Pi packages canonical path-scoped Claude rules into grouped native skills while keeping Claude and other agent outputs unchanged. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-2. Proactive workflows remain visible in Pi's model-facing skill catalog. <!-- @impl: scripts/agent-seed-core.mjs::adaptPiSkillContent --> <!-- @manual -->
-3. Codeflare-owned model-visible skill descriptions contain at most 80 characters. <!-- @impl: scripts/agent-seed-core.mjs::compactPiSkillDescription --> <!-- @manual -->
-4. Compact descriptions preserve the routing triggers needed for Pi to select each proactive workflow. <!-- @impl: scripts/agent-seed-core.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual: Ask Pi for representative proactive workflows and confirm it selects the matching visible skills from their compact descriptions. -->
-5. Pi hides only internals loaded by a named command, deterministic event, or reviewer embedding. <!-- @impl: scripts/agent-seed-core.mjs::setPiModelVisibility --> <!-- @manual -->
+2. Proactive workflows remain discoverable through Pi's selected native metadata and actual skill read paths. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @manual -->
+3. Compiler-compacted Codeflare-owned skill descriptions contain at most 80 characters. <!-- @impl: scripts/agent-seed-core.mjs::compactPiSkillDescription --> <!-- @manual -->
+4. Compact descriptions preserve the routing triggers needed for Pi to discover each proactive workflow. <!-- @impl: scripts/agent-seed-core.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual: Ask Pi for representative proactive workflows and inspect metadata-backed discovery and native reads. -->
+5. Originally restricted command, event, and reviewer skills remain ineligible for model discovery. <!-- @impl: scripts/agent-seed-core.mjs::setPiModelVisibility --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @manual -->
 6. Upstream-owned Pi skill metadata remains unchanged. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+7. Each mode receives a generated invocation policy preserving original skill eligibility before catalog suppression. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @manual -->
 
 **Constraints:**
 
 - Claude rule and skill files remain the shared policy canon; Pi changes delivery and runtime names only.
 - Project `AGENTS.md` files and project skills are never truncated or hidden by Codeflare.
+- Hidden-seed exceptions require affirmative policy, canonical agent-directory identity, and user/top-level provenance.
+- Project/package overrides and symlink escapes inherit no exception.
+- Untrusted project resources are excluded from discovery.
+- Missing or invalid policy grants no exceptions to native invocation restrictions.
+- Ordinarily invocable native resources remain eligible without seed policy.
 - `pi-mcp-adapter` remains an unmodified dependency.
 
 **Priority:** P1
@@ -4225,8 +4231,8 @@ None.
 **Acceptance Criteria:**
 
 1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-2. Capability search returns matching eligible registered tools by name or description, subject to managed exclusions in [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows). <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-3. Capability activation additively enables only eligible registered tools without granting authorization, subject to managed exclusions in [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows). <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+2. Capability queries return at most three relevant eligible tools or skills of the requested kind. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: deterministic capability ranking) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095/096: event-backed skill discovery and policy boundaries) -->
+3. Activation additively enables only eligible registered tools without granting authorization, subject to managed exclusions in [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows). <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095/096: event-backed skill discovery and policy boundaries) -->
 4. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
 5. The memory/Vault extraction launch owner activates `subagent` before delivering unchanged extraction follow-up requests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a visible reminder without private spawn) -->
 6. While context-mode is enabled, its foreground owner registers `ctx_*` tools before the final exposure filter; those tools remain inactive until capability activation. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: final filtering removes tools registered by an earlier before-agent handler) -->
@@ -4234,9 +4240,24 @@ None.
 
 **Constraints:**
 
-- Tool activation is additive and uses Pi's public extension API.
-- Context-mode remains an unmodified dependency.
-- Review, CI, memory, and Vault request payloads remain unchanged and exactly once.
+- Activation uses Pi's public API additively.
+- Groups, reset, Goal/Plan/Inline, and context-mode ownership remain unchanged.
+- Exact tool `name` takes precedence over `query`. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (keeps name precedence, activation groups and idempotence after metadata observation) -->
+- Optional `tool:`/`skill:` prefixes are case-insensitive.
+- Exact eligible names outrank other matches.
+- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score at least 6, and 75% of each kind's best score.
+- No weak-match padding.
+- Metadata refreshes before agent start and clears on session start.
+- Without snapshots, skill-only lookup reports unavailable metadata; tool search remains available.
+- Search preserves prompts, messages, and active tools.
+- No discovery body reads, directory scans, or server connections.
+- Versioned policy reads are bounded to 1 MiB and fail closed.
+- Structured matches retain kind, name, description, and skill-only filePath.
+- Skill paths are JSON-quoted.
+- Purposes cap at 100 code points; identities/paths survive the 600-point target.
+- Pi owns native-read context.
+- Context-mode remains unmodified.
+- Review/CI/memory/Vault requests remain unchanged and exactly once.
 
 **Priority:** P1
 
@@ -5101,25 +5122,27 @@ None.
 2. Real Pi resource loading for public fallback and signed managed default and advanced projections produces at most 14,000 characters of controlled provider-boundary prompt in an isolated working directory. <!-- @impl: scripts/pi-prompt-contract.mjs::PI_PROMPT_MAX_CHARS --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @manual -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
-5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
+5. Each mode receives one owned system instruction, one owned global instruction, and one generated invocation policy instead of an eager skill index. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
 6. Ownership assigns prompt assembly, executable guards, compiler support and image fallback to Codeflare, and complete managed policy, invocation visibility, modes, signed projections, prompt verification and shared-path synchronization to codeflare-curation. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
 7. Before signed publication, explicit checkpoint alignment matches the complete compiler-eligible canonical Claude/Pi inventory: source bytes, file modes, manifest mode metadata, additions/removals and historical retirements. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: Record the exact source checkpoint, complete eligible manifest/byte/mode/retirement comparison, image exclusions, and protected exact-head codeflare-curation CI for both managed modes plus immutable publication evidence. -->
 
 **Constraints:**
 
-- Use Pi-native `SYSTEM.md`, `AGENTS.md`, progressive skill disclosure and invocation metadata.
-- No custom skill router, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
-- Exclude tool schemas and additive project context from the cap.
-- Include owned system/global text/framing, winning visible skill-catalog descriptions/framing and isolated working-directory framing.
-- Measure project context separately without truncation.
-- Guards must preserve replaced prose's hard-policy boundary.
-- Shared fallback-path changes require matching curation bytes and protected verification.
-- Full alignment includes new paths and native Impeccable source.
-- Compiler-forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
-- Historical retirements retain product provenance; ordinary removals never enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
-- Alignment preserves compiler pins, runtime selections, signing history, tenant authorization and ownership guards.
-- No automatic content synchronization or private reverse-sync.
-- Builds, tests, installation, resource-loader integration and prompt verification remain CI-owned.
+- Use native SYSTEM/AGENTS instructions, progressive disclosure and invocation metadata.
+- No custom skill executor, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
+- Discovery uses existing capability and generated policy under [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog).
+- Constitution, eager Git/review/startup/resume safeguards, local-execution gates, Vault guidance and package catalogs remain unchanged.
+- Cap excludes tool schemas/project context; includes owned system/global, winning visible-catalog and isolated-working-directory text/framing.
+- Project context remains additive, byte-unaltered and separately reported.
+- Policy retains original eligibility, false entries and skill files, without descriptions.
+- Guards preserve replaced hard-policy boundaries.
+- Shared fallback changes require matching curation bytes and protected verification.
+- Alignment includes new paths/native Impeccable source.
+- Forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
+- Retirements retain provenance; ordinary removals cannot enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Alignment preserves pins, runtime selections, signing history, tenant authorization and ownership guards.
+- No automatic content sync/private reverse-sync.
+- Builds/tests/installation/resource-loader integration/prompt verification remain CI-owned.
 
 **Priority:** P1
 
@@ -5327,7 +5350,7 @@ None.
 4. Claude's permanently loaded safe-check rule remains below 400 characters. <!-- @impl: scripts/agent-seed-core.mjs::MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS=400 --> <!-- @manual -->
 5. Pi's pre-skill policy remains below 4,500 characters. <!-- @impl: scripts/agent-seed-core.mjs::renderInstructionsFile --> <!-- @manual -->
 6. Canonical operational guidance reaches each lazy skill projection. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent --> <!-- @manual -->
-7. Pi keeps the safe-check skill explicitly invocable without duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @manual -->
+7. Pi keeps the safe-check skill explicitly invocable without duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @manual -->
 
 **Constraints:**
 

@@ -197,12 +197,12 @@ export async function readVerifiedManagedR2Policy(input: ReadVerifiedManagedR2Po
 }
 
 /** @impl REQ-STOR-032 AC2 */
-export function isManagedMutationProtected(policy: ManagedR2Policy, key: string): boolean {
+export function isManagedMutationProtected(policy: Pick<ManagedR2Policy, 'paths' | 'resourceRoots'>, key: string): boolean {
   if (policy.paths.includes(key)) return true;
   return policy.resourceRoots.some(root => key === root.slice(0, -1) || key.startsWith(root));
 }
 
-export function canPrefixIntersectManagedPolicy(policy: ManagedR2Policy, prefix: string): boolean {
+export function canPrefixIntersectManagedPolicy(policy: Pick<ManagedR2Policy, 'paths' | 'resourceRoots'>, prefix: string): boolean {
   if (!prefix) return true;
   if (policy.paths.some(path => path.startsWith(prefix))) return true;
   return policy.resourceRoots.some(root => {

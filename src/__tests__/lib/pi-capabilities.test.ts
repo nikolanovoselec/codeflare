@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import capabilityExtension from '../../../preseed/agents/pi/extensions/capability';
 import toolExposureFinalizer from '../../../preseed/agents/pi/extensions/zz-tool-exposure-finalizer';
@@ -18,11 +21,30 @@ type CapabilityTool = {
 };
 
 type CapabilitySessionContext = {
+  isProjectTrusted?(): boolean;
   sessionManager?: {
     getBranch?(): Array<{ type?: string; customType?: string; data?: unknown }>;
     getEntries?(): Array<{ type?: string; customType?: string; data?: unknown }>;
   };
 };
+
+type EventHandler = (event: unknown, ctx: CapabilitySessionContext) => unknown;
+
+// Pi dispatches every listener in registration order, not just the last listener.
+class EventRegistry {
+  private handlers = new Map<string, EventHandler[]>();
+
+  set(event: string, handler: EventHandler) {
+    this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
+  }
+
+  get(event: string) {
+    return (payload: unknown, ctx: CapabilitySessionContext) => {
+      const results = (this.handlers.get(event) ?? []).map((handler) => handler(payload, ctx));
+      return Promise.all(results);
+    };
+  }
+}
 
 function fakePi(input?: {
   active?: string[];
@@ -54,6 +76,411 @@ function fakePi(input?: {
     },
   };
 }
+
+type SearchMatch = { kind: 'tool' | 'skill'; name: string; description: string; filePath?: string };
+
+function resultMatches(result: unknown): SearchMatch[] {
+  expect(result).toMatchObject({ details: { matches: expect.any(Array) } });
+  return (result as { details: { matches: SearchMatch[] } }).details.matches;
+}
+
+function identities(matches: Array<{ kind: string; name: string }>): string[] {
+  return matches.map(({ kind, name }) => `${kind}:${name}`);
+}
+
+// Scalar shape from Pi 0.85.1 Skill / SourceInfo and prompt-customizer.ts.
+// Do not load an SDK resource loader or parse skill bodies in this harness.
+type NativeSkill = {
+  name: string;
+  description: string;
+  filePath: string;
+  baseDir: string;
+  disableModelInvocation: boolean;
+  sourceInfo: {
+    path: string;
+    source: string;
+    scope: 'user' | 'project' | 'temporary';
+    origin: 'top-level' | 'package';
+    baseDir?: string;
+  };
+};
+
+const temporaryRoots: string[] = [];
+afterEach(() => {
+  vi.unstubAllEnvs();
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function discoveryFixture() {
+  const root = mkdtempSync(join(tmpdir(), 'capability-discovery-'));
+  temporaryRoots.push(root);
+  const agentDir = join(root, 'agent');
+  mkdirSync(agentDir);
+  vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+  const policyPath = join(agentDir, 'capability-skill-policy.json');
+  const base = fakePi();
+  const registered = new Map<string, CapabilityTool>();
+  const handlers = new EventRegistry();
+  const pi = {
+    ...base,
+    registerTool(tool: unknown) {
+      const candidate = tool as CapabilityTool;
+      registered.set(candidate.name, candidate);
+    },
+    on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+  };
+  capabilityExtension(pi);
+  const capability = registered.get('capability');
+  if (!capability) throw new Error('Missing registered capability tool');
+  const skill = (name: string, overrides: Partial<NativeSkill> = {}): NativeSkill => {
+    const filePath = join(agentDir, 'skills', name, 'SKILL.md');
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, new Uint8Array([0, 255, 1, 254]));
+    return {
+      name,
+      description: 'Query repository architecture and dependencies',
+      filePath,
+      baseDir: dirname(filePath),
+      disableModelInvocation: false,
+      sourceInfo: { path: filePath, source: 'local', scope: 'user', origin: 'top-level' },
+      ...overrides,
+    };
+  };
+  return {
+    root, agentDir, policyPath, pi, handlers, capability, skill,
+    policy: (skills: unknown[], version: unknown = 1) => {
+      writeFileSync(policyPath, JSON.stringify({ version, skills }));
+    },
+    observe: (skills: NativeSkill[], trusted = true) => handlers.get('before_agent_start')({
+      type: 'before_agent_start',
+      prompt: '',
+      systemPrompt: '',
+      systemPromptOptions: { cwd: root, skills },
+    }, { isProjectTrusted: () => trusted }),
+    search: async (query: string) => resultMatches(await capability.execute('lookup', { query })),
+  };
+}
+
+const affirmativeEntry = { name: 'graphify', path: 'skills/graphify/SKILL.md', modelInvocable: true };
+
+// Frozen search-test-cases.json identities; ranking-contract.mjs is not executed
+// as an oracle, so this suite exercises the installed implementation only.
+const rankingCandidates: SearchMatch[] = [
+  { kind: 'tool', name: 'graphify_query', description: 'Query the code graph' },
+  { kind: 'skill', name: 'graphify', description: 'Query repository architecture and dependencies', filePath: '/fixture/graphify/SKILL.md' },
+  { kind: 'tool', name: 'subagent', description: 'Launch a background specialist' },
+  { kind: 'tool', name: 'get_subagent_result', description: 'Check a background specialist' },
+  { kind: 'tool', name: 'steer_subagent', description: 'Steer a background specialist' },
+  { kind: 'tool', name: 'noise', description: 'Utility. Repository architecture appears in an unrelated example.' },
+  { kind: 'tool', name: 'goal_wait', description: 'Wait for Goal progress' },
+  { kind: 'skill', name: 'vault-note-capture', description: 'Capture and save notes in Vault', filePath: '/fixture/vault-note-capture/SKILL.md' },
+  { kind: 'skill', name: 'mcp-scripting', description: 'Write JavaScript for MCP tools', filePath: '/fixture/mcp-scripting/SKILL.md' },
+];
+
+function ranked(query: string, candidates = rankingCandidates, limit?: number) {
+  // Existing API plus eligible scalar skill metadata. Eligibility belongs to
+  // capabilityExtension's event boundary, not the ranking fixtures.
+  const input = {
+    query,
+    tools: candidates.filter((candidate) => candidate.kind === 'tool'),
+    skills: candidates.filter((candidate) => candidate.kind === 'skill').map((candidate) => ({
+      name: candidate.name, description: candidate.description, filePath: candidate.filePath!,
+    })),
+    limit,
+  };
+  return searchCapabilities(input);
+}
+
+describe('REQ-AGENT-096: deterministic capability ranking', () => {
+  it.each<[string, string[]]>([
+    ['graphify_query', ['tool:graphify_query']],
+    ['graphify', ['skill:graphify']],
+    ['repository architecture', ['skill:graphify']],
+    ['please query the code graph', ['tool:graphify_query']],
+    ['background specialist', ['tool:get_subagent_result', 'tool:steer_subagent', 'tool:subagent']],
+    ['launch background specialist', ['tool:subagent']],
+    ['save notes in Vault', ['skill:vault-note-capture']],
+    ['JavaScript MCP tools', ['skill:mcp-scripting']],
+    ['the please help', []],
+    ['arch', []],
+    ['quantum banana', []],
+    ['goal_wait', []],
+    ['  SkIlL:GrApHiFy  ', ['skill:graphify']],
+    ['TOOL:graphify_query', ['tool:graphify_query']],
+    ['tool:repository architecture', []],
+    ['skill:background specialist', []],
+  ])('selects frozen identities for %s', (query, expected) => {
+    expect(identities(ranked(query))).toEqual(expected);
+  });
+
+  it('retains both exact same-name identities and narrows by kind', () => {
+    const candidates: SearchMatch[] = [
+      { kind: 'tool', name: 'graphify', description: 'Query graph' },
+      { kind: 'skill', name: 'graphify', description: 'Query graph', filePath: '/actual/graphify/SKILL.md' },
+      { kind: 'tool', name: 'graphify_query', description: 'Query graph' },
+    ];
+    expect(identities(ranked('graphify', candidates))).toEqual(['skill:graphify', 'tool:graphify']);
+    expect(identities(ranked('tool:graphify', candidates))).toEqual(['tool:graphify']);
+    expect(identities(ranked('skill:graphify', candidates))).toEqual(['skill:graphify']);
+  });
+
+  it('uses per-kind thresholds so a stronger skill does not hide a relevant native tool', () => {
+    const candidates: SearchMatch[] = [
+      { kind: 'skill', name: 'graph-architecture', description: 'Inspect dependencies', filePath: '/skills/graph/SKILL.md' },
+      { kind: 'tool', name: 'graphify_query', description: 'Query graph architecture' },
+      { kind: 'tool', name: 'noise', description: 'Utility. Graph architecture example.' },
+    ];
+    expect(identities(ranked('graph architecture', candidates))).toEqual([
+      'skill:graph-architecture', 'tool:graphify_query',
+    ]);
+  });
+
+  it('normalizes Unicode, camel case and repeated terms without substring matching or stemming', () => {
+    const candidates: SearchMatch[] = [
+      { kind: 'tool', name: 'café_graphQuery', description: 'Inspect dependencies' },
+      { kind: 'tool', name: 'archive', description: 'Store documents' },
+    ];
+    expect(identities(ranked('ＣＡＦÉ graph graph', candidates))).toEqual(['tool:café_graphQuery']);
+    expect(identities(ranked('dependencies dependencies', candidates))).toEqual(['tool:café_graphQuery']);
+    expect(ranked('arch', candidates)).toEqual([]);
+    expect(ranked('dependency', candidates)).toEqual([]);
+  });
+
+  it('requires two-thirds coverage and a strong hit, including the exact coverage boundary', () => {
+    const candidates: SearchMatch[] = [
+      { kind: 'tool', name: 'reader', description: 'Read graph. Architecture dependencies example.' },
+      { kind: 'tool', name: 'noise', description: 'Utility. Graph architecture dependencies example.' },
+    ];
+    expect(identities(ranked('graph architecture absent', candidates))).toEqual(['tool:reader']);
+    expect(ranked('graph absent missing', candidates)).toEqual([]);
+    expect(ranked('architecture dependencies', candidates)).toEqual([]);
+  });
+
+  it('ranks consecutive name phrases above separated hits and uses name hits before lexical ties', () => {
+    expect(identities(ranked('graph query', [
+      { kind: 'tool', name: 'a_graph_native_query', description: '' },
+      { kind: 'tool', name: 'z_graph_query', description: '' },
+    ]))).toEqual(['tool:z_graph_query', 'tool:a_graph_native_query']);
+    expect(identities(ranked('graph query native', [
+      { kind: 'tool', name: 'a', description: 'Graph query native' },
+      { kind: 'tool', name: 'z_graph', description: 'Query' },
+    ]))).toEqual(['tool:z_graph', 'tool:a']);
+  });
+
+  it('caps results at three even with a larger caller limit; does not pad weak matches', () => {
+    const candidates: SearchMatch[] = ['d', 'c', 'b', 'a'].map((name) => ({
+      kind: 'tool', name, description: 'Query graph',
+    }));
+    expect(identities(ranked('query graph', candidates, 99))).toEqual(['tool:a', 'tool:b', 'tool:c']);
+    expect(identities(ranked('query graph', candidates, 1))).toEqual(['tool:a']);
+    expect(identities(ranked('launch background specialist'))).toEqual(['tool:subagent']);
+  });
+
+  it('accepts missing optional tool descriptions at the public search boundary', () => {
+    expect(identities(searchCapabilities({ query: 'graphify_query', tools: [{ name: 'graphify_query' }] })))
+      .toEqual(['tool:graphify_query']);
+    expect(searchCapabilities({ query: 'unrelated', tools: [{ name: 'graphify_query' }] })).toEqual([]);
+  });
+});
+
+describe('REQ-AGENT-095/096: event-backed skill discovery and policy boundaries', () => {
+  it('observes scalar metadata without changing event or active tools; later observers still run', async () => {
+    const fixture = discoveryFixture();
+    const native = fixture.skill('graphify');
+    const event = Object.freeze({
+      type: 'before_agent_start', prompt: '', systemPrompt: '',
+      systemPromptOptions: Object.freeze({ cwd: fixture.root, skills: Object.freeze([Object.freeze(native)]) }),
+    });
+    let observed = 0;
+    fixture.pi.on('before_agent_start', () => { observed++; });
+    const active = fixture.pi.getActiveTools();
+    expect(await fixture.handlers.get('before_agent_start')(event, { isProjectTrusted: () => true }))
+      .toEqual([undefined, undefined]);
+    expect(observed).toBe(1);
+    const matches = await fixture.search('skill:graphify');
+    expect(identities(matches)).toEqual(['skill:graphify']);
+    expect(matches[0].filePath).toBe(native.filePath);
+    expect(Array.from(readFileSync(matches[0].filePath!))).toEqual([0, 255, 1, 254]);
+    expect(fixture.pi.getActiveTools()).toEqual(active);
+    expect(fixture.pi.history).toEqual([]);
+  });
+
+  it('refreshes metadata only at the event boundary and clears it on session start', async () => {
+    const fixture = discoveryFixture();
+    const native = fixture.skill('graphify');
+    await fixture.observe([native]);
+    native.name = 'mutated';
+    native.filePath = '/mutated/SKILL.md';
+    expect(identities(await fixture.search('skill:graphify'))).toEqual(['skill:graphify']);
+    expect((await fixture.search('skill:graphify'))[0].filePath).toBe(join(fixture.agentDir, 'skills/graphify/SKILL.md'));
+    await fixture.observe([fixture.skill('replacement')]);
+    expect(await fixture.search('skill:graphify')).toEqual([]);
+    expect(identities(await fixture.search('skill:replacement'))).toEqual(['skill:replacement']);
+    await fixture.handlers.get('session_start')({ type: 'session_start' }, {});
+    expect(identities(await fixture.search('background specialist'))).toEqual([
+      'tool:get_subagent_result', 'tool:steer_subagent', 'tool:subagent',
+    ]);
+    // Either a structured empty result or a tool error may signal unavailable
+    // metadata; never accept stale matches and never assert explanatory prose.
+    const result = await fixture.capability.execute('unavailable', { query: 'skill:replacement' }).catch((error: unknown) => error);
+    if (result instanceof Error) expect(result).toBeInstanceOf(Error);
+    else expect(resultMatches(result)).toEqual([]);
+  });
+
+  it('supports tool-only discovery before a snapshot and rejects empty input and kind prefixes', async () => {
+    const fixture = discoveryFixture();
+    expect(identities(await fixture.search('tool:subagent'))).toEqual(['tool:subagent']);
+    for (const query of ['', '   ', 'tool:', ' SKILL: ']) {
+      await expect(fixture.capability.execute('invalid', { query })).rejects.toBeInstanceOf(Error);
+    }
+    expect(await fixture.search('quantum banana')).toEqual([]);
+    expect(fixture.pi.history).toEqual([]);
+  });
+
+  it('normalizes absent registered descriptions through ordinary tool execution', async () => {
+    const fixture = discoveryFixture();
+    fixture.pi.getAllTools = () => [{ name: 'descriptionless' }];
+    expect(identities(await fixture.search('tool:descriptionless'))).toEqual(['tool:descriptionless']);
+    expect(await fixture.search('unrelated')).toEqual([]);
+    expect(fixture.pi.history).toEqual([]);
+  });
+
+  it('keeps name precedence, activation groups and idempotence after metadata observation', async () => {
+    const fixture = discoveryFixture();
+    await fixture.observe([fixture.skill('subagent')]);
+    expect(await fixture.capability.execute('activate', { name: 'subagent', query: 'skill:subagent' }))
+      .toMatchObject({ details: { name: 'subagent', added: ['subagent', 'get_subagent_result', 'steer_subagent'] } });
+    expect(await fixture.capability.execute('again', { name: 'subagent' }))
+      .toMatchObject({ details: { name: 'subagent', added: [] } });
+    const active = fixture.pi.getActiveTools();
+    await expect(fixture.capability.execute('invalid', { name: 'missing', query: 'tool:read' }))
+      .rejects.toBeInstanceOf(Error);
+    await expect(fixture.capability.execute('invalid', { name: 'skill:subagent' }))
+      .rejects.toBeInstanceOf(Error);
+    expect(fixture.pi.getActiveTools()).toEqual(active);
+  });
+
+  it('grants only originally eligible hidden seeds and refreshes policy at each event', async () => {
+    const fixture = discoveryFixture();
+    const hidden = fixture.skill('graphify', { disableModelInvocation: true });
+    const restricted = fixture.skill('restricted', { disableModelInvocation: true });
+    fixture.policy([affirmativeEntry, { name: 'restricted', path: 'skills/restricted/SKILL.md', modelInvocable: false }]);
+    await fixture.observe([hidden, restricted]);
+    expect(identities(await fixture.search('skill:graphify'))).toEqual(['skill:graphify']);
+    expect(await fixture.search('skill:restricted')).toEqual([]);
+    fixture.policy([{ ...affirmativeEntry, modelInvocable: false }]);
+    expect(identities(await fixture.search('skill:graphify'))).toEqual(['skill:graphify']);
+    await fixture.observe([hidden, restricted]);
+    expect(await fixture.search('skill:graphify')).toEqual([]);
+  });
+
+  it.each(['project', 'package', 'temporary', 'different-path'] as const)(
+    'does not transfer a seed exception to a %s winner', async (source) => {
+      const fixture = discoveryFixture();
+      fixture.policy([affirmativeEntry]);
+      const selected = fixture.skill('graphify', { disableModelInvocation: true });
+      if (source === 'project' || source === 'temporary') selected.sourceInfo.scope = source;
+      if (source === 'package') selected.sourceInfo.origin = 'package';
+      if (source === 'different-path') {
+        selected.filePath = join(fixture.root, 'override/SKILL.md');
+        selected.baseDir = dirname(selected.filePath);
+        selected.sourceInfo.path = selected.filePath;
+      }
+      await fixture.observe([selected]);
+      expect(await fixture.search('skill:graphify')).toEqual([]);
+    },
+  );
+
+  it('respects project trust for ordinary native winners without requiring seed policy', async () => {
+    const fixture = discoveryFixture();
+    const project = fixture.skill('project-native');
+    project.sourceInfo.scope = 'project';
+    const user = fixture.skill('user-native');
+    const packaged = fixture.skill('package-native');
+    packaged.sourceInfo.origin = 'package';
+    await fixture.observe([project, user, packaged], false);
+    expect(await fixture.search('skill:project-native')).toEqual([]);
+    expect(identities(await fixture.search('skill:user-native'))).toEqual(['skill:user-native']);
+    expect(identities(await fixture.search('skill:package-native'))).toEqual(['skill:package-native']);
+    await fixture.observe([project, user, packaged], true);
+    expect(identities(await fixture.search('skill:project-native'))).toEqual(['skill:project-native']);
+  });
+
+  it.each<[string, unknown]>([
+    ['unknown version', { version: 2, skills: [affirmativeEntry] }],
+    ['wrong version type', { version: '1', skills: [affirmativeEntry] }],
+    ['missing version', { skills: [affirmativeEntry] }],
+    ['non-array skills', { version: 1, skills: {} }],
+    ['null document', null],
+    ['null entry', { version: 1, skills: [affirmativeEntry, null] }],
+    ['duplicate name', { version: 1, skills: [affirmativeEntry, { ...affirmativeEntry, path: 'skills/other/SKILL.md' }] }],
+    ['duplicate path', { version: 1, skills: [affirmativeEntry, { ...affirmativeEntry, name: 'other' }] }],
+    ['wrong boolean type', { version: 1, skills: [{ ...affirmativeEntry, modelInvocable: 'true' }] }],
+    ['missing boolean', { version: 1, skills: [{ name: 'graphify', path: affirmativeEntry.path }] }],
+    ['wrong name type', { version: 1, skills: [affirmativeEntry, { name: 42, path: 'skills/other/SKILL.md', modelInvocable: true }] }],
+    ['wrong path type', { version: 1, skills: [affirmativeEntry, { name: 'other', path: 42, modelInvocable: true }] }],
+    ['escaping path', { version: 1, skills: [affirmativeEntry, { name: 'other', path: '../other/SKILL.md', modelInvocable: true }] }],
+    ['noncanonical path', { version: 1, skills: [{ ...affirmativeEntry, path: 'skills/graphify/../graphify/SKILL.md' }] }],
+    ['absolute path', { version: 1, skills: [{ ...affirmativeEntry, path: '/skills/graphify/SKILL.md' }] }],
+    ['mismatched directory', { version: 1, skills: [{ ...affirmativeEntry, path: 'skills/other/SKILL.md' }] }],
+  ])('fails closed for %s policy without disabling native discovery', async (_label, document) => {
+    const fixture = discoveryFixture();
+    writeFileSync(fixture.policyPath, JSON.stringify(document));
+    await fixture.observe([
+      fixture.skill('graphify', { disableModelInvocation: true }),
+      fixture.skill('native'),
+    ]);
+    expect(await fixture.search('skill:graphify')).toEqual([]);
+    expect(identities(await fixture.search('skill:native'))).toEqual(['skill:native']);
+  });
+
+  it.each(['missing', 'malformed', 'oversized'] as const)('grants no hidden exceptions for %s policy', async (state) => {
+    const fixture = discoveryFixture();
+    if (state === 'malformed') writeFileSync(fixture.policyPath, '{');
+    if (state === 'oversized') {
+      writeFileSync(fixture.policyPath, JSON.stringify({ version: 1, skills: [affirmativeEntry], padding: 'x'.repeat(1024 * 1024) }));
+    }
+    await fixture.observe([fixture.skill('graphify', { disableModelInvocation: true }), fixture.skill('native')]);
+    expect(await fixture.search('skill:graphify')).toEqual([]);
+    expect(identities(await fixture.search('skill:native'))).toEqual(['skill:native']);
+  });
+
+  it('rejects a canonical-looking skill path whose symlink escapes the agent directory', async () => {
+    const fixture = discoveryFixture();
+    fixture.policy([affirmativeEntry]);
+    const selected = fixture.skill('graphify', { disableModelInvocation: true });
+    const outside = join(fixture.root, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'SKILL.md'), new Uint8Array([7]));
+    rmSync(selected.baseDir, { recursive: true });
+    symlinkSync(outside, selected.baseDir, 'dir');
+    await fixture.observe([selected, fixture.skill('native')]);
+    expect(await fixture.search('skill:graphify')).toEqual([]);
+    expect(identities(await fixture.search('skill:native'))).toEqual(['skill:native']);
+  });
+
+  it('returns the selected native path intact, bounds structured purposes and never exposes tool paths', async () => {
+    const fixture = discoveryFixture();
+    const filePath = join(fixture.root, 'space "quote" 😀', 'SKILL.md');
+    mkdirSync(dirname(filePath));
+    writeFileSync(filePath, new Uint8Array([9, 8, 7]));
+    const native = fixture.skill('graphify', {
+      filePath, baseDir: dirname(filePath),
+      description: `Query ${'😀'.repeat(150)}.\n${'Unrelated detail '.repeat(100)}`,
+      sourceInfo: { path: filePath, source: 'local', scope: 'user', origin: 'top-level' },
+    });
+    await fixture.observe([native]);
+    const matches = await fixture.search('skill:graphify');
+    expect(identities(matches)).toEqual(['skill:graphify']);
+    expect(matches[0].filePath).toBe(filePath);
+    expect(Array.from(readFileSync(matches[0].filePath!))).toEqual([9, 8, 7]);
+    expect([...matches[0].description].length).toBeLessThanOrEqual(100);
+    const tools = await fixture.search('tool:subagent');
+    expect(identities(tools)).toEqual(['tool:subagent']);
+    expect(Object.hasOwn(tools[0], 'filePath')).toBe(false);
+    expect(fixture.pi.history).toEqual([]);
+  });
+});
 
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   it('loads the helper module as a side-effect-free standalone extension', () => {
@@ -92,7 +519,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       ],
     });
     const registered = new Map<string, CapabilityTool>();
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       getAllTools: () => [
@@ -116,40 +543,12 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     const capability = registered.get('capability');
     if (!capability) throw new Error('capability tool was not registered');
 
-    expect(await capability.execute('search', { query: 'background specialist' })).toEqual({
-      content: [{
-        type: 'text',
-        text: 'get_subagent_result — Check a background specialist\nsteer_subagent — Steer a background specialist\nsubagent — Launch a background specialist',
-      }],
-      details: {
-        matches: [
-          {
-            kind: 'tool',
-            name: 'get_subagent_result',
-            description: 'Check a background specialist',
-          },
-          {
-            kind: 'tool',
-            name: 'steer_subagent',
-            description: 'Steer a background specialist',
-          },
-          {
-            kind: 'tool',
-            name: 'subagent',
-            description: 'Launch a background specialist',
-          },
-        ],
-      },
-    });
+    expect(identities(resultMatches(await capability.execute('search', {
+      query: 'background specialist',
+    })))).toEqual(['tool:get_subagent_result', 'tool:steer_subagent', 'tool:subagent']);
     await expect(capability.execute('activate-skill', { name: 'codeflare-capabilities' }))
-      .rejects.toThrow(
-        'Unknown tool: codeflare-capabilities. capability activates registered Pi tools only; read ~/.pi/agent/skills/<name>/SKILL.md to load a skill.',
-      );
-    expect(await capability.execute('activate', { name: 'subagent' })).toEqual({
-      content: [{
-        type: 'text',
-        text: 'Loaded tools: subagent, get_subagent_result, steer_subagent. Use get_subagent_result or steer_subagent while an agent is queued or running; resume only a settled retained session.',
-      }],
+      .rejects.toBeInstanceOf(Error);
+    expect(await capability.execute('activate', { name: 'subagent' })).toMatchObject({
       details: {
         name: 'subagent',
         added: ['subagent', 'get_subagent_result', 'steer_subagent'],
@@ -181,7 +580,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'goal_wait', description: 'Wait for an external event' },
       ],
     });
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       registerTool() {},
@@ -209,7 +608,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'goal_wait', description: 'Wait for an external event' },
       ],
     });
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       registerTool() {},
@@ -244,7 +643,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'goal_wait', description: 'Wait for an external event' },
       ],
     });
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       registerTool() {},
@@ -287,7 +686,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'plan_mode_complete', description: 'Complete a Plan' },
       ],
     });
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       registerTool() {},
@@ -328,7 +727,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'plan_mode_complete', description: 'Complete a Plan' },
       ],
     });
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       registerTool() {},
@@ -373,7 +772,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'plan_mode_complete', description: 'Complete a Plan' },
       ],
     });
-    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const handlers = new EventRegistry();
     const pi = {
       ...base,
       registerTool() {},

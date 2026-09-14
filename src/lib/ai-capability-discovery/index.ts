@@ -6,14 +6,16 @@ import { completedProfileCheck } from '../reasoning-verification';
 export type { TargetCapabilityResult } from './contract';
 import { canonicalHash, getBuiltInProfile, isCanonicalNativeDiscoveryProfile, normalizeCustomProfile, type PiReasoningLevel, type NormalizedReasoningProfile } from '../reasoning-profiles';
 
-export type TargetCapabilityInput = Omit<DiscoveryInput, 'profile' | 'offCandidateMapping' | 'requireCacheEvidence' | 'endpoint' | 'campaignDeadline'>;
+export type TargetCapabilityInput = Omit<DiscoveryInput, 'profile' | 'offCandidateMapping' | 'requireCacheEvidence' | 'endpoint' | 'campaignDeadline'> & {
+  dynamicImages?: 'bedrock-native-block';
+};
 
 /** These are audited request *forms*, not model capability assertions. Existing
  * profiles supply the finite protocol vocabulary; their model labels/provenance
  * do not participate in selection. A newly named model uses the same probes.
  * Native currently implements only the observed Bedrock Messages boundary;
  * adding Azure would mean a deliberate protocol extension, not URL guessing. */
-export function capabilityCandidates(native: boolean): NormalizedReasoningProfile[] {
+export function capabilityCandidates(native: boolean, dynamicImages?: 'bedrock-native-block'): NormalizedReasoningProfile[] {
   if (native) return ['off', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => nativeProfile(level === 'low' ? ['minimal', 'low'] : [level as PiReasoningLevel]));
   const baseline = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
   const forms = [undefined, ...[
@@ -35,7 +37,8 @@ export function capabilityCandidates(native: boolean): NormalizedReasoningProfil
       // Cloudflare currently documents /compat as the Dynamic invocation API.
       // Bind this choice into the same immutable contract that runtime uses;
       // historical profiles retain their existing REST-first behavior.
-      const compatibility = { response, toolNames: 'repeated-complete' as const, transport: 'compat' as const };
+      const compatibility = { response, toolNames: 'repeated-complete' as const, transport: 'compat' as const,
+        ...(dynamicImages && { images: dynamicImages }) };
       // Contract-addressed IDs deduplicate across routes/models. Evidence lives
       // in the target receipt, never in a globally "verified" generated profile.
       const id = `discovered-${canonicalHash({ semantic, compatibility }).slice(0, 24)}`;
@@ -160,7 +163,7 @@ export async function discoverTargetCapabilities(input: TargetCapabilityInput): 
   const attempts: TargetCapabilityResult['attempts'] = [];
   const retained: Array<{ profile: NormalizedReasoningProfile; report: Record<string, any> }> = [];
   let stopped = false;
-  const candidates = capabilityCandidates(Boolean(input.native));
+  const candidates = capabilityCandidates(Boolean(input.native), input.dynamicImages);
   if (input.native) candidates.push(getBuiltInProfile(BEDROCK_MESSAGES_DEFAULT_PROFILE)!);
   for (const profile of candidates) {
     if (input.native && profile.reasoningMode === 'provider-default' && retained.length) break;

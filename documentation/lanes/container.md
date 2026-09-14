@@ -34,6 +34,16 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 | Terminal runtime | Herdr v0.8.2, checksum-pinned official Linux x86-64 binary with image-owned config and Apache-2.0 attribution |
 
+### Bundled image tooling
+
+SVG, PNG and JPEG creation/conversion tools install during the image build, not at session startup. Use `rsvg-convert drawing.svg -o drawing.png`, `convert drawing.png drawing.jpg`, or Python's `PIL` module for drawing, resizing and compositing. DejaVu fonts are available at `/usr/share/fonts/truetype/dejavu/`. Debian Bookworm provides ImageMagick's `convert` and `identify` commands, not the ImageMagick 7 `magick` launcher.
+
+`python3 -m pip` is included. Install additional Python dependencies in a virtual environment (`python3 -m venv .venv`), without bypassing Debian's system-Python protections. To also use the bundled Pillow inside a virtual environment, create it with `--system-site-packages`. No model weights or paid image-generation service are included; these tools render locally authored artwork. Existing sessions retain their current image until replaced through normal lifecycle.
+
+[REQ-OPS-062](../../sdd/spec/operations.md#req-ops-062-build-bundled-basic-image-tooling) governs this offline toolset. <!-- @impl: Dockerfile::librsvg2-bin -->
+
+The shipped Debian APT sources use HTTPS. For additional system packages, refresh the image's intentionally cleared package indexes with `apt-get update` before installing. In strict enterprise mode, requests still require an approved HTTPS destination and the existing egress path; HTTPS sources do not bypass policy or guarantee reachability. Do not disable certificate or repository-signature verification ([REQ-OPS-063](../../sdd/spec/operations.md#req-ops-063-https-distribution-package-sources)). <!-- @impl: Dockerfile::APT_HTTPS_SOURCES -->
+
 ### Lock-backed NPM Tools
 
 The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp`—installs from `preseed/npm-tools/package.json` and its committed lock. Image-owned `oxlint` installs from `image/oxlint/package.json` and its dedicated lock, receives weekly cooldown-backed Dependabot updates, and exposes `/usr/local/bin/oxlint` without changing managed-seed compatibility ([REQ-OPS-051](../../sdd/spec/operations.md#req-ops-051-image-owned-oxlint-lifecycle)).

@@ -55,16 +55,32 @@ describe('shared agent seed compiler', () => {
       const licenses = compiled.documents.filter((document) => document.key.endsWith('/LICENSE'));
       assert.ok(licenses.length >= 2);
       assert.ok(licenses.every((document) => document.contentType === 'text/plain; charset=utf-8'));
-      const piInstructions = compiled.documents.find((document) => (
-        document.key === '.pi/agent/AGENTS.md' && document.modes.includes('default')
-      ));
-      const instructions = piInstructions?.content ?? '';
-      const indexStart = instructions.indexOf('<!-- pi-skill-index:start -->');
-      const indexEnd = instructions.indexOf('<!-- pi-skill-index:end -->');
-      assert.ok(indexStart >= 0 && indexEnd > indexStart);
-      const indexedSkills = [...instructions.slice(indexStart, indexEnd).matchAll(/^- `([^`]+)` — /gm)]
-        .map((match) => match[1]);
-      assert.ok(indexedSkills.includes('codeflare-capabilities'));
+      // REQ-AGENT-095: delivery preserves original invocation eligibility,
+      // even though native catalog visibility is independently suppressed.
+      for (const mode of ['default', 'advanced']) {
+        const installed = compiled.documents.filter((document) => (
+          /^\.pi\/agent\/skills\/[^/]+\/SKILL\.md$/.test(document.key) && document.modes.includes(mode)
+        )).length;
+        const policies = compiled.documents.filter((document) => (
+          document.key === '.pi/agent/capability-skill-policy.json' && document.modes.includes(mode)
+        ));
+        assert.equal(policies.length, 1);
+        const policy = JSON.parse(policies[0].content);
+        assert.equal(policy.version, 1);
+        assert.equal(policy.skills.length, installed);
+        assert.equal(new Set(policy.skills.map((skill) => skill.name)).size, installed);
+        assert.equal(new Set(policy.skills.map((skill) => skill.path)).size, installed);
+        for (const skill of policy.skills) {
+          assert.equal(typeof skill.modelInvocable, 'boolean');
+          assert.equal(skill.path, `skills/${skill.name}/SKILL.md`);
+          assert.equal(compiled.documents.filter((document) => (
+            document.key === `.pi/agent/${skill.path}` && document.modes.includes(mode)
+          )).length, 1);
+        }
+        assert.equal(policy.skills.find((skill) => skill.name === 'codeflare-capabilities').modelInvocable, true);
+        assert.equal(policy.skills.find((skill) => skill.name === 'advisor').modelInvocable, false);
+        assert.equal(policy.skills.find((skill) => skill.name === 'graphify')?.modelInvocable, mode === 'advanced' ? true : undefined);
+      }
       const humanizeDocuments = compiled.documents
         .filter((document) => document.key.includes('/skills/humanize/'))
         .map(({ key, modes }) => ({ key, modes }))

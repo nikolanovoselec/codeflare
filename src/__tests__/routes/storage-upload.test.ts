@@ -76,6 +76,26 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     mockFetch.mockResolvedValue(new Response(policyBytes, { status: 200 }));
   }
 
+  it.each([
+    ['/upload', { content: 'aGk=' }, 'PUT'],
+    ['/upload/initiate', {}, 'POST'],
+    ['/upload/part', { uploadId: 'u', partNumber: 1, content: 'aGk=' }, 'PUT'],
+    ['/upload/complete', { uploadId: 'u', parts: [{ partNumber: 1, etag: 'abc' }] }, 'POST'],
+    ['/upload/abort', { uploadId: 'u' }, 'DELETE'],
+  ])('allows ordinary upload operation %s while managed reconciliation is pending', async (path, payload, method) => {
+    mockKV._set('user-prefs:test-bucket', {
+      managedEnvironmentReconciliation: { targets: [{ digest: 'd'.repeat(64), sequence: 1, mode: 'default' }] },
+    });
+    mockFetch.mockResolvedValueOnce(new Response('', { status: 200, headers: { ETag: 'abc' } }));
+    const response = await createApp().request(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, key: 'Uploads/report.txt' }),
+    });
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][1].method).toBe(method);
+  });
+
   // ── Simple upload ──────────────────────────────────────────────────
 
   describe('POST /upload (simple upload)', () => {

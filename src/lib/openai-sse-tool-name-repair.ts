@@ -116,7 +116,11 @@ function suppressNameMembers(line: string, suppressions: readonly boolean[]): st
 
 /**
  * Suppress only the Bedrock compat defect where a complete declared function
- * name is emitted again on a later chunk. Unchanged SSE lines retain exact bytes.
+ * name is emitted again on a later chunk. Track names by choice/tool index;
+ * genuine fragments accumulate normally. Replace only repeated name values with
+ * empty strings, preserving IDs, arguments and unchanged SSE lines byte-for-byte.
+ * Oversized lines bypass repair; oversized unfinished lines switch to passthrough.
+ * This is a bounded repair, not general SSE validation or multiline-data parsing.
  */
 export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]): TransformStream<Uint8Array, Uint8Array> {
   const declared = new Set(declaredNames.filter((name) => name.length > 0 && encoder.encode(name).byteLength <= MAX_NAME_BYTES));

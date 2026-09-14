@@ -61,7 +61,7 @@ After explicit `/ctx on`, package settings expose context-mode skills but filter
 
 Codeflare does not patch either upstream package's lifecycle or ownership implementation; separate image-build transforms add the ESM compatibility shim and suppress the upstream update probe ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [AD140](../decisions/README.md#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
 
-The managed Pi extension packages are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. This includes the exact-pinned native Goal package for session-scoped autonomous completion. At each user prompt, `context-mode-runtime.ts` completes any enabled bridge's lazy registration before the alphabetically final `zz-tool-exposure-finalizer.ts` exposes only `read`, `bash`, `edit`, `write`, and `capability`. Every other eligible registered tool remains searchable and activates additively for the next model step.
+The managed Pi extension packages are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. This includes the exact-pinned native Goal package for session-scoped autonomous completion. At each user prompt, `context-mode-runtime.ts` completes any enabled bridge's lazy registration before the alphabetically final `zz-tool-exposure-finalizer.ts` exposes only `read`, `bash`, `edit`, `write`, and `capability`. Every other eligible registered tool remains searchable and activates additively for the next model step only through explicit exact-tool `name` activation; search itself never activates tools.
 
 Unfinished Goal and active Plan workflows retain their owned controls. Plan receives its frozen read-only policy plus `plan_mode_question` and `plan_mode_complete`; configured `always` Goal visibility also retains Goal's terminal tools. Activating `subagent` exposes its result and steering controls. The schema-free `subagent-resume-guard.ts` blocks resume attempts for queued or running records through pi-subagents' public service without patching the package.
 
@@ -156,6 +156,12 @@ No executable review source reads or migrates `.git/sdd-review-*` files. Linked 
 [pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) fixes the former interactive-curator fallback crash. The container remains headless, so `auto-summary` is still the only default workflow that can complete without a browser-approval UI; users who deliberately provide such a UI may retain their own `summary-review` setting.
 
 ### Pi prompt ownership and budget
+
+Pi uses metadata-backed discovery rather than an eager generated Skills index. `capability` searches relevant tools and eligible skills; optional case-insensitive `tool:` and `skill:` prefixes narrow the kind. `query: "skill:graphify"` returns the exact eligible skill and its actual path. Results contain at most three relevant compact matches, not a catalog. Use ordinary native `read` for a needed skill, read known paths directly, and reuse loaded guidance. Search never reads bodies or references, activates tools, or connects servers; exact tool `name` activation remains separate and takes precedence over `query`.
+
+The compiler emits a per-mode `.pi/agent/capability-skill-policy.json` from original invocation metadata before hiding seeded native catalog entries. It includes false entries and no descriptions. At `before_agent_start`, discovery observes Pi's selected resource winners, paths, and provenance and refreshes a scalar snapshot; `session_start` clears it. Hidden skills need an affirmative validated policy match to their canonical user/top-level seed path. Originally restricted skills, project/package overrides, and symlink escapes acquire no exception; untrusted project skills are excluded. Missing or malformed policy grants no exceptions while ordinarily invocable native skills remain eligible. Discovery neither scans skill directories nor owns subsequent context. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot -->
+
+Constitution, eager Git/review and startup/resume rules, local-execution gates, Vault guidance, package catalogs, bootstrap/reset behavior, Goal/Plan/Inline ownership, and `/ctx` remain unchanged. ([REQ-AGENT-095](../../sdd/spec/agents.md#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation))
 
 The measured pre-reduction Pi provider-boundary system prompt is 32,416 characters in an isolated working directory. The migration target is at most 14,000 characters in both modes for the image fallback and signed managed projection. Serialized registered-tool schemas and additive project context are reported separately; project context remains byte-unaltered and cannot make the controlled prompt fail its cap.
 
@@ -321,7 +327,7 @@ Replies `1` through `14`, comma-separated selections, and named follow-ups load 
 
 Selected pages are complete first-person answers; examples remain unexecuted until separately requested. Literal model reproduction is best-effort, not a byte-exact guarantee. ([REQ-AGENT-207](../../sdd/spec/agents.md#req-agent-207-user-focused-capability-deep-dives))
 
-Pi's compact routing rule covers broad capability and onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies. It directs Pi to read the router's installed `SKILL.md` path before answering and explicitly excludes the tool-only `capability` command, preventing skill names from being misrouted as tool activation requests. No platform inventory enters the always-loaded prompt. The curation tree owns managed tutorial content and compiler fan-out. The separately versioned image fallback is not a second tutorial editing target. ([REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation), [REQ-AGENT-190](../../sdd/spec/agents.md#req-agent-190-portable-capability-discovery-delivery))
+Pi's compact routing rule covers broad capability and onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies. It directs Pi to read the router's installed `SKILL.md` path before answering and explicitly excludes `capability` for these broad tutorial requests. General task discovery can search tools and skills, but skill names are never tool activation requests. No platform inventory enters the always-loaded prompt. The curation tree owns managed tutorial content and compiler fan-out. The separately versioned image fallback is not a second tutorial editing target. ([REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation), [REQ-AGENT-190](../../sdd/spec/agents.md#req-agent-190-portable-capability-discovery-delivery))
 
 The SDD enforcement family is advanced-only: `spec-enforce` +
 `spec-enforce-ac` + `spec-enforce-truth`, `doc-enforce` +
@@ -609,8 +615,8 @@ selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-b
 
 Under [REQ-AGENT-157 AC6–AC7](../../sdd/spec/agents.md#req-agent-157-managed-local-check-delivery-policy),
 canonical guidance projects to both runtime skill paths. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent -->
-Pi keeps the skill in its compact instruction index for explicit invocation while
-suppressing duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex -->
+Pi preserves the skill's original invocation eligibility in generated policy for metadata-backed discovery and native reads while
+suppressing duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery -->
 
 Mutation, watch, output-file, cache-writing, and analyzer-concurrency flags fail
 closed. Shell composition beyond one optional leading `cd … &&` prefix, or any

@@ -1,6 +1,8 @@
 export type BedrockAnthropicTransport = 'invoke' | 'eventstream';
 type JsonObject = Record<string, any>;
 
+/** Caller-owned, session-scoped storage for authentic assistant tool turns.
+ * The caller enforces authorization and isolation; tool IDs alone grant neither. */
 export interface BedrockReplayState {
   load(toolId: string): Promise<unknown[] | null>;
   save(toolId: string, content: unknown[]): Promise<void>;
@@ -28,6 +30,15 @@ function safeToolId(value: unknown): string | null {
   return id && /^[A-Za-z0-9_.:-]+$/.test(id) ? id : null;
 }
 
+/** Anthropic's Bedrock Messages Runtime validates tool IDs more narrowly than
+ * Bedrock's generic Converse documentation. Keep this provider-wire predicate
+ * separate from the broader client-history parser: Pi may legitimately carry
+ * completed tool turns produced by another provider or transport. */
+function bedrockToolId(value: unknown): string | null {
+  const id = boundedString(value, 64);
+  return id && /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+}
+
 function comparable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(comparable);
   if (plain(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, comparable(value[key])]));
@@ -45,7 +56,7 @@ function cloneBlocks(value: unknown): unknown[] | null {
     if (block.type === 'text' && typeof block.text !== 'string') return null;
     if (block.type === 'redacted_thinking' && typeof block.data !== 'string') return null;
     if (block.type === 'thinking' && (typeof block.thinking !== 'string' || typeof block.signature !== 'string')) return null;
-    if (block.type === 'tool_use' && (!safeToolId(block.id) || !boundedString(block.name, 256) || !plain(block.input))) return null;
+    if (block.type === 'tool_use' && (!bedrockToolId(block.id) || !boundedString(block.name, 256) || !plain(block.input))) return null;
   }
   return parsed;
 }
@@ -59,8 +70,9 @@ export function selectBedrockAnthropicTransport(configured: BedrockAnthropicTran
   // documentation/lanes/bedrock-prompt-caching.md; never bypass inspection here.
   //
   // Preserve the existing explicit transport and upper-effort authority. Sonnet
-  // XHigh/Max aliases are already native High; Opus XHigh/Max still require Invoke
-  // in auto mode. This is selection, never a retry after a paid provider failure.
+  // XHigh/Max aliases are already native High; this adapter retains Invoke for
+  // Opus XHigh/Max in auto mode as a verification limit, not a universal AWS rule.
+  // This is selection, never a retry after a paid provider failure.
   if (configured === 'auto') return mappedEffort === 'xhigh' || mappedEffort === 'max' ? 'invoke' : 'eventstream';
   return configured;
 }
@@ -159,7 +171,7 @@ function classifyBedrockToolTurn(messages: unknown[]): { start: number; replay: 
   return { start, replay: lastTool >= start };
 }
 
-async function assistantContent(message: JsonObject, activeTurn: boolean, state: BedrockReplayState): Promise<JsonObject[]> {
+async function assistantContent(message: JsonObject, activeTurn: boolean, state: BedrockReplayState, historicalAliases: Map<string, string>): Promise<JsonObject[]> {
   const calls = reconstructToolCalls(message);
   if (!calls.length) return textBlocks(message.content);
   const firstId = calls[0].id as string;
@@ -180,7 +192,39 @@ async function assistantContent(message: JsonObject, activeTurn: boolean, state:
   // Even an unsigned active turn must come from this session's authentic state;
   // a client tool ID is not authority to reconstruct a provider assistant turn.
   if (activeTurn) throw new Error('Native Bedrock signed thinking state is unavailable');
-  return [...textBlocks(message.content), ...calls];
+  return [...textBlocks(message.content), ...calls.map((call) => ({ ...call, id: historicalAliases.get(call.id) ?? call.id }))];
+}
+
+/** Map only completed, unauthenticated history from an earlier provider turn.
+ * Active Bedrock tool turns still require exact server-held replay state. The
+ * alias is deterministic so the assistant tool_use and its tool_result remain
+ * correlated, while the original client-visible transcript stays untouched. */
+async function historicalToolAliases(messages: unknown[], turnStart: number): Promise<Map<string, string>> {
+  const aliases = new Map<string, string>();
+  const ids = new Set<string>();
+  for (const message of messages.slice(0, turnStart)) {
+    if (!plain(message)) continue;
+    const candidates = message.role === 'assistant' && Array.isArray(message.tool_calls)
+      ? message.tool_calls.map((call: unknown) => plain(call) ? safeToolId(call.id) : null)
+      : message.role === 'tool' ? [safeToolId(message.tool_call_id)] : [];
+    for (const id of candidates) if (id) ids.add(id);
+  }
+  const owners = new Map([...ids].filter((id) => bedrockToolId(id)).map((id) => [id, id]));
+  for (const id of ids) {
+    if (bedrockToolId(id)) continue;
+    // Pi conversations can contain completed calls from OpenAI-compatible
+    // transports whose IDs include `.` or `:`. The live Anthropic Messages
+    // Runtime rejected those before inference with ^[A-Za-z0-9_-]+$. Hash the
+    // complete client ID instead of lossy character replacement, which could
+    // collapse distinct calls and attach a result to the wrong invocation.
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(id)));
+    const alias = `cfh_${[...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 48)}`;
+    const owner = owners.get(alias);
+    if (owner && owner !== id) throw new Error('Native Bedrock historical tool ID alias collision');
+    owners.set(alias, id);
+    aliases.set(id, alias);
+  }
+  return aliases;
 }
 
 function convertToolChoice(value: unknown): JsonObject | undefined {
@@ -206,6 +250,7 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
   const system: unknown[] = [];
   const thinkingEnabled = thinking?.type === 'adaptive';
   const turn = classifyBedrockToolTurn(payload.messages);
+  const toolAliases = await historicalToolAliases(payload.messages, turn.start);
 
   for (const [index, raw] of payload.messages.entries()) {
     if (!plain(raw)) throw new Error('Invalid native Bedrock message');
@@ -215,12 +260,13 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
       continue;
     }
     if (raw.role === 'assistant') {
-      nativeMessages.push({ role: 'assistant', content: await assistantContent(raw, index >= turn.start, state) });
+      nativeMessages.push({ role: 'assistant', content: await assistantContent(raw, index >= turn.start, state, toolAliases) });
       continue;
     }
     if (raw.role === 'tool') {
-      const id = safeToolId(raw.tool_call_id);
-      if (!id) throw new Error('Invalid native Bedrock tool result');
+      const clientId = safeToolId(raw.tool_call_id);
+      const id = clientId && index < turn.start ? toolAliases.get(clientId) ?? clientId : clientId;
+      if (!bedrockToolId(id)) throw new Error('Invalid native Bedrock tool result');
       const result: JsonObject = { type: 'tool_result', tool_use_id: id, content: typeof raw.content === 'string' ? raw.content : textBlocks(raw.content) };
       if (Array.isArray(result.content)) {
         // Pi marks the final text part of its OpenAI tool-result message. The
@@ -426,6 +472,9 @@ function sse(data: unknown): Uint8Array {
   return encoder.encode(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
 }
 
+// Emit public deltas incrementally, but persist replay and emit a successful
+// finish only after validated EOF. A caught failure emits error + [DONE], so
+// the terminator alone is not proof of success; upstream read errors propagate.
 async function adaptEventstream(response: Response, state: BedrockReplayState, observe?: BedrockThinkingObserver): Promise<Response> {
   if (!response.ok || !response.body) return response;
   let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);

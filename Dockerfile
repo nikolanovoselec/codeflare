@@ -160,6 +160,12 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     python-is-python3 \
     # graphify (uv tool install) needs venv module for isolated tool envs
     python3-venv \
+    # Offline image creation and conversion (Debian-maintained runtime packages)
+    python3-pip \
+    python3-pil \
+    librsvg2-bin \
+    imagemagick \
+    fonts-dejavu-core \
     # Version control
     git \
     # Editors
@@ -198,6 +204,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && ln -s "$(which nvim)" /usr/local/bin/vim \
     # Remove yarn shipped by Node base image (unused, 5MB)
     && rm -rf /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+# APT_HTTPS_SOURCES: runtime installs use approved HTTPS egress, not direct HTTP.
+# CA certificates are installed above; retain signature and TLS verification.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
 
 # Keep fast server-modtime listings without copying source timestamps into remote state.
 COPY --from=rclone-builder /out/rclone /usr/bin/rclone

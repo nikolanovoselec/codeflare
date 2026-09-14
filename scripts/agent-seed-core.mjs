@@ -463,56 +463,41 @@ function parsePiSkillMetadata(document) {
   };
 }
 
-function compactPiIndexPurpose(description) {
-  if (description.length <= 32) return description;
-  const prefix = description.slice(0, 29).replace(/\s+\S*$/, '').trimEnd();
-  return `${prefix}…`;
-}
-
-function renderPiSkillIndex(skills) {
-  return [
-    '## Skills',
-    '',
-    'Match the task to this compact index, then read `~/.pi/agent/skills/<name>/SKILL.md` before applying that skill. The installed file is authoritative.',
-    '',
-    '<!-- pi-skill-index:start -->',
-    ...skills.map(({ name, description }) => `- \`${name}\` — ${compactPiIndexPurpose(description)}`),
-    '<!-- pi-skill-index:end -->',
-    '',
-  ].join('\n');
-}
-
-function finalizePiSkillIndex(documents) {
+function finalizePiSkillDiscovery(documents) {
   const skillPattern = /^\.pi\/agent\/skills\/[^/]+\/SKILL\.md$/;
   const hiddenDocuments = documents.map((document) => (
     skillPattern.test(document.key)
       ? { ...document, content: hidePiSkillFromNativeCatalog(document.content) }
       : document
   ));
-  const instructions = hiddenDocuments.filter((document) => document.key === '.pi/agent/AGENTS.md');
-  const otherDocuments = hiddenDocuments.filter((document) => document.key !== '.pi/agent/AGENTS.md');
-  const finalizedInstructions = [];
-
+  const policies = [];
   for (const mode of ['default', 'advanced']) {
-    const matchingInstructions = instructions.filter((document) => document.modes.includes(mode));
-    if (matchingInstructions.length !== 1) {
-      throw new Error(`Pi ${mode} mode must have exactly one AGENTS.md before skill indexing`);
+    const instructions = documents.filter((document) => (
+      document.key === '.pi/agent/AGENTS.md' && document.modes.includes(mode)
+    ));
+    if (instructions.length !== 1) {
+      throw new Error(`Pi ${mode} mode must have exactly one AGENTS.md before skill discovery`);
     }
+    // Capture eligibility before blanket native-catalog hiding loses the
+    // distinction between ordinary skills and explicit-only resources.
     const skills = documents
       .filter((document) => skillPattern.test(document.key) && document.modes.includes(mode))
-      .map(parsePiSkillMetadata)
-      .filter(({ modelInvocable }) => modelInvocable)
+      .map((document) => {
+        const { name, modelInvocable } = parsePiSkillMetadata(document);
+        return { name, path: document.key.slice('.pi/agent/'.length), modelInvocable };
+      })
       .sort((left, right) => left.name.localeCompare(right.name));
-    const names = new Set(skills.map(({ name }) => name));
-    if (names.size !== skills.length) throw new Error(`Pi ${mode} skill names must be unique`);
-    finalizedInstructions.push({
-      ...matchingInstructions[0],
-      content: `${matchingInstructions[0].content.trimEnd()}\n\n${renderPiSkillIndex(skills)}`,
+    if (new Set(skills.map(({ name }) => name)).size !== skills.length) {
+      throw new Error(`Pi ${mode} skill names must be unique`);
+    }
+    policies.push({
+      key: '.pi/agent/capability-skill-policy.json',
+      contentType: 'application/json; charset=utf-8',
+      content: `${JSON.stringify({ version: 1, skills }, null, 2)}\n`,
       modes: [mode],
     });
   }
-
-  return [...otherDocuments, ...finalizedInstructions];
+  return [...hiddenDocuments, ...policies];
 }
 
 function adaptPiSkillContent(content, withinClaude) {
@@ -1030,7 +1015,7 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
   // public fallback and curation's private master therefore index their own
   // complete inventories through the same compiler without synchronizing a
   // generated artifact or deleting any skill file.
-  const finalizedDocuments = finalizePiSkillIndex(documents);
+  const finalizedDocuments = finalizePiSkillDiscovery(documents);
   documents.length = 0;
   documents.push(...finalizedDocuments);
 
