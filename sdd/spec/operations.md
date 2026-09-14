@@ -1642,15 +1642,41 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The built image renders SVG to PNG and converts PNG to JPEG without network access, preserving dimensions and image content. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
-2. Python provides Pillow and bundled fonts for local image manipulation and text rendering. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
-3. Pip is available both through system Python and in newly created virtual environments without downloading pip at session startup. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+1. The built image renders SVG to PNG without network access, preserving dimensions and image content. <!-- @impl: Dockerfile::librsvg2-bin --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+2. The built image converts PNG to JPEG without network access, preserving dimensions and recognizable image content. <!-- @impl: Dockerfile::imagemagick --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+3. Python provides Pillow and usable bundled fonts for local image manipulation. <!-- @impl: Dockerfile::python3-pil --> <!-- @impl: Dockerfile::fonts-dejavu-core --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+4. Pip is available through system Python. <!-- @impl: Dockerfile::python3-pip --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
+5. Newly created virtual environments provide pip without downloading it at session startup. <!-- @impl: Dockerfile::python3-venv --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
 
 **Constraints:** Use the base distribution's maintained packages. Preserve system-Python and ImageMagick security policies. No model weights, external generation provider, or startup package installation.
 
 **Priority:** P1
 
+**Dependencies:** None.
+
 **Verification:** Built-image offline behavioral smoke in the container image workflow.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-063: HTTPS distribution package sources
+
+**Intent:** Distribution package installation works through approved HTTPS egress without requiring direct HTTP access.
+
+**Applies To:** All session users
+
+**Acceptance Criteria:**
+
+1. The shipped APT repository configuration schedules index downloads over HTTPS. <!-- @impl: Dockerfile::APT_HTTPS_SOURCES --> <!-- @test: host/__tests__/basic-image-tooling.test.js (APT schedules repository index downloads exclusively over HTTPS) -->
+
+**Constraints:** Preserve TLS verification, repository signatures and existing egress authorization. Destination access remains subject to enterprise policy; no direct-network exception is granted.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Offline built-image APT URI planning test; enterprise network reachability requires environment acceptance.
 
 **Status:** Implemented
 

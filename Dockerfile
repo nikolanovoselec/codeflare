@@ -205,6 +205,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Remove yarn shipped by Node base image (unused, 5MB)
     && rm -rf /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
+# APT_HTTPS_SOURCES: runtime installs use approved HTTPS egress, not direct HTTP.
+# CA certificates are installed above; retain signature and TLS verification.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
+
 # Keep fast server-modtime listings without copying source timestamps into remote state.
 COPY --from=rclone-builder /out/rclone /usr/bin/rclone
 COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-14
 
+- **HTTPS distribution package sources** ([REQ-OPS-063](operations.md#req-ops-063-https-distribution-package-sources)). Ship HTTPS Debian repositories so package installs need no direct HTTP access; certificate checks, repository signatures and enterprise egress authorization remain unchanged.
+
 - **Build-bundled basic image tooling** ([REQ-OPS-062](operations.md#req-ops-062-build-bundled-basic-image-tooling)). Include pip, Pillow, SVG rendering, ImageMagick and DejaVu fonts for offline SVG/PNG/JPEG artwork and conversion. System security policies remain intact; no runtime downloads or image-generation provider are added.
 
 - **Ordinary Storage access during managed updates** (REQ-ENTERPRISE-030 AC7). Bypass managed readiness only for nonempty requests entirely outside possible managed namespaces. Managed roots, overlapping prefixes and mixed selections retain fail-closed checks. Upload, multipart and delete routes share the guard; downloads, authentication and encryption-migration restrictions are unchanged.

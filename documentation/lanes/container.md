@@ -40,7 +40,9 @@ SVG, PNG and JPEG creation/conversion tools install during the image build, not 
 
 `python3 -m pip` is included. Install additional Python dependencies in a virtual environment (`python3 -m venv .venv`), without bypassing Debian's system-Python protections. To also use the bundled Pillow inside a virtual environment, create it with `--system-site-packages`. No model weights or paid image-generation service are included; these tools render locally authored artwork. Existing sessions retain their current image until replaced through normal lifecycle.
 
-[REQ-OPS-062](../../sdd/spec/operations.md#req-ops-062-build-bundled-basic-image-tooling) governs this offline toolset. <!-- @impl: Dockerfile -->
+[REQ-OPS-062](../../sdd/spec/operations.md#req-ops-062-build-bundled-basic-image-tooling) governs this offline toolset. <!-- @impl: Dockerfile::librsvg2-bin -->
+
+The shipped Debian APT sources use HTTPS. For additional system packages, refresh the image's intentionally cleared package indexes with `apt-get update` before installing. In strict enterprise mode, requests still require an approved HTTPS destination and the existing egress path; HTTPS sources do not bypass policy or guarantee reachability. Do not disable certificate or repository-signature verification ([REQ-OPS-063](../../sdd/spec/operations.md#req-ops-063-https-distribution-package-sources)). <!-- @impl: Dockerfile::APT_HTTPS_SOURCES -->
 
 ### Lock-backed NPM Tools
 

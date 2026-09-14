@@ -36,3 +36,15 @@ assert font.getbbox('Letterbox')[2] > 0
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('APT schedules repository index downloads exclusively over HTTPS', {
+  skip: process.env.CODEFLARE_IMAGE_TEST !== '1',
+}, () => {
+  const result = spawnSync('apt-get', ['--print-uris', 'update'], {
+    encoding: 'utf8', timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+  const uris = [...result.stdout.matchAll(/^'([^']+)'/gm)].map((match) => new URL(match[1]));
+  assert.ok(uris.length > 0);
+  for (const uri of uris) assert.equal(uri.protocol, 'https:');
+});
