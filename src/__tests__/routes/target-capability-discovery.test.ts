@@ -31,6 +31,30 @@ const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'm
   { id: 'end', type: 'end', outputs: {} }];
 
 describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => {
+  it('binds the Bedrock image wire when discovery inventory is homogeneous Anthropic Bedrock', async () => {
+    const { post } = setup(); let calls = 0;
+    const bedrockTopology = topology.map((element) => element.id === 'model'
+      ? { ...element, properties: { provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-v1:0' } } : element);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        if (String(url).endsWith('/routes')) return Response.json({ data: { routes: [{ id: 'id', name: 'future' }] } });
+        return Response.json({ result: { version: { version_id: 'v1', active: true, data: bedrockTopology } } });
+      }
+      JSON.parse(String(init!.body)); calls++;
+      const delta = calls === 1
+        ? { tool_calls: [{ index: 0, id: 'synthetic-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }
+        : { content: 'Synthetic result.' };
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: calls === 1 ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 8192, completion_tokens: 20 } })}\n\ndata: [DONE]\n\n`,
+        { headers: { 'content-type': 'text/event-stream', 'cf-aig-provider': 'aws-bedrock', 'cf-aig-model': 'eu.anthropic.claude-future-v1:0', 'cf-aig-cache-status': calls === 4 ? 'HIT' : 'MISS' } });
+    });
+    const response = await post({ kind: 'dynamic-route', route: 'future' });
+    const result: any = await response.json();
+    expect(response.status, JSON.stringify(result)).toBe(200);
+    expect(result.assignable).toBe(true);
+    expect(result.profile.compatibility.images).toBe('bedrock-native-block');
+    expect(calls).toBe(4);
+  });
+
   it('discovers an unlisted Dynamic backend, issues a receipt and survives Save → authorization without profile authoring', async () => {
     const { kv, env, post } = setup(); let calls = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
