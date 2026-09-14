@@ -4095,7 +4095,7 @@ Herdr live processes, pane history, sockets, logs, plugins, updater state, and u
 
 **Category:** Architecture, Security, Storage
 
-**Status:** Accepted (2026-08-27). Supersedes [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) only for exact paths and exclusive roots covered by the active applied policy.
+**Status:** Accepted (2026-08-27). Supersedes [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) only for exact paths and exclusive roots covered by the active applied policy. Storage readiness scope narrowed on 2026-09-14: ordinary user-file mutations wholly outside managed namespaces no longer wait on managed-policy mismatch; potentially managed targets, overlapping deletion prefixes and mixed selections retain readiness checks ([REQ-SETUP-016](../../sdd/spec/setup.md#req-setup-016-managed-resource-policy-safety), [REQ-ENTERPRISE-030](../../sdd/spec/enterprise-mode.md#req-enterprise-030-managed-resource-storage-enforcement)). The original Decision and Consequences below retain the historical scope; session admission and managed-resource authority are unchanged.
 
 **Context:** AD118 deliberately transferred ownership when a user rewrite dropped seed provenance. Enterprise administrators now need signed managed resources to remain authoritative without preventing personal resources outside the managed inventory.
 
