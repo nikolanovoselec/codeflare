@@ -38,6 +38,9 @@ const CORE_TOOL_NAMES = [
   "edit",
   "write",
   "capability",
+  // Upstream registers these only in children, independently of ordinary tools.
+  "ask_parent",
+  "notify_parent",
 ] as const;
 
 const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {

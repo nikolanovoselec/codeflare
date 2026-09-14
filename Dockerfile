@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use AWS ECR Public mirror of Docker Hub to avoid anonymous pull rate limits on CI.
 # Shared GitHub Actions runner IPs routinely hit Docker Hub's 100-pull/6h cap.
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS builder
+FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS rclone-builder
+FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz" | sha256sum -c - \
@@ -48,7 +48,7 @@ RUN mkdir -p /out \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS impeccable-builder
+FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
     && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
@@ -141,7 +141,7 @@ RUN /usr/local/bin/node --input-type=module -e \
     test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
 
 # ---- Stage 2: Runtime ----
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf
+FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -194,6 +194,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     unzip \
     # Sandbox for OpenAI Codex
     bubblewrap \
+    slirp4netns \
+    iptables \
     # REQ-SEC-011: require Debian's CVE-2026-58050 fix and invalidate the stale apt layer.
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
     && rm -rf /var/lib/apt/lists/* \
@@ -215,9 +217,9 @@ COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
-RUN HERDR_VERSION="0.8.2" && \
-    HERDR_COMMIT="9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c" && \
-    HERDR_SHA256="976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4" && \
+RUN HERDR_VERSION="0.9.0" && \
+    HERDR_COMMIT="b99002ac99b09e00b4ca692436cb15a6b0d676f1" && \
+    HERDR_SHA256="4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
       -o /tmp/herdr && \
@@ -250,8 +252,8 @@ RUN YAZI_VERSION="26.9.1" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.65.0" && \
-    LAZYGIT_SHA256="44d8e7dd1484b4a66e191bd4ab25a71e8b4b3a65ab122f838e65677ef58c5506" && \
+RUN LAZYGIT_VERSION="0.65.1" && \
+    LAZYGIT_SHA256="02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
@@ -285,21 +287,20 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the five code-server literals below.
-# The pinned code-server release vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
-# the overlay pins 4.3.2 under an independent integrity hash as defence in
-# depth. The immutable Node and code-server artifacts also carry node-tar
+# The pinned code-server archive supplies js-yaml 5.4.1 in its upstream 5.x
+# range; do not downgrade it with the former 4.x overlay. Retain the independent
+# tar and pacote overlays pending their separate runtime verification.
+# The immutable Node and code-server artifacts also carry node-tar
 # versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
 # replaces both runtime copies. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.135.0" && \
-    CODE_SERVER_SHA256="300ef4e37e469e6368a4673c6a623e1c9ba8a34f42b394fb49c431a8900bc7d1" && \
-    CODE_SERVER_COMMIT="de89acbcdce9d9b870008a270c9f6466993d91f4" && \
-    CODE_SERVER_CODE_VERSION="1.135.0" && \
-    CODE_SERVER_VSCODE_COMMIT="08d4889f9ec4a1685d257b9b95de036c8e1ce1e5" && \
-    JS_YAML_VERSION="4.3.2" && \
-    JS_YAML_SHA512="48534ebd227e0e07fff409fdd38631f828129483c2908a5aa38aa8e7596979edb94c845e8dd1f7ae1478119306a0dc77fd33f73bec335ae893165e2ca9b96dcc" && \
+RUN CODE_SERVER_VERSION="4.137.0" && \
+    CODE_SERVER_SHA256="9303165b7fd43532091922f77e2f119ff2fa109c6b6f1c3c966fb02f3d6d9c8b" && \
+    CODE_SERVER_COMMIT="b11dabdaca0d3369986975be285db92c8795cea5" && \
+    CODE_SERVER_CODE_VERSION="1.137.0" && \
+    CODE_SERVER_VSCODE_COMMIT="645f29cc3176500b4b5762ba887cf2a7f0ffdf2c" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     PACOTE_VERSION="21.5.1" && \
@@ -308,10 +309,6 @@ RUN CODE_SERVER_VERSION="4.135.0" && \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
     echo "${CODE_SERVER_SHA256}  /tmp/code-server.tar.gz" | sha256sum -c - && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
-      "https://registry.npmjs.org/js-yaml/-/js-yaml-${JS_YAML_VERSION}.tgz" \
-      -o /tmp/js-yaml.tgz && \
-    echo "${JS_YAML_SHA512}  /tmp/js-yaml.tgz" | sha512sum -c - && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
       "https://registry.npmjs.org/tar/-/tar-${NODE_TAR_VERSION}.tgz" \
       -o /tmp/node-tar.tgz && \
@@ -322,10 +319,7 @@ RUN CODE_SERVER_VERSION="4.135.0" && \
     echo "${PACOTE_SHA512}  /tmp/pacote.tgz" | sha512sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
-    rm -rf /opt/code-server/node_modules/js-yaml && \
-    mkdir -p /opt/code-server/node_modules/js-yaml && \
-    tar -xzf /tmp/js-yaml.tgz -C /opt/code-server/node_modules/js-yaml --strip-components=1 && \
-    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "$JS_YAML_VERSION" && \
+    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "5.4.1" && \
     for NODE_TAR_DIR in \
         /usr/local/lib/node_modules/npm/node_modules/tar \
         /opt/code-server/lib/vscode/node_modules/tar; do \
@@ -359,7 +353,7 @@ RUN CODE_SERVER_VERSION="4.135.0" && \
     /usr/local/bin/code-server --version && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
-    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz /tmp/node-tar.tgz /tmp/pacote.tgz
+    rm -f /tmp/code-server.tar.gz /tmp/node-tar.tgz /tmp/pacote.tgz
 
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
 # permissions bypass inside the container. .cache-bust invalidates this layer on
@@ -590,8 +584,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.7
-ARG UV_X86_64_LINUX_SHA256=788f18abea7c5f55d6216e4f5613fd89d4d59b631efeec117b2b07fe72f1da21
+ARG UV_VERSION=0.12.10
+ARG UV_X86_64_LINUX_SHA256=173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e

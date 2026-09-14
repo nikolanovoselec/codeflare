@@ -20,7 +20,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ## Container Image
 
-**File:** `Dockerfile` - Base: `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror; avoids Docker Hub anonymous pull rate limits on CI runners), multi-stage build (builder compiles native addons, runtime has no build tools).
+**File:** `Dockerfile` - Base: `public.ecr.aws/docker/library/node:26-bookworm-slim` (AWS ECR Public mirror; avoids Docker Hub anonymous pull rate limits on CI runners), multi-stage build (builder compiles native addons, runtime has no build tools).
 
 ### Installed Tools
 
@@ -32,7 +32,9 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
-| Terminal runtime | Herdr v0.8.2, checksum-pinned official Linux x86-64 binary with image-owned config and Apache-2.0 attribution |
+| Terminal runtime | Herdr v0.9.0, checksum-pinned official Linux x86-64 binary with image-owned config and Apache-2.0 attribution |
+
+Copilot 1.0.83 sandbox prerequisites include `slirp4netns`, `iptables`/`ip6tables` and util-linux. Installing them does not grant TUN access, privileged containers or local-network permission; platform restrictions and explicit sandbox policy still apply.
 
 ### Bundled image tooling
 
@@ -133,7 +135,7 @@ CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. 
 
 ### code-server Browser IDE Binary
 
-**File:** `Dockerfile` installs coder/code-server 4.135.0 from the pinned linux-amd64 release with SHA-256 verification. The build also verifies code-server commit `de89acbcdce9d9b870008a270c9f6466993d91f4`, the actual embedded Code package version 1.135.0, and product provenance; it records VS Code gitlink `08d4889f9ec4a1685d257b9b95de036c8e1ce1e5`, which the Shadow Pins job derives from the immutable release tag. Only `/usr/local/bin/code-server` is exposed; no OpenVSCode runtime binary remains. The dedicated `code-server` Shadow Pins job derives the packaged commit and Code version from the immutable upstream release artifact, cross-checks its package/product identities, derives the VS Code source gitlink from the release tag, and invalidates the checksum for operator review. See [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
+**File:** `Dockerfile` installs coder/code-server 4.137.0 from the pinned linux-amd64 release with SHA-256 verification. The build also verifies code-server commit `b11dabdaca0d3369986975be285db92c8795cea5`, the actual embedded Code package version 1.137.0, and product provenance; it records VS Code gitlink `645f29cc3176500b4b5762ba887cf2a7f0ffdf2c`, which the Shadow Pins job derives from the immutable release tag. Only `/usr/local/bin/code-server` is exposed; no OpenVSCode runtime binary remains. The dedicated `code-server` Shadow Pins job derives the packaged commit and Code version from the immutable upstream release artifact, cross-checks its package/product identities, derives the VS Code source gitlink from the release tag, and invalidates the checksum for operator review. See [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
 
 A digest-pinned Node 22.21.1 stage builds Codeflare's native Pi Chat participant with no runtime npm dependency or native addon. A separate stage fetches Anthropic's exact official `linux-x64` VSIX from Open VSX, verifies its fixed SHA-256 and package identity, extracts its files unchanged, and deletes the archive. The final image contains a root-owned Pi inventory whose visible participant is **Codeflare**, an immutable official Claude inventory, and an empty `none` inventory. Legacy private paths under `openvscode/` and `/opt/codeflare/openvscode/` remain intentionally unchanged for this migration. See [`openvscode/README.md`](../../openvscode/README.md) and [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
 

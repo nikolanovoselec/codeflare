@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-14
 
+- **Child protocol survives bootstrap filtering** (REQ-AGENT-158). Preserve upstream-registered ask/notify-parent tools in restricted subagent sessions without widening their ordinary tool allowlist; parent, Goal, Plan and Inline ownership remain unchanged.
+
 - **Exclude regenerable Python artifacts from home sync** ([REQ-STOR-053](storage.md#req-stor-053-regenerable-python-artifacts-stay-outside-home-sync)). Exclude conventional hidden virtualenv directories and Python bytecode before positive content rules, without changing workspace modes, adopting an allowlist or deleting existing excluded objects.
 
 - **HTTPS distribution package sources** ([REQ-OPS-063](operations.md#req-ops-063-https-distribution-package-sources)). Ship HTTPS Debian repositories so package installs need no direct HTTP access; certificate checks, repository signatures and enterprise egress authorization remain unchanged.

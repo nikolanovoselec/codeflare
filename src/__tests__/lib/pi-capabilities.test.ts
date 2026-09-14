@@ -947,3 +947,20 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     ]);
   });
 });
+
+describe('REQ-AGENT-158: child protocol compatibility', () => {
+  it('REQ-AGENT-158: preserves registered child protocol without granting ordinary tools', () => {
+    const pi = fakePi({ active: [], tools: [
+      { name: 'ask_parent', description: 'Ask the parent' },
+      { name: 'notify_parent', description: 'Notify the parent' },
+    ] });
+    expect(initialActiveTools(pi)).toEqual(['ask_parent', 'notify_parent']);
+  });
+
+  it('does not manufacture child tools in the parent or when notifications are disabled', () => {
+    expect(initialActiveTools(fakePi())).not.toContain('ask_parent');
+    expect(initialActiveTools(fakePi({ tools: [
+      { name: 'ask_parent', description: 'Ask the parent' },
+    ] }))).toEqual(['ask_parent']);
+  });
+});
