@@ -47,6 +47,9 @@ describe('REQ-ENTERPRISE-074 discovered contract runtime parity', () => {
     const messages = bedrock.messages as Array<{ content: unknown[] }>;
     expect(messages[0].content[1]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YQ==' } });
     expect(payload.messages[0].content[1]).toEqual(image);
+    const assistant = compatibilityRequest({ messages: [{ role: 'assistant', content: [image] }] },
+      { response: 'stream', toolNames: 'strict', transport: 'compat', images: 'bedrock-native-block' });
+    expect(assistant).toEqual({ messages: [{ role: 'assistant', content: [image] }] });
   });
 
   it('selects Bedrock image translation only for homogeneous Anthropic Bedrock inventory', () => {

@@ -29,7 +29,10 @@ export function compatibilityRequest(body: Record<string, unknown>, wire?: Compa
     result = { ...body, messages: body.messages.map((message) => {
       if (!message || typeof message !== 'object' || Array.isArray(message)) return message;
       const record = message as Record<string, unknown>;
-      if (!Array.isArray(record.content)) return message;
+      // OpenAI multimodal image parts are user input. Do not broaden the
+      // workaround into system or assistant content that Anthropic does not
+      // document as an image-bearing message position.
+      if (record.role !== 'user' || !Array.isArray(record.content)) return message;
       return { ...record, content: record.content.map((part) => {
         if (!part || typeof part !== 'object' || Array.isArray(part)) return part;
         const item = part as Record<string, unknown>;
