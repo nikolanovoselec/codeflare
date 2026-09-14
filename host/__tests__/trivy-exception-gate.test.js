@@ -25,7 +25,7 @@ function braceExpansionVulnerability(overrides = {}) {
   return {
     VulnerabilityID: 'CVE-2026-69152',
     PkgName: 'brace-expansion',
-    InstalledVersion: '5.0.5',
+    InstalledVersion: '5.0.7',
     FixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
     Severity: 'HIGH',
     ...overrides,
@@ -60,11 +60,11 @@ function report(results = [
     Vulnerabilities: [
       braceExpansionVulnerability({
         PkgPath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.5' },
+        PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.7' },
       }),
-      ipAddressVulnerability('10.1.0', {
+      ipAddressVulnerability('10.2.0', {
         PkgPath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.1.0' },
+        PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
       }),
     ],
   },
@@ -76,17 +76,17 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('accepts only the reviewed HIGH/CRITICAL findings', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [
-      'Node.js@5.0.5',
-      'Node.js@10.1.0',
+      'Node.js@5.0.7',
+      'Node.js@10.2.0',
     ]);
     assert.equal(result.evidence.length, 2);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
     assert.ok(validateTrivyResult(report()).evidence.includes(
-      'CVE-2026-69192 ip-address 10.1.0 at Node.js '
+      'CVE-2026-69192 ip-address 10.2.0 at Node.js '
       + '[path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; '
-      + 'purl=pkg:npm/ip-address@10.1.0]',
+      + 'purl=pkg:npm/ip-address@10.2.0]',
     ));
   });
 
@@ -101,8 +101,8 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       const identities = output.split('\n').filter((line) => line.startsWith('Observed reviewed Trivy identity:'));
       const prefix = 'Observed reviewed Trivy identity: ';
       assert.deepEqual(identities, [
-        `${prefix}CVE-2026-69152 brace-expansion 5.0.5 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.5]`,
-        `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
+        `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
+        `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -166,6 +166,16 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     }
   });
 
+  it('rejects the superseded npm bundle identities', () => {
+    const input = report();
+    const findings = input.Results[0].Vulnerabilities;
+    findings[0].InstalledVersion = '5.0.5';
+    findings[0].PkgIdentifier.PURL = 'pkg:npm/brace-expansion@5.0.5';
+    findings[1].InstalledVersion = '10.1.0';
+    findings[1].PkgIdentifier.PURL = 'pkg:npm/ip-address@10.1.0';
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*missing reviewed finding/s);
+  });
+
   it('rejects duplicate reviewed findings', () => {
     const input = report();
     input.Results[0].Vulnerabilities.push(structuredClone(input.Results[0].Vulnerabilities[0]));
@@ -203,11 +213,11 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('rejects package-path or PURL drift from a reviewed identity', () => {
     for (const change of [
       { PkgPath: 'other/package.json' },
-      { PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.1.0?other' } },
+      { PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0?other' } },
     ]) {
       const input = report();
       const reviewed = input.Results[0].Vulnerabilities.find(
-        (finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0',
+        (finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.2.0',
       );
       Object.assign(reviewed, change);
       assert.throws(
@@ -220,12 +230,12 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('rejects missing occurrences from the reviewed deployment tuples', () => {
     const nodeResult = structuredClone(report().Results[0]);
     nodeResult.Vulnerabilities.splice(
-      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0'),
+      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.2.0'),
       1,
     );
     assert.throws(
       () => validateTrivyResult(report([nodeResult])),
-      /missing reviewed finding.*ip-address 10\.1\.0.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/ip-address\/package\.json; purl=pkg:npm\/ip-address@10\.1\.0/s,
+      /missing reviewed finding.*ip-address 10\.2\.0.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/ip-address\/package\.json; purl=pkg:npm\/ip-address@10\.2\.0/s,
     );
   });
 
@@ -237,7 +247,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     );
     assert.throws(
       () => validateTrivyResult(report([nodeResult])),
-      /missing reviewed finding.*brace-expansion 5\.0\.5.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/brace-expansion\/package\.json; purl=pkg:npm\/brace-expansion@5\.0\.5/s,
+      /missing reviewed finding.*brace-expansion 5\.0\.7.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/brace-expansion\/package\.json; purl=pkg:npm\/brace-expansion@5\.0\.7/s,
     );
   });
 
@@ -279,7 +289,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         && error.message.includes('purl=pkg:npm/first@1.0.0')
         && error.message.includes('CVE-2099-0002')
         && error.message.includes('path=opt/second/package.json')
-        && error.message.includes('missing reviewed finding: CVE-2026-69192 ip-address 10.1.0'),
+        && error.message.includes('missing reviewed finding: CVE-2026-69192 ip-address 10.2.0'),
     );
   });
 

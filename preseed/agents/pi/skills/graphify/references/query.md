@@ -5,12 +5,13 @@ Load this when the user asks a question against an existing graph, or runs `/gra
 Use the first-party native Pi tools for every graphify query - repo, Vault, and cross-repo/global alike. They resolve the graph automatically (the active repo's `graphify-out/graph.json` when you are in a cloned repo, otherwise the merged global graph at `/home/user/.graphify/global-graph.json`, which holds the Vault plus every globally-added repo). You do not pass a graph path.
 
 - Broad context: `graphify_query({ question, mode: "bfs" })` - "what is X connected to"
-- Trace/path: `graphify_query({ question, mode: "dfs" })` or `graphify_path` - "how does X reach Y"; Graphify 0.9.34+ follows edge direction by default, so an absent reverse path is meaningful rather than a cue to silently traverse edges backwards
+- Deeper exploration: `graphify_query({ question, mode: "dfs" })`. Graphify 0.9.56+ BFS/DFS explores connections in both directions while preserving actual edge directions. Neighborhood membership does not prove a directed path.
+- Directed trace/path: `graphify_path` - "how does X reach Y"; an absent reverse path remains meaningful.
 - Node details: `graphify_explain({ concept })`
 
 Treat graph output as navigation evidence, not proof against current source. Quote `source_location` when citing a graph fact and preserve every edge direction. Verify relevant source before explaining implementation; discard paths contradicted by current source, even after a graph refresh. If evidence is insufficient, say so—do not invent edges.
 
-A “no path” result is not a tool failure. Do not silently switch to undirected traversal; if direction is intentionally ignored, label that result explicitly.
+A “no path” result is not a tool failure. Do not substitute an undirected BFS/DFS neighborhood as proof of a directed path; label exploratory connectivity explicitly.
 
 For an unavailable native tool, activate its exact name through `capability` and use the exposed schema. Before any CLI fallback for a remaining execution error, read `graphify <command> --help` rather than guessing arguments, and supply an explicit `--graph`:
 

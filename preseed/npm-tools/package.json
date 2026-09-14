@@ -2,16 +2,16 @@
   "name": "codeflare-image-npm-tools",
   "private": true,
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.251",
+    "@anthropic-ai/claude-code": "2.1.263",
     "@earendil-works/pi-coding-agent": "0.85.1",
-    "@github/copilot": "1.0.82",
-    "@openai/codex": "0.151.0",
-    "bun": "1.4.0",
+    "@github/copilot": "1.0.83",
+    "@openai/codex": "0.153.4",
+    "bun": "1.4.2",
     "chrome-devtools-mcp": "1.8.0",
     "consult-llm-mcp": "2.13.4",
     "context-mode": "1.0.169",
     "esbuild": "0.28.2",
-    "opencode-ai": "1.18.25"
+    "opencode-ai": "1.18.29"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",

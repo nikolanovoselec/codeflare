@@ -14,6 +14,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { runInNewContext } from 'node:vm';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
@@ -25,11 +27,43 @@ const npmTools = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/npm-tools/pa
 // ---------------------------------------------------------------------------
 
 describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
-  it('REQ-OPS-011 AC1: container base image is public.ecr.aws/docker/library/node:24-bookworm-slim', () => {
+  it('REQ-OPS-011 AC1: container base image is public.ecr.aws/docker/library/node:26-bookworm-slim', () => {
     assert.ok(
-      dockerfile.includes('FROM public.ecr.aws/docker/library/node:24-bookworm-slim'),
-      'Dockerfile must use public.ecr.aws/docker/library/node:24-bookworm-slim as the base image (AWS ECR Public mirror)'
+      dockerfile.includes('FROM public.ecr.aws/docker/library/node:26-bookworm-slim'),
+      'Dockerfile must use public.ecr.aws/docker/library/node:26-bookworm-slim as the base image (AWS ECR Public mirror)'
     );
+  });
+
+  it('REQ-OPS-011 AC4: dedicated IDE build stages retain Node 22', () => {
+    for (const stage of [
+      'openvscode-agent-sidebar-builder',
+      'openvscode-official-claude-extension',
+      'openvscode-agent-inventories',
+    ]) {
+      assert.match(dockerfile, new RegExp(`^FROM \\S+node:22\\.21\\.1-\\S+ AS ${stage}$`, 'm'));
+    }
+  });
+
+  it('REQ-OPS-011 AC4: executed IDE stage guards reject incompatible Node versions', () => {
+    // Execute the actual inline build guards with version-input fixtures.
+    // Only the image build verifies the Node executable inside each stage.
+    for (const stage of [
+      'openvscode-agent-sidebar-builder',
+      'openvscode-official-claude-extension',
+      'openvscode-agent-inventories',
+    ]) {
+      const block = dockerfile.split(/^FROM /m).find((part) => part.split('\n')[0].endsWith(` AS ${stage}`));
+      const guard = block?.match(/^RUN (?:\/usr\/local\/bin\/)?node -e '([^']+)' &&/m)?.[1];
+      assert.ok(guard, `${stage} must execute its Node version guard`);
+      const execute = (version) => runInNewContext(guard, {
+        require: createRequire(import.meta.url),
+        process: { versions: { node: version } },
+      }, { timeout: 1000 });
+      assert.doesNotThrow(() => execute('22.21.1'));
+      for (const version of ['22.21.0', '24.16.0', '26.8.1', '22.21.1-beta.1', '']) {
+        assert.throws(() => execute(version), { code: 'ERR_ASSERTION' });
+      }
+    }
   });
 
   it('supported agent CLI options remain in the locked image catalog', () => {

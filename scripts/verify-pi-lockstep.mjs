@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { stripVTControlCharacters } from 'node:util';
 
 const PI_PACKAGE = '@earendil-works/pi-coding-agent';
 
@@ -69,15 +70,52 @@ export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePat
   const artifactPaths = sourcePaths.map((sourcePath) => resolveJitiCachePath(sourcePath, cacheDirectory));
   for (const artifactPath of artifactPaths) rmSync(artifactPath, { force: true, recursive: true });
   const extensionArgs = sourcePaths.flatMap((sourcePath) => ['--extension', sourcePath]);
-  const result = spawnSync(
-    piBinary,
-    ['--no-extensions', ...extensionArgs, '--list-models'],
-    { encoding: 'utf8', env: process.env, timeout: 240_000 },
-  );
-  if (result.error) throw new Error(`Pi JITI warm failed: ${result.error.message}`);
-  if (result.signal) throw new Error(`Pi JITI warm terminated by ${result.signal}`);
-  if (result.status !== 0) throw new Error(`Pi JITI warm exited ${result.status}`);
-  return sourcePaths.map((sourcePath) => verifyJitiCacheArtifact(sourcePath, cacheDirectory));
+  const cwd = process.cwd();
+  const run = (env) => {
+    const result = spawnSync(
+      piBinary,
+      ['--no-extensions', ...extensionArgs, '--list-models'],
+      { encoding: 'utf8', env, cwd, timeout: 240_000, maxBuffer: 10 * 1024 * 1024 },
+    );
+    if (result.error) throw new Error(`Pi JITI warm failed: ${result.error.message}`);
+    if (result.signal) throw new Error(`Pi JITI warm terminated by ${result.signal}`);
+    if (result.status !== 0) throw new Error(`Pi JITI warm exited ${result.status}`);
+    return result;
+  };
+  run(process.env);
+  const isJavaScript = (source) => /\.(?:js|mjs|cjs)$/.test(source);
+  for (const source of sourcePaths.filter((source) => !isJavaScript(source))) {
+    verifyJitiCacheArtifact(source, cacheDirectory);
+  }
+  // A new process must actually consume the baked cache, not merely leave files.
+  // JITI logs "transpile" even on hits; its cache miss/hit records are authoritative.
+  const replay = run({ ...process.env, JITI_DEBUG: '1' });
+  const trace = stripVTControlCharacters(`${replay.stdout}\n${replay.stderr}`).split('\n');
+  const misses = trace.filter((line) => line.includes('[cache]') && line.includes('[miss]'));
+  if (misses.length) throw new Error(`JITI cache reuse not proven: ${misses.slice(0, 10).join('\n')}`);
+  const cacheHits = trace.filter((line) => line.startsWith('[jiti] [cache] [hit] '));
+  const nativeImports = trace.filter((line) => line.startsWith('[jiti] [native] [import] '));
+  const evidence = `replay cwd=${JSON.stringify(cwd)}, cacheHits=${cacheHits.length}, nativeImports=${nativeImports.length}`;
+  const artifacts = [];
+  for (const source of sourcePaths) {
+    const realSource = realpathSync(source);
+    // Pinned JITI replaces the first cwd occurrence with '.', even for cwd '/'.
+    // Match the exact source field, never a basename or an arbitrary path suffix.
+    const displayedSource = realSource.replace(cwd, '.');
+    // Native JavaScript (notably context-mode) uses Node's V8 cache, not JITI files.
+    // This proves the native import, not a V8 cache hit or a startup-time target.
+    if (isJavaScript(source)) {
+      if (!nativeImports.includes(`[jiti] [native] [import] ${displayedSource}`)) {
+        throw new Error(`JITI cache reuse not proven: native import missing for ${realSource}; ${evidence}`);
+      }
+      continue;
+    }
+    if (!cacheHits.some((line) => line.startsWith(`[jiti] [cache] [hit] ${displayedSource} ~> `))) {
+      throw new Error(`JITI cache reuse not proven for ${realSource}; ${evidence}`);
+    }
+    artifacts.push(verifyJitiCacheArtifact(source, cacheDirectory));
+  }
+  return artifacts;
 }
 
 export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, installedPackagePath) {

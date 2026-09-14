@@ -144,7 +144,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.80.0',
+  expectedVersion = '1.81.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -185,9 +185,20 @@ export async function verifySelectedAgentPackages(
   return inventories;
 }
 
+export async function verifyContainerRuntime({
+  nodeVersion = process.versions.node,
+  osReleasePath = '/etc/os-release',
+} = {}) {
+  assert.match(nodeVersion, /^26\.\d+\.\d+$/, 'packaged runtime must use stable Node 26');
+  const release = await readFile(osReleasePath, 'utf8');
+  assert.match(release, /^ID=(?:debian|"debian")$/m, 'packaged runtime must use Debian');
+  assert.match(release, /^VERSION_CODENAME=(?:bookworm|"bookworm")$/m, 'packaged runtime must use bookworm');
+  return { nodeVersion, distribution: 'debian', codename: 'bookworm' };
+}
+
 export async function verifyJsYamlRuntime({
   runtimePath = '/opt/code-server/node_modules/js-yaml',
-  expectedVersion = '4.3.2',
+  expectedVersion = '5.4.1',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain js-yaml ${expectedVersion}`);
@@ -273,6 +284,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 }
 
 async function main() {
+  const containerRuntime = await verifyContainerRuntime();
   const codeServerRuntime = await verifyCodeServerRuntime();
   const jsYamlRuntime = await verifyJsYamlRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
@@ -356,6 +368,7 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
+    containerRuntime,
     extensionHash,
     nativeChat,
     officialClaude,

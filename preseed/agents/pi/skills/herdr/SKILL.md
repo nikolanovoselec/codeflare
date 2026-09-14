@@ -145,7 +145,7 @@ HERDR="${HERDR_BIN_PATH:-herdr}"
 "$HERDR" agent prompt helper "Adjust current work using this new constraint"
 ```
 
-Herdr v0.8.2 does not bind wait to steer submitted while agent works. Require task-specific completion evidence.
+Herdr v0.9.0 requires observed working/blocked activity before `agent prompt --wait` completes for a previously non-working agent. That does not bind completion to steering sent while an agent is already working. Require task-specific completion evidence for that case.
 
 Read results:
 

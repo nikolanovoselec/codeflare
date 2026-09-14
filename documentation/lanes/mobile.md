@@ -207,7 +207,7 @@ The mobile terminal input system uses several techniques to work around browser/
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
 6. **Touch scroll routing**
 
-   With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll xterm's buffer service directly through `scrollBufferLines()` (`xterm-internals.ts`) — never the public viewport-relative `terminal.scrollLines()`, whose DOM scroll state can desync and yank the viewport (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). The gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics; the pinned xterm `6.1.0-beta.292` scroll layer is JS-based (`SmoothScrollableElement`), not native overflow.
+   With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll xterm's buffer service directly through `scrollBufferLines()` (`xterm-internals.ts`) — never the public viewport-relative `terminal.scrollLines()`, whose DOM scroll state can desync and yank the viewport (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). The gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics; the pinned xterm `6.1.0-beta.304` scroll layer is JS-based (`SmoothScrollableElement`), not native overflow.
 
    An alternate-screen application with wheel-capable mouse tracking owns its own history. `attachSwipeGestures()`'s `scrollTouchLines()` helper (`web-ui/src/lib/touch-gestures.ts`) turns the same accumulated lines into DOM wheel events on xterm's terminal element, allowing xterm to encode application mouse reports instead of attempting to move nonexistent terminal scrollback.
 7. **Floating page navigation**
@@ -227,7 +227,7 @@ Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constr
 
 ### Root Cause
 
-`@xterm/xterm` is pinned to `6.1.0-beta.292`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
+`@xterm/xterm` is pinned to `6.1.0-beta.304`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
 
 xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output (git: Fix 8). Root cause was a vicious cycle between two performance hacks:
 
