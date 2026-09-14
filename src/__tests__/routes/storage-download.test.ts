@@ -79,6 +79,15 @@ describe('Storage Download Routes', () => {
     return app;
   }
 
+  it('downloads an ordinary file while managed reconciliation is pending', async () => {
+    mockKV._set('user-prefs:test-bucket', {
+      managedEnvironmentReconciliation: { targets: [{ digest: 'd'.repeat(64), sequence: 1, mode: 'default' }] },
+    });
+    const response = await createTestApp().request('/download?key=Uploads/report.txt');
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('file-content');
+  });
+
   describe('GET /download', () => {
     it('returns 200 with streamed content and correct headers', async () => {
       const app = createTestApp();

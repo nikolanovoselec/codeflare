@@ -183,6 +183,20 @@ describe('Storage Delete Route', () => {
     expect(body.error).toContain('1000');
   });
 
+  it('deletes an ordinary file while managed reconciliation is pending', async () => {
+    mockKV._set('user-prefs:test-bucket', {
+      managedEnvironmentReconciliation: { targets: [{ digest: 'd'.repeat(64), sequence: 1, mode: 'default' }] },
+    });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const response = await app.request('/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['Uploads/report.txt'] }),
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json() as { deleted: string[] }).deleted).toEqual(['Uploads/report.txt']);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
   // --- Single delete tests ---
 
   it('allows previously protected paths (PROTECTED_PATHS is now empty)', async () => {
