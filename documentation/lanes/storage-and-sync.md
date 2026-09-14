@@ -164,12 +164,13 @@ The two durable `VAULT_FILTER` allow-rules precede `+ Vault/**` because rclone u
 | Mode | Workspace Sync | Use Case |
 |------|---------------|----------|
 | `none` | Excluded entirely | Default. Settings and config only. |
-| `full` | Entire `workspace/` (minus `node_modules/`) | Persistent storage across stop/resume |
+| `full` | Entire `workspace/` subject to common exclusions | Persistent storage across stop/resume |
 | `metadata` | Only agent config files (`.claude/` and `CLAUDE.md`) per repo | Lightweight project context sync |
 
 All modes always exclude these groups:
 
 - Shell/runtime caches: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.cache/**`, `.wrangler/**`, `.config/**`, `.local/state/**`, `.local/share/code-server/coder-logs/**`, `.local/share/Trash/**`, `.cpan/**`.
+- Python artifacts: contents of `.venv/`, `.venv-*/` and `__pycache__/` directories at any depth, plus `*.pyc` and `*.pyo` files. These exclusions precede positive agent, Vault and tray rules.
 - Dependency and graph caches: `**/node_modules/**`, `**/graphify-out/**`, `.graphify/**`, `.claude/context-mode/**`, `.pi/context-mode/**`.
 - Local tool stores: `.local/share/claude/**`, `.local/share/uv/**`, `.local/bin/uv`, `.local/bin/uvx`, `.claude/mcp-*.json`.
 - Copilot/OpenCode/Gemini state: `.copilot/logs/**`, `.copilot/pkg/**`, `.copilot/session-state/**`, `.copilot/*.db-wal`, `.copilot/*.db-shm`, `.gemini/tmp/**`, `.local/share/opencode/log/**`, `.local/share/opencode/opencode.db-shm`, `.local/share/opencode/opencode.db-wal`.
@@ -180,6 +181,8 @@ All modes always exclude these groups:
 - Pi transcript conflict copies: `.pi/agent/sessions/**.conflict*`.
 
 In advanced mode the `VAULT_FILTER` re-includes `Vault/graphify-out/vault-graph.json` and the canonical `Vault/graphify-out/vault-extract-manifest.json` ahead of `+ Vault/**`; `- Vault/graphify-out/**` excludes derived HTML, request-specific pending manifests/chunks, and other generated output. Pi promotes staged bytes to the canonical manifest only after exact native success, so a crash or R2 sync cannot persist uncommitted high-water state. Edits made during an active extraction remain outside the promoted manifest and become eligible at the next resumed-session or 20-prompt hash check ([REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
+
+Python exclusions are name-based: reserve `.venv` and `.venv-*` directories for disposable environments, and keep source and dependency manifests beside them. Regular files named `.venv` or `.venv-ytdlp` are not excluded by the directory-content rules; neither are arbitrary `venv/` or `site-packages/` source directories. Existing excluded R2 objects are not purged by this change. Their removal requires separately authorized cleanup; sessions on an older image still use their previous filters ([REQ-STOR-053](../../sdd/spec/storage.md#req-stor-053-regenerable-python-artifacts-stay-outside-home-sync)). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
 The broad `.config/**` exclude subsumes older specific `.config/rclone/**` and `.config/.wrangler/**` entries. All rclone commands use `--filter` flags, not `--include`/`--exclude`.
 

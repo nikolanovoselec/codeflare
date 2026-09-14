@@ -73,7 +73,7 @@ const filterSlice = extractFilterResolution();
 // Inclusion assertions add a default-deny tail so only explicit positive
 // rules survive. Exclusion assertions retain rclone's default-include behavior
 // so every requested negative rule is load-bearing.
-function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
+function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true, extraFixtures = {} }) {
   const fx = mkdtempSync(join(tmpdir(), 'rclone-filters-'));
   mkdirSync(join(fx, 'Vault/graphify-out'), { recursive: true });
   mkdirSync(join(fx, 'Uploads'), { recursive: true });
@@ -137,8 +137,10 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.copilot/session-store.db-wal': 'ephemeral copilot wal',
     '.copilot/session-store.db-shm': 'ephemeral copilot shm',
     '.claude/projects/repo/workflows/run.json': 'ephemeral workflow state',
+    ...extraFixtures,
   };
   for (const [rel, body] of Object.entries(fixtures)) {
+    mkdirSync(dirname(join(fx, rel)), { recursive: true });
     writeFileSync(join(fx, rel), body);
   }
 
@@ -459,4 +461,33 @@ describe('REQ-STOR-031 managed-resource rclone filter', () => {
     assert.equal(readFileSync(filterPath, 'utf8'), '');
     assert.equal(spawnSync('test', ['!', '-e', policyPath]).status, 0);
   });
+});
+
+describe('REQ-STOR-053: regenerable Python artifacts stay outside home sync', () => {
+  for (const sessionMode of ['default', 'advanced']) {
+    for (const syncMode of ['full', 'metadata', 'none']) {
+      it(`excludes Python environments and bytecode without hiding adjacent user files (${sessionMode}/${syncMode})`, () => {
+        const roots = ['', 'Uploads/', 'Temporary/', 'Vault/', 'workspace/repo/', '.config/opencode/', '.pi/agent/', '.codeflare/review-state/v1/'];
+        const excluded = ['.venv/pyvenv.cfg', '.venv/lib/python3.11/site-packages/module.py', '.venv-ytdlp/bin/yt-dlp', '.venv-tools/pyvenv.cfg', '__pycache__/module.cpython-311.pyc', '__pycache__/index.json', 'module.pyc', 'module.pyo'];
+        const retained = ['module.py', 'requirements.txt', 'pyproject.toml', 'uv.lock', '.venv-notes.md', '.venv', '.venv-ytdlp', '.venvish/notes.md', 'venv/source.py', 'site-packages/source.py', '__pycache__notes.md', 'module.pyc.txt'];
+        // A file named .venv is deliberately preserved; only directories with
+        // that name are excluded. Exercise file and directory cases separately.
+        const fixture = {};
+        for (const root of roots) {
+          for (const path of excluded) fixture[`${root}${path}`] = 'regenerable';
+          for (const path of retained.filter((p) => p !== '.venv' && p !== '.venv-ytdlp')) fixture[`${root}${path}`] = 'user content';
+          fixture[`${root}files/.venv`] = 'user file';
+          fixture[`${root}files/.venv-ytdlp`] = 'user file';
+        }
+        const verdict = verdictUnder({ sessionMode, syncMode, defaultDeny: false, extraFixtures: fixture });
+        for (const root of roots) {
+          for (const path of excluded) assert.equal(verdict[`${root}${path}`], 'EXCLUDED', `${root}${path}`);
+          const included = !(root === 'Vault/' && sessionMode === 'default') && !(root === 'workspace/repo/' && syncMode !== 'full');
+          for (const path of [...retained.filter((p) => p !== '.venv' && p !== '.venv-ytdlp'), 'files/.venv', 'files/.venv-ytdlp']) {
+            assert.equal(verdict[`${root}${path}`], included ? 'INCLUDED' : 'EXCLUDED', `${root}${path}`);
+          }
+        }
+      });
+    }
+  }
 });

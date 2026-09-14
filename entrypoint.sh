@@ -381,6 +381,15 @@ else
 fi
 
 RCLONE_FILTERS_COMMON=(
+    # Regenerable Python artifacts: precede positive home/agent/tray rules.
+    # Directory-content patterns also cover flat object-store listings without
+    # excluding similarly named regular files or arbitrary source directories.
+    --filter "- .venv/**"
+    --filter "- .venv-*/**"
+    --filter "- __pycache__/**"
+    --filter "- *.pyc"
+    --filter "- *.pyo"
+
     # REQ-STOR-011: protect the home cache before any positive rule. Flat S3
     # listings also see nested .codeflare paths inside recovery backups; their
     # unanchored allow-rules must not override this root cache exclusion.
