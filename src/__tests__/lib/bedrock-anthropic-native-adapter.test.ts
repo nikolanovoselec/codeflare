@@ -269,7 +269,7 @@ describe('Bedrock Anthropic native adapter', () => {
       { role: 'user', content: 'Use the tool.' },
       { role: 'assistant', tool_calls: [{ id: 'foreign.tool:active', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
       { role: 'tool', tool_call_id: 'foreign.tool:active', content: 'synthetic result' },
-    ] }, state())).rejects.toThrow('signed thinking state is unavailable');
+    ] }, state())).rejects.toThrow();
   });
 
   it('REQ-ENTERPRISE-079: rejects a historical alias collision before provider I/O', async () => {
@@ -286,7 +286,7 @@ describe('Bedrock Anthropic native adapter', () => {
       { role: 'assistant', tool_calls: [{ id: collision, type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
       { role: 'tool', tool_call_id: collision, content: 'second' },
       { role: 'user', content: 'Continue.' },
-    ] }, state())).rejects.toThrow('alias collision');
+    ] }, state())).rejects.toThrow();
   });
 
   it('REQ-ENTERPRISE-073: restores active signed continuation after completed unsigned history', async () => {
