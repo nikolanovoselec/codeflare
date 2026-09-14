@@ -1,6 +1,8 @@
 export type BedrockAnthropicTransport = 'invoke' | 'eventstream';
 type JsonObject = Record<string, any>;
 
+/** Caller-owned, session-scoped storage for authentic assistant tool turns.
+ * The caller enforces authorization and isolation; tool IDs alone grant neither. */
 export interface BedrockReplayState {
   load(toolId: string): Promise<unknown[] | null>;
   save(toolId: string, content: unknown[]): Promise<void>;
@@ -68,8 +70,9 @@ export function selectBedrockAnthropicTransport(configured: BedrockAnthropicTran
   // documentation/lanes/bedrock-prompt-caching.md; never bypass inspection here.
   //
   // Preserve the existing explicit transport and upper-effort authority. Sonnet
-  // XHigh/Max aliases are already native High; Opus XHigh/Max still require Invoke
-  // in auto mode. This is selection, never a retry after a paid provider failure.
+  // XHigh/Max aliases are already native High; this adapter retains Invoke for
+  // Opus XHigh/Max in auto mode as a verification limit, not a universal AWS rule.
+  // This is selection, never a retry after a paid provider failure.
   if (configured === 'auto') return mappedEffort === 'xhigh' || mappedEffort === 'max' ? 'invoke' : 'eventstream';
   return configured;
 }
@@ -469,6 +472,9 @@ function sse(data: unknown): Uint8Array {
   return encoder.encode(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
 }
 
+// Emit public deltas incrementally, but persist replay and emit a successful
+// finish only after validated EOF. A caught failure emits error + [DONE], so
+// the terminator alone is not proof of success; upstream read errors propagate.
 async function adaptEventstream(response: Response, state: BedrockReplayState, observe?: BedrockThinkingObserver): Promise<Response> {
   if (!response.ok || !response.body) return response;
   let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);

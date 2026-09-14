@@ -13,17 +13,16 @@ export function compatibilityImagesForModels(models: readonly CompatibilityModel
     ? 'bedrock-native-block' : undefined;
 }
 
-/** Both discovery and dispatch use this boundary. A successful buffered probe
- * must never authorize a different (streaming) provider request in production.
- * The client still receives OpenAI SSE, but this mode is explicitly NOT evidence
- * of incremental generation and can qualify only below Optimal. */
+/** Apply the same saved wire contract in discovery and dispatch. Image shaping
+ * and response buffering are independent. Only response='buffered' forces a
+ * non-streaming provider request; synthesized client SSE is not evidence of
+ * incremental generation and must not qualify that mode as Optimal. */
 export function compatibilityRequest(body: Record<string, unknown>, wire?: CompatibilityWire): Record<string, unknown> {
   let result = body;
   if (wire?.images === 'bedrock-native-block' && Array.isArray(body.messages)) {
-    // Live /compat evidence on 2026-09-14 showed the exact failure boundary:
-    // `image_url.url = data:image/png;base64,...` reached Bedrock as though the
-    // entire data URI were base64 (`:` failed at byte offset 4). Supplying the
-    // semantically equivalent Anthropic image/source block returned HTTP 200.
+    // September 14 probes rejected `:` at offset 4, consistent with treating
+    // a complete data URI as raw base64; the internal forwarded payload was not
+    // captured. The equivalent native image/source block returned HTTP 200.
     // Keep this clone-and-rebuild transform narrow; never strip an arbitrary
     // URL, infer a MIME type, download content, or mutate the caller's history.
     result = { ...body, messages: body.messages.map((message) => {
@@ -52,6 +51,8 @@ export function compatibilityRequest(body: Record<string, unknown>, wire?: Compa
   return result;
 }
 
+/** Reframe a validated buffered OpenAI response as one SSE chunk plus [DONE].
+ * This does not stream generation or normalize a native Anthropic envelope. */
 export async function compatibilityResponse(response: Response, wire: CompatibilityWire | undefined, clientStreaming: boolean): Promise<Response> {
   if (wire?.response !== 'buffered' || !clientStreaming || !response.ok) return response;
   if (!response.body) throw new Error('compatibility_missing_body');
