@@ -2465,7 +2465,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 7. A nonempty request whose every validated key and deletion prefix is outside managed release roots, legacy `.agents/`, and `.codeflare/` bypasses managed readiness checks. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (allows ordinary targets during an interrupted update: %j) --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (allows ordinary upload operation %s while managed reconciliation is pending) --> <!-- @test: src/__tests__/routes/storage-delete.test.ts (deletes an ordinary file while managed reconciliation is pending) --> <!-- @test: src/__tests__/routes/storage-download.test.ts (downloads an ordinary file while managed reconciliation is pending) -->
 
-**Constraints:** Storage uses the verified user-bucket policy and does not create another authority. Authentication, bucket migration checks, and administrator download restrictions remain unchanged.
+**Constraints:**
+
+- Storage uses the verified user-bucket policy and does not create another authority.
+- Authentication, bucket migration checks, and administrator download restrictions remain unchanged.
 
 **Priority:** P0
 
