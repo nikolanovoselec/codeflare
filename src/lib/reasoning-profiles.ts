@@ -33,7 +33,14 @@ export interface NormalizedReasoningProfile {
   /** A bounded wire contract, not arbitrary endpoint/header transformation.
    * Included in the canonical hash so changing buffering/repair invalidates
    * target verification. Omission preserves every historical profile. */
-  compatibility?: { response: 'stream' | 'buffered'; toolNames: 'strict' | 'repeated-complete'; transport?: 'compat' };
+  compatibility?: {
+    response: 'stream' | 'buffered';
+    toolNames: 'strict' | 'repeated-complete';
+    transport?: 'compat';
+    /** Provider-specific request content shape established by discovery or an
+     * audited built-in contract. Omission preserves ordinary OpenAI image parts. */
+    images?: 'bedrock-native-block';
+  };
   supportedLevels: PiReasoningLevel[];
   unsupportedLevels: PiReasoningLevel[];
   removePaths: string[];
@@ -512,11 +519,14 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
   let compatibility: NormalizedReasoningProfile['compatibility'];
   if (value.compatibility !== undefined) {
     const wire = asRecord(value.compatibility, 'compatibility');
-    if (Object.keys(wire).some((key) => !['response', 'toolNames', 'transport'].includes(key))
+    if (Object.keys(wire).some((key) => !['response', 'toolNames', 'transport', 'images'].includes(key))
       || !['stream', 'buffered'].includes(String(wire.response))
       || wire.transport !== undefined && wire.transport !== 'compat'
+      || wire.images !== undefined && wire.images !== 'bedrock-native-block'
       || !['strict', 'repeated-complete'].includes(String(wire.toolNames))) throw new Error('Unsupported compatibility contract');
-    compatibility = { response: wire.response as 'stream' | 'buffered', toolNames: wire.toolNames as 'strict' | 'repeated-complete', ...(wire.transport === 'compat' && { transport: 'compat' as const }) };
+    compatibility = { response: wire.response as 'stream' | 'buffered', toolNames: wire.toolNames as 'strict' | 'repeated-complete',
+      ...(wire.transport === 'compat' && { transport: 'compat' as const }),
+      ...(wire.images === 'bedrock-native-block' && { images: 'bedrock-native-block' as const }) };
   }
   if (providerDefault && (!Array.isArray(value.supportedLevels) || value.supportedLevels.length !== 0)) throw new Error('provider-default supportedLevels must be empty');
   const supportedLevels: PiReasoningLevel[] = providerDefault ? [] : validateLevels(value.supportedLevels, 'supportedLevels');

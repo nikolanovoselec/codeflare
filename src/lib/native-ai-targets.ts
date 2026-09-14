@@ -32,7 +32,10 @@ export const BEDROCK_COMPAT_ADAPTER_VERSION = 'bedrock-anthropic-compat-v1';
 // v4 requires authentic active replay even for provider-default/disabled
 // reasoning and binds its storage to target authority. Old receipts stay
 // readable, but require the existing explicit confirmation/verification path.
-export const BEDROCK_NATIVE_ADAPTER_VERSION = 'bedrock-anthropic-native-v4';
+// v5 adds deterministic translation for completed foreign historical tool IDs.
+// Although authentic Bedrock replay is unchanged, the outbound request contract
+// changed; require a fresh target-bound receipt rather than silently granting it.
+export const BEDROCK_NATIVE_ADAPTER_VERSION = 'bedrock-anthropic-native-v5';
 export const NATIVE_COMPAT_ADAPTER_VERSION = 'native-openai-compat-v1';
 export const GEMINI_COMPAT_ADAPTER_VERSION = 'gemini-openai-compat-v1';
 
@@ -82,8 +85,8 @@ export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema
   .superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
 export const nativeTargetProfileDiscoveryDraftSchema = nativeTargetDraftObjectSchema
   .extend({ profileRef: nativeProfileRefSchema.optional() }).superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
-// Retain old documents for display/reverification, not authority for v4.
-const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, 'bedrock-anthropic-native-v1', 'bedrock-anthropic-native-v2', 'bedrock-anthropic-native-v3', BEDROCK_NATIVE_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
+// Retain old documents for display/reverification, not current authority.
+const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, 'bedrock-anthropic-native-v1', 'bedrock-anthropic-native-v2', 'bedrock-anthropic-native-v3', 'bedrock-anthropic-native-v4', BEDROCK_NATIVE_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
 
 export function defaultNativeProfileId(provider: string): ReasoningProfileId {
   if (provider === 'aws-bedrock') return BEDROCK_PROFILE_ID;
