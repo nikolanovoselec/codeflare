@@ -43,7 +43,7 @@ These retained controls also recover missing unsaved proof without a new wizard.
 | --- | --- |
 | `src/lib/ai-capability-discovery/index.ts` | Finite protocol search, automatic contract selection, campaign budget, exercised-backend correlation |
 | `src/lib/ai-capability-discovery/contract.ts` | Shared strict evidence parser and exact profile-evidence eligibility; no browser authority |
-| `src/lib/ai-capability-discovery/compatibility-wire.ts` | Shared discovery/runtime OpenAI streaming-or-buffered boundary |
+| `src/lib/ai-capability-discovery/compatibility-wire.ts` | Shared discovery/runtime OpenAI streaming-or-buffered boundary and bounded provider-specific content translation |
 | `src/lib/reasoning-discovery.ts` | Existing Pi canary, replay, bounded parser, cache measurements and sanitized diagnostics |
 | `src/lib/bedrock-anthropic-native-adapter.ts` | Existing native Messages/Invoke/Eventstream translation and private replay state |
 | `src/routes/admin/ai-capability-discovery.ts` | Admin/rate limit, gateway/provider authorization, inventory before/after, existing server receipt issuance |
@@ -63,6 +63,10 @@ Dynamic and direct-Bedrock compatibility candidates are content-addressed **shar
 The canonical custom revision ID is `discovered-<24 hex characters>`, derived from its semantic mapping and bounded wire contract. The same contract is reused across model/route names; adding a marketing name does not add code, a profile definition or another candidate. Verification remains target-specific, never a globally verified shared profile. This is automatic contract construction/selection, not a list asking the user to select and verify a profile.
 
 New compatibility contracts explicitly bind `/compat/chat/completions`, as currently documented for Dynamic Routing. The saved contract is used identically by discovery and dispatch, including stream mode and narrow complete-tool-name repair. Historical assignments retain their existing REST-first/404 fallback behavior. No broad paid retry is introduced.
+
+Cloudflare's live Bedrock `/compat` translator rejected a standard OpenAI PNG data URI with `invalid base64 image data` but accepted the equivalent native Anthropic image block. For a route whose authoritative inventory is entirely `aws-bedrock` Anthropic models, Discover therefore binds `images: bedrock-native-block` into the content-addressed compatibility contract. Runtime converts only allowlisted base64 JPEG, PNG, GIF and WebP data URIs, without mutating the Pi transcript. Mixed routes and every other provider keep standard OpenAI image parts because Codeflare cannot predict their selected branch. Existing saved generated profiles must be discovered and saved once to acquire this changed hashed contract; they are not silently rewritten.
+
+Native Runtime has a separate history boundary. Active provider tool turns still restore exact encrypted Bedrock blocks, including signed or redacted thinking. Only completed foreign historical pairs lacking provider state may receive a deterministic `cfh_<hash>` alias when their Pi tool ID contains characters rejected by Anthropic Messages Runtime. The same alias is applied to `tool_use.id` and `tool_result.tool_use_id`; collisions and ambiguous histories fail before provider I/O. Provider-generated current IDs and the client-visible transcript are never rewritten.
 
 For a buffered contract, the Worker validates completed OpenAI JSON and sends one SSE chunk plus `[DONE]` to a streaming Pi client. It preserves tool IDs and argument strings at that boundary; it never claims incremental generation. A native Anthropic envelope cannot be passed off as OpenAI JSON. A received-but-incompatible buffered envelope is reported as `unexpected_response_format`, with HTTP status and transport retained, rather than a connection failure; it remains a stop boundary, not permission to adapt or retry. No signed native state is reconstructed from client assertions.
 
