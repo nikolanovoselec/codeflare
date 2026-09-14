@@ -1447,3 +1447,28 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Status:** Implemented
 
 ---
+
+### REQ-STOR-053: Regenerable Python artifacts stay outside home sync
+
+**Intent:** Python environments and bytecode do not consume durable home storage while ordinary user content retains its existing sync scope.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Contents of directories named `.venv` or beginning `.venv-` are excluded at any depth in every session and workspace sync mode. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-053: regenerable Python artifacts stay outside home sync) -->
+2. Contents of `__pycache__` directories and files ending `.pyc` or `.pyo` are excluded before positive content-path rules. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-053: regenerable Python artifacts stay outside home sync) -->
+3. Adjacent source, dependency manifests and similarly named ordinary files retain their previous session/workspace inclusion behavior. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-053: regenerable Python artifacts stay outside home sync) -->
+4. Normal restore and bisync leave existing excluded Python artifacts unchanged on each side without copying them to the other side. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
+
+**Constraints:** No allowlist migration, package-directory scanning, automatic object cleanup or broad `venv`/`site-packages` exclusion. The rules classify names, not virtualenv validity; these directory names are reserved for ephemeral artifacts.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
+
+**Verification:** Real rclone filter fixtures across six mode combinations and the existing S3 restore/bisync fixture.
+
+**Status:** Implemented
+
+---

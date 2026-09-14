@@ -176,8 +176,14 @@ def test_recovery_archive_filters(run, root, server_root):
     }
     archive_prefix = ".cache/codeflare-recovery/baseline/"
     archives = {archive_prefix + name: b"preserved remote " + content for name, content in live.items()}
+    # REQ-STOR-053: use flat S3 keys, not only local directory traversal.
+    python_artifacts = {
+        prefix + name: b"preserved remote Python artifact\n"
+        for prefix in ("", "Uploads/", "Temporary/", "Vault/", ".config/opencode/")
+        for name in (".venv/pyvenv.cfg", ".venv-ytdlp/lib/module.py", "__pycache__/module.pyc", "module.pyc", "module.pyo")
+    }
     bucket = server_root / "filters"
-    for name, content in {**live, **archives}.items():
+    for name, content in {**live, **archives, **python_artifacts}.items():
         path = bucket / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
@@ -195,13 +201,22 @@ def test_recovery_archive_filters(run, root, server_root):
             local_archive = local / (archive_prefix + ".codeflare/ide-ui-state.json")
             local_archive.parent.mkdir(parents=True)
             local_archive.write_bytes(b"preserved local archive\n")
+            local_python = local / ".venv-local/pyvenv.cfg"
+            local_python.parent.mkdir(parents=True)
+            local_python.write_bytes(b"preserved local environment\n")
             run("sync", "fixture:filters", str(local), "--fast-list", *filters)
+            for name in python_artifacts:
+                assert not (local / name).exists(), f"Restored excluded Python artifact: {name}"
             for name in expected:
                 assert (local / name).read_bytes() == live[name], f"Live restore failed: {name}"
             sync_args = ("bisync", str(local), "fixture:filters", "--workdir", str(root / f"filter-state-{session_mode}-{sync_mode}"),
                          "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", *filters)
             run(*sync_args, "--resync")
             run(*sync_args)
+            assert local_python.read_bytes() == b"preserved local environment\n", "Restore/bisync altered excluded local environment"
+            assert not (bucket / ".venv-local/pyvenv.cfg").exists(), "Uploaded excluded local environment"
+            for name, content in python_artifacts.items():
+                assert (bucket / name).read_bytes() == content, f"Changed excluded remote Python artifact: {name}"
             assert local_archive.read_bytes() == b"preserved local archive\n", "Restore/bisync overwrote local archive"
             assert {str(path.relative_to(local)) for path in (local / ".cache").rglob("*") if path.is_file()} == {
                 str(local_archive.relative_to(local))
