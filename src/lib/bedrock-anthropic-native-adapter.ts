@@ -198,15 +198,15 @@ async function assistantContent(message: JsonObject, activeTurn: boolean, state:
  * correlated, while the original client-visible transcript stays untouched. */
 async function historicalToolAliases(messages: unknown[], turnStart: number): Promise<Map<string, string>> {
   const aliases = new Map<string, string>();
-  const ids: string[] = [];
+  const ids = new Set<string>();
   for (const message of messages.slice(0, turnStart)) {
     if (!plain(message)) continue;
     const candidates = message.role === 'assistant' && Array.isArray(message.tool_calls)
       ? message.tool_calls.map((call: unknown) => plain(call) ? safeToolId(call.id) : null)
       : message.role === 'tool' ? [safeToolId(message.tool_call_id)] : [];
-    for (const id of candidates) if (id && !ids.includes(id)) ids.push(id);
+    for (const id of candidates) if (id) ids.add(id);
   }
-  const owners = new Map(ids.filter((id) => bedrockToolId(id)).map((id) => [id, id]));
+  const owners = new Map([...ids].filter((id) => bedrockToolId(id)).map((id) => [id, id]));
   for (const id of ids) {
     if (bedrockToolId(id)) continue;
     // Pi conversations can contain completed calls from OpenAI-compatible
