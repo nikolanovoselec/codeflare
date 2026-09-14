@@ -100,3 +100,7 @@ Lock generation is script-suppressed and bounded; no local dependency installati
 | [#1121](https://github.com/nikolanovoselec/codeflare/pull/1121) | `bump/graphify-0.9.61` | Integrated, with corrections described above |
 | [#1122](https://github.com/nikolanovoselec/codeflare/pull/1122) | `bump/pi-ext-gotgenes-pi-subagents-21.4.4` | Superseded by #1125 |
 | [#1125](https://github.com/nikolanovoselec/codeflare/pull/1125) | `bump/pi-ext-gotgenes-pi-subagents-21.4.5` | Integrated, with corrections described above |
+
+## First integrated CI result and corrections
+
+[Run 34887375902](https://github.com/nikolanovoselec/codeflare/actions/runs/34887375902) at `0c716490b9e24f5dc3b9a6c3513fa409fde2f773` passed every executed non-host lane. Host failures identified Wrangler's newly nested Sharp 0.35.2/libvips 1.3.1 below existing security floors, a stale Zizmor SHA assertion, and the deliberate subagent-version sentinel. Add the existing fixed Sharp 0.35.4 as an explicit root override and regenerate, preserving the floor test. Update the action assertion without altering its permissions. A probe of the tagged 21.4.5 manager method confirms it still invokes resume for queued/running records; the managed guard rejects both, so retain the guard and advance its reviewed-version sentinel. These corrections require a new exact-head CI run; the preceding run is not green evidence for the corrected tree.

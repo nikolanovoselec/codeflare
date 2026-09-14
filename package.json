@@ -34,6 +34,7 @@
     "minimatch": ">=10.2.1",
     "glob": ">=11.0.0",
     "undici": "7.29.0",
+    "sharp": "0.35.4",
     "esbuild": "$esbuild",
     "@vitest/runner": "4.1.11",
     "@vitest/snapshot": "4.1.11",
