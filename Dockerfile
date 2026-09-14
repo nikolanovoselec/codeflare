@@ -715,13 +715,11 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 #   extensions load (|| true); the mv + final test fail the build if the cache
 #   came out empty, so a pi CLI change that breaks the warm-up is caught at
 #   build, not as a silent startup regression in production.
-# - Fail-closed completeness check: the build asserts that every local Pi extension
-#   produced an extensions-<base>.<hash>.mjs entry. A dedicated explicit extension
-#   load transpiles Goal's installed entrypoint even when another package reports a
-#   non-fatal startup error; the build then derives and requires exact regular-file
-#   artifacts for Goal, Plan Mode, Usage, and Evaluate. A future extension that is added, modified into a non-loading state,
-#   or skipped by a pi-loader change therefore fails the build instead of silently
-#   cold-transpiling every production session.
+# - Fail-closed completeness check: explicitly load all managed entrypoints and
+#   local files at their runtime paths, then require actual cache hits and no
+#   misses (including dependencies) in a second fresh Pi process. Native JS uses
+#   Node's compile cache; require its native-import trace, not a JITI artifact.
+#   Verify exact local path hashes before deleting the temporary warm home.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
@@ -733,19 +731,20 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
     mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
+    advisor_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-advisor/index.ts" && \
+    ask_user_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-ask-user-question/index.ts" && \
+    todo_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-todo/index.ts" && \
+    web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/index.ts" && \
+    context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/build/adapters/pi/extension.js" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" "$subagents_source" "$mcp_source" && \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" "$subagents_source" "$mcp_source" \
+      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$context_source" /home/user/.pi/agent/extensions/*.ts && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
-    rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
-    for ext in /opt/codeflare/pi-agent/extensions/*.ts; do \
-        [ -e "$ext" ] || continue; \
-        base="$(basename "$ext" .ts)"; \
-        hit="$(ls /opt/codeflare/jiti-cache/extensions-"$base".*.mjs 2>/dev/null | head -1)"; \
-        if [ -n "$hit" ]; then echo "[Dockerfile]   jiti-cached: $base -> $(basename "$hit")"; \
-        else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
+    for ext in /home/user/.pi/agent/extensions/*.ts; do \
+        node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$ext" /opt/codeflare/jiti-cache || exit 1; \
     done && \
     goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
@@ -753,7 +752,8 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
     subagents_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$subagents_source" /opt/codeflare/jiti-cache)" && \
     mcp_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$mcp_source" /opt/codeflare/jiti-cache)" && \
-    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Plan Mode, Usage, Evaluate, Subagents, and MCP are baked"
+    rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
+    echo "[Dockerfile] JITI cache reuse verified: local extensions and all managed TypeScript packages; context-mode imports natively"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

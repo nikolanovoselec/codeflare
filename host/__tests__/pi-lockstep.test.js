@@ -161,6 +161,7 @@ while [ "$#" -gt 0 ]; do
     artifact="$(node "$VERIFY_SCRIPT" --jiti-cache-path "$1" "$CACHE_DIR")"
     mkdir -p "$(dirname "$artifact")"
     printf 'compiled\\n' > "$artifact"
+    if [ "$JITI_DEBUG" = 1 ]; then printf '[jiti] [cache] [hit] %s\\n' "$1"; fi
   fi
   shift
 done
@@ -237,9 +238,14 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
   { variable: 'mcp', package: 'pi-mcp-adapter', entrypoint: 'index.ts' },
+  { variable: 'advisor', package: '@juicesharp/rpiv-advisor', entrypoint: 'index.ts' },
+  { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
+  { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
+  { variable: 'web', package: 'pi-web-access', entrypoint: 'index.ts' },
+  { variable: 'context', package: 'context-mode', entrypoint: 'build/adapters/pi/extension.js' },
 ];
 
-function runImageWarmFixture(omitPackage = '') {
+function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {
   const directory = mkdtempSync(join(tmpdir(), 'codeflare-image-warm-'));
   try {
     const imageRoot = join(directory, 'image');
@@ -272,11 +278,13 @@ const args = process.argv.slice(2);
 const sources = args.includes('--list-models')
   ? args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : [])
   : [process.env.FIXTURE_LOCAL_SOURCE];
-for (const source of sources) {
+for (let source of sources) {
+  if (process.env.WRONG_LOCAL_PATH === '1' && source === process.env.FIXTURE_LOCAL_SOURCE) source = process.env.WRONG_LOCAL_SOURCE;
   if (process.env.OMIT_PACKAGE && source.includes('/node_modules/' + process.env.OMIT_PACKAGE + '/')) continue;
   const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
   mkdirSync(dirname(artifact), { recursive: true });
   writeFileSync(artifact, stripTypeScriptTypes(readFileSync(source, 'utf8')));
+  if (process.env.JITI_DEBUG === '1') console.log(source.endsWith('.js') ? '[jiti] [native] [import]' : '[jiti] [cache] [hit]', source);
 }
 `);
     chmodSync(pi, 0o755);
@@ -287,9 +295,9 @@ for (const source of sources) {
       .replaceAll('/opt/codeflare', imageRoot).replaceAll('/home/user', home);
     const result = spawnSync('bash', ['-e', '-c', command], {
       encoding: 'utf8', timeout: 30_000,
-      env: { ...process.env, FIXTURE_LOCAL_SOURCE: localSource, OMIT_PACKAGE: omitPackage },
+      env: { ...process.env, FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource },
     });
-    return { directory, imageRoot, result, sources: [...sources, { source: localSource, name: 'local' }] };
+    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), sources: [...sources, { source: localSource, name: 'local' }] };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
@@ -302,15 +310,26 @@ describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
     try {
       assert.equal(fixture.result.status, 0, fixture.result.stderr);
       for (const { source, name } of fixture.sources) {
-        const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-cache'));
+        const algorithm = getFips?.() ? 'sha256' : 'md5';
+        const artifact = name === 'local'
+          ? join(fixture.imageRoot, 'jiti-cache', `extensions-local.${createHash(algorithm).update(fixture.localRuntimeSource).digest('hex').slice(0, 8)}.mjs`)
+          : resolveCachePath(source, join(fixture.imageRoot, 'jiti-cache'));
         const compiled = await import(pathToFileURL(artifact).href);
         assert.equal(compiled.name, name);
       }
     } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
   });
 
+  it('rejects a local cache warmed at the wrong path despite a matching basename', () => {
+    const fixture = runImageWarmFixture('', true);
+    try {
+      assert.notEqual(fixture.result.status, 0);
+      assert.match(fixture.result.stderr, /jiti cache artifact is missing at .*extensions-local/);
+    } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
-    for (const name of ['@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode']) {
+    for (const name of ['@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);
