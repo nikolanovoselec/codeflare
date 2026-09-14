@@ -25,10 +25,10 @@ const npmTools = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/npm-tools/pa
 // ---------------------------------------------------------------------------
 
 describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
-  it('REQ-OPS-011 AC1: container base image is public.ecr.aws/docker/library/node:24-bookworm-slim', () => {
+  it('REQ-OPS-011 AC1: container base image is public.ecr.aws/docker/library/node:26-bookworm-slim', () => {
     assert.ok(
-      dockerfile.includes('FROM public.ecr.aws/docker/library/node:24-bookworm-slim'),
-      'Dockerfile must use public.ecr.aws/docker/library/node:24-bookworm-slim as the base image (AWS ECR Public mirror)'
+      dockerfile.includes('FROM public.ecr.aws/docker/library/node:26-bookworm-slim'),
+      'Dockerfile must use public.ecr.aws/docker/library/node:26-bookworm-slim as the base image (AWS ECR Public mirror)'
     );
   });
 
