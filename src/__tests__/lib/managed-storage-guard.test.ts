@@ -64,6 +64,38 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
   });
 
   it.each([
+    { keys: ['Uploads/report.pdf'] },
+    { keys: ['workspace/project/source.ts', 'Vault/note.md'] },
+    { prefixes: ['Uploads/', 'workspace/project/'] },
+    { keys: ['Vault/note.md'], prefixes: ['Downloads/'] },
+    { keys: ['.claude-adjacent/file', '.config/other/file'] },
+  ])('allows ordinary targets during an interrupted update: %j', async (targets) => {
+    state.snapshot.active.digest = 'c'.repeat(64);
+    const preferences = await kv.get('user-prefs:bucket', 'json') as Record<string, unknown>;
+    kv._set('user-prefs:bucket', {
+      ...preferences,
+      managedEnvironmentReconciliation: { targets: [{ digest: 'c'.repeat(64), sequence: 3, mode: 'default' }] },
+    });
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, ...targets }))
+      .resolves.toBeUndefined();
+  });
+
+  it.each([
+    { keys: ['.claude/settings.json'] }, { keys: ['.codex/config.toml'] },
+    { keys: ['.gemini/settings.json'] }, { keys: ['.copilot/config.json'] },
+    { keys: ['.pi/agent/SYSTEM.md'] }, { keys: ['.config/opencode/config.json'] },
+    { keys: ['.agents/legacy.md'] }, { keys: ['.codeflare/managed-paths.json'] },
+    { keys: ['.pi/agent'] }, { prefixes: ['.config/'] }, { prefixes: ['.pi'] },
+    { prefixes: [''] }, { prefixes: ['.agents/'] }, { prefixes: ['.codeflare/'] },
+    { keys: ['Uploads/a', '.claude/settings.json'] },
+    { keys: ['Uploads/a'], prefixes: ['.pi/'] }, {},
+  ])('retains pending protection for managed or overlapping targets: %j', async (targets) => {
+    state.snapshot.active.digest = 'c'.repeat(64);
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, ...targets }))
+      .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+  });
+
+  it.each([
     ['release digest', (snapshot: any, _applied: any) => { snapshot.active.digest = 'c'.repeat(64); }],
     ['sequence', (snapshot: any) => { snapshot.active.sequence = 5; }],
     ['effective mode', (_snapshot: any, applied: any) => { applied.mode = 'advanced'; }],
@@ -80,7 +112,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
     mutate(state.snapshot, applied);
     kv._set('user-prefs:bucket', { managedEnvironmentApplied: applied });
 
-    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['.claude/settings.json'] }))
       .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
     expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
   });
@@ -94,7 +126,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
       },
     });
 
-    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['.claude/settings.json'] }))
       .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
     expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
   });
@@ -102,7 +134,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
   it('explains why uploads and deletions are blocked during a managed update', async () => {
     state.snapshot.active.digest = 'c'.repeat(64);
 
-    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['.claude/settings.json'] }))
       .rejects.toMatchObject({
         code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
         userMessage: 'Uploads and deletions are blocked until your managed environment finishes updating. Wait for the update to finish, then try again.',
@@ -112,7 +144,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
   it('keeps storage guidance when managed policy verification is unavailable', async () => {
     vi.mocked(readVerifiedManagedR2Policy).mockRejectedValueOnce(new Error('policy unavailable'));
 
-    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['.claude/settings.json'] }))
       .rejects.toMatchObject({
         code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
         userMessage: 'Uploads and deletions are blocked until your managed environment finishes updating. Wait for the update to finish, then try again.',
