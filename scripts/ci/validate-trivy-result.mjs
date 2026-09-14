@@ -5,30 +5,32 @@ import { fileURLToPath } from 'node:url';
 
 const REVIEWED_FINDINGS = [
   {
-    // Reviewed from integration deployment 30847836723 at head a05cf374 and
-    // image sha256:324dc992f5d65aa9ab597a382ca6d35bd0629bfd502f809369547760dd767e3f.
-    // Trivy reports this package under its generic Node.js target. The DoS
-    // remains confined to the authenticated user's single-tenant container.
-    // Remove when the image no longer contains brace-expansion 5.0.5.
+    // Observed in integration runs 34897440885/34897443967 at head 0a5f222b.
+    // Owner accepts this exact bundled-npm copy pending an upstream rebuild.
+    // Crafted brace patterns can exhaust memory/CPU in the user's container;
+    // this is a risk exception, not a claim that the package is patched.
+    // Remove when the bundled copy reaches the fixed 5.0.9 release.
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69152',
     packageName: 'brace-expansion',
     packagePath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
-    packagePurl: 'pkg:npm/brace-expansion@5.0.5',
-    installedVersion: '5.0.5',
+    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
+    installedVersion: '5.0.7',
     fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
     severity: 'HIGH',
   },
   {
-    // Integration deployments 30893082736/30893082817 at head 8a745b7 and
-    // image IDs sha256:2ee1ac0/sha256:5847655 reported this stale declaration.
-    // Every committed runtime lock resolves ip-address to patched 10.4.0.
+    // Same two integration scans: npm actually bundles vulnerable 10.2.0.
+    // Leading-zero IPv4 parsing disagreement can bypass SSRF/trust boundaries;
+    // reachability here is unproven, not asserted absent. Owner accepts only
+    // this exact npm copy; application and code-server copies remain rejected.
+    // Remove when the bundled copy reaches the fixed 10.3.1 release.
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69192',
     packageName: 'ip-address',
     packagePath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
-    packagePurl: 'pkg:npm/ip-address@10.1.0',
-    installedVersion: '10.1.0',
+    packagePurl: 'pkg:npm/ip-address@10.2.0',
+    installedVersion: '10.2.0',
     fixedVersion: '10.3.1',
     severity: 'HIGH',
   },
