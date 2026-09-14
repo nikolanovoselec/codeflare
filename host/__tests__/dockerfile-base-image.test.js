@@ -32,6 +32,16 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     );
   });
 
+  it('REQ-OPS-011 AC4: dedicated IDE build stages retain Node 22', () => {
+    for (const stage of [
+      'openvscode-agent-sidebar-builder',
+      'openvscode-official-claude-extension',
+      'openvscode-agent-inventories',
+    ]) {
+      assert.match(dockerfile, new RegExp(`^FROM \\S+node:22\\.21\\.1-\\S+ AS ${stage}$`, 'm'));
+    }
+  });
+
   it('supported agent CLI options remain in the locked image catalog', () => {
     // Packaged-image execution is owned by container-image.yml; this audit
     // verifies that its lock-backed source catalog still carries every option.

@@ -403,9 +403,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container base image is a glibc-based Node.js 26 distribution (Debian bookworm-slim). Dedicated Browser IDE build stages retain their separately pinned Node 22 compatibility boundary. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011: Container base image is Debian bookworm-slim) --> <!-- @manual -->
+1. The container base image is a glibc-based Node.js 26 distribution (Debian bookworm-slim). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyContainerRuntime --> <!-- @test: host/__tests__/container-runtime-smoke.test.js (REQ-OPS-011 AC1: packaged runtime identity) --> <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011: Container base image is Debian bookworm-slim) --> <!-- @manual -->
 2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
 3. Essential developer tools for terminal-based workflows are pre-installed. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python) --> <!-- @manual -->
+4. Dedicated Browser IDE build stages retain their separately pinned Node 22.21.1 compatibility boundary. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::openvscode-official-claude-extension --> <!-- @impl: Dockerfile::openvscode-agent-inventories --> <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC4: dedicated IDE build stages retain Node 22) -->
 
 **Constraints:** None.
 
