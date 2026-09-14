@@ -877,15 +877,36 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Discovery normalizes repeated complete Bedrock tool names while preserving tool IDs and argument fragments. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-071: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile) -->
 2. Runtime normalizes repeated complete Bedrock tool names before Pi consumes the stream. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-071: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
 3. Runtime dispatches the selected profile through its original `dynamic/<route>` selector. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-071: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
-4. Automatic discovery selects native Anthropic image-block translation only for nonempty inventories consisting entirely of Amazon Bedrock Anthropic models. <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityImagesForModels --> <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (binds the Bedrock image wire when discovery inventory is homogeneous Anthropic Bedrock) --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (selects Bedrock image translation only for homogeneous Anthropic Bedrock inventory) -->
-5. The immutable discovered profile identity includes its selected image-wire contract. <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (binds the Bedrock image wire to a distinct immutable discovered contract) -->
-6. Runtime converts supported user-message data-URI images through the verified image-wire contract without changing the client transcript; mixed and non-Bedrock routes retain OpenAI image parts. <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityRequest --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (translates OpenAI data-URI images only for a verified Bedrock compatibility wire) --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (dispatches a verified Bedrock discovered profile with native image blocks) -->
 
 **Constraints:** Normalization does not grant Dynamic Routing native-provider reasoning controls.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-070](#req-enterprise-070-bedrock-dynamic-route-provider-default-profile)
+
+**Verification:** Anchored behavioral fixtures; execution is CI-only.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-084: Bedrock Dynamic Route Image Compatibility
+
+**Intent:** The Worker preserves image input through a verified, route-scoped Bedrock compatibility contract.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Automatic discovery selects native Anthropic image-block translation only for nonempty inventories consisting entirely of Amazon Bedrock Anthropic models. <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityImagesForModels --> <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (binds the Bedrock image wire when discovery inventory is homogeneous Anthropic Bedrock) --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (selects Bedrock image translation only for homogeneous Anthropic Bedrock inventory) -->
+2. The immutable discovered profile identity includes its selected image-wire contract. <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (binds the Bedrock image wire to a distinct immutable discovered contract) -->
+3. Runtime converts supported user-message data-URI images through the verified image-wire contract without changing the client transcript; mixed and non-Bedrock routes retain OpenAI image parts. <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityRequest --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (translates OpenAI data-URI images only for a verified Bedrock compatibility wire) --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (dispatches a verified Bedrock discovered profile with native image blocks) -->
+
+**Constraints:** Image compatibility does not grant native-provider reasoning controls or certify mixed-route image support.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation)
 
 **Verification:** Anchored behavioral fixtures; execution is CI-only.
 
@@ -2456,26 +2477,31 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-030: Managed-resource Storage enforcement
 
-**Intent:** User-facing Storage mutations enforce the same applied policy before any user-object R2 request.
+**Intent:** User-facing Storage mutations that may affect managed resources enforce the applied policy before user-object R2 requests; ordinary user files remain usable during managed updates.
 
 **Applies To:** Enterprise
 
 **Acceptance Criteria:**
 
 1. Storage uploads, multipart operations, and exact, batch, or prefix deletes check bucket migration before policy evaluation. <!-- @impl: src/routes/storage/upload.ts::app --> <!-- @impl: src/routes/storage/delete.ts::app --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) -->
-2. Storage compares full desired and applied identity before policy loading. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) -->
-3. Storage verifies policy before a user-object R2 request. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-ENTERPRISE-030: denies protected upload before the user-object R2 request) -->
+2. For potentially managed targets, Storage compares full desired and applied identity before policy loading. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) -->
+3. Storage verifies policy before a potentially managed user-object R2 request. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-ENTERPRISE-030: denies protected upload before the user-object R2 request) -->
 4. Exact or intersecting protected targets return `403`. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (blocks exact keys and intersecting prefixes but permits adjacent paths) -->
-5. Uncertain desired, applied, pending-target, or policy state returns managed-update-pending without a user-object R2 request. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (REQ-ENTERPRISE-030 AC5: blocks storage mutation while interrupted targets remain pending) -->
-6. Managed-update-pending Storage responses explain that uploads and deletions remain blocked until the update finishes. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (explains why uploads and deletions are blocked during a managed update) --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (keeps storage guidance when managed policy verification is unavailable) -->
+5. For potentially managed targets, including root/ancestor prefixes and mixed selections, uncertain desired, applied, pending-target, or policy state returns managed-update-pending without a user-object R2 request. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (REQ-ENTERPRISE-030 AC5: blocks storage mutation while interrupted targets remain pending) --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (retains pending protection for managed or overlapping targets: %j) -->
+6. Managed-update-pending Storage responses explain that the requested upload or deletion may affect managed resources and remains blocked until the update finishes. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (returns a conflict for managed targets during a managed update) --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (returns a conflict when managed policy verification is unavailable) -->
 
-**Constraints:** Storage uses the verified user-bucket policy and does not create another authority.
+7. A nonempty request whose every validated key and deletion prefix is outside managed release roots, legacy `.agents/`, and `.codeflare/` bypasses managed readiness checks. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (allows ordinary targets during an interrupted update: %j) --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (allows ordinary upload operation %s while managed reconciliation is pending) --> <!-- @test: src/__tests__/routes/storage-delete.test.ts (deletes an ordinary file while managed reconciliation is pending) --> <!-- @test: src/__tests__/routes/storage-download.test.ts (downloads an ordinary file while managed reconciliation is pending) -->
+
+**Constraints:**
+
+- Storage uses the verified user-bucket policy and does not create another authority.
+- Authentication, bucket migration checks, and administrator download restrictions remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-ENTERPRISE-027](#req-enterprise-027-managed-resource-admission-and-transport), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
 
-**Verification:** Automated migration, identity, policy, protected-target, and uncertainty tests
+**Verification:** Automated migration, identity, policy, protected-target, ordinary-target, and uncertainty tests. AC6 guidance is verified by direct review of the storage-specific message in `ManagedEnvironmentUpdatePendingError`; its anchored tests verify conflict behavior, not wording.
 
 **Status:** Implemented
 

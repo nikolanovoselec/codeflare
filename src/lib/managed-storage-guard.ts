@@ -1,3 +1,4 @@
+import { MANAGED_RELEASE_PATH_PREFIXES } from '../../scripts/agent-seed-release-limits.mjs';
 import type { AccessUser, Env, ManagedResourcePolicy, UserPreferences } from '../types';
 import { ForbiddenError, ManagedEnvironmentUpdatePendingError } from './error-types';
 import { getPreferencesKey } from './kv-keys';
@@ -17,6 +18,13 @@ import {
   type VerifiedManagedR2Policy,
 } from './managed-r2-policy';
 
+// Namespace bounds, not an applied policy: releases and retirements cannot own
+// ordinary user paths. Legacy retirements and Worker-owned metadata also count.
+const managedNamespaces = {
+  paths: [],
+  resourceRoots: [...MANAGED_RELEASE_PATH_PREFIXES, '.agents/', '.codeflare/'],
+};
+
 export async function guardManagedStorageMutation(input: {
   env: Env;
   bucketName: string;
@@ -24,6 +32,14 @@ export async function guardManagedStorageMutation(input: {
   keys?: readonly string[];
   prefixes?: readonly string[];
 }): Promise<void> {
+  const keys = input.keys ?? [];
+  const prefixes = input.prefixes ?? [];
+  if (
+    keys.length + prefixes.length > 0
+    && keys.every(key => key.length > 0 && !isManagedMutationProtected(managedNamespaces, key))
+    && prefixes.every(prefix => !canPrefixIntersectManagedPolicy(managedNamespaces, prefix))
+  ) return;
+
   let policy: VerifiedManagedR2Policy | null = null;
   try {
     const preferences = await input.env.KV.get<UserPreferences>(getPreferencesKey(input.bucketName), 'json') ?? {};
