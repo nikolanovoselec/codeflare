@@ -3792,7 +3792,7 @@ None.
 2. Broad Codeflare capability or onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
 3. A capability question scoped to a repository, file, component, failure, or task remains contextual instead of opening the generic tour. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @manual: Compare broad and repository-scoped capability questions in Pi. -->
 4. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare the current managed release with the baked fallback and generated target inventory. -->
-5. Pi's default generated invocation policy preserves `codeflare-capabilities` eligibility for metadata-backed discovery without an eager index. Broad onboarding and tutorial requests still follow the always-loaded rule's direct native-read path, not `capability` search or tool activation. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+5. Pi's default generated invocation policy preserves `codeflare-capabilities` eligibility for metadata-backed discovery without an eager index. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 
 **Constraints:**
 
@@ -4231,8 +4231,8 @@ None.
 **Acceptance Criteria:**
 
 1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-2. Capability queries return at most three relevant eligible tools or skills of the requested kind. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-3. Exact tool `name` takes precedence over `query`; activation additively enables only eligible registered tools without granting authorization, subject to managed exclusions in [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows). <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+2. Capability queries return at most three relevant eligible tools or skills of the requested kind. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: deterministic capability ranking) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095/096: event-backed skill discovery and policy boundaries) -->
+3. Activation additively enables only eligible registered tools without granting authorization, subject to managed exclusions in [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows). <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095/096: event-backed skill discovery and policy boundaries) -->
 4. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
 5. The memory/Vault extraction launch owner activates `subagent` before delivering unchanged extraction follow-up requests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a visible reminder without private spawn) -->
 6. While context-mode is enabled, its foreground owner registers `ctx_*` tools before the final exposure filter; those tools remain inactive until capability activation. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: final filtering removes tools registered by an earlier before-agent handler) -->
@@ -4242,6 +4242,7 @@ None.
 
 - Activation uses Pi's public API additively.
 - Groups, reset, Goal/Plan/Inline, and context-mode ownership remain unchanged.
+- Exact tool `name` takes precedence over `query`. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (keeps name precedence, activation groups and idempotence after metadata observation) -->
 - Optional `tool:`/`skill:` prefixes are case-insensitive.
 - Exact eligible names outrank other matches.
 - Whole-token ranking requires two-thirds coverage, a name/purpose hit, score at least 6, and 75% of each kind's best score.
@@ -5127,22 +5128,21 @@ None.
 
 **Constraints:**
 
-- Use Pi-native `SYSTEM.md`, `AGENTS.md`, progressive skill disclosure and invocation metadata.
-- No custom skill executor, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary; discovery uses the existing `capability` interface and compiler-generated policy.
-- Constitution, eager Git/review and startup/resume rules, local-execution gates, Vault guidance, and package catalogs remain unchanged.
-- Exclude tool schemas and additive project context from the cap.
-- Include owned system/global text/framing, winning visible skill-catalog descriptions/framing and isolated working-directory framing.
-- Project context remains additive, byte-unaltered, and separately reported.
-- Policy preserves original eligibility, including false entries, without descriptions or removed skill files.
-- Skill discovery and native access follow [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog).
-- Guards must preserve replaced prose's hard-policy boundary.
-- Shared fallback-path changes require matching curation bytes and protected verification.
-- Full alignment includes new paths and native Impeccable source.
-- Compiler-forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
-- Historical retirements retain product provenance; ordinary removals never enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
-- Alignment preserves compiler pins, runtime selections, signing history, tenant authorization and ownership guards.
-- No automatic content synchronization or private reverse-sync.
-- Builds, tests, installation, resource-loader integration and prompt verification remain CI-owned.
+- Use native SYSTEM/AGENTS instructions, progressive disclosure and invocation metadata.
+- No custom skill executor, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
+- Discovery uses existing capability and generated policy under [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog).
+- Constitution, eager Git/review/startup/resume safeguards, local-execution gates, Vault guidance and package catalogs remain unchanged.
+- Cap excludes tool schemas/project context; includes owned system/global, winning visible-catalog and isolated-working-directory text/framing.
+- Project context remains additive, byte-unaltered and separately reported.
+- Policy retains original eligibility, false entries and skill files, without descriptions.
+- Guards preserve replaced hard-policy boundaries.
+- Shared fallback changes require matching curation bytes and protected verification.
+- Alignment includes new paths/native Impeccable source.
+- Forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
+- Retirements retain provenance; ordinary removals cannot enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Alignment preserves pins, runtime selections, signing history, tenant authorization and ownership guards.
+- No automatic content sync/private reverse-sync.
+- Builds/tests/installation/resource-loader integration/prompt verification remain CI-owned.
 
 **Priority:** P1
 
