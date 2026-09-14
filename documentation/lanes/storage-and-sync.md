@@ -289,6 +289,8 @@ When listing state exists, resilient/recover handling and vanished-file repair r
 
 ## File Browser (REQ-STOR-016)
 
+A pending managed-environment update does not block uploads or deletions of ordinary user files outside managed namespaces. Requests that may touch managed resources—including parent-folder deletions and mixed selections—retain managed readiness and policy checks. Downloads remain available subject to administrator restrictions; encryption-migration locks still apply to mutations.
+
 The storage browser reads directly from R2 via the Worker API (not the container
 filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
 

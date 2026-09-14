@@ -131,23 +131,23 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
     expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
   });
 
-  it('explains why uploads and deletions are blocked during a managed update', async () => {
+  it('returns a conflict for managed targets during a managed update', async () => {
     state.snapshot.active.digest = 'c'.repeat(64);
 
     await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['.claude/settings.json'] }))
       .rejects.toMatchObject({
         code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
-        userMessage: 'Uploads and deletions are blocked until your managed environment finishes updating. Wait for the update to finish, then try again.',
+        statusCode: 409,
       });
   });
 
-  it('keeps storage guidance when managed policy verification is unavailable', async () => {
+  it('returns a conflict when managed policy verification is unavailable', async () => {
     vi.mocked(readVerifiedManagedR2Policy).mockRejectedValueOnce(new Error('policy unavailable'));
 
     await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['.claude/settings.json'] }))
       .rejects.toMatchObject({
         code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
-        userMessage: 'Uploads and deletions are blocked until your managed environment finishes updating. Wait for the update to finish, then try again.',
+        statusCode: 409,
       });
   });
 });
