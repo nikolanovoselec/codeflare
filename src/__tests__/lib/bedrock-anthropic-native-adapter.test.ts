@@ -240,6 +240,55 @@ describe('Bedrock Anthropic native adapter', () => {
     ]);
   });
 
+  it('REQ-ENTERPRISE-073: aliases completed foreign tool IDs to the Bedrock Messages alphabet', async () => {
+    const payload = { messages: [
+      { role: 'assistant', tool_calls: [
+        { id: 'functions.read_file:17', type: 'function', function: { name: 'read_file', arguments: '{ "path" : "README.md" }' } },
+        { id: 'functions.list.files:18', type: 'function', function: { name: 'list_files', arguments: '{}' } },
+      ] },
+      { role: 'tool', tool_call_id: 'functions.read_file:17', content: 'synthetic read result' },
+      { role: 'tool', tool_call_id: 'functions.list.files:18', content: 'synthetic list result' },
+      { role: 'user', content: 'Continue with this new request.' },
+    ] };
+    const first = await buildBedrockAnthropicRequest(payload, state());
+    const second = await buildBedrockAnthropicRequest(payload, state());
+    const calls = first.messages[0].content as Array<Record<string, unknown>>;
+    const results = first.messages[1].content as Array<Record<string, unknown>>;
+
+    expect(calls.map((call) => call.id)).toEqual(results.map((result) => result.tool_use_id));
+    expect(calls.map((call) => call.id)).toEqual((second.messages[0].content as Array<Record<string, unknown>>).map((call) => call.id));
+    expect(calls.map((call) => call.id)).not.toContain('functions.read_file:17');
+    expect(new Set(calls.map((call) => call.id)).size).toBe(2);
+    for (const call of calls) expect(call.id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(calls[0]).toMatchObject({ name: 'read_file', input: { path: 'README.md' } });
+    expect(results[0]).toMatchObject({ content: 'synthetic read result' });
+  });
+
+  it('REQ-ENTERPRISE-079: never aliases an unauthenticated active foreign tool turn', async () => {
+    await expect(buildBedrockAnthropicRequest({ messages: [
+      { role: 'user', content: 'Use the tool.' },
+      { role: 'assistant', tool_calls: [{ id: 'foreign.tool:active', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'foreign.tool:active', content: 'synthetic result' },
+    ] }, state())).rejects.toThrow();
+  });
+
+  it('REQ-ENTERPRISE-079: rejects a historical alias collision before provider I/O', async () => {
+    const foreign = 'functions.lookup:17';
+    const first = await buildBedrockAnthropicRequest({ messages: [
+      { role: 'assistant', tool_calls: [{ id: foreign, type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: foreign, content: 'first' },
+      { role: 'user', content: 'Continue.' },
+    ] }, state());
+    const collision = first.messages[0].content[0].id;
+    await expect(buildBedrockAnthropicRequest({ messages: [
+      { role: 'assistant', tool_calls: [{ id: foreign, type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: foreign, content: 'first' },
+      { role: 'assistant', tool_calls: [{ id: collision, type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: collision, content: 'second' },
+      { role: 'user', content: 'Continue.' },
+    ] }, state())).rejects.toThrow();
+  });
+
   it('REQ-ENTERPRISE-073: restores active signed continuation after completed unsigned history', async () => {
     const signed = [
       { type: 'thinking', thinking: '', signature: 'current-signature' },

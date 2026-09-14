@@ -6,7 +6,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 import { checkedRouteInventory, connectionFingerprint } from '../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION, parsePiSseText } from '../../lib/reasoning-discovery';
-import { compatibilityResponse } from '../../lib/ai-capability-discovery/compatibility-wire';
+import { compatibilityImagesForModels, compatibilityRequest, compatibilityResponse } from '../../lib/ai-capability-discovery/compatibility-wire';
 
 const active = { versionId: 'synthetic-v1', elements: [
   { id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
@@ -14,8 +14,8 @@ const active = { versionId: 'synthetic-v1', elements: [
 ] };
 vi.mock('../../lib/ai-gateway-management', async (original) => ({ ...await original<typeof import('../../lib/ai-gateway-management')>(), loadActiveRouteVersion: vi.fn(async () => active) }));
 afterEach(() => vi.restoreAllMocks());
-function interceptor(buffered: boolean) {
-  const profile = capabilityCandidates(false)[buffered ? 1 : 0];
+function interceptor(buffered: boolean, images?: 'bedrock-native-block') {
+  const profile = capabilityCandidates(false, images)[buffered ? 1 : 0];
   const kv = createMockKV();
   const gatewayUrl = `https://gateway.ai.cloudflare.com/v1/${'a'.repeat(32)}/synthetic`;
   const token = 'synthetic-token'; const inventory = checkedRouteInventory(active);
@@ -37,6 +37,53 @@ const request = () => new Request('https://api.openai.com/v1/chat/completions', 
     tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] }) });
 
 describe('REQ-ENTERPRISE-074 discovered contract runtime parity', () => {
+  it('translates OpenAI data-URI images only for a verified Bedrock compatibility wire', () => {
+    const image = { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' } };
+    const payload = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Synthetic image' }, image] }] };
+    const ordinary = compatibilityRequest(payload, { response: 'stream', toolNames: 'strict', transport: 'compat' });
+    const bedrock = compatibilityRequest(payload, { response: 'stream', toolNames: 'strict', transport: 'compat', images: 'bedrock-native-block' } as any);
+
+    expect(ordinary).toEqual(payload);
+    const messages = bedrock.messages as Array<{ content: unknown[] }>;
+    expect(messages[0].content[1]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YQ==' } });
+    expect(payload.messages[0].content[1]).toEqual(image);
+    const assistant = compatibilityRequest({ messages: [{ role: 'assistant', content: [image] }] },
+      { response: 'stream', toolNames: 'strict', transport: 'compat', images: 'bedrock-native-block' });
+    expect(assistant).toEqual({ messages: [{ role: 'assistant', content: [image] }] });
+  });
+
+  it('selects Bedrock image translation only for homogeneous Anthropic Bedrock inventory', () => {
+    expect(compatibilityImagesForModels([
+      { provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-future-v1:0' },
+      { provider: 'aws-bedrock', model: 'anthropic.claude-haiku-current-v1:0' },
+    ])).toBe('bedrock-native-block');
+    expect(compatibilityImagesForModels([
+      { provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-future-v1:0' },
+      { provider: 'workers-ai', model: '@cf/future/model' },
+    ])).toBeUndefined();
+    expect(compatibilityImagesForModels([])).toBeUndefined();
+  });
+
+  it('dispatches a verified Bedrock discovered profile with native image blocks', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      'data: {"choices":[{"delta":{"content":"synthetic"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      { headers: { 'content-type': 'text/event-stream' } },
+    ));
+    const response = await interceptor(false, 'bedrock-native-block').fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        model: 'future', stream: true, messages: [{ role: 'user', content: [
+          { type: 'text', text: 'Synthetic image' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' } },
+        ] }],
+      }),
+    }));
+    expect(response.status).toBe(200);
+    const outbound = fetcher.mock.calls[0][0] as Request;
+    const body = await outbound.clone().json() as any;
+    expect(outbound.url).toContain('/compat/chat/completions');
+    expect(body.messages[0].content[1]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YQ==' } });
+  });
+
   it('dispatches the exact verified buffered compat operation and preserves tool IDs/argument bytes for Pi', async () => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'synthetic-id', type: 'function',

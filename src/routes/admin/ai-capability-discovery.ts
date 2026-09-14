@@ -5,6 +5,7 @@ import { requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { discoverTargetCapabilities } from '../../lib/ai-capability-discovery';
+import { compatibilityImagesForModels } from '../../lib/ai-capability-discovery/compatibility-wire';
 import { capabilityEvidenceMatches } from '../../lib/ai-capability-discovery/contract';
 import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
 import { backendDescriptionsSchema, dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listNativeProviderConfigs,
@@ -48,8 +49,14 @@ routes.post('/discover', async (c) => {
       const descriptions = request.backendDescriptions ?? assignmentBackendDescriptions(configuration.routeAssignments[request.route]);
       const before = await loadCheckedRouteInventory(gateway, request.route, descriptions);
       if (!before.inventory.models.length) return c.json({ code: 'empty_route', error: 'The selected route contains no model' }, 409);
+      // Cloudflare's live Bedrock /compat translator currently rejects standard
+      // OpenAI data-URI image parts. Bind the proven native block translation to
+      // homogeneous Anthropic Bedrock inventories only. Mixed routes keep the
+      // OpenAI shape because Codeflare cannot know which branch will execute.
+      const dynamicImages = compatibilityImagesForModels(before.inventory.models);
       stage = 'protocol-probes';
       const result = await discoverTargetCapabilities({ ...common, route: `dynamic/${request.route}`,
+        ...(dynamicImages && { dynamicImages }),
         requireBackendIdentity: new Set(before.inventory.models.map((model) => `${model.provider}/${model.model}`)).size > 1 });
       if (!result.assignable || !result.profile || !result.report || !completedProfileCheck(result.report, result.profile)) return c.json({ ...result, assignable: false });
       const profile = result.profile;

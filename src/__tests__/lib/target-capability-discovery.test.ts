@@ -327,4 +327,14 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(() => normalizeCustomProfile({ ...stream, compatibility: { ...stream.compatibility, headers: { 'x-injected': 'not-allowed' } } })).toThrow();
     expect(() => normalizeCustomProfile({ ...stream, compatibility: { ...stream.compatibility, transport: 'https://untrusted.invalid' } })).toThrow();
   });
+
+  it('binds the Bedrock image wire to a distinct immutable discovered contract', () => {
+    const ordinary = capabilityCandidates(false)[0];
+    const bedrock = capabilityCandidates(false, 'bedrock-native-block')[0];
+    expect(ordinary.compatibility?.images).toBeUndefined();
+    expect(bedrock.compatibility?.images).toBe('bedrock-native-block');
+    expect(bedrock.hash).not.toBe(ordinary.hash);
+    expect(bedrock.id).not.toBe(ordinary.id);
+    expect(() => normalizeCustomProfile({ ...ordinary, compatibility: { ...ordinary.compatibility, images: 'untrusted-shape' } })).toThrow();
+  });
 });

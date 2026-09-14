@@ -18,7 +18,7 @@
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-The historical measurements below remain model/transport-specific evidence. The current [generic model support contract](bedrock-generic-model-support.md) uses adapter v4, discovers actual native mappings and preserves Dynamic seven-preference normalization. Tool calling, reasoning, streaming and input caching are independent; cache is optional for activation. Gateway HIT is whole-response reuse, never input-prefix evidence or permission to enable native checkpoints on Dynamic Routes.
+The historical measurements below remain model/transport-specific evidence. The current [generic model support contract](bedrock-generic-model-support.md) uses adapter v5, discovers actual native mappings and preserves Dynamic seven-preference normalization. Tool calling, reasoning, streaming and input caching are independent; cache is optional for activation. Gateway HIT is whole-response reuse, never input-prefix evidence or permission to enable native checkpoints on Dynamic Routes.
 
 ## Provider cache versus Gateway cache
 
