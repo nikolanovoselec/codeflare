@@ -55,6 +55,7 @@ When a public behavior change affects one of these operator contracts, update bo
 | [Agents](spec/agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
 | [GitHub](spec/github.md) | Connect GitHub, repo panel, clone-into-session, enterprise egress-injected git auth | P1 | Active |
 | [Enterprise Mode](spec/enterprise-mode.md) | Deploy-time enterprise instance, subscription bypass, Worker-side LLM proxy | P1 | Active |
+| [Operators](spec/operators.md) | Enterprise operator registration, principal-bound interfaces, activities and webhook capabilities | P0 | Planned |
 | [Browser Run](spec/browser-run.md) | Real-browser WebFetch fallback via Cloudflare Browser Run | P2 | Active |
 | [Setup](spec/setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
 | [Landing](spec/landing.md) | Public enterprise landing page, mode-aware serving, contact pipeline | P1 | Active |

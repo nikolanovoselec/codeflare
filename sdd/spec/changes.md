@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-16
+
+- **Enterprise Operator foundation specification** ([Operators](operators.md)). Specify Phase-1-only registration, verified human authority, durable runtime, restrictive interception, structured Pi/session/persistence interfaces, optional encrypted webhook handoff, managed narrow Access bypass and enterprise surfaces. Existing root sessions, human/non-enterprise behavior and local review resources remain unchanged. Private Flue and operational Remote Reviews are later phases. Requirements start Planned; the initial signed-human-claims regression precedes implementation and claims no passing CI or deployment acceptance.
+
 ## 2026-09-14
 
 - **Node 26 terminal host/runtime** (REQ-OPS-011). Advance the glibc-based host/build/runtime image and host CI to Node 26 while preserving all three Node 22 Browser IDE build stages; no permissions or platform privileges change.
