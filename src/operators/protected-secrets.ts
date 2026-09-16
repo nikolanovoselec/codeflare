@@ -7,6 +7,14 @@ export interface OperatorSecretContext {
   recordId: string;
 }
 
+/** Generate a per-operator handoff key; caller stores ciphertext and displays plaintext once. */
+export async function createOperatorWebhookKey(
+  _recordId: string,
+  _env: { ENCRYPTION_KEY?: string },
+): Promise<{ key: string; ciphertext: string }> {
+  throw new Error('Operator webhook key generation is not implemented');
+}
+
 function authenticatedContext(context: OperatorSecretContext): string {
   return JSON.stringify(['operator-secret-v1', context.purpose, context.recordId]);
 }
