@@ -33,7 +33,7 @@ describe('owned operator session service', () => {
     const f = fixture();
     const result = await f.service.ensure(input);
     expect(result.status).toBe('ready');
-    expect(f.calls).toEqual(['reserve', 'save:reserved', 'configure', 'save:configured', 'start', 'save:starting', 'readiness', 'save:ready']);
+    expect(f.calls).toEqual(['reserve', 'save:reserved', 'configure', 'save:configured', 'save:starting', 'start', 'readiness', 'save:ready']);
     expect(f.saves[0]).not.toHaveProperty('authority');
     expect(f.saves[0].profile).toEqual(profile);
   });

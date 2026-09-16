@@ -73,7 +73,7 @@ function parseHuman(value: unknown): OperatorContainerProfile['human'] {
     audiences: [...human.audiences] as string[] };
 }
 
-function parseProfile(value: unknown): OperatorContainerProfile {
+export function parseOperatorContainerProfile(value: unknown): OperatorContainerProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator container profile');
   const profile = value as Record<string, unknown>;
   if (Object.keys(profile).length !== 8 || profile.schemaVersion !== 1
@@ -131,7 +131,7 @@ function apply(host: OperatorContextHost, profile: OperatorContainerProfile, aut
 /** Validate and durably commit profile before enabling any operator environment. */
 export async function configureOperatorContext(host: OperatorContextHost, input: unknown,
   authority: JwtStampingAuthority): Promise<void> {
-  const profile = parseProfile(input);
+  const profile = parseOperatorContainerProfile(input);
   requireOwnership(host, profile);
   requireAuthority(profile, authority);
   await host.ctx.storage.put(STORAGE_KEY, profile);
@@ -142,7 +142,7 @@ export async function configureOperatorContext(host: OperatorContextHost, input:
 export async function restoreOperatorContext(host: OperatorContextHost): Promise<void> {
   const stored = await host.ctx.storage.get<unknown>(STORAGE_KEY);
   if (stored == null) return;
-  const profile = parseProfile(stored);
+  const profile = parseOperatorContainerProfile(stored);
   requireOwnership(host, profile);
   apply(host, profile);
 }
