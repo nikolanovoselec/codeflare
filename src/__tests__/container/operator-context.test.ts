@@ -47,7 +47,7 @@ describe('operator container context', () => {
     await restoreOperatorContext(f.host);
     expect(f.order).toEqual(['refresh']);
     expect(f.host._operatorPolicy).toEqual(policy);
-    expect(f.host._jwtPolicy).toEqual(profile.jwtPolicy);
+    expect(f.host._jwtStamping).toEqual(profile.jwtPolicy);
     expect(f.host._jwtAuthority).toBeUndefined();
     expect(f.host._strictEgress).toBe(true);
     expect(f.host._workspaceSyncEnabled).toBe(false);

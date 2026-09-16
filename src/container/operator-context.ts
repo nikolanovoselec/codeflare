@@ -28,7 +28,7 @@ export interface OperatorContextHost {
   _sessionId: string | null;
   _operatorContainerProfile?: OperatorContainerProfile;
   _operatorPolicy?: OperatorPolicy;
-  _jwtPolicy?: JwtStampingPolicy;
+  _jwtStamping?: JwtStampingPolicy;
   _jwtAuthority?: JwtStampingAuthority;
   _strictEgress: boolean;
   _workspaceSyncEnabled: boolean;
@@ -118,7 +118,7 @@ function requireAuthority(profile: OperatorContainerProfile, authority: JwtStamp
 function apply(host: OperatorContextHost, profile: OperatorContainerProfile, authority?: JwtStampingAuthority): void {
   host._operatorContainerProfile = structuredClone(profile);
   host._operatorPolicy = structuredClone(profile.policy);
-  host._jwtPolicy = structuredClone(profile.jwtPolicy);
+  host._jwtStamping = structuredClone(profile.jwtPolicy);
   if (authority) host._jwtAuthority = authority;
   else delete host._jwtAuthority;
   // Restricted sessions always install Worker mediation and never run the
@@ -141,7 +141,7 @@ export async function configureOperatorContext(host: OperatorContextHost, input:
 /** Restore restrictions on wake; raw authority is deliberately not durable here. */
 export async function restoreOperatorContext(host: OperatorContextHost): Promise<void> {
   const stored = await host.ctx.storage.get<unknown>(STORAGE_KEY);
-  if (stored === undefined) return;
+  if (stored == null) return;
   const profile = parseProfile(stored);
   requireOwnership(host, profile);
   apply(host, profile);
