@@ -44,7 +44,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. Only enterprise administrators can register an HTTPS distribution URL and protected connection secret, discover metadata/interface compatibility, approve an immutable artifact and separately enable it. Secrets are encrypted server-side, redacted on readback, and never replace invoking-user Access eligibility.
-2. Versioned registration changes reject stale revisions. A registry DO atomically orders enable/disable against idempotent activity admission receipts; the activity DO retains execution ownership. Disable blocks new admission but does not cancel already-admitted work or collection.
+2. Versioned registration changes reject stale revisions. A SQLite-backed registry DO atomically orders enable/disable against idempotent activity admission receipts; the activity DO retains execution ownership. New records start disabled without an approved artifact; approval and enablement are separate revision-checked changes. Receipt creation records the activity/intent identity, approved artifact, registration revision and deadline. Concurrent identical admissions return the same receipt; changed intent/operator/revision/deadline under the same activity ID conflicts. Disable-first denies new admission; receipt-first permits reconciliation of that receipt without consulting the new enablement revision. Expired authority cannot admit or replay execution, but stored receipts remain readable for reconciliation. No transaction spans the registry and activity DOs. <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-002: SQLite registration and admission ordering) -->
 3. An optional randomly generated 256-bit per-operator webhook key is displayed once with repository/environment or selected-organization Actions-secret instructions under `CODEFLARE_OPERATOR_WEBHOOK_KEY`. Rotation does not retain old keys indefinitely. Codeflare's master encryption key is not distributed.
 4. Non-enterprise operator routes are unavailable and ordinary human authentication, session quotas, routing and local review behavior are unchanged.
 
@@ -75,7 +75,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-registration-and-serialized-admission)
 
-**Verification:** Worker Loader fixture RED at `b35285c9`, CI 35125373725: four behavioral cases reached the unimplemented loader in real local workerd. Loader GREEN is pending. Durable activity/DO behavior and deployed Dynamic Worker lifecycle, recovery and isolation acceptance remain outstanding.
+**Verification:** Worker Loader fixture RED at `b35285c9`, CI 35125373725: four behavioral cases reached the unimplemented loader in real local workerd. Loader GREEN at `60ca739a`, CI 35125886157. Durable activity/DO behavior and deployed Dynamic Worker lifecycle, recovery and isolation acceptance remain outstanding.
 
 **Status:** Planned
 

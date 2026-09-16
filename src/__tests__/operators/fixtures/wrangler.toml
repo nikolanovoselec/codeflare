@@ -8,5 +8,13 @@ workers_dev = false
 [[worker_loaders]]
 binding = "LOADER"
 
+[[durable_objects.bindings]]
+name = "REGISTRY"
+class_name = "OperatorRegistry"
+
+[[migrations]]
+tag = "fixture-v1"
+new_sqlite_classes = ["OperatorRegistry"]
+
 [vars]
 PARENT_SECRET = "fixture-parent-only"
