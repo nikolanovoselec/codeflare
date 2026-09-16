@@ -58,7 +58,7 @@ async function withApi(test: (request: (path: string, method?: string, body?: un
       ? c.json(error.toJSON(), error.statusCode as ContentfulStatusCode)
       : c.json({ error: 'Internal error' }, 500));
     app.route('/api/admin/operators', routes);
-    const request = async (path: string, method = 'GET', body?: unknown, enterprise = true) => app.request(`/api/admin/operators${path}`, {
+    const request = async (path: string, method = 'GET', body?: unknown, enterprise = true) => app.request(`/api/admin/operators${path === '/' ? '' : path}`, {
       method, headers: { 'content-type': 'application/json', 'cf-access-jwt-assertion': 'fixture-human-token' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, { KV: kv, ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: enterprise ? 'active' : 'inactive',
