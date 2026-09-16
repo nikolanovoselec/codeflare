@@ -1,12 +1,21 @@
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { ValidationError } from '../lib/error-types';
-import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
+import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest, type OperatorBundle } from './distribution';
 
 /** Parent-owned, already-verified human context; never expose to operator code. */
 export interface OperatorDistributionCredentials {
   readonly human: VerifiedHumanAccessClaims;
   readonly accessJwt: string;
   readonly connectionSecret: string;
+}
+
+/** Approved artifact transport under behavioral TDD; no production wiring. */
+export async function fetchOperatorBundle(
+  _endpoint: string,
+  _approved: OperatorManifest,
+  _credentials: OperatorDistributionCredentials,
+): Promise<OperatorBundle> {
+  throw new Error('Operator artifact download is not implemented');
 }
 
 const MAX_MANIFEST_BYTES = 64 * 1024;
