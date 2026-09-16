@@ -1,3 +1,10 @@
+/**
+ * Operator-only secret boundary
+ * Key generation, authenticated-context construction, encryption and decryption are grouped below.
+ * The existing AES-GCM primitive is reused without its ordinary plaintext fallback. Record/purpose
+ * binding prevents secret substitution. Callers own authorization, persistence and one-time display.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import { decryptFromKV, encryptForKV, getOrImportKey } from '../lib/kv-crypto';
 import { ValidationError } from '../lib/error-types';
 

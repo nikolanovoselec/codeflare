@@ -1,3 +1,8 @@
+/**
+ * Component behavior with controlled API responses: enterprise gating, honest load/error states,
+ * distinct approval/enablement actions, policy edits and one-time key handling. Real HTTP validation
+ * and backend authorization are exercised by the API-client and server route suites respectively.
+ */
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperatorDetails, OperatorPolicyInput, OperatorRegistration } from '../../api/operators';

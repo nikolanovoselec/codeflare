@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Discovery transport with controlled responses: explicit credentials, denial, redirects, limits and human expiry.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { fetchOperatorManifest, type OperatorDistributionCredentials } from '../../operators/distribution-client';

@@ -1,3 +1,8 @@
+/**
+ * CI-only workerd harness. Fixture RPC endpoints expose production primitives for behavioral tests.
+ * Synthetic identity/outbound services and deliberate lost-response/eviction faults are not production
+ * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
+ */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import type { OperatorBundle } from '../../../operators/distribution';

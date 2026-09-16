@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // W1 characterization of the provisioned SDK, not a substitute for host task/run acceptance.
+// Navigation: build isolated resources, exclude candidate extensions, create synthetic history,
+// reopen the exact conversation, then clean up. This CI fixture makes no inference requests
+// and does not prove host task settlement, cancellation or deployed storage durability.
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -1,3 +1,10 @@
+/**
+ * Authenticated publisher transport
+ * Public discovery/artifact operations share bounded streaming and expiry/deadline handling below.
+ * Credentials are parent-owned. Explicit endpoint authentication is independent of JWT stamping.
+ * Redirects and remote diagnostics are rejected; this transport never renews authority or retries.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { ValidationError } from '../lib/error-types';
 import { parseOperatorManifest, parseOperatorBundle, validateOperatorEndpoint, type OperatorManifest, type OperatorBundle } from './distribution';

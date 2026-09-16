@@ -1,3 +1,10 @@
+/**
+ * Independent storage evidence verification
+ * Parent-established scope and reader contracts precede manifest validation and byte verification.
+ * The reader must be owner-scoped and bounded before buffering. The parent must seal writes before
+ * recording durability; this verifier performs no upload, delete, receipt mutation or shutdown.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import { z } from 'zod';
 import { ValidationError } from '../lib/error-types';
 

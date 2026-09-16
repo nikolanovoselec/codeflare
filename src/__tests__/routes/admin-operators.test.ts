@@ -1,4 +1,10 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
+/**
+ * Route integration with native durable storage and controlled authentication/distribution boundaries.
+ * Tests distinguish enterprise/admin/human denial, safe projections, explicit mutations and conflicts.
+ * Signed-token cryptography and real distribution transport have independent primitive suites;
+ * this harness does not claim live Access audience or deployment verification.
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { env, runInDurableObject } from 'cloudflare:test';

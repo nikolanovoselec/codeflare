@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Existing AES-GCM interoperability and fail-closed operator contexts; ordinary plaintext migration is not changed.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { decryptFromKV, importEncryptionKey } from '../../lib/kv-crypto';

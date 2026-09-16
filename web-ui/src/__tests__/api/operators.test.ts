@@ -1,3 +1,7 @@
+/**
+ * Browser wire-contract tests: canonical paths, authenticated transport, response validation and
+ * explicit mutation payloads. Conflict handling must not silently replay a mutation.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listOperators, getOperator, registerOperator, discoverOperator, approveOperator, setOperatorEnabled,
   setOperatorDistribution, setOperatorPolicy, rotateOperatorWebhookKey, type OperatorPolicyInput } from '../../api/operators';

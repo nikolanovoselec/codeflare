@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Real Wrangler/workerd integration: fresh Workers, explicit bindings, SQLite ordering, admission and native eviction recovery.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { fileURLToPath, URL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { unstable_dev, type Unstable_DevWorker } from 'wrangler';

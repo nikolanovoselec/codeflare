@@ -1,3 +1,10 @@
+/**
+ * Untrusted distribution data boundary
+ * Schemas and canonical-path rules precede manifest, endpoint and bundle parsers.
+ * These functions validate bounded data and exact artifact integrity, not publisher eligibility.
+ * They neither fetch nor execute code; callers own authentication, approval and loader bindings.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import { z } from 'zod';
 import { ValidationError } from '../lib/error-types';
 

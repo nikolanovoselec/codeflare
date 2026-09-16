@@ -1,3 +1,8 @@
+/**
+ * HTTP adapter: schema validation and middleware precede safe outcome mapping and route handlers.
+ * Enterprise, administrator and matching human Access checks run before protected registry work.
+ * Reusable discovery/approval logic lives in operators/administration.ts; handlers never execute code.
+ */
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
@@ -8,7 +13,7 @@ import { isEnterpriseMode } from '../../lib/subscription';
 import { AppError, ValidationError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import type { OperatorRegistry, OperatorRegistryResult } from '../../operators/registry';
-import { registerDiscoveredOperator, approveRegisteredOperator } from '../../operators/administration';
+import { registerDiscoveredOperator, approveRegisteredOperator, discoverRegisteredOperator } from '../../operators/administration';
 import { parseOperatorPolicy } from '../../operators/policy';
 
 const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -57,6 +62,16 @@ app.post('/', async c => {
     ...c.get('operatorHuman'), encryption: c.env }, { endpoint: input.endpoint,
     connectionSecret: input.connectionSecret, policy: input.policy });
   return c.json(value(result), 201);
+});
+app.get('/:operatorId', async c => {
+  const id = c.req.param('operatorId');
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new ValidationError('Invalid operator ID');
+  return c.json(value(await c.get('operatorRegistry').getAdminDetail(id)));
+});
+app.post('/:operatorId/discover', async c => {
+  await parseJsonBody(c, z.strictObject({}));
+  return c.json(await discoverRegisteredOperator({ registry: c.get('operatorRegistry'),
+    ...c.get('operatorHuman'), encryption: c.env }, c.req.param('operatorId')));
 });
 app.post('/:operatorId/approve', async c => {
   const input = await parseJsonBody(c, approvalBody);

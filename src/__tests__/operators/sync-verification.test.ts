@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Independent manifest/file readback through bounded fixture storage; deployed R2 upload/sealing acceptance remains separate.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { verifyOperatorSync, type OperatorSyncExpectation } from '../../operators/sync-verification';

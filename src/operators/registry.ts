@@ -1,3 +1,11 @@
+/**
+ * Deployment-local registration and admission authority
+ * JSON validation and RPC-safe contracts precede the Durable Object. Methods are grouped as secrets,
+ * distribution, registration/policy projections, approval/enablement and immutable admission receipts.
+ * Transactions own revision/order decisions; callers own human authorization and network work.
+ * Public projections explicitly exclude ciphertext. This object is never a child Worker binding.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
@@ -199,8 +207,22 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }
 
   /** Non-secret detail projection; never decrypt, contact the publisher or wake owned compute. */
-  async getAdminDetail(_operatorId: string): Promise<OperatorRegistryResult<OperatorAdminDetail>> {
-    throw new Error('Operator administration detail projection is not implemented');
+  async getAdminDetail(operatorId: string): Promise<OperatorRegistryResult<OperatorAdminDetail>> {
+    return this.ctx.storage.transaction<OperatorRegistryResult<OperatorAdminDetail>>(async tx => {
+      const registration = await tx.get<OperatorRegistrationState>(`registration:${operatorId}`);
+      if (!registration) return { ok: false, reason: 'not-found' };
+      const distribution = await tx.get<{ endpoint: string; connectionSecretCiphertext: string }>(`distribution:${operatorId}`);
+      return { ok: true, value: {
+        registration: { operatorId: registration.operatorId, revision: registration.revision,
+          enabled: registration.enabled, approvedArtifactDigest: registration.approvedArtifactDigest },
+        endpoint: distribution?.endpoint ?? null,
+        connectionSecretConfigured: !!distribution?.connectionSecretCiphertext,
+        webhookKeyConfigured: !!await tx.get(`webhook-key:${operatorId}`),
+        discoveredManifestJson: await tx.get<string>(`discovered-manifest:${operatorId}`) ?? null,
+        approvedManifestJson: await tx.get<string>(`approved-manifest:${operatorId}`) ?? null,
+        policyJson: await tx.get<string>(`policy:${operatorId}`) ?? null,
+      } };
+    });
   }
 
   /** Read only the current restrictive policy, never human authority. */

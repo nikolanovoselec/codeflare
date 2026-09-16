@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Strict restriction declarations, safe host/storage rules and allowed defaults; parsing is not runtime authorization.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { parseOperatorPolicy, type OperatorPolicy } from '../../operators/policy';

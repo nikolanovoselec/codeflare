@@ -1,3 +1,10 @@
+/**
+ * Durable execution owner
+ * Admission intent and receipt reconciliation come first; drive/checkpoint transitions follow.
+ * Only the authenticated parent calls this object. Registry ordering and local token consumption
+ * are separate transactions. Generation fences reject stale work but do not prove compute cleanup.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt } from './registry';

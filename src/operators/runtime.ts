@@ -1,3 +1,10 @@
+/**
+ * Activity-to-Worker drive composition
+ * Reserve a durable generation, bind/load fresh code, bound the response, then commit through the
+ * activity owner. Failures fence uncertain work instead of replaying business effects.
+ * Request abort and generation fencing are not evidence that external compute has stopped.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import type { OperatorActivity, OperatorDriveResult } from './activity';
 import type { OperatorBundle } from './distribution';
 import { loadOperatorWorker, type OperatorLoaderBinding } from './loader';

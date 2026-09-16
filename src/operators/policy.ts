@@ -1,3 +1,10 @@
+/**
+ * Registration restriction contract
+ * Wire types, bounded field validators and the public parser are intentionally kept together.
+ * Parsing normalizes and validates declarations; it does not grant permissions or contact services.
+ * Actual operations must intersect these stored restrictions with current human authority.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import { z } from 'zod';
 import { ValidationError } from '../lib/error-types';
 import { isPiReasoningLevel, type PiReasoningLevel } from '../lib/reasoning-profiles';

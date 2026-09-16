@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Random handoff-key generation and operator-bound encryption; route authorization and display-once UI have separate tests.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { createOperatorWebhookKey, openOperatorSecret } from '../../operators/protected-secrets';

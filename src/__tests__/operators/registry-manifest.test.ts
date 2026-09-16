@@ -1,4 +1,9 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
+/**
+ * Test navigation: Approval/admission snapshot immutability across replacement and reconstruction; manifests cross RPC as validated JSON text.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { describe, expect, it } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';

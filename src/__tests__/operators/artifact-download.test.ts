@@ -1,3 +1,8 @@
+/**
+ * Test navigation: Authenticated artifact transport, approved digest integrity and bounded response handling; no live publisher acceptance claim.
+ * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
+ * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { parseOperatorManifest } from '../../operators/distribution';

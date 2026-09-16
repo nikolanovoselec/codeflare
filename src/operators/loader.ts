@@ -1,3 +1,10 @@
+/**
+ * Fresh Worker construction adapter
+ * The small binding interface describes the platform API; the function below supplies explicit code,
+ * capability and outbound bindings. Artifact approval and authorization must already be complete.
+ * This file owns no durable state, inherited credentials, isolate cache or effect reconciliation.
+ * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
+ */
 import type { OperatorBundle } from './distribution';
 
 /** Minimal documented Worker Loader surface; no cached get() or inherited env. */
