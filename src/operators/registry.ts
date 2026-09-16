@@ -36,6 +36,16 @@ export interface OperatorRegistrationState {
   approvedArtifactDigest: string | null;
 }
 
+interface OperatorAdminDetail {
+  registration: OperatorRegistrationState;
+  endpoint: string | null;
+  connectionSecretConfigured: boolean;
+  webhookKeyConfigured: boolean;
+  discoveredManifestJson: string | null;
+  approvedManifestJson: string | null;
+  policyJson: string | null;
+}
+
 export interface OperatorAdmissionRequest {
   operatorId: string;
   activityId: string;
@@ -186,6 +196,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return [...records.values()].map(({ operatorId, revision, enabled, approvedArtifactDigest }) => ({
       operatorId, revision, enabled, approvedArtifactDigest,
     }));
+  }
+
+  /** Non-secret detail projection; never decrypt, contact the publisher or wake owned compute. */
+  async getAdminDetail(_operatorId: string): Promise<OperatorRegistryResult<OperatorAdminDetail>> {
+    throw new Error('Operator administration detail projection is not implemented');
   }
 
   /** Read only the current restrictive policy, never human authority. */

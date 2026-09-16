@@ -588,7 +588,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
 7. Overview includes every mode-applicable Environment summary, linked directly to its bounded editor without duplicating the sidebar's Environment navigation. <!-- @impl: web-ui/src/components/admin/AdministrationOverview.tsx::AdministrationOverview --> <!-- @test: web-ui/src/__tests__/components/AdministrationOverview.test.tsx (Administration overview Environment navigation) -->
 
-**Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
+**Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added. The enterprise-only Operators extension is specified separately by [REQ-OPERATOR-008](operators.md#req-operator-008-enterprise-administration-and-activity-surfaces) and reuses this shell.
 
 **Priority:** P1
 

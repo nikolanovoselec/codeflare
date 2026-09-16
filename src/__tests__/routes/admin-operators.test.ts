@@ -107,6 +107,10 @@ describe('REQ-OPERATOR-002: enterprise human-admin operator routes', () => {
     expect(await registered.json()).toMatchObject({ operatorId: 'new-operator', revision: 1, enabled: false, approvedArtifactDigest: null });
     expect(await registry.getApprovedManifest('new-operator')).toBeNull();
     expect(await registry.getDiscoveredManifest('new-operator')).not.toBeNull();
+    const discovery = await request('/new-operator/discover', 'POST', {});
+    expect(discovery.status).toBe(200);
+    expect(await discovery.json()).toMatchObject({ manifestJson: expect.any(String) });
+    expect(await registry.getApprovedManifest('new-operator')).toBeNull();
     expect((await request('/', 'POST', body)).status).toBe(409);
     expect((await request('/new-operator/approve', 'POST', { expectedRevision: 1, artifactDigest: 'd'.repeat(64) })).status).toBe(409);
     const approved = await request('/new-operator/approve', 'POST', { expectedRevision: 1, artifactDigest: 'c'.repeat(64) });
@@ -135,6 +139,21 @@ describe('REQ-OPERATOR-002: enterprise human-admin operator routes', () => {
     expect((await request('/operator/policy', 'POST', { expectedRevision: 1, policy })).status).toBe(200);
     expect(await registry.getPolicy('operator')).toBe(JSON.stringify(policy));
     expect((await request('/operator/policy', 'POST', { expectedRevision: 1, policy })).status).toBe(409);
+  }));
+  it('reads metadata and configured-secret flags without decrypting or contacting discovery', () => withApi(async (request, registry) => {
+    await registry.setDistribution('operator', 'https://operator.example.test/discovery', 'private-connection', 1);
+    const rotated = await registry.rotateWebhookKey('operator', 2);
+    if (!rotated.ok) throw new Error('Expected rotation');
+    state.discoveryFails = true;
+    const response = await request('/operator');
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(JSON.parse(body)).toMatchObject({ registration: { operatorId: 'operator', revision: 3 },
+      endpoint: 'https://operator.example.test/discovery', connectionSecretConfigured: true, webhookKeyConfigured: true });
+    expect(body).not.toContain('private-connection');
+    expect(body).not.toContain(rotated.value.key);
+    expect(body).not.toContain(await registry.getEncryptedWebhookKey('operator'));
+    expect((await request('/missing')).status).toBe(404);
   }));
   it('rejects malformed revisions and child-supplied owner fields', () => withApi(async request => {
     expect((await request('/operator/webhook-key', 'POST', { expectedRevision: -1 })).status).toBe(400);
