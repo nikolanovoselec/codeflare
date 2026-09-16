@@ -8,6 +8,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt } from './registry';
+import type { OperatorExecutionContext, OperatorExecutionProjection } from './execution-context';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export interface OperatorActivityPreparation extends OperatorAdmissionRequest {
@@ -39,12 +40,13 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
   reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
 };
 
-interface ActivityEnv { REGISTRY: DurableObjectNamespace<OperatorRegistry> }
+interface ActivityEnv { REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string }
 
 interface AdmissionState {
   intent: OperatorActivityPreparation;
   phase: ActivityAdmissionProjection['phase'];
   receipt: OperatorAdmissionReceipt | null;
+  executionContext?: OperatorExecutionContext;
   drive?: OperatorDriveState;
 }
 
@@ -80,6 +82,23 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  * Queued state is the durable execution intent, not proof that work has run.
  */
 export class OperatorActivity extends DurableObject<ActivityEnv> {
+  /** Production preparation stores parent-created encrypted human authority. */
+  async prepareAuthorized(_intent: OperatorActivityPreparation,
+    _executionContext: OperatorExecutionContext): Promise<ActivityAdmissionResult> {
+    throw new Error('Not implemented');
+  }
+
+  /** Replace protected authority only through same-owner reauthentication. */
+  async reauthenticate(_human: import('../lib/jwt').VerifiedHumanAccessClaims,
+    _accessJwt: string): Promise<OperatorExecutionProjection> {
+    throw new Error('Not implemented');
+  }
+
+  /** Parent-safe activity identity read; no credential ciphertext or token. */
+  async getExecutionContext(): Promise<OperatorExecutionProjection | null> {
+    throw new Error('Not implemented');
+  }
+
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
     return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };

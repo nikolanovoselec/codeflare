@@ -8,11 +8,14 @@ import { describe, expect, it } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity } from '../../operators/activity';
+import { createOperatorExecutionContext } from '../../operators/execution-context';
+import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 
 // Native storage/context supplies instrumented state coverage. The separate
 // Wrangler fixture remains the authority for cross-DO RPC, SQLite and eviction.
 async function withActivity(
-  test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string }) => Promise<void>,
+  test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
+    ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
   admitted = true,
 ): Promise<void> {
   const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
@@ -20,9 +23,10 @@ async function withActivity(
   await runInDurableObject(stub, async (_instance, ctx) => {
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
-    const activity = new OperatorActivity(ctx, {
+    const activityEnv = {
       REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
-    });
+    };
+    const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
     if (admitted) {
       expect((await registry.create('operator')).ok).toBe(true);
@@ -34,7 +38,7 @@ async function withActivity(
         expectedRevision: 3, deadline: Date.now() + 60_000, startExpiresAt: Date.now() + 60_000, startVerifier: verifier });
       expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
     }
-    await test({ activity, registry, token });
+    await test({ activity, registry, token, ctx, activityEnv });
   });
 }
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
@@ -80,6 +84,40 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.commitDrive(1, { ...update, status: 'failed', result: { reason: 'fixture' } }))
       .toMatchObject({ ok: true, state: { status: 'failed' } });
   }));
+
+  it('persists protected parent identity without exposing credentials and permits same-owner reauthentication', () => withActivity(async ({ ctx, activityEnv }) => {
+    const claims: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      expiresAt: Math.floor(Date.now() / 1000) + 300 };
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human: claims, accessJwt: 'private.jwt' }, encryption);
+    const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64),
+      expectedRevision: 1, deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000,
+      startVerifier: 'd'.repeat(64) }, context)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await secured.getExecutionContext()).toMatchObject({ activityId: 'activity', operatorId: 'operator',
+      owner: { email: 'owner@example.test' }, artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64) });
+    expect(JSON.stringify(await secured.getExecutionContext())).not.toContain('private.jwt');
+    const renewed = { ...claims, expiresAt: claims.expiresAt + 300 };
+    expect(await secured.reauthenticate(renewed, 'renewed.jwt')).toMatchObject({ expiresAt: renewed.expiresAt });
+    await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
+  }, false));
+
+  it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {
+    const claims: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      expiresAt: Math.floor(Date.now() / 1000) + 300 };
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human: claims, accessJwt: 'private.jwt' }, encryption);
+    const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    const base = { operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64), expectedRevision: 1,
+      deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000, startVerifier: 'd'.repeat(64) };
+    expect(await secured.prepareAuthorized({ ...base, operatorId: 'substitute' }, context)).toEqual({ ok: false, reason: 'admission-denied' });
+    expect(await secured.prepareAuthorized({ ...base, deadline: claims.expiresAt * 1000 + 1 }, context)).toEqual({ ok: false, reason: 'authority-expired' });
+    expect(await secured.getExecutionContext()).toBeNull();
+  }, false));
 
   it('denies drive operations when admission does not exist', () => withActivity(async ({ activity }) => {
     expect(await activity.getAdmission()).toBeNull();
