@@ -31,6 +31,7 @@ import {
   vscodeDisabledResponse,
 } from './vscode-proxy.js';
 import type { SessionManager } from './session-manager.js';
+import type { OperatorPiHttpController } from './operator-pi-http.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
 import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE, SYNC_RUNTIME_DIR } from './runtime-paths.js';
 
@@ -83,6 +84,8 @@ export interface RequestRouterDeps {
   readiness(): ReadinessFlags;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
+  operatorPi?: OperatorPiHttpController;
   /** Production composition and focused router tests can provide the queue owner directly. */
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
@@ -191,6 +194,22 @@ function rewriteVscodeResponseHeaders(
   };
 }
 
+async function readBoundedBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let oversized = false;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) { oversized = true; chunks.length = 0; }
+      else if (!oversized) chunks.push(chunk);
+    });
+    req.on('end', () => resolve(oversized ? new Uint8Array(limit + 1) : Buffer.concat(chunks)));
+    req.on('aborted', () => reject(new Error('Request aborted')));
+    req.on('error', reject);
+  });
+}
+
 export function createRequestHandler(deps: RequestRouterDeps): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> {
   const { sessionManager, log } = deps;
 
@@ -209,6 +228,22 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
       return;
+    }
+
+    // The structured adapter exists only when trusted parent startup supplied an
+    // operator profile. Authentication above is intentionally evaluated first;
+    // the controller then owns its narrower path/method/body contract.
+    if (deps.operatorPi && pathname?.startsWith('/internal/operator/pi/')) {
+      const url = new URL(req.url ?? '/', 'http://container');
+      const response = await deps.operatorPi.handle({
+        method: method ?? '', pathname, query: url.searchParams,
+        body: await readBoundedBody(req, 64 * 1024),
+      });
+      if (response) {
+        res.writeHead(response.status, response.headers);
+        res.end(response.body);
+        return;
+      }
     }
 
     // Health check with full metrics (consolidates separate health server)
