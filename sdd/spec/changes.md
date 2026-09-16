@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-16
 
-- **Enterprise Operator foundation specification** ([Operators](operators.md)). Specify Phase-1-only registration, verified human authority, durable runtime, restrictive interception, structured Pi/session/persistence interfaces, optional encrypted webhook handoff, managed narrow Access bypass and enterprise surfaces. Existing root sessions, human/non-enterprise behavior and local review resources remain unchanged. Private Flue and operational Remote Reviews are later phases. Requirements start Planned; the initial signed-human-claims regression precedes implementation and claims no passing CI or deployment acceptance.
+- **Enterprise Operator foundation specification** ([Operators](operators.md)). Specify Phase-1-only registration, verified human authority, durable runtime, restrictive interception, structured Pi/session/persistence interfaces, optional encrypted webhook handoff, managed narrow Access bypass and enterprise surfaces. Existing root sessions, human/non-enterprise behavior and local review resources remain unchanged. Private Flue and operational Remote Reviews are later phases. Requirements start Planned. CI run 35119689823 at tests-first commit `28c40a97` demonstrated 19 failing signed-human-claims cases before implementation. The shared verifier and stricter human-claims API now await GREEN verification; no deployed operator acceptance is claimed.
 
 ## 2026-09-14
 
