@@ -6,7 +6,7 @@
 import { parseJwtStampingPolicy, type JwtStampingAuthority, type JwtStampingPolicy } from '../operators/jwt-stamping';
 import { parseOperatorPolicy, type OperatorPolicy } from '../operators/policy';
 
-export interface OperatorPiProfile {
+interface OperatorPiProfile {
   provider: string;
   model: string;
   thinkingLevel: string;
