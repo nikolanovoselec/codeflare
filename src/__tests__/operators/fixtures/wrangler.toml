@@ -1,0 +1,12 @@
+# CI-only runtime fixture. Never used by deployment workflows.
+name = "operator-loader-fixture"
+main = "loader-worker.ts"
+compatibility_date = "2026-02-05"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[[worker_loaders]]
+binding = "LOADER"
+
+[vars]
+PARENT_SECRET = "fixture-parent-only"
