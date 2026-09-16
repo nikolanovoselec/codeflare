@@ -1,5 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
-import { createOperatorWebhookKey } from './protected-secrets';
+import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secrets';
+import { validateOperatorEndpoint } from './distribution';
+import { ValidationError } from '../lib/error-types';
 
 /** Registration ordering state only; protected metadata/policy wiring comes separately. */
 export interface OperatorRegistrationState {
@@ -71,16 +73,33 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return await this.ctx.storage.get<string>(`webhook-key:${operatorId}`) ?? null;
   }
 
-  /** Authorized registration changes must invalidate prior distribution approval. */
+  /**
+   * Authorized endpoint/secret replacement. Validate and encrypt before the local
+   * transaction; atomically replace protected configuration and invalidate approval.
+   * No discovery/network I/O occurs here. Existing admission receipts are untouched.
+   * The authenticated parent owns admin authorization and supplies the record ID.
+   */
   async setDistribution(
-    _operatorId: string, _endpoint: string, _connectionSecret: string, _expectedRevision: number,
+    operatorId: string, endpoint: string, connectionSecret: string, expectedRevision: number,
   ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
-    throw new Error('Protected operator distribution configuration is not implemented');
+    const validatedEndpoint = validateOperatorEndpoint(endpoint).href;
+    if (!connectionSecret.trim()) throw new ValidationError('Operator connection secret is required');
+    const connectionSecretCiphertext = await sealOperatorSecret(connectionSecret, this.env, { purpose: 'connection', recordId: operatorId });
+    return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
+      const key = `registration:${operatorId}`;
+      const current = await tx.get<OperatorRegistrationState>(key);
+      if (!current) return { ok: false, reason: 'not-found' };
+      if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
+      const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: null };
+      await tx.put(`distribution:${operatorId}`, { endpoint: validatedEndpoint, connectionSecretCiphertext });
+      await tx.put(key, value);
+      return { ok: true, value };
+    });
   }
 
   /** Parent-only discovery/download input; ciphertext must never enter public projections. */
-  async getProtectedDistribution(_operatorId: string): Promise<{ endpoint: string; connectionSecretCiphertext: string } | null> {
-    throw new Error('Protected operator distribution readback is not implemented');
+  async getProtectedDistribution(operatorId: string): Promise<{ endpoint: string; connectionSecretCiphertext: string } | null> {
+    return await this.ctx.storage.get<{ endpoint: string; connectionSecretCiphertext: string }>(`distribution:${operatorId}`) ?? null;
   }
 
   /** Create disabled ordering state; duplicate IDs never overwrite it. */
