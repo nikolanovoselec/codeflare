@@ -78,6 +78,9 @@ describe('REQ-OPERATOR-008: enterprise Operators administration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh discovery' }));
     await waitFor(() => expect(api.discoverOperator).toHaveBeenCalledWith('operator'));
     expect(api.approveOperator).not.toHaveBeenCalled();
+    // Network acceptance is not completed readback. A real user must wait for
+    // the disabled action to become available before choosing the next step.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve artifact' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Approve artifact' }));
     await waitFor(() => expect(api.approveOperator).toHaveBeenCalledWith('operator', 2, 'a'.repeat(64)));
     expect(api.setOperatorEnabled).not.toHaveBeenCalled();
@@ -127,10 +130,14 @@ describe('REQ-OPERATOR-008: enterprise Operators administration', () => {
     await selectOperator();
     expect(screen.getByLabelText('Replacement connection secret')).toHaveValue('');
     fireEvent.input(screen.getByLabelText('General egress hosts'), { target: { value: 'api.example.test\n*.example.org' } });
+    // The next read reflects the committed revision, not the pre-write fixture.
+    api.getOperator.mockResolvedValue({ ...details, registration: { ...registration, revision: 3 },
+      policyJson: JSON.stringify({ ...policy, networkHosts: ['api.example.test', '*.example.org'] }) });
     fireEvent.click(screen.getByRole('button', { name: 'Save restrictions' }));
     await waitFor(() => expect(api.setOperatorPolicy).toHaveBeenCalledWith('operator', 2, { ...policy, networkHosts: ['api.example.test', '*.example.org'] }));
+    await waitFor(() => expect(screen.getByLabelText('Replacement connection secret')).toBeEnabled());
     fireEvent.input(screen.getByLabelText('Replacement connection secret'), { target: { value: 'replacement-secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Replace connection' }));
-    await waitFor(() => expect(api.setOperatorDistribution).toHaveBeenCalledWith('operator', 2, details.endpoint, 'replacement-secret'));
+    await waitFor(() => expect(api.setOperatorDistribution).toHaveBeenCalledWith('operator', 3, details.endpoint, 'replacement-secret'));
   });
 });

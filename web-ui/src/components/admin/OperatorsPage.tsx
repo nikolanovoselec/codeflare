@@ -98,7 +98,7 @@ const OperatorsPage: Component = () => {
     <Show when={notice()}><p role="status">{notice()}</p></Show>
     <section class="admin-panel operator-admin-panel" aria-label="Registered operators">
       <h2>Registered operators</h2>
-      <Show when={!operators.loading} fallback={<p role="status">Loading operators…</p>}>
+      <Show when={!operators.loading || operators.latest} fallback={<p role="status">Loading operators…</p>}>
         <Show when={!operators.error} fallback={<div role="alert"><p>Operators could not be loaded.</p><button class="admin-primary-button" type="button" onClick={() => void refresh()}>Retry</button></div>}>
           <Show when={operators()?.operators.length} fallback={<p>No operators registered</p>}>
             <For each={operators()?.operators}>{record => <div class="admin-area-row">
@@ -119,7 +119,10 @@ const OperatorsPage: Component = () => {
       </form>
     </section>
     <Show when={selected()}>
-      <Show when={!detail.loading} fallback={<p role="status">Loading operator details…</p>}>
+      {/* Preserve confirmed content during readback, especially the one-time key.
+          Controls remain disabled until reconciliation finishes; a new selection
+          still gets a loading state rather than the preceding operator's data. */}
+      <Show when={!detail.loading || detail.latest?.registration.operatorId === selected()} fallback={<p role="status">Loading operator details…</p>}>
         <Show when={!detail.error && detail()?.registration.operatorId === selected()} fallback={<div role="alert"><p>Operator details could not be loaded.</p><button class="admin-secondary-button" type="button" onClick={() => void refresh()}>Retry</button></div>}>
           <section class="admin-panel operator-admin-panel"><h2>{metadata()?.name ?? selected()}</h2><p>{metadata()?.description}</p>
             <p>Core {metadata()?.coreVersion ?? 'not discovered'} · Intent {metadata()?.intentVersion ?? 'not discovered'} · Revision {current()?.revision}</p>
