@@ -20,9 +20,14 @@ import type { Env } from '../types';
 import { createMockKV } from './helpers/mock-kv';
 import { GitHubInterceptor, interceptedGithubHosts } from '../github-interceptor';
 import { storeGithubConnection } from '../lib/github-token';
+import type { OperatorPolicy } from '../operators/policy';
 
 const BUCKET = 'codeflare-enterprise-u-example-com';
 const SESSION_USER = 'u@example.com';
+const operatorPolicy = (repositories: string[] = ['octo/allowed']): OperatorPolicy => ({ schemaVersion: 1,
+  networkHosts: [], github: { repositories, methods: ['GET'] }, storage: { readPrefixes: [], writePrefixes: [] },
+  inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null,
+    inheritUserDefaults: false } });
 
 let mockKV: ReturnType<typeof createMockKV>;
 
@@ -34,7 +39,7 @@ function makeEnv(over: Partial<Env> = {}): Env {
 
 function makeInterceptor(
   env: Env = makeEnv(),
-  props: { user: string; bucket: string; strict?: boolean } | undefined = { user: SESSION_USER, bucket: BUCKET },
+  props: { user: string; bucket: string; strict?: boolean; operatorPolicy?: OperatorPolicy } | undefined = { user: SESSION_USER, bucket: BUCKET },
 ): GitHubInterceptor {
   const ctx = { props } as unknown as ExecutionContext;
   return new GitHubInterceptor(ctx, env);
@@ -61,6 +66,26 @@ afterEach(() => {
 async function connect(token: string, env: Env = makeEnv()): Promise<void> {
   await storeGithubConnection(env, BUCKET, { accessToken: token, source: 'oauth', login: 'octo' });
 }
+
+describe('REQ-OPERATOR-004: GitHub restrictions before credentials', () => {
+  it('denies an undeclared repository before token lookup or upstream forwarding', async () => {
+    const res = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET, operatorPolicy: operatorPolicy() }).fetch(
+      new Request('https://api.github.com/repos/octo/denied/issues'),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code?: string }).code).toBe('OPERATOR_GITHUB_DENIED');
+    expect(lastFetch).toBeNull();
+  });
+
+  it('continues through existing credential mediation for a declared repository and method', async () => {
+    await connect('gho_operator');
+    const res = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET, operatorPolicy: operatorPolicy() }).fetch(
+      new Request('https://api.github.com/repos/octo/allowed/issues'),
+    );
+    expect(res.status).toBe(200);
+    expect(lastFetch?.headers.get('authorization')).toBe('Bearer gho_operator');
+  });
+});
 
 describe('REQ-GITHUB-003: REST API credential injection', () => {
   it('stamps Authorization: Bearer <real token> on api.github.com and removes the placeholder', async () => {

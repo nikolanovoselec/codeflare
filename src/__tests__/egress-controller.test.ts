@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
+import type { OperatorPolicy } from '../operators/policy';
 
 const policyLogs = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -25,6 +26,10 @@ vi.mock('../lib/logger', () => ({
 }));
 
 const STRICT_KEY = 'setup:strict_egress';
+const operatorPolicy: OperatorPolicy = { schemaVersion: 1, networkHosts: ['allowed.example.test'],
+  github: { repositories: [], methods: [] }, storage: { readPrefixes: ['inputs/'], writePrefixes: ['outputs/activity/'] },
+  inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null,
+    inheritUserDefaults: false } };
 
 function makeController(
   envOverrides: Partial<Env> & { __kv?: Record<string, string> } = {},
@@ -38,6 +43,8 @@ function makeController(
     pathsDigest?: string;
     r2SseDisabled?: boolean;
     strict?: boolean;
+    operatorPolicy?: OperatorPolicy;
+    ownedMultipart?: boolean;
   } = { accountId: 'acc' },
 ) {
   const kvStore = envOverrides.__kv ?? { [STRICT_KEY]: 'active' };
@@ -75,6 +82,41 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials', () => {
+  it('denies undeclared general egress and specialized GitHub without forwarding', async () => {
+    for (const url of ['https://denied.example.test/path', 'https://api.github.com/repos/octo/repo']) {
+      const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy });
+      const response = await controller.fetch(new Request(url));
+      expect(response.status).toBe(403);
+      expect((await response.json() as { code?: string }).code).toBe('OPERATOR_EGRESS_DENIED');
+      expect(egressFetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('forwards declared general egress through the existing Gateway path', async () => {
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy });
+    expect((await controller.fetch(new Request('https://allowed.example.test/path'))).status).toBe(200);
+    expect(egressFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces read/write and destructive operation scopes before R2 signing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const cases = [
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/inputs/file.txt'), 200],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt', { method: 'PUT', body: 'ok' }), 200],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt'), 403],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/inputs/file.txt', { method: 'PUT', body: 'bad' }), 403],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt', { method: 'DELETE' }), 403],
+    ] as const;
+    for (const [request, status] of cases) {
+      const { controller } = makeController({}, { accountId: 'acc', operatorPolicy });
+      expect((await controller.fetch(request)).status).toBe(status);
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    fetchSpy.mockRestore();
+  });
 });
 
 describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
