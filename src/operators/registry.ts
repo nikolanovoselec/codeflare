@@ -24,7 +24,8 @@ export interface OperatorAdmissionReceipt extends OperatorAdmissionRequest {
   artifactDigest: string;
   admittedAt: number;
   /** Pinned when admission uses a metadata-approved registration. */
-  manifest?: OperatorManifest;
+  manifestJson?: string;
+  policyJson?: string;
 }
 
 /** Serializable RPC outcomes; never rely on custom Error fields surviving RPC. */
@@ -105,6 +106,33 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return await this.ctx.storage.get<{ endpoint: string; connectionSecretCiphertext: string }>(`distribution:${operatorId}`) ?? null;
   }
 
+  /** Atomically create discovered configuration, encrypted credentials and restrictive policy, disabled/unapproved. */
+  async register(
+    _endpoint: string, _connectionSecret: string, _manifestJson: string, _policyJson: string,
+  ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
+    throw new Error('Discovered operator registration is not implemented');
+  }
+
+  /** Discovered metadata is informative, never artifact approval. */
+  async getDiscoveredManifest(_operatorId: string): Promise<string | null> {
+    throw new Error('Discovered operator metadata readback is not implemented');
+  }
+
+  /** Replace validated restrictive policy and disable until explicitly enabled again. */
+  async setPolicy(_operatorId: string, _policyJson: string, _expectedRevision: number): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
+    throw new Error('Operator policy persistence is not implemented');
+  }
+
+  /** Non-secret admin projection; no protected distribution or webhook values. */
+  async listRegistrations(): Promise<OperatorRegistrationState[]> {
+    throw new Error('Operator registration listing is not implemented');
+  }
+
+  /** Read only the current restrictive policy, never human authority. */
+  async getPolicy(_operatorId: string): Promise<string | null> {
+    throw new Error('Operator policy readback is not implemented');
+  }
+
   /** Create disabled ordering state; duplicate IDs never overwrite it. */
   async create(operatorId: string): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
     return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
@@ -125,7 +153,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
    * network I/O or code execution occurs here. Admission copies the approved data.
    */
   async approveManifest(
-    operatorId: string, manifest: OperatorManifest, expectedRevision: number,
+    operatorId: string, manifestJson: string, expectedRevision: number,
   ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
     return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
       const key = `registration:${operatorId}`;
@@ -134,21 +162,26 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       const distribution = await tx.get<{ endpoint: string }>(`distribution:${operatorId}`);
       if (!distribution) throw new ValidationError('Operator distribution is not configured');
-      const { url, ...artifact } = manifest.artifact;
-      const approved = parseOperatorManifest(JSON.stringify({ ...manifest, artifact }), distribution.endpoint);
-      if (approved.id !== operatorId || approved.artifact.url !== url) {
+      let approved: OperatorManifest;
+      try {
+        if (new TextEncoder().encode(manifestJson).byteLength > 64 * 1024) throw new Error('Oversized manifest');
+        const manifest = JSON.parse(manifestJson);
+        const { url, ...artifact } = manifest.artifact;
+        approved = parseOperatorManifest(JSON.stringify({ ...manifest, artifact }), distribution.endpoint);
+        if (approved.id !== operatorId || approved.artifact.url !== url) throw new Error('Mismatched manifest');
+      } catch {
         throw new ValidationError('Operator manifest does not match registration');
       }
       const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: approved.artifact.sha256 };
-      await tx.put(`approved-manifest:${operatorId}`, approved);
+      await tx.put(`approved-manifest:${operatorId}`, JSON.stringify(approved));
       await tx.put(key, value);
       return { ok: true, value };
     });
   }
 
   /** Read approved metadata only; discovery advertisement alone cannot replace it. */
-  async getApprovedManifest(operatorId: string): Promise<OperatorManifest | null> {
-    return await this.ctx.storage.get<OperatorManifest>(`approved-manifest:${operatorId}`) ?? null;
+  async getApprovedManifest(operatorId: string): Promise<string | null> {
+    return await this.ctx.storage.get<string>(`approved-manifest:${operatorId}`) ?? null;
   }
 
   /** Approval always requires a subsequent revision-checked enablement. */
@@ -199,14 +232,14 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (current.revision !== request.expectedRevision) return { ok: false, reason: 'revision-conflict' };
       if (!current.enabled) return { ok: false, reason: 'disabled' };
       if (!current.approvedArtifactDigest) return { ok: false, reason: 'artifact-unapproved' };
-      const manifest = await tx.get<OperatorManifest>(`approved-manifest:${request.operatorId}`);
+      const manifestJson = await tx.get<string>(`approved-manifest:${request.operatorId}`);
       const admittedAt = Date.now();
       if (!Number.isFinite(request.deadline) || request.deadline <= admittedAt) {
         return { ok: false, reason: 'authority-expired' };
       }
       const value: OperatorAdmissionReceipt = {
         ...request, artifactDigest: current.approvedArtifactDigest, admittedAt,
-        ...(manifest ? { manifest } : {}),
+        ...(manifestJson ? { manifestJson } : {}),
       };
       await tx.put(key, value);
       return { ok: true, value };

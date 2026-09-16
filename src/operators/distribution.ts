@@ -49,9 +49,7 @@ const bundleSchema = z.strictObject({
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Validated discovery data; artifact URL is derived, never supplied as authority. */
-export type OperatorManifest = Omit<z.infer<typeof manifestSchema>, 'inputSchema'> & {
-  /** Validated JSON stays opaque to RPC type expansion; parsing still uses z.json(). */
-  inputSchema: Record<string, unknown>;
+export type OperatorManifest = z.infer<typeof manifestSchema> & {
   artifact: z.infer<typeof manifestSchema>['artifact'] & { url: string };
 };
 
