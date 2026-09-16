@@ -17,6 +17,18 @@ async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>)
 }
 
 describe('REQ-OPERATOR-002: restrictive policy snapshots and safe listing', () => {
+  it('persists policy and admission through the configured SQLite registry RPC binding', async () => {
+    const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry> }).OPERATOR_REGISTRY;
+    const id = namespace.newUniqueId();
+    const registry = namespace.get(id);
+    expect(await registry.create('operator')).toMatchObject({ ok: true });
+    expect(await registry.setPolicy('operator', JSON.stringify(policy), 1)).toMatchObject({ ok: true });
+    await registry.approve('operator', 'a'.repeat(64), 2);
+    await registry.setEnabled('operator', true, 3);
+    const request = { operatorId: 'operator', activityId: 'activity', intentDigest: 'b'.repeat(64), expectedRevision: 4, deadline: Date.now() + 60_000 };
+    expect(await registry.admit(request)).toMatchObject({ ok: true, value: { policyJson: JSON.stringify(policy) } });
+    expect(await namespace.get(id).getReceipt('activity')).toMatchObject({ ok: true, value: { policyJson: JSON.stringify(policy) } });
+  });
   it('pins admitted restrictions despite later policy replacement', () => withRegistry(async registry => {
     expect(await registry.getPolicy('operator')).toBeNull();
     expect(await registry.setPolicy('operator', JSON.stringify(policy), 1)).toMatchObject({ ok: true, value: { revision: 2, enabled: false } });

@@ -113,6 +113,11 @@ class_name = "container"
 name = "TIMEKEEPER"
 class_name = "timekeeper"
 
+# Enterprise operator control plane. Inert when enterprise routes are unavailable.
+[[durable_objects.bindings]]
+name = "OPERATOR_REGISTRY"
+class_name = "OperatorRegistry"
+
 # Migrations
 [[migrations]]
 tag = "v1"
@@ -121,6 +126,10 @@ new_sqlite_classes = ["container"]
 [[migrations]]
 tag = "v2"
 new_classes = ["timekeeper"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["OperatorRegistry"]
 
 # Static assets (frontend) with SPA routing
 [assets]

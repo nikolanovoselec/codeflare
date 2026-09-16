@@ -2,8 +2,33 @@ import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
+import { parseOperatorPolicy } from './policy';
 
-/** Registration ordering state only; protected metadata/policy wiring comes separately. */
+/** RPC carries bounded JSON text rather than recursively serialized schema types. */
+function normalizePolicyJson(json: string): string {
+  try {
+    if (new TextEncoder().encode(json).byteLength > 64 * 1024) throw new Error('Oversized policy');
+    return JSON.stringify(parseOperatorPolicy(JSON.parse(json)));
+  } catch {
+    throw new ValidationError('Invalid operator execution policy');
+  }
+}
+
+/** Validate the RPC envelope while retaining the existing strict manifest parser. */
+function validateManifestJson(json: string, endpoint: string, operatorId?: string): OperatorManifest {
+  try {
+    if (new TextEncoder().encode(json).byteLength > 64 * 1024) throw new Error('Oversized manifest');
+    const manifest = JSON.parse(json);
+    const { url, ...artifact } = manifest.artifact;
+    const approved = parseOperatorManifest(JSON.stringify({ ...manifest, artifact }), endpoint);
+    if ((operatorId !== undefined && approved.id !== operatorId) || approved.artifact.url !== url) throw new Error('Mismatched manifest');
+    return approved;
+  } catch {
+    throw new ValidationError('Operator manifest does not match registration');
+  }
+}
+
+/** Safe registration projection; protected credentials and metadata are stored separately. */
 export interface OperatorRegistrationState {
   operatorId: string;
   revision: number;
@@ -45,7 +70,8 @@ export type OperatorRegistryResult<T> = { ok: true; value: T } | {
  * Receipt creation orders disable/admit, but does not consume a start capability
  * or queue execution in another DO. The activity reconciles by the same ID before
  * its own consume/queue transaction. Readback grants no renewed authority.
- * Protected metadata/policy snapshots and production route wiring remain separate.
+ * HTTP authorization and runtime policy enforcement belong to their respective
+ * callers; persisted restrictions never replace current human authority.
  */
 export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }> {
   /**
@@ -96,6 +122,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: null };
       await tx.put(`distribution:${operatorId}`, { endpoint: validatedEndpoint, connectionSecretCiphertext });
       await tx.delete(`approved-manifest:${operatorId}`);
+      await tx.delete(`discovered-manifest:${operatorId}`);
       await tx.put(key, value);
       return { ok: true, value };
     });
@@ -106,31 +133,64 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return await this.ctx.storage.get<{ endpoint: string; connectionSecretCiphertext: string }>(`distribution:${operatorId}`) ?? null;
   }
 
-  /** Atomically create discovered configuration, encrypted credentials and restrictive policy, disabled/unapproved. */
+  /**
+   * Atomically create authenticated discovery, encrypted credentials and restrictive
+   * policy, disabled/unapproved. Parent verifies human admin authority and performs
+   * discovery before calling. Validation/encryption failures and collisions leave
+   * no partial registration; network work never belongs in this transaction.
+   */
   async register(
-    _endpoint: string, _connectionSecret: string, _manifestJson: string, _policyJson: string,
+    endpoint: string, connectionSecret: string, manifestJson: string, policyJson: string,
   ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
-    throw new Error('Discovered operator registration is not implemented');
+    const validatedEndpoint = validateOperatorEndpoint(endpoint).href;
+    const manifest = validateManifestJson(manifestJson, validatedEndpoint);
+    const policy = normalizePolicyJson(policyJson);
+    if (!connectionSecret.trim()) throw new ValidationError('Operator connection secret is required');
+    const connectionSecretCiphertext = await sealOperatorSecret(connectionSecret, this.env, { purpose: 'connection', recordId: manifest.id });
+    return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
+      const operatorId = manifest.id;
+      const key = `registration:${operatorId}`;
+      if (await tx.get(key)) return { ok: false, reason: 'already-exists' };
+      const value: OperatorRegistrationState = { operatorId, revision: 1, enabled: false, approvedArtifactDigest: null };
+      await tx.put(key, value);
+      await tx.put(`distribution:${operatorId}`, { endpoint: validatedEndpoint, connectionSecretCiphertext });
+      await tx.put(`discovered-manifest:${operatorId}`, JSON.stringify(manifest));
+      await tx.put(`policy:${operatorId}`, policy);
+      return { ok: true, value };
+    });
   }
 
   /** Discovered metadata is informative, never artifact approval. */
-  async getDiscoveredManifest(_operatorId: string): Promise<string | null> {
-    throw new Error('Discovered operator metadata readback is not implemented');
+  async getDiscoveredManifest(operatorId: string): Promise<string | null> {
+    return await this.ctx.storage.get<string>(`discovered-manifest:${operatorId}`) ?? null;
   }
 
   /** Replace validated restrictive policy and disable until explicitly enabled again. */
-  async setPolicy(_operatorId: string, _policyJson: string, _expectedRevision: number): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
-    throw new Error('Operator policy persistence is not implemented');
+  async setPolicy(operatorId: string, policyJson: string, expectedRevision: number): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
+    const normalized = normalizePolicyJson(policyJson);
+    return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
+      const key = `registration:${operatorId}`;
+      const current = await tx.get<OperatorRegistrationState>(key);
+      if (!current) return { ok: false, reason: 'not-found' };
+      if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
+      const value = { ...current, revision: current.revision + 1, enabled: false };
+      await tx.put(`policy:${operatorId}`, normalized);
+      await tx.put(key, value);
+      return { ok: true, value };
+    });
   }
 
   /** Non-secret admin projection; no protected distribution or webhook values. */
   async listRegistrations(): Promise<OperatorRegistrationState[]> {
-    throw new Error('Operator registration listing is not implemented');
+    const records = await this.ctx.storage.list<OperatorRegistrationState>({ prefix: 'registration:' });
+    return [...records.values()].map(({ operatorId, revision, enabled, approvedArtifactDigest }) => ({
+      operatorId, revision, enabled, approvedArtifactDigest,
+    }));
   }
 
   /** Read only the current restrictive policy, never human authority. */
-  async getPolicy(_operatorId: string): Promise<string | null> {
-    throw new Error('Operator policy readback is not implemented');
+  async getPolicy(operatorId: string): Promise<string | null> {
+    return await this.ctx.storage.get<string>(`policy:${operatorId}`) ?? null;
   }
 
   /** Create disabled ordering state; duplicate IDs never overwrite it. */
@@ -162,16 +222,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       const distribution = await tx.get<{ endpoint: string }>(`distribution:${operatorId}`);
       if (!distribution) throw new ValidationError('Operator distribution is not configured');
-      let approved: OperatorManifest;
-      try {
-        if (new TextEncoder().encode(manifestJson).byteLength > 64 * 1024) throw new Error('Oversized manifest');
-        const manifest = JSON.parse(manifestJson);
-        const { url, ...artifact } = manifest.artifact;
-        approved = parseOperatorManifest(JSON.stringify({ ...manifest, artifact }), distribution.endpoint);
-        if (approved.id !== operatorId || approved.artifact.url !== url) throw new Error('Mismatched manifest');
-      } catch {
-        throw new ValidationError('Operator manifest does not match registration');
-      }
+      const approved = validateManifestJson(manifestJson, distribution.endpoint, operatorId);
       const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: approved.artifact.sha256 };
       await tx.put(`approved-manifest:${operatorId}`, JSON.stringify(approved));
       await tx.put(key, value);
@@ -233,6 +284,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!current.enabled) return { ok: false, reason: 'disabled' };
       if (!current.approvedArtifactDigest) return { ok: false, reason: 'artifact-unapproved' };
       const manifestJson = await tx.get<string>(`approved-manifest:${request.operatorId}`);
+      const policyJson = await tx.get<string>(`policy:${request.operatorId}`);
       const admittedAt = Date.now();
       if (!Number.isFinite(request.deadline) || request.deadline <= admittedAt) {
         return { ok: false, reason: 'authority-expired' };
@@ -240,6 +292,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const value: OperatorAdmissionReceipt = {
         ...request, artifactDigest: current.approvedArtifactDigest, admittedAt,
         ...(manifestJson ? { manifestJson } : {}),
+        ...(policyJson ? { policyJson } : {}),
       };
       await tx.put(key, value);
       return { ok: true, value };

@@ -20,6 +20,7 @@ import cloudflareRoutes from './routes/cloudflare';
 import publicRoutes from './routes/public/index';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
+import adminOperatorsRoutes from './routes/admin/operators';
 import adminConfigurationRoutes from './routes/admin/configuration';
 import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
 import adminConfigurationRunRoutes from './routes/admin/configuration-runs';
@@ -291,6 +292,7 @@ app.route('/api/github', githubRoutes);
 app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
+app.route('/api/admin/operators', adminOperatorsRoutes);
 app.route('/api/admin/configuration', adminConfigurationRoutes);
 app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
@@ -543,6 +545,7 @@ export default {
 // Export container class for Durable Objects
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
+export { OperatorRegistry } from './operators/registry';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +

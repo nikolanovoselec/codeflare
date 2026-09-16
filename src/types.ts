@@ -1,4 +1,5 @@
 import type { Container } from '@cloudflare/containers';
+import type { OperatorRegistry } from './operators/registry';
 import { z } from 'zod';
 
 /**
@@ -134,6 +135,8 @@ interface GithubEnv {
 
 /** Enterprise-mode-only bindings: AI Gateway routing + strict-egress transport (AD86). */
 interface EnterpriseEnv {
+  /** Operator control-plane storage; routes remain unavailable outside enterprise mode. */
+  OPERATOR_REGISTRY?: DurableObjectNamespace<OperatorRegistry>;
   // Enterprise mode: when 'active', codeflare is deployed inside a customer's
   // own Cloudflare account. All users resolve to unlimited tier + advanced mode,
   // the agent set is restricted to the enterprise allowlist, and LLM traffic is

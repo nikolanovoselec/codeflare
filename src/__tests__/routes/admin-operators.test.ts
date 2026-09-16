@@ -51,8 +51,8 @@ async function withApi(test: (request: (path: string, method?: string, body?: un
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     await registry.create('operator');
     const kv = createMockKV();
-    kv._set(SETUP_KEYS.AUTH_DOMAIN, 'example.cloudflareaccess.com');
-    kv._set(SETUP_KEYS.ACCESS_AUD, 'audience');
+    kv._store.set(SETUP_KEYS.AUTH_DOMAIN, 'example.cloudflareaccess.com');
+    kv._store.set(SETUP_KEYS.ACCESS_AUD, 'audience');
     const app = new Hono();
     app.onError((error, c) => error instanceof AppError
       ? c.json(error.toJSON(), error.statusCode as ContentfulStatusCode)
@@ -61,7 +61,7 @@ async function withApi(test: (request: (path: string, method?: string, body?: un
     const request = async (path: string, method = 'GET', body?: unknown, enterprise = true) => app.request(`/api/admin/operators${path}`, {
       method, headers: { 'content-type': 'application/json', 'cf-access-jwt-assertion': 'fixture-human-token' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    }, { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : 'inactive',
+    }, { KV: kv, ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: enterprise ? 'active' : 'inactive',
       OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env);
     await test(request, registry);
   });
