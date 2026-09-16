@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { createOperatorWebhookKey } from './protected-secrets';
 
 /** Registration ordering state only; protected metadata/policy wiring comes separately. */
 export interface OperatorRegistrationState {
@@ -42,17 +43,32 @@ export type OperatorRegistryResult<T> = { ok: true; value: T } | {
  * Protected metadata/policy snapshots and production route wiring remain separate.
  */
 export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }> {
-  /** Parent-authorized rotation; return plaintext only to this successful mutation. */
+  /**
+   * Parent-authorized rotation. Encrypt outside the transaction, then atomically
+   * compare the revision and replace the ciphertext. Only the winner receives
+   * plaintext; no retired-key fallback is retained. Losing the response requires
+   * an explicit new rotation, not plaintext recovery from a public projection.
+   */
   async rotateWebhookKey(
-    _operatorId: string,
-    _expectedRevision: number,
+    operatorId: string,
+    expectedRevision: number,
   ): Promise<OperatorRegistryResult<{ registration: OperatorRegistrationState; key: string }>> {
-    throw new Error('Operator webhook key rotation is not implemented');
+    const generated = await createOperatorWebhookKey(operatorId, this.env);
+    return this.ctx.storage.transaction<OperatorRegistryResult<{ registration: OperatorRegistrationState; key: string }>>(async tx => {
+      const registrationKey = `registration:${operatorId}`;
+      const current = await tx.get<OperatorRegistrationState>(registrationKey);
+      if (!current) return { ok: false, reason: 'not-found' };
+      if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
+      const registration = { ...current, revision: current.revision + 1 };
+      await tx.put(`webhook-key:${operatorId}`, generated.ciphertext);
+      await tx.put(registrationKey, registration);
+      return { ok: true, value: { registration, key: generated.key } };
+    });
   }
 
   /** Protected parent-only read for handoff decryption; never a public projection. */
-  async getEncryptedWebhookKey(_operatorId: string): Promise<string | null> {
-    throw new Error('Operator webhook key persistence is not implemented');
+  async getEncryptedWebhookKey(operatorId: string): Promise<string | null> {
+    return await this.ctx.storage.get<string>(`webhook-key:${operatorId}`) ?? null;
   }
 
   /** Create disabled ordering state; duplicate IDs never overwrite it. */
