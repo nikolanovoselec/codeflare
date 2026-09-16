@@ -335,3 +335,35 @@ describe('REQ-OPERATOR-003: durable drive generation and checkpoint', () => {
     expect(await activity(activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'authority-expired' });
   });
 });
+
+describe('REQ-OPERATOR-003: activity-driven Worker execution', () => {
+  it('starts approved code and resumes a durable checkpoint in a fresh Worker after activity eviction', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'drive-runtime' })).toMatchObject({ ok: true, state: {
+      generation: 1, status: 'waiting', checkpoint: { step: 1 },
+      result: { action: 'start', activityId, principal: 'fixture-owner', isolateCounter: 1 },
+    } });
+    const instance = await activity(activityId, { action: 'instance' });
+    await activity(activityId, { action: 'evict' });
+    expect(await activity(activityId, { action: 'instance' })).not.toEqual(instance);
+    expect(await activity(activityId, { action: 'drive-runtime' })).toMatchObject({ ok: true, state: {
+      generation: 2, status: 'completed', checkpoint: { step: 2 },
+      result: { action: 'resume', activityId, principal: 'fixture-owner', isolateCounter: 1 },
+    } });
+    expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
+  it.each(['throw', 'oversized'] as const)('fences %s output as unknown without automatic replay', async failure => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'drive-runtime', failure })).toMatchObject({ ok: true, state: {
+      generation: 2, status: 'unknown',
+    } });
+    expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
+  it('does not reserve a drive under an expired parent context', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'drive-runtime', deadline: 1 })).toEqual({ ok: false, reason: 'authority-expired' });
+    expect(await activity(activityId, { action: 'drive-runtime' })).toMatchObject({ ok: true, state: { generation: 1, status: 'waiting' } });
+  });
+});

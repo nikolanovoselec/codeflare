@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import type { OperatorBundle } from '../../../operators/distribution';
+import { driveOperatorRuntime } from '../../../operators/runtime';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
@@ -33,7 +34,8 @@ export type ActivityFixtureCommand =
   | { action: 'cancel-drive' }
   | { action: 'interrupt-drive'; generation: number }
   | { action: 'instance' }
-  | { action: 'evict' };
+  | { action: 'evict' }
+  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number };
 
 export type RegistryFixtureCommand =
   | { action: 'create'; operatorId: string }
@@ -54,6 +56,7 @@ export class FixtureCapability extends WorkerEntrypoint<FixtureEnv> {
   identity(_spoofedIdentity: string): string {
     return (this.ctx.props as { principal: string }).principal;
   }
+  driveGeneration(): number { return (this.ctx.props as { generation: number }).generation; }
 }
 
 /** Deterministic transport fixture: no provider, Internet, credentials or billing. */
@@ -89,7 +92,7 @@ const bundle: OperatorBundle = {
 export default {
   async fetch(request: Request, env: FixtureEnv, ctx: ExecutionContext): Promise<Response> {
     const entrypoints = (ctx as unknown as { exports: Record<string,
-      (options: { props: { principal: string } }) => Fetcher> }).exports;
+      (options: { props: { principal: string; generation?: number } }) => Fetcher> }).exports;
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
@@ -97,6 +100,32 @@ export default {
         const activity = env.ACTIVITY.getByName(url.searchParams.get('activity') ?? 'default');
         const command = await request.json<ActivityFixtureCommand>();
         switch (command.action) {
+          case 'drive-runtime': {
+            const failure = command.failure;
+            const runtimeBundle: OperatorBundle = { ...bundle, modules: { 'index.js': { js: `
+              let isolateCounter = 0;
+              export default { async fetch(request, env) {
+                ${failure === 'throw' ? 'throw new Error("uncertain fixture failure");' : ''}
+                ${failure === 'oversized' ? 'return new Response("x".repeat(65537), {headers:{"content-type":"application/json"}});' : ''}
+                const input = await request.json();
+                if (input.schemaVersion !== 1 || input.generation !== await env.OPERATOR.driveGeneration()) {
+                  return new Response('invalid generation binding', {status:400});
+                }
+                const step = (input.checkpoint?.step ?? 0) + 1;
+                return Response.json({schemaVersion:1, status:step === 1 ? 'waiting' : 'completed',
+                  checkpoint:{step}, result:{action:input.action, activityId:input.activityId,
+                    principal:await env.OPERATOR.identity('attacker'), isolateCounter:++isolateCounter}});
+              }};
+            ` } } };
+            return Response.json(await driveOperatorRuntime({
+              activity, activityId: url.searchParams.get('activity') ?? 'default',
+              deadline: command.deadline ?? Date.now() + 60_000, loader: env.LOADER, bundle: runtimeBundle,
+              bind: generation => ({
+                capability: entrypoints.FixtureCapability({ props: { ...props, generation } }),
+                outbound: entrypoints.FixtureOutbound({ props: { ...props, generation } }),
+              }),
+            }));
+          }
           case 'prepare': return Response.json(await activity.prepare(command.intent));
           case 'start': return Response.json(await activity.start(command.capability));
           case 'observe': return Response.json(await activity.getAdmission());
