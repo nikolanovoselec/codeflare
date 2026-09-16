@@ -7,12 +7,20 @@ export interface OperatorSecretContext {
   recordId: string;
 }
 
-/** Generate a per-operator handoff key; caller stores ciphertext and displays plaintext once. */
+/**
+ * REQ-OPERATOR-002: Generate an independent 256-bit handoff key for the authorized
+ * parent's operator record. Return only after authenticated encryption succeeds.
+ * The caller persists ciphertext, displays plaintext once and replaces the old
+ * ciphertext on rotation; this helper does not authorize, persist or log keys.
+ */
 export async function createOperatorWebhookKey(
-  _recordId: string,
-  _env: { ENCRYPTION_KEY?: string },
+  recordId: string,
+  env: { ENCRYPTION_KEY?: string },
 ): Promise<{ key: string; ciphertext: string }> {
-  throw new Error('Operator webhook key generation is not implemented');
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const key = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const ciphertext = await sealOperatorSecret(key, env, { purpose: 'webhook', recordId });
+  return { key, ciphertext };
 }
 
 function authenticatedContext(context: OperatorSecretContext): string {
