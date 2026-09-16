@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { z } from 'zod';
 import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt } from './registry';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
@@ -19,7 +20,7 @@ export interface ActivityAdmissionProjection {
   receipt: OperatorAdmissionReceipt | null;
 }
 
-export interface OperatorDriveState {
+interface OperatorDriveState {
   generation: number;
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';
   checkpoint: unknown;
@@ -37,7 +38,15 @@ interface AdmissionState {
   intent: OperatorActivityPreparation;
   phase: ActivityAdmissionProjection['phase'];
   receipt: OperatorAdmissionReceipt | null;
+  drive?: OperatorDriveState;
 }
+
+const driveUpdateSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  status: z.enum(['waiting', 'completed', 'failed']),
+  checkpoint: z.json(),
+  result: z.json().optional(),
+});
 
 type AdmissionFailure = Extract<ActivityAdmissionResult, { ok: false }>;
 
@@ -113,21 +122,87 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     });
   }
 
-  /** Durable drive operations under behavioral TDD; not yet execution-wired. */
+  /**
+   * Reserve one durable generation before loading a child. Only waiting work may
+   * resume; a running/unknown drive is never replayed based on isolate loss.
+   * The parent binds the returned generation to its child capabilities.
+   */
   async beginDrive(): Promise<OperatorDriveResult> {
-    throw new Error('Operator drive lifecycle is not implemented');
+    return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
+      if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
+        return { ok: false, reason: 'authority-expired' };
+      }
+      if (record.drive?.status === 'running') return { ok: false, reason: 'drive-active' };
+      if (record.drive && record.drive.status !== 'waiting') return { ok: false, reason: 'drive-settled' };
+      const state: OperatorDriveState = {
+        generation: (record.drive?.generation ?? 0) + 1, status: 'running',
+        checkpoint: record.drive?.checkpoint ?? null, result: null,
+      };
+      await tx.put<AdmissionState>('admission', { ...record, drive: state });
+      return { ok: true, state };
+    });
   }
 
-  async commitDrive(_generation: number, _update: unknown): Promise<OperatorDriveResult> {
-    throw new Error('Operator drive lifecycle is not implemented');
+  /** Validate bounded child output before committing the current generation only. */
+  async commitDrive(generation: number, update: unknown): Promise<OperatorDriveResult> {
+    let parsed: z.infer<typeof driveUpdateSchema>;
+    try {
+      const json = JSON.stringify(update);
+      if (typeof json !== 'string' || new TextEncoder().encode(json).byteLength > 64 * 1024) {
+        return { ok: false, reason: 'invalid-update' };
+      }
+      const result = driveUpdateSchema.safeParse(update);
+      if (!result.success) return { ok: false, reason: 'invalid-update' };
+      parsed = result.data;
+    } catch {
+      return { ok: false, reason: 'invalid-update' };
+    }
+    return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
+      if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
+        return { ok: false, reason: 'authority-expired' };
+      }
+      if (record.drive?.status !== 'running' || record.drive.generation !== generation) {
+        return { ok: false, reason: 'stale-drive' };
+      }
+      const state: OperatorDriveState = {
+        generation, status: parsed.status, checkpoint: parsed.checkpoint, result: parsed.result ?? null,
+      };
+      await tx.put<AdmissionState>('admission', { ...record, drive: state });
+      return { ok: true, state };
+    });
   }
 
+  /** Fence future commits; this is not confirmation that owned compute has stopped. */
   async cancelDrive(): Promise<OperatorDriveResult> {
-    throw new Error('Operator drive lifecycle is not implemented');
+    return this.fenceDrive('cancel-requested');
   }
 
-  async interruptDrive(_generation: number): Promise<OperatorDriveResult> {
-    throw new Error('Operator drive lifecycle is not implemented');
+  /** Parent reports an interrupted drive; its uncertain effects cannot be replayed. */
+  async interruptDrive(generation: number): Promise<OperatorDriveResult> {
+    return this.fenceDrive('unknown', generation);
+  }
+
+  private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number): Promise<OperatorDriveResult> {
+    return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
+      if (generation !== undefined && (record.drive?.status !== 'running' || record.drive.generation !== generation)) {
+        return { ok: false, reason: 'stale-drive' };
+      }
+      if (record.drive && record.drive.status !== 'running' && record.drive.status !== 'waiting') {
+        return { ok: false, reason: 'drive-settled' };
+      }
+      const state: OperatorDriveState = {
+        generation: (record.drive?.generation ?? 0) + 1, status,
+        checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
+      };
+      await tx.put<AdmissionState>('admission', { ...record, drive: state });
+      return { ok: true, state };
+    });
   }
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */

@@ -8,7 +8,7 @@ import { OperatorActivity, type OperatorActivityPreparation } from '../../../ope
 export class FixtureActivity extends OperatorActivity {
   private readonly instanceId = crypto.randomUUID();
   getInstanceId(): string { return this.instanceId; }
-  evictForTest(): never { return this.ctx.abort('Operator checkpoint fixture eviction'); }
+  evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }
 
 /** Simulates one lost RPC response after receipt commit, without changing registry logic. */
