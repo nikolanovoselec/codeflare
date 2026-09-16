@@ -1023,7 +1023,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((instance as any)._operatorPolicy.networkHosts).toEqual(['allowed.example.test']);
       expect((instance as any)._jwtStamping).toEqual({ mode: 'off', destinations: [] });
       expect((instance as any)._jwtAuthority.accessJwt).toBe('signed-access-jwt');
-      expect(instance.envVars.CODEFLARE_OPERATOR_SESSION).toBe('true');
+      expect(instance.envVars!.CODEFLARE_OPERATOR_SESSION).toBe('true');
       expect((instance as any).enableInternet).toBe(false);
       expect(() => instance.bindOperatorAuthority({ ...authority,
         human: { ...authority.human, subject: 'other' } })).toThrow(/authority/i);
