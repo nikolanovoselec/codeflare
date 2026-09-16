@@ -50,6 +50,7 @@ import type { Env } from './types';
 import { createLogger } from './lib/logger';
 import { getValidCloudflareToken } from './lib/cloudflare-token';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
+import type { OperatorPolicy } from './operators/policy';
 
 const logger = createLogger('cf-browser-interceptor');
 
@@ -78,6 +79,8 @@ interface BrowserInterceptorProps {
   strict?: boolean;
   jwtStamping?: JwtStampingPolicy;
   jwtAuthority?: JwtStampingAuthority;
+  /** Presence marks a restricted operator session; admin Browser credentials are never a declared capability. */
+  operatorPolicy?: OperatorPolicy;
   /**
    * NON-enterprise OAuth mode (REQ-AGENT-078): the bound per-session bucket. When set, this
    * interceptor stamps a FRESH `getValidCloudflareToken(bucket)` on EVERY api.cloudflare.com
@@ -136,6 +139,9 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     // api.cloudflare.com path. Keyed on the bound bucket; `bucket` is never set in enterprise
     // (which wires browserAccountId/browserToken) — so the enterprise path below is untouched.
     if (props?.bucket) return this.fetchOAuth(request, url, props.bucket);
+    if (props?.operatorPolicy) {
+      return jsonError(403, 'OPERATOR_BROWSER_DENIED', 'Browser administrator credentials are not available to operators');
+    }
 
     const browserAccountId = props?.browserAccountId;
     const browserToken = props?.browserToken;

@@ -212,7 +212,8 @@ const browserRendering: InterceptorSpec = {
       }
       return {
         entrypoint: 'CloudflareBrowserInterceptor',
-        props: { browserAccountId: accountId, browserToken: token, strict: host._strictEgress, ...jwtProps(host) },
+        props: { browserAccountId: accountId, browserToken: token, strict: host._strictEgress,
+          ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
         hosts: INTERCEPTED_CF_BROWSER_HOSTS,
         wiredLog: 'Enterprise Browser Rendering interception wired',
         wiredLogData: { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length },
