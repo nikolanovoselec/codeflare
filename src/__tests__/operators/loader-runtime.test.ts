@@ -44,8 +44,9 @@ async function registry(fixture: string, command: RegistryFixtureCommand): Promi
   const response = await worker!.fetch(`/registry?fixture=${fixture}`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command),
   });
-  expect(response.status).toBe(200);
-  return await response.json() as OperatorRegistryResult<unknown>;
+  const result = await response.json();
+  expect(response.status, JSON.stringify(result)).toBe(200);
+  return result as OperatorRegistryResult<unknown>;
 }
 async function enabledRegistry(): Promise<string> {
   const fixture = crypto.randomUUID();
