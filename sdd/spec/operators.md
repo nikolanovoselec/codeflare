@@ -231,12 +231,14 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Before loading, validate at most 8 MiB of exact artifact bytes against the approved SHA-256, then parse schema/interface version 1, main module, fixed supported compatibility date/flags and at most 128 JS/text modules. Require a declared JS main module, canonical relative module names and no undeclared loader options, env/bindings, script execution or inherited global outbound. The platform owns all capabilities and outbound configuration. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: approved bundle boundary) -->
 4. Parsing produces validated data only and never evaluates module source. Invalid/oversized/incompatible inputs return typed safe validation errors without including source bytes or credentials. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: approved bundle boundary) -->
 
+5. Discovery transport sends the already-verified, unexpired human assertion in `cf-access-jwt-assertion` and the separate connection secret as Bearer Authorization. Validate the endpoint and require both credentials before I/O. Use manual redirects; accept only HTTP 200 JSON, enforce the 64 KiB bound while streaming and a maximum 15-second request deadline (never beyond human expiry), cancel rejected bodies, recheck authority after reading, and return safe errors without credential/network diagnostics. A connection secret cannot substitute for human Access eligibility. <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-010: authenticated bounded discovery transport) -->
+
 **Constraints:** Version 1 uses the platform's current Worker compatibility date and `nodejs_compat` flag; dependency/runtime upgrades are not implicit. Static intent resources can be text modules. Discovery and bundle validation alone do not establish invoking-user eligibility or execute an operator.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-registration-and-serialized-admission), [REQ-OPERATOR-003](#req-operator-003-principal-bound-durable-activity-runtime)
 
-**Verification:** RED at `5b530c82`, CI 35121144349: 47 discovery/bundle behavioral cases fail against unimplemented boundaries. Parser GREEN and deployed registration/Worker Loader acceptance remain outstanding. Interface reference: [Operators](../../documentation/lanes/operators.md).
+**Verification:** RED at `5b530c82`, CI 35121144349: 47 discovery/bundle behavioral cases fail against unimplemented boundaries. Parser GREEN at `798fccda`, CI 35122553530. Authenticated transport tests and deployed registration/Worker Loader acceptance remain outstanding. Interface reference: [Operators](../../documentation/lanes/operators.md).
 
 **Status:** Planned
