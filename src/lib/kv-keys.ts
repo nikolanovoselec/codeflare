@@ -368,6 +368,7 @@ export const SETUP_KEYS = {
   // Stored as 'active' / 'inactive' (read === 'active'); default OFF when absent.
   // Set by the setup wizard and persisted in KV — no redeploy needed to flip it.
   STRICT_EGRESS: 'setup:strict_egress',
+  OPERATOR_JWT_STAMPING: 'setup:operator_jwt_stamping',
   // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle — disable R2 SSE-C so the
   // corporate bucket is readable/scannable. Stored as 'active' / 'inactive'
   // (read === 'active'); default OFF when absent. Flipping it reconciles each bucket's

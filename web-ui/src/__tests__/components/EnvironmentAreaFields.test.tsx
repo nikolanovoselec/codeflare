@@ -78,6 +78,25 @@ describe('Environment report fields', () => {
     expect(values.reasoningConfiguration.routeAssignments.development.activeProfile.id).toBe('workers-ai-kimi-k-thinking');
   });
 
+  it('REQ-OPERATOR-004: renders Off/list/All stamping controls and serializes canonical destination lines', () => {
+    const { getByLabelText, getByText, container } = render(() => (
+      <EnvironmentAreaFields section="securityEgress" mode="enterprise" current={{ strictGatewayEgress: false,
+        jwtStamping: { mode: 'all', destinations: [] } }} />
+    ));
+    expect((getByLabelText('Automatic Access JWT stamping') as HTMLSelectElement).value).toBe('all');
+    expect(getByText(/All sends the invoking human.*assertion/i)).toBeTruthy();
+    const destination = getByLabelText('JWT destinations, one hostname per line') as HTMLTextAreaElement;
+    destination.value = 'api.example.test\n*.services.example.test';
+    const mode = getByLabelText('Automatic Access JWT stamping') as HTMLSelectElement;
+    mode.value = 'list';
+    const form = document.createElement('form');
+    form.append(container.firstElementChild!);
+    expect(environmentValues('securityEgress', 'enterprise', new FormData(form))).toEqual({
+      strictGatewayEgress: false,
+      jwtStamping: { mode: 'list', destinations: ['api.example.test', '*.services.example.test'] },
+    });
+  });
+
   it('REQ-SETUP-020 AC2: retains an accepted stored timezone outside bundled choices', () => {
     const { getByLabelText } = render(() => (
       <EnvironmentAreaFields
