@@ -124,7 +124,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception-and-jwt-stamping)
 
-**Verification:** `scripts/verify-operator-pi-sdk.mjs` characterizes the provisioned SDK with explicit approved resources, excluded candidate extensions and exact session-file/ID/history reopening, without inference. SDK characterization GREEN at `fc4b6c06`, CI 35130610540; synthetic persisted history does not prove task settlement or cancellation. Independent byte-verification RED at `b621e181`, CI 35137237939: 17 cases reached the unimplemented verifier; GREEN at `02372ba9`, CI 35137779507. Full host/service behavioral tests, deployed file → explicit sync → independent R2 bytes → stop → fresh restoration and concurrency acceptance remain required.
+**Verification:** `scripts/verify-operator-pi-sdk.mjs` characterizes the provisioned SDK with explicit approved resources, excluded candidate extensions and exact session-file/ID/history reopening, without inference. SDK characterization GREEN at `fc4b6c06`, CI 35130610540; synthetic persisted history does not prove task settlement or cancellation. Structured host adapter RED at `9ebd16d6`, CI 35159863005: all five ownership/recovery, reconciliation, queue, observation and cancellation behaviors reached the intentional unimplemented seam. Independent byte-verification RED at `b621e181`, CI 35137237939: 17 cases reached the unimplemented verifier; GREEN at `02372ba9`, CI 35137779507. Full host/service behavioral tests, deployed file → explicit sync → independent R2 bytes → stop → fresh restoration and concurrency acceptance remain required.
 
 **Status:** Planned
 
