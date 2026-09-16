@@ -1,6 +1,6 @@
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { ValidationError } from '../lib/error-types';
-import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest, type OperatorBundle } from './distribution';
+import { parseOperatorManifest, parseOperatorBundle, validateOperatorEndpoint, type OperatorManifest, type OperatorBundle } from './distribution';
 
 /** Parent-owned, already-verified human context; never expose to operator code. */
 export interface OperatorDistributionCredentials {
@@ -9,13 +9,23 @@ export interface OperatorDistributionCredentials {
   readonly connectionSecret: string;
 }
 
-/** Approved artifact transport under behavioral TDD; no production wiring. */
+/**
+ * REQ-OPERATOR-010: Download only the parent-approved artifact using explicit
+ * human/connection authentication. Re-resolve its canonical path on the registered
+ * origin before sending credentials; reject inconsistent stored URL metadata.
+ * Bound bytes before buffering, verify the approved digest before parsing, never
+ * execute modules, and never replace approval with newly advertised metadata.
+ */
 export async function fetchOperatorBundle(
-  _endpoint: string,
-  _approved: OperatorManifest,
-  _credentials: OperatorDistributionCredentials,
+  endpoint: string,
+  approved: OperatorManifest,
+  credentials: OperatorDistributionCredentials,
 ): Promise<OperatorBundle> {
-  throw new Error('Operator artifact download is not implemented');
+  const { url, ...artifact } = approved.artifact;
+  const manifest = parseOperatorManifest(JSON.stringify({ ...approved, artifact }), endpoint);
+  if (manifest.artifact.url !== url) throw new ValidationError('Operator artifact URL does not match approval');
+  return fetchValidatedJson(new URL(url), credentials, 8 * 1024 * 1024,
+    bytes => parseOperatorBundle(bytes, manifest.artifact.sha256));
 }
 
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -35,6 +45,18 @@ export async function fetchOperatorManifest(
   credentials: OperatorDistributionCredentials,
 ): Promise<OperatorManifest> {
   const url = validateOperatorEndpoint(endpoint);
+  return fetchValidatedJson(url, credentials, MAX_MANIFEST_BYTES, bytes => parseOperatorManifest(
+    new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes), url.href,
+  ));
+}
+
+/** Shared bounded authenticated transport; caller-specific validation stays within its deadline. */
+async function fetchValidatedJson<T>(
+  url: URL,
+  credentials: OperatorDistributionCredentials,
+  maxBytes: number,
+  validate: (bytes: Uint8Array) => T | Promise<T>,
+): Promise<T> {
   const expiresAt = credentials.human.expiresAt * 1000;
   const remaining = expiresAt - Date.now();
   if (!Number.isFinite(remaining) || remaining <= 0
@@ -60,7 +82,7 @@ export async function fetchOperatorManifest(
       || !response.body) throw new Error('Invalid discovery response');
     const declaredLength = response.headers.get('content-length');
     if (declaredLength !== null && (!/^\d+$/.test(declaredLength)
-      || Number(declaredLength) > MAX_MANIFEST_BYTES)) throw new Error('Invalid response length');
+      || Number(declaredLength) > maxBytes)) throw new Error('Invalid response length');
 
     reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -69,7 +91,7 @@ export async function fetchOperatorManifest(
       const chunk = await reader.read();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size > MAX_MANIFEST_BYTES) throw new Error('Discovery response too large');
+      if (size > maxBytes) throw new Error('Discovery response too large');
       chunks.push(chunk.value);
     }
     if (controller.signal.aborted || Date.now() >= expiresAt) throw new Error('Discovery authority expired');
@@ -79,14 +101,13 @@ export async function fetchOperatorManifest(
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    const manifest = parseOperatorManifest(
-      new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes), url.href,
-    );
+    const result = await validate(bytes);
+    if (controller.signal.aborted || Date.now() >= expiresAt) throw new Error('Distribution authority expired');
     completed = true;
-    return manifest;
+    return result;
   } catch {
     // Never expose endpoint diagnostics, source bytes or credential-bearing errors.
-    throw new ValidationError('Operator discovery failed or authority expired');
+    throw new ValidationError('Operator distribution failed or authority expired');
   } finally {
     clearTimeout(timer);
     if (!completed) {
