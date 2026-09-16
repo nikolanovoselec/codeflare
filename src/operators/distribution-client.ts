@@ -24,7 +24,7 @@ export async function fetchOperatorBundle(
   const { url, ...artifact } = approved.artifact;
   const manifest = parseOperatorManifest(JSON.stringify({ ...approved, artifact }), endpoint);
   if (manifest.artifact.url !== url) throw new ValidationError('Operator artifact URL does not match approval');
-  return fetchValidatedJson(new URL(url), credentials, 8 * 1024 * 1024,
+  return await fetchValidatedJson(new URL(url), credentials, 8 * 1024 * 1024,
     bytes => parseOperatorBundle(bytes, manifest.artifact.sha256));
 }
 
@@ -45,7 +45,7 @@ export async function fetchOperatorManifest(
   credentials: OperatorDistributionCredentials,
 ): Promise<OperatorManifest> {
   const url = validateOperatorEndpoint(endpoint);
-  return fetchValidatedJson(url, credentials, MAX_MANIFEST_BYTES, bytes => parseOperatorManifest(
+  return await fetchValidatedJson(url, credentials, MAX_MANIFEST_BYTES, bytes => parseOperatorManifest(
     new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes), url.href,
   ));
 }
