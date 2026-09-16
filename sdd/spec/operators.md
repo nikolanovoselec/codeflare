@@ -121,7 +121,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception-and-jwt-stamping)
 
-**Verification:** Host/service behavioral tests; deployed file → explicit sync → independent R2 bytes → stop → fresh restoration proof and concurrency tests.
+**Verification:** `scripts/verify-operator-pi-sdk.mjs` characterizes the provisioned SDK with explicit approved resources, excluded candidate extensions and exact session-file/ID/history reopening, without inference. CI verification is pending; synthetic persisted history does not prove task settlement or cancellation. Full host/service behavioral tests, deployed file → explicit sync → independent R2 bytes → stop → fresh restoration and concurrency acceptance remain required.
 
 **Status:** Planned
 

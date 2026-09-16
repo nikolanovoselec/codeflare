@@ -173,6 +173,7 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/verify-operator-pi-sdk.mjs'
               - 'scripts/verify-bedrock-pi-prompt-cache.mjs'
               - 'src/lib/bedrock-anthropic-native-adapter.ts'
               - 'src/lib/reasoning-profiles.ts'
@@ -814,6 +815,9 @@ jobs:
 
       - name: Verify installed Pi dependencies and image processing
         run: node scripts/verify-pi-lockstep.mjs --verify-runtime "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent/package.json"
+
+      - name: Verify operator SDK resource and exact-session seam
+        run: node scripts/verify-operator-pi-sdk.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
 
       # Uses the locked, already-installed Pi serializer/parser and injected
       # synthetic fetch only. No credentials, provider I/O or inference billing.
