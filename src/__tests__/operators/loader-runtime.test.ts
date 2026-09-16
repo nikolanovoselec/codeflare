@@ -247,3 +247,91 @@ describe('REQ-OPERATOR-003: activity admission consume and queue', () => {
     expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual(receipt);
   });
 });
+
+async function queuedActivity(patch: Partial<OperatorActivityPreparation> = {}) {
+  const intent = await preparedActivity(patch);
+  expect(await activity(intent.activityId, { action: 'start', capability: START_TOKEN })).toEqual({ ok: true, phase: 'queued' });
+  return intent;
+}
+const driveUpdate = (status: 'waiting' | 'completed' | 'failed' = 'waiting') => ({
+  schemaVersion: 1, status, checkpoint: { step: 1 },
+});
+
+describe('REQ-OPERATOR-003: durable drive generation and checkpoint', () => {
+  it('does not drive an unadmitted activity', async () => {
+    const intent = await preparedActivity();
+    expect(await activity(intent.activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'not-admitted' });
+  });
+
+  it('permits one running generation under concurrent requests', async () => {
+    const { activityId } = await queuedActivity();
+    const results = await Promise.all(Array.from({ length: 6 }, () => activity(activityId, { action: 'begin-drive' })));
+    expect(results.filter(result => (result as { ok: boolean }).ok)).toEqual([
+      { ok: true, state: { generation: 1, status: 'running', checkpoint: null, result: null } },
+    ]);
+    for (const result of results.filter(result => !(result as { ok: boolean }).ok)) {
+      expect(result).toEqual({ ok: false, reason: 'drive-active' });
+    }
+  });
+
+  it('persists waiting checkpoints and resumes with a fresh generation', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'begin-drive' })).toMatchObject({ ok: true });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update: driveUpdate() }))
+      .toEqual({ ok: true, state: { generation: 1, status: 'waiting', checkpoint: { step: 1 }, result: null } });
+    const instance = await activity(activityId, { action: 'instance' });
+    await activity(activityId, { action: 'evict' });
+    expect(await activity(activityId, { action: 'instance' })).not.toEqual(instance);
+    expect(await activity(activityId, { action: 'begin-drive' }))
+      .toEqual({ ok: true, state: { generation: 2, status: 'running', checkpoint: { step: 1 }, result: null } });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update: driveUpdate('completed') }))
+      .toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 2,
+      update: { ...driveUpdate('completed'), result: { answer: 'fixture' } } }))
+      .toMatchObject({ ok: true, state: { status: 'completed', result: { answer: 'fixture' } } });
+    expect(await activity(activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
+  it('fences late results on cancellation without claiming cleanup completion', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'begin-drive' })).toMatchObject({ ok: true });
+    expect(await activity(activityId, { action: 'cancel-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update: driveUpdate('completed') }))
+      .toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity(activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
+  it('records interrupted work as unknown and never automatically replays it', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'begin-drive' })).toMatchObject({ ok: true });
+    expect(await activity(activityId, { action: 'interrupt-drive', generation: 9 })).toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity(activityId, { action: 'interrupt-drive', generation: 1 })).toMatchObject({ ok: true, state: { generation: 2, status: 'unknown' } });
+    expect(await activity(activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update: driveUpdate() }))
+      .toEqual({ ok: false, reason: 'stale-drive' });
+  });
+
+  it.each([
+    { ...driveUpdate(), schemaVersion: 2 },
+    { ...driveUpdate(), status: 'running' },
+    { ...driveUpdate(), checkpoint: '🙂'.repeat(17000) },
+    { ...driveUpdate(), principalId: 'attacker' },
+  ])('rejects unsupported/oversized updates without advancing state: case %#', async update => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'begin-drive' })).toMatchObject({ ok: true });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update }))
+      .toEqual({ ok: false, reason: 'invalid-update' });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update: driveUpdate() }))
+      .toMatchObject({ ok: true, state: { generation: 1, status: 'waiting' } });
+  });
+
+  it('checks real human expiry again before drive start and checkpoint commit', async () => {
+    const deadline = Date.now() + 3000;
+    const { activityId } = await queuedActivity({ deadline });
+    expect(await activity(activityId, { action: 'begin-drive' })).toMatchObject({ ok: true });
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, deadline - Date.now()) + 50));
+    expect(await activity(activityId, { action: 'commit-drive', generation: 1, update: driveUpdate() }))
+      .toEqual({ ok: false, reason: 'authority-expired' });
+    expect(await activity(activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'authority-expired' });
+  });
+});

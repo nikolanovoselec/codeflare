@@ -19,6 +19,18 @@ export interface ActivityAdmissionProjection {
   receipt: OperatorAdmissionReceipt | null;
 }
 
+export interface OperatorDriveState {
+  generation: number;
+  status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';
+  checkpoint: unknown;
+  result: unknown;
+}
+
+export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
+  ok: false;
+  reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
+};
+
 interface ActivityEnv { REGISTRY: DurableObjectNamespace<OperatorRegistry> }
 
 interface AdmissionState {
@@ -99,6 +111,23 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       });
       return { ok: true, phase: 'queued' };
     });
+  }
+
+  /** Durable drive operations under behavioral TDD; not yet execution-wired. */
+  async beginDrive(): Promise<OperatorDriveResult> {
+    throw new Error('Operator drive lifecycle is not implemented');
+  }
+
+  async commitDrive(_generation: number, _update: unknown): Promise<OperatorDriveResult> {
+    throw new Error('Operator drive lifecycle is not implemented');
+  }
+
+  async cancelDrive(): Promise<OperatorDriveResult> {
+    throw new Error('Operator drive lifecycle is not implemented');
+  }
+
+  async interruptDrive(_generation: number): Promise<OperatorDriveResult> {
+    throw new Error('Operator drive lifecycle is not implemented');
   }
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */

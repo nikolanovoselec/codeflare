@@ -52,7 +52,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims)
 
-**Verification:** SQLite registry fixture RED at `7916f5b8`, CI 35127226112: 13 cases reached the unimplemented registry. Transactional ordering GREEN at `2154eca0`, CI 35127781945. Activity-side consume/queue GREEN at `96c0fac9`, CI 35129016828. Protected-secret RED at `7a47c1d8`, CI 35129320677: 11 cases fail against the unimplemented boundary; encryption adapter GREEN is pending. Complete protected registration/policy data, route authorization and deployed allowed/denied acceptance remain required.
+**Verification:** SQLite registry fixture RED at `7916f5b8`, CI 35127226112: 13 cases reached the unimplemented registry. Transactional ordering GREEN at `2154eca0`, CI 35127781945. Activity-side consume/queue GREEN at `96c0fac9`, CI 35129016828. Protected-secret RED at `7a47c1d8`, CI 35129320677: 11 cases fail against the unimplemented boundary; Encryption adapter GREEN at `fc4b6c06`, CI 35130610540. Complete protected registration/policy data, route authorization and deployed allowed/denied acceptance remain required.
 
 **Status:** Planned
 
@@ -70,6 +70,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 2. Approved versioned artifact bytes are bounded, digest-checked and loaded through fresh `LOADER.load()` calls with explicit parent capabilities and outbound interception, never inherited unrestricted bindings/egress. The loader accepts validated bundle data and parent-owned service bindings, passes only the Operator Interface binding to children, and does not use isolate memory as durable state. A CI-only Wrangler fixture must demonstrate fresh loads, unspoofable parent-bound identity and controlled outbound allow/deny outcomes in workerd. This fixture is not deployed activity/DO acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: Worker Loader runtime boundary) -->
 3. Activity DO state owns durable intent, operation IDs, bounded checkpoint/generation, progress, result and cleanup. Recovery reconciles known operations; unknown external effects are not automatically replayed. Stale drives cannot commit checkpoints or initiate work. Admission validates the verifier-backed start capability and its expiry before registry I/O, persists pending intent, and atomically consumes the capability with queued execution only after a matching registry receipt and a fresh authority/expiry check. Concurrent starts queue once. An uncertain registry response leaves pending intent unconsumed; retry reconciles the same activity receipt rather than creating new intent. Disable-first leaves the activity unqueued. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: activity admission consume and queue) -->
 4. Cancellation/expiry stops only owned compute and records actual pending/failed/unknown cleanup without after-expiry final uploads. Overview reads use non-waking safe projections.
+5. An admitted activity admits one active drive generation at a time. Version-1 updates contain waiting/completed/failed status, JSON checkpoint and optional JSON result, bounded together to 64 KiB UTF-8. Only the current running generation may commit. Waiting resumes with the persisted checkpoint and a new generation; terminal, cancellation-fenced or unknown-effect state cannot automatically restart. Cancellation fencing and interrupted-drive marking invalidate late results without claiming compute cleanup has finished. Beginning/committing protected drives checks actual authority expiry. <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: durable drive generation and checkpoint) -->
 
 **Priority:** P0
 
@@ -121,7 +122,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception-and-jwt-stamping)
 
-**Verification:** `scripts/verify-operator-pi-sdk.mjs` characterizes the provisioned SDK with explicit approved resources, excluded candidate extensions and exact session-file/ID/history reopening, without inference. CI verification is pending; synthetic persisted history does not prove task settlement or cancellation. Full host/service behavioral tests, deployed file → explicit sync → independent R2 bytes → stop → fresh restoration and concurrency acceptance remain required.
+**Verification:** `scripts/verify-operator-pi-sdk.mjs` characterizes the provisioned SDK with explicit approved resources, excluded candidate extensions and exact session-file/ID/history reopening, without inference. SDK characterization GREEN at `fc4b6c06`, CI 35130610540; synthetic persisted history does not prove task settlement or cancellation. Full host/service behavioral tests, deployed file → explicit sync → independent R2 bytes → stop → fresh restoration and concurrency acceptance remain required.
 
 **Status:** Planned
 

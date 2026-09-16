@@ -14,11 +14,11 @@ class_name = "FixtureRegistry"
 
 [[durable_objects.bindings]]
 name = "ACTIVITY"
-class_name = "OperatorActivity"
+class_name = "FixtureActivity"
 
 [[migrations]]
 tag = "fixture-v1"
-new_sqlite_classes = ["FixtureRegistry", "OperatorActivity"]
+new_sqlite_classes = ["FixtureRegistry", "FixtureActivity"]
 
 [vars]
 PARENT_SECRET = "fixture-parent-only"

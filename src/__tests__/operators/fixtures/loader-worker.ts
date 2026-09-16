@@ -4,7 +4,12 @@ import type { OperatorBundle } from '../../../operators/distribution';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
-export { OperatorActivity };
+/** Native eviction fixture proves state survives a new DO instance, not isolate memory. */
+export class FixtureActivity extends OperatorActivity {
+  private readonly instanceId = crypto.randomUUID();
+  getInstanceId(): string { return this.instanceId; }
+  evictForTest(): never { return this.ctx.abort('Operator checkpoint fixture eviction'); }
+}
 
 /** Simulates one lost RPC response after receipt commit, without changing registry logic. */
 export class FixtureRegistry extends OperatorRegistry {
@@ -22,7 +27,13 @@ export class FixtureRegistry extends OperatorRegistry {
 export type ActivityFixtureCommand =
   | { action: 'prepare'; intent: OperatorActivityPreparation }
   | { action: 'start'; capability: string }
-  | { action: 'observe' };
+  | { action: 'observe' }
+  | { action: 'begin-drive' }
+  | { action: 'commit-drive'; generation: number; update: unknown }
+  | { action: 'cancel-drive' }
+  | { action: 'interrupt-drive'; generation: number }
+  | { action: 'instance' }
+  | { action: 'evict' };
 
 export type RegistryFixtureCommand =
   | { action: 'create'; operatorId: string }
@@ -35,7 +46,7 @@ interface FixtureEnv {
   LOADER: OperatorLoaderBinding;
   PARENT_SECRET: string;
   REGISTRY: DurableObjectNamespace<OperatorRegistry>;
-  ACTIVITY: DurableObjectNamespace<OperatorActivity>;
+  ACTIVITY: DurableObjectNamespace<FixtureActivity>;
 }
 
 /** Test-only RPC capability. Identity comes from the parent binding, not arguments. */
@@ -89,6 +100,14 @@ export default {
           case 'prepare': return Response.json(await activity.prepare(command.intent));
           case 'start': return Response.json(await activity.start(command.capability));
           case 'observe': return Response.json(await activity.getAdmission());
+          case 'begin-drive': return Response.json(await activity.beginDrive());
+          case 'commit-drive': return Response.json(await activity.commitDrive(command.generation, command.update));
+          case 'cancel-drive': return Response.json(await activity.cancelDrive());
+          case 'interrupt-drive': return Response.json(await activity.interruptDrive(command.generation));
+          case 'instance': return Response.json(await activity.getInstanceId());
+          case 'evict':
+            await activity.evictForTest().catch(() => {});
+            return Response.json({ evicted: true });
         }
       }
       if (url.pathname === '/registry') {
