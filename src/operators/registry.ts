@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secrets';
-import { validateOperatorEndpoint } from './distribution';
+import { validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
 
 /** Registration ordering state only; protected metadata/policy wiring comes separately. */
@@ -23,6 +23,8 @@ export interface OperatorAdmissionRequest {
 export interface OperatorAdmissionReceipt extends OperatorAdmissionRequest {
   artifactDigest: string;
   admittedAt: number;
+  /** Pinned when admission uses a metadata-approved registration. */
+  manifest?: OperatorManifest;
 }
 
 /** Serializable RPC outcomes; never rely on custom Error fields surviving RPC. */
@@ -113,6 +115,18 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       await tx.put(key, value);
       return { ok: true, value };
     });
+  }
+
+  /** Parent supplies authenticated, artifact-verified metadata; approval does not enable. */
+  async approveManifest(
+    _operatorId: string, _manifest: OperatorManifest, _expectedRevision: number,
+  ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
+    throw new Error('Operator manifest approval is not implemented');
+  }
+
+  /** Read approved metadata only; discovery advertisement alone cannot replace it. */
+  async getApprovedManifest(_operatorId: string): Promise<OperatorManifest | null> {
+    throw new Error('Operator approved manifest persistence is not implemented');
   }
 
   /** Approval always requires a subsequent revision-checked enablement. */

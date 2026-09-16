@@ -1,0 +1,76 @@
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
+import { describe, expect, it } from 'vitest';
+import { env, runInDurableObject } from 'cloudflare:test';
+import { OperatorRegistry } from '../../operators/registry';
+import { parseOperatorManifest } from '../../operators/distribution';
+import { ValidationError } from '../../lib/error-types';
+
+const endpoint = 'https://operator.example.test/discovery';
+const protectedEnv = { ENCRYPTION_KEY: btoa('k'.repeat(32)) };
+function manifest(version = '1') {
+  return parseOperatorManifest(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'operator',
+    name: 'Example', description: 'Approved intent', coreVersion: version, intentVersion: version,
+    inputSchema: { type: 'object' }, requiredCapabilities: ['storage'],
+    artifact: { path: '/bundle.json', sha256: (version === '1' ? 'a' : 'b').repeat(64) },
+  }), endpoint);
+}
+async function withRegistry(test: (registry: OperatorRegistry, ctx: DurableObjectState) => Promise<void>) {
+  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
+    const registry = new OperatorRegistry(ctx, protectedEnv);
+    await registry.create('operator');
+    await registry.setDistribution('operator', endpoint, 'connection', 1);
+    await test(registry, ctx);
+  });
+}
+
+describe('REQ-OPERATOR-002: approved manifest snapshots', () => {
+  it('persists full compatible metadata without enabling the registration', () => withRegistry(async (registry, ctx) => {
+    expect(await registry.getApprovedManifest('operator')).toBeNull();
+    expect(await registry.approveManifest('operator', manifest(), 2)).toEqual({ ok: true, value: {
+      operatorId: 'operator', revision: 3, enabled: false, approvedArtifactDigest: 'a'.repeat(64),
+    } });
+    expect(await new OperatorRegistry(ctx, protectedEnv).getApprovedManifest('operator')).toEqual(manifest());
+    expect(await registry.getApprovedManifest('missing')).toBeNull();
+  }));
+
+  it('pins admitted metadata through replacement approval and distribution changes', () => withRegistry(async registry => {
+    await registry.approveManifest('operator', manifest(), 2);
+    await registry.setEnabled('operator', true, 3);
+    const request = { operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64), expectedRevision: 4, deadline: Date.now() + 60_000 };
+    const admitted = await registry.admit(request);
+    expect(admitted).toMatchObject({ ok: true, value: { manifest: manifest(), artifactDigest: 'a'.repeat(64) } });
+    expect(await registry.approveManifest('operator', manifest('2'), 4)).toMatchObject({ ok: true, value: { revision: 5, enabled: false } });
+    expect(await registry.getApprovedManifest('operator')).toEqual(manifest('2'));
+    expect(await registry.admit(request)).toEqual(admitted);
+    await registry.setDistribution('operator', 'https://replacement.example.test/', 'replacement', 5);
+    expect(await registry.getApprovedManifest('operator')).toBeNull();
+    expect(await registry.getReceipt('activity')).toEqual(admitted);
+  }));
+
+  it('rejects stale approval and mismatched identity or derived URL without changing approved metadata', () => withRegistry(async registry => {
+    await registry.approveManifest('operator', manifest(), 2);
+    expect(await registry.approveManifest('operator', manifest('2'), 2)).toEqual({ ok: false, reason: 'revision-conflict' });
+    expect(await registry.approveManifest('missing', manifest(), 1)).toEqual({ ok: false, reason: 'not-found' });
+    for (const invalid of [
+      { ...manifest(), id: 'other' },
+      { ...manifest(), artifact: { ...manifest().artifact, url: 'https://other.example.test/bundle.json' } },
+    ]) {
+      await expect(registry.approveManifest('operator', invalid, 3)).rejects.toBeInstanceOf(ValidationError);
+    }
+    expect(await registry.getApprovedManifest('operator')).toEqual(manifest());
+  }));
+
+  it('rejects approval without configured distribution', () => withRegistry(async registry => {
+    await registry.create('unconfigured');
+    await expect(registry.approveManifest('unconfigured', { ...manifest(), id: 'unconfigured' }, 1))
+      .rejects.toBeInstanceOf(ValidationError);
+    expect(await registry.getApprovedManifest('unconfigured')).toBeNull();
+  }));
+
+  it('does not leave mismatched metadata attached to a subsequent digest-only approval', () => withRegistry(async registry => {
+    await registry.approveManifest('operator', manifest(), 2);
+    await registry.approve('operator', 'b'.repeat(64), 3);
+    expect(await registry.getApprovedManifest('operator')).toBeNull();
+  }));
+});
