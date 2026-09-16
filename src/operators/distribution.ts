@@ -79,6 +79,16 @@ export function parseOperatorManifest(json: string, endpoint: string): OperatorM
   if (new TextEncoder().encode(json).byteLength > MANIFEST_BYTES) {
     throw new ValidationError('Operator manifest exceeds the size limit');
   }
+  const url = validateOperatorEndpoint(endpoint);
+  const manifest = parseJson(json, manifestSchema, 'Invalid or incompatible operator manifest');
+  return {
+    ...manifest,
+    artifact: { ...manifest.artifact, url: new URL(manifest.artifact.path, url.origin).href },
+  };
+}
+
+/** Shared lexical endpoint boundary, checked before protected I/O; not DNS authorization. */
+export function validateOperatorEndpoint(endpoint: string): URL {
   let url: URL;
   try {
     url = new URL(endpoint);
@@ -91,11 +101,7 @@ export function parseOperatorManifest(json: string, endpoint: string): OperatorM
     || hostname.startsWith('[') || hostname.endsWith('.localhost')) {
     throw new ValidationError('Invalid operator distribution endpoint');
   }
-  const manifest = parseJson(json, manifestSchema, 'Invalid or incompatible operator manifest');
-  return {
-    ...manifest,
-    artifact: { ...manifest.artifact, url: new URL(manifest.artifact.path, url.origin).href },
-  };
+  return url;
 }
 
 /**
