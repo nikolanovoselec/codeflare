@@ -29,9 +29,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-AUTH-003](authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Signed-token behavioral tests, followed by real enterprise Access admission acceptance.
+**Verification:** Signed-token behavioral tests: RED at `28c40a97` (CI 35119689823), GREEN at `18960850` (CI 35120031781). Actual enterprise operator admission remains separately required by REQ-OPERATOR-002/003; this primitive is not deployed operator acceptance.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -213,5 +213,30 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-session-structured-pi-and-explicit-persistence), [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-codeflare-webhook-endpoint)
 
 **Verification:** Shared component/fixture tests, unchanged-resource regression evidence and recorded integration acceptance.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-010: Bounded discovery and immutable bundle validation
+
+**Intent:** Registration and loading share one versioned input boundary that cannot execute discovery content, inherit parent bindings or silently accept incompatible code.
+
+**Applies To:** Admin, User
+
+**Acceptance Criteria:**
+
+1. A discovery JSON document of at most 64 KiB declares schema/interface version 1, stable ID, name/description, core/intent versions, bounded input-contract metadata, supported required capabilities and an artifact path/SHA-256. Unknown versions/capabilities, duplicate capabilities, malformed/missing fields and caller identity/binding fields are rejected. <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+2. Distribution uses a credential-free, fragment-free HTTPS URL with a DNS hostname. Artifact paths are canonical origin-relative paths without query/fragment, encoded ambiguity, traversal or backslash; a validated artifact URL cannot leave the registered origin. Network discovery must independently reject redirects/login responses; parsing grants no network or Access permission. <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+3. Before loading, validate at most 8 MiB of exact artifact bytes against the approved SHA-256, then parse schema/interface version 1, main module, fixed supported compatibility date/flags and at most 128 JS/text modules. Require a declared JS main module, canonical relative module names and no undeclared loader options, env/bindings, script execution or inherited global outbound. The platform owns all capabilities and outbound configuration. <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: approved bundle boundary) -->
+4. Parsing produces validated data only and never evaluates module source. Invalid/oversized/incompatible inputs return typed safe validation errors without including source bytes or credentials. <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: approved bundle boundary) -->
+
+**Constraints:** Version 1 uses the platform's current Worker compatibility date and `nodejs_compat` flag; dependency/runtime upgrades are not implicit. Static intent resources can be text modules. Discovery and bundle validation alone do not establish invoking-user eligibility or execute an operator.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-registration-and-serialized-admission), [REQ-OPERATOR-003](#req-operator-003-principal-bound-durable-activity-runtime)
+
+**Verification:** Behavioral parser/integrity tests plus deployed registration/Worker Loader fixtures.
 
 **Status:** Planned
