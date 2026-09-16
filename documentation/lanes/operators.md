@@ -73,15 +73,21 @@ This is a format example, not a functioning operator. At most 128 canonical rela
 
 `src/operators/loader.ts::loadOperatorWorker(loader, approvedBundle, capability, outbound)` creates a fresh Worker with `LOADER.load()` and returns its default entrypoint. The child receives only `env.OPERATOR`; the parent provides this service binding with bound principal/activity context. An explicit outbound service intercepts child networking, or `null` denies it. There is no inherited environment, cached `get()` path, automatic retry or fallback.
 
-The caller owns artifact integrity/approval, current human authority, admission and creation of the principal-bound services. Durable checkpoints, cancellation, operation reconciliation and recovery belong to the activity, not the isolate. This adapter is not yet production-wired.
+The caller owns artifact integrity/approval, current human authority, admission and creation of the principal-bound services. Durable checkpoints, cancellation, operation reconciliation and recovery belong to the activity, not the isolate. Production configuration declares `LOADER` and the SQLite `OPERATOR_ACTIVITY` owner; user-facing dispatch is added only through the later authenticated admission surfaces.
 
 The isolated fixture at `src/__tests__/operators/fixtures/wrangler.toml` uses the repository's pinned Wrangler/workerd and target compatibility settings. Its RPC/egress services are synthetic and make no provider calls. It is not a production configuration or proof of live Cloudflare Access, deployed runtime behavior, inference eligibility or activity durability.
+
+## Protected execution context
+
+`src/operators/execution-context.ts` captures a currently verified human Access assertion under exact activity/operator, approved artifact and policy identities. It validates bounded identifiers/digests and actual signed expiry, then uses the existing fail-closed operator AES-GCM envelope with the activity ID as authenticated context. Durable state contains owner provenance and ciphertext, never a raw JWT. `projectOperatorExecution` removes ciphertext before parent-safe readback; nothing from this projection grants child authority.
+
+Protected reopening verifies the ciphertext payload still matches every public pinned identity and rejects expired authority. Reauthentication decrypts the existing record and accepts only the same subject, normalized email, issuer and audience list before replacing ciphertext. It cannot change operator/artifact/policy identity, admit work or reconcile uncertain effects. `OperatorActivity.prepareAuthorized` atomically persists this context with prepared intent and bounds the intent deadline by signed expiry. Registry receipt artifact/policy identity must match before queueing.
 
 ## Activity-to-Worker driver
 
 `src/operators/runtime.ts::driveOperatorRuntime(options)` reserves an admitted activity's next drive generation and creates fresh approved code with parent-built, generation-bound capabilities. The child receives a version-1 JSON request containing `action` (`start` or `resume`), `activityId`, `generation` and the last durable `checkpoint`. Credentials remain in the parent. Only a 200 JSON response, streamed within 64 KiB and a 30-second child deadline capped by human expiry, reaches the activity's checkpoint validator and generation comparison.
 
-Thrown, oversized, malformed or expired execution is fenced as unknown rather than automatically replayed. Already-settled or active drives do not start another Worker. A waiting checkpoint can resume after activity eviction in a fresh isolate. This composes existing primitives; it adds no scheduler. It is not yet production-wired, and aborting a request/fencing a generation does not prove that owned sessions or SDK work were cancelled. Explicit cancellation dispatch and owned-compute cleanup remain required.
+Thrown, oversized, malformed or expired execution is fenced as unknown rather than automatically replayed. Already-settled or active drives do not start another Worker. A waiting checkpoint can resume after activity eviction in a fresh isolate. This composes existing primitives; it adds no scheduler. The production Loader/activity bindings are declared, while authenticated dispatch remains in its dedicated package. Aborting a request/fencing a generation does not prove that owned sessions or SDK work were cancelled. Explicit cancellation dispatch and owned-compute cleanup remain required.
 
 ## Registration/admission ordering
 

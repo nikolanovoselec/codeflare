@@ -1,5 +1,7 @@
 import type { Container } from '@cloudflare/containers';
 import type { OperatorRegistry } from './operators/registry';
+import type { OperatorActivity } from './operators/activity';
+import type { OperatorLoaderBinding } from './operators/loader';
 import { z } from 'zod';
 
 /**
@@ -137,6 +139,10 @@ interface GithubEnv {
 interface EnterpriseEnv {
   /** Operator control-plane storage; routes remain unavailable outside enterprise mode. */
   OPERATOR_REGISTRY?: DurableObjectNamespace<OperatorRegistry>;
+  /** Durable activity owner; never exposed as a child Worker capability. */
+  OPERATOR_ACTIVITY?: DurableObjectNamespace<OperatorActivity>;
+  /** Fresh private Worker constructor; children receive only explicit bindings. */
+  LOADER?: OperatorLoaderBinding;
   // Enterprise mode: when 'active', codeflare is deployed inside a customer's
   // own Cloudflare account. All users resolve to unlimited tier + advanced mode,
   // the agent set is restricted to the enterprise allowlist, and LLM traffic is

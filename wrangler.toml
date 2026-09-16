@@ -118,6 +118,15 @@ class_name = "timekeeper"
 name = "OPERATOR_REGISTRY"
 class_name = "OperatorRegistry"
 
+# Enterprise activity owner. Inert until an authorized operator admission uses it.
+[[durable_objects.bindings]]
+name = "OPERATOR_ACTIVITY"
+class_name = "OperatorActivity"
+
+# Fresh private Worker loading; no inherited environment is supplied by this binding.
+[[worker_loaders]]
+binding = "LOADER"
+
 # Migrations
 [[migrations]]
 tag = "v1"
@@ -130,6 +139,10 @@ new_classes = ["timekeeper"]
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["OperatorRegistry"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["OperatorActivity"]
 
 # Static assets (frontend) with SPA routing
 [assets]

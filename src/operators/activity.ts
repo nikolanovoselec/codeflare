@@ -8,7 +8,10 @@
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt } from './registry';
-import type { OperatorExecutionContext, OperatorExecutionProjection } from './execution-context';
+import type { VerifiedHumanAccessClaims } from '../lib/jwt';
+import { AppError } from '../lib/error-types';
+import { projectOperatorExecution, reauthenticateOperatorExecution,
+  type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export interface OperatorActivityPreparation extends OperatorAdmissionRequest {
@@ -40,7 +43,7 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
   reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
 };
 
-interface ActivityEnv { REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string }
+interface ActivityEnv { OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string }
 
 interface AdmissionState {
   intent: OperatorActivityPreparation;
@@ -83,20 +86,43 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  */
 export class OperatorActivity extends DurableObject<ActivityEnv> {
   /** Production preparation stores parent-created encrypted human authority. */
-  async prepareAuthorized(_intent: OperatorActivityPreparation,
-    _executionContext: OperatorExecutionContext): Promise<ActivityAdmissionResult> {
-    throw new Error('Not implemented');
+  async prepareAuthorized(intent: OperatorActivityPreparation,
+    executionContext: OperatorExecutionContext): Promise<ActivityAdmissionResult> {
+    if (intent.activityId !== executionContext.activityId || intent.operatorId !== executionContext.operatorId) {
+      return { ok: false, reason: 'admission-denied' };
+    }
+    if (!Number.isFinite(intent.deadline) || intent.deadline > executionContext.expiresAt * 1000
+      || intent.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+    return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+      if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
+      await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext });
+      return { ok: true, phase: 'prepared' };
+    });
   }
 
   /** Replace protected authority only through same-owner reauthentication. */
-  async reauthenticate(_human: import('../lib/jwt').VerifiedHumanAccessClaims,
-    _accessJwt: string): Promise<OperatorExecutionProjection> {
-    throw new Error('Not implemented');
+  async reauthenticate(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<OperatorExecutionProjection> {
+    const record = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!record?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
+    const previous = record.executionContext;
+    const replacement = await reauthenticateOperatorExecution(previous, human, accessJwt, this.env);
+    await this.ctx.storage.transaction(async tx => {
+      const current = await tx.get<AdmissionState>('admission');
+      if (!current?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
+      if (current.executionContext.protectedAccessCiphertext !== previous.protectedAccessCiphertext) {
+        throw new AppError('CONFLICT', 409, 'Operator authority changed; refresh before retrying');
+      }
+      await tx.put<AdmissionState>('admission', { ...current, intent: {
+        ...current.intent, deadline: Math.min(current.intent.deadline, replacement.expiresAt * 1000),
+      }, executionContext: replacement });
+    });
+    return projectOperatorExecution(replacement);
   }
 
   /** Parent-safe activity identity read; no credential ciphertext or token. */
   async getExecutionContext(): Promise<OperatorExecutionProjection | null> {
-    throw new Error('Not implemented');
+    const context = (await this.ctx.storage.get<AdmissionState>('admission'))?.executionContext;
+    return context ? projectOperatorExecution(context) : null;
   }
 
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
@@ -124,7 +150,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     const { activityId, operatorId, intentDigest, expectedRevision, deadline } = pending.intent;
     let receipt: OperatorAdmissionReceipt;
     try {
-      const admitted = await this.env.REGISTRY.getByName('registry').admit({
+      const admitted = await this.env.OPERATOR_REGISTRY.getByName('registry').admit({
         activityId, operatorId, intentDigest, expectedRevision, deadline,
       });
       if (!admitted.ok) return { ok: false, reason: 'admission-denied' };
@@ -132,6 +158,10 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     } catch {
       return { ok: false, reason: 'admission-uncertain' };
     }
+    const receiptPolicyDigest = receipt.policyJson
+      ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(receipt.policyJson))))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('')
+      : null;
     return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
@@ -140,9 +170,13 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       const intent = state.intent;
       if (receipt.activityId !== intent.activityId || receipt.operatorId !== intent.operatorId
         || receipt.intentDigest !== intent.intentDigest || receipt.expectedRevision !== intent.expectedRevision
-        || receipt.deadline !== intent.deadline) return { ok: false, reason: 'admission-denied' };
+        || receipt.deadline !== intent.deadline
+        || (state.executionContext && (receipt.artifactDigest !== state.executionContext.artifactDigest
+          || receiptPolicyDigest !== state.executionContext.policyDigest))) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       await tx.put<AdmissionState>('admission', {
-        intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
+        ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
       });
       return { ok: true, phase: 'queued' };
     });

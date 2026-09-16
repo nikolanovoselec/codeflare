@@ -11,7 +11,7 @@ workers_dev = false
 binding = "LOADER"
 
 [[durable_objects.bindings]]
-name = "REGISTRY"
+name = "OPERATOR_REGISTRY"
 class_name = "FixtureRegistry"
 
 [[durable_objects.bindings]]

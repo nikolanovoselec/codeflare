@@ -52,7 +52,7 @@ export type RegistryFixtureCommand =
 interface FixtureEnv {
   LOADER: OperatorLoaderBinding;
   PARENT_SECRET: string;
-  REGISTRY: DurableObjectNamespace<OperatorRegistry>;
+  OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
 }
 
@@ -145,7 +145,7 @@ export default {
         }
       }
       if (url.pathname === '/registry') {
-        const registry = env.REGISTRY.getByName(url.searchParams.get('fixture') ?? 'default');
+        const registry = env.OPERATOR_REGISTRY.getByName(url.searchParams.get('fixture') ?? 'default');
         const command = await request.json<RegistryFixtureCommand>();
         switch (command.action) {
           case 'create': return Response.json(await registry.create(command.operatorId));

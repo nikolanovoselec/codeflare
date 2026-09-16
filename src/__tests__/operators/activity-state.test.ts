@@ -24,7 +24,7 @@ async function withActivity(
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
     const activityEnv = {
-      REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
+      OPERATOR_REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
     };
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
@@ -44,6 +44,12 @@ async function withActivity(
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
 
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
+  it('exposes the production activity namespace and reconstructs a safe empty projection', async () => {
+    const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace<OperatorActivity> }).OPERATOR_ACTIVITY;
+    expect(namespace).toBeDefined();
+    expect(await namespace.getByName(`binding-${crypto.randomUUID()}`).getExecutionContext()).toBeNull();
+  });
+
   it('preserves checkpoint identity across waiting and rejects stale completion', () => withActivity(async ({ activity, registry, token }) => {
     expect(await activity.getAdmission()).toMatchObject({ phase: 'queued', receipt: { activityId: 'activity' } });
     expect(await activity.start(token)).toEqual({ ok: false, reason: 'already-started' });
@@ -102,6 +108,32 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const renewed = { ...claims, expiresAt: claims.expiresAt + 300 };
     expect(await secured.reauthenticate(renewed, 'renewed.jwt')).toMatchObject({ expiresAt: renewed.expiresAt });
     await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
+  }, false));
+
+  it('queues authorized intent only when registry artifact and policy identities match', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
+    const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
+        reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
+    expect((await registry.create('operator')).ok).toBe(true);
+    expect((await registry.setPolicy('operator', policyJson, 1)).ok).toBe(true);
+    expect((await registry.approve('operator', 'a'.repeat(64), 2)).ok).toBe(true);
+    expect((await registry.setEnabled('operator', true, 3)).ok).toBe(true);
+    const policyDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(policyJson))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const claims: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      expiresAt: Math.floor(Date.now() / 1000) + 300 };
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: 'a'.repeat(64), policyDigest, human: claims, accessJwt: 'private.jwt' }, encryption);
+    const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64),
+      expectedRevision: 4, deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000,
+      startVerifier: verifier }, context)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await secured.start(token)).toEqual({ ok: true, phase: 'queued' });
+    expect(await secured.getExecutionContext()).toMatchObject({ artifactDigest: 'a'.repeat(64), policyDigest });
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {
