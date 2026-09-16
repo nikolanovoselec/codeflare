@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secrets';
-import { validateOperatorEndpoint, type OperatorManifest } from './distribution';
+import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
 
 /** Registration ordering state only; protected metadata/policy wiring comes separately. */
@@ -94,6 +94,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: null };
       await tx.put(`distribution:${operatorId}`, { endpoint: validatedEndpoint, connectionSecretCiphertext });
+      await tx.delete(`approved-manifest:${operatorId}`);
       await tx.put(key, value);
       return { ok: true, value };
     });
@@ -117,16 +118,37 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  /** Parent supplies authenticated, artifact-verified metadata; approval does not enable. */
+  /**
+   * Parent supplies authenticated, artifact-verified metadata. Revalidate against
+   * the current configured origin and stable registration ID within the revision
+   * transaction. Store metadata/digest together; approval does not enable. No
+   * network I/O or code execution occurs here. Admission copies the approved data.
+   */
   async approveManifest(
-    _operatorId: string, _manifest: OperatorManifest, _expectedRevision: number,
+    operatorId: string, manifest: OperatorManifest, expectedRevision: number,
   ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
-    throw new Error('Operator manifest approval is not implemented');
+    return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
+      const key = `registration:${operatorId}`;
+      const current = await tx.get<OperatorRegistrationState>(key);
+      if (!current) return { ok: false, reason: 'not-found' };
+      if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
+      const distribution = await tx.get<{ endpoint: string }>(`distribution:${operatorId}`);
+      if (!distribution) throw new ValidationError('Operator distribution is not configured');
+      const { url, ...artifact } = manifest.artifact;
+      const approved = parseOperatorManifest(JSON.stringify({ ...manifest, artifact }), distribution.endpoint);
+      if (approved.id !== operatorId || approved.artifact.url !== url) {
+        throw new ValidationError('Operator manifest does not match registration');
+      }
+      const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: approved.artifact.sha256 };
+      await tx.put(`approved-manifest:${operatorId}`, approved);
+      await tx.put(key, value);
+      return { ok: true, value };
+    });
   }
 
   /** Read approved metadata only; discovery advertisement alone cannot replace it. */
-  async getApprovedManifest(_operatorId: string): Promise<OperatorManifest | null> {
-    throw new Error('Operator approved manifest persistence is not implemented');
+  async getApprovedManifest(operatorId: string): Promise<OperatorManifest | null> {
+    return await this.ctx.storage.get<OperatorManifest>(`approved-manifest:${operatorId}`) ?? null;
   }
 
   /** Approval always requires a subsequent revision-checked enablement. */
@@ -137,6 +159,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!current) return { ok: false, reason: 'not-found' };
       if (current.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       const value = { ...current, revision: current.revision + 1, enabled: false, approvedArtifactDigest: artifactDigest };
+      await tx.delete(`approved-manifest:${operatorId}`);
       await tx.put(key, value);
       return { ok: true, value };
     });
@@ -176,12 +199,14 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (current.revision !== request.expectedRevision) return { ok: false, reason: 'revision-conflict' };
       if (!current.enabled) return { ok: false, reason: 'disabled' };
       if (!current.approvedArtifactDigest) return { ok: false, reason: 'artifact-unapproved' };
+      const manifest = await tx.get<OperatorManifest>(`approved-manifest:${request.operatorId}`);
       const admittedAt = Date.now();
       if (!Number.isFinite(request.deadline) || request.deadline <= admittedAt) {
         return { ok: false, reason: 'authority-expired' };
       }
       const value: OperatorAdmissionReceipt = {
         ...request, artifactDigest: current.approvedArtifactDigest, admittedAt,
+        ...(manifest ? { manifest } : {}),
       };
       await tx.put(key, value);
       return { ok: true, value };
