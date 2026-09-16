@@ -29,6 +29,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { getValidGithubToken } from './lib/github-token';
+import { decideOperatorGithub } from './operators/interception-policy';
+import type { OperatorPolicy } from './operators/policy';
 
 /** Pinned default GitHub REST API version (set only when the client didn't pin one). */
 const GITHUB_API_VERSION = '2022-11-28';
@@ -96,6 +98,8 @@ interface GithubInterceptorProps {
    * EGRESS binding is unbound.
    */
   strict?: boolean;
+  /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
+  operatorPolicy?: OperatorPolicy;
 }
 
 function jsonError(status: number, code: string, error: string): Response {
@@ -117,6 +121,11 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
 
     // Identity is the BOUND per-session bucket only — never read from the request.
     const props = (this.ctx as unknown as { props?: GithubInterceptorProps }).props;
+    if (props?.operatorPolicy) {
+      const decision = decideOperatorGithub(props.operatorPolicy, request,
+        { apiHost, webHost: gitWebHost(this.env) });
+      if (!decision.allowed) return jsonError(403, 'OPERATOR_GITHUB_DENIED', 'GitHub operation is not permitted');
+    }
     const bucket = props?.bucket;
     if (!bucket) {
       console.error('GitHubInterceptor: per-session bucket prop absent; failing closed');

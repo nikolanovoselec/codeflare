@@ -28,6 +28,7 @@ import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../clo
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
 import { getOrImportKey } from '../lib/kv-crypto';
+import type { OperatorPolicy } from '../operators/policy';
 
 /** The DO surface the interception registry consumes (explicit interface, not inheritance). */
 export interface InterceptionHost {
@@ -48,6 +49,8 @@ export interface InterceptionHost {
   _r2SseDisabled?: boolean;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
   _strictEgress?: boolean;
+  /** Present only for a parent-bound operator session; never read from requests. */
+  _operatorPolicy?: OperatorPolicy;
 }
 
 /** One resolved outbound-interception transport, ready to register. */
@@ -161,7 +164,11 @@ const github: InterceptorSpec = {
     const hosts = interceptedGithubHosts(host.env);
     return {
       entrypoint: 'GitHubInterceptor',
-      props: host._strictEgress ? { user, bucket, strict: true } : { user, bucket },
+      props: {
+        user, bucket,
+        ...((host._strictEgress || host._operatorPolicy) ? { strict: true } : {}),
+        ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+      },
       hosts,
       wiredLog: 'Enterprise GitHub interception wired',
       wiredLogData: { hostCount: hosts.length },
@@ -237,14 +244,16 @@ function resolveStrictEgress(
     ...(host._r2SseDisabled ? { r2SseDisabled: true } : {}),
   },
 ): InterceptorRegistration | null {
-  if (!host._strictEgress) return null;
+  if (!host._strictEgress && !host._operatorPolicy) return null;
   return {
     entrypoint: 'EgressController',
     props: {
       accountId: host._r2AccountId ?? undefined,
       ...security,
       strict: true,
+      ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
     },
+    mandatory: !!host._operatorPolicy,
     hosts: ['*'],
     wiredLog: 'Enterprise strict Gateway egress wired (catch-all)',
     failLog: 'Failed to wire enterprise strict Gateway egress',

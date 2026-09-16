@@ -110,12 +110,13 @@ describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credenti
       [new Request('https://acc.r2.cloudflarestorage.com/bucket/inputs/file.txt', { method: 'PUT', body: 'bad' }), 403],
       [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt', { method: 'DELETE' }), 403],
     ] as const;
-    for (const [request, status] of cases) {
-      const { controller } = makeController({}, { accountId: 'acc', operatorPolicy });
-      expect((await controller.fetch(request)).status).toBe(status);
-    }
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    fetchSpy.mockRestore();
+    try {
+      for (const [request, status] of cases) {
+        const { controller } = makeController({}, { accountId: 'acc', operatorPolicy });
+        expect((await controller.fetch(request)).status).toBe(status);
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally { fetchSpy.mockRestore(); }
   });
 });
 

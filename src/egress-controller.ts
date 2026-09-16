@@ -55,6 +55,9 @@ import {
   readVerifiedManagedR2Policy,
 } from './lib/managed-r2-policy';
 import { createLogger } from './lib/logger';
+import { interceptedGithubHosts } from './github-interceptor';
+import { decideOperatorNetwork, decideOperatorStorage, type OperatorStorageOperation } from './operators/interception-policy';
+import type { OperatorPolicy } from './operators/policy';
 
 const logger = createLogger('egress-controller');
 
@@ -73,6 +76,10 @@ interface EgressProps {
   r2SseDisabled?: boolean;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
+  /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
+  operatorPolicy?: OperatorPolicy;
+  /** True only for an upload ID already owned by this activity. */
+  ownedMultipart?: boolean;
 }
 
 function s3PolicyError(status: 403 | 503, code: string, requestId: string): Response {
@@ -96,6 +103,32 @@ function requestedR2Bucket(url: URL, accountId: string | undefined): string | un
 async function sha256Prefix(value: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
   return Array.from(digest.slice(0, 6), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function operatorR2Path(url: URL, accountId: string | undefined, bucket: string): string | null {
+  const accountHost = `${accountId?.toLowerCase()}.r2.cloudflarestorage.com`;
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  const encoded = host === accountHost ? url.pathname.slice(`/${bucket}`.length).replace(/^\//, '')
+    : url.pathname.replace(/^\//, '');
+  try { return decodeURIComponent(encoded); } catch { return null; }
+}
+
+function operatorR2Operation(request: Request, url: URL): OperatorStorageOperation {
+  if (request.headers.has('x-amz-copy-source')) return 'copy';
+  if (request.method === 'POST' && url.searchParams.has('delete')) return 'delete';
+  if (url.searchParams.has('tagging') || url.searchParams.has('acl')) return 'control';
+  if (url.searchParams.has('uploadId')) {
+    if (request.method === 'DELETE') return 'multipart-abort';
+    if (request.method === 'PUT' || request.method === 'POST') return 'multipart-write';
+    return 'control';
+  }
+  if (url.searchParams.has('uploads')) return request.method === 'POST' ? 'multipart-write' : 'control';
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    return url.searchParams.has('list-type') || url.searchParams.has('prefix') ? 'list' : 'read';
+  }
+  if (request.method === 'PUT') return 'write';
+  if (request.method === 'DELETE') return 'delete';
+  return 'control';
 }
 
 function managedR2Operation(request: Request, url: URL): string {
@@ -158,6 +191,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
     const accountId = props.accountId;
     const accountScoped = isAccountScopedDestination(url, accountId);
     const ownR2 = isOwnAccountR2(url, accountId);
+    if (props.operatorPolicy && !ownR2) {
+      const decision = decideOperatorNetwork(props.operatorPolicy, url.hostname, interceptedGithubHosts(this.env));
+      if (!decision.allowed) return jsonError(403, 'OPERATOR_EGRESS_DENIED', 'Operator egress is not permitted');
+    }
     const scopedR2Credentials = props.r2AccessKeyId && props.r2SecretAccessKey
       ? { accessKeyId: props.r2AccessKeyId, secretAccessKey: props.r2SecretAccessKey }
       : null;
@@ -168,6 +205,15 @@ export class EgressController extends WorkerEntrypoint<Env> {
         return jsonError(403, 'EGRESS_R2_BUCKET_FORBIDDEN', 'R2 bucket is not permitted');
       }
       const boundBucket = props.bucket;
+      if (props.operatorPolicy) {
+        const path = operatorR2Path(url, accountId, boundBucket);
+        const operation = operatorR2Operation(request, url);
+        const decision = path === null ? { allowed: false as const } : decideOperatorStorage(
+          props.operatorPolicy, operation, operation === 'list' ? (url.searchParams.get('prefix') ?? path) : path,
+          props.ownedMultipart === true,
+        );
+        if (!decision.allowed) return jsonError(403, 'OPERATOR_STORAGE_DENIED', 'Operator storage operation is not permitted');
+      }
       if (!scopedR2Credentials) {
         return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
       }

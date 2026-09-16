@@ -77,6 +77,14 @@ The caller owns artifact integrity/approval, current human authority, admission 
 
 The isolated fixture at `src/__tests__/operators/fixtures/wrangler.toml` uses the repository's pinned Wrangler/workerd and target compatibility settings. Its RPC/egress services are synthetic and make no provider calls. It is not a production configuration or proof of live Cloudflare Access, deployed runtime behavior, inference eligibility or activity durability.
 
+## Shared interception restrictions
+
+`src/operators/interception-policy.ts` is the credential-free decision boundary shared by direct Worker capabilities and container interceptors. The parent supplies a previously validated `OperatorPolicy`; request identity cannot select or widen it. Exact network names and `*.example.test` subdomain rules are matched canonically (the wildcard excludes its apex). Standard and configured GitHub destinations never fall through a general-host allow rule.
+
+GitHub decisions resolve only canonical REST `/repos/{owner}/{repo}/…` or Smart HTTP `{owner}/{repo}.git/…` paths and require both declared repository and method before `GitHubInterceptor` looks up a token. General egress decisions run before Gateway forwarding. Own-account R2 decisions run before scoped-key lookup/signing: GET/HEAD/list use read prefixes; PUT and multipart writes use write prefixes; copy, delete and unknown controls are denied. Multipart abort additionally requires the parent to identify the upload as activity-owned. Empty declarations deny; these restrictions never create human authority.
+
+An operator profile forces the catch-all through the existing Egress binding even when the ordinary human strict-egress preference is off. Missing mandatory interception fails operator startup; absence of an operator profile preserves the existing human wiring and behavior. Session-origin persistence of the parent-bound profile is owned by the restricted-session package; JWT stamping and inference selection have their own sections/packages.
+
 ## Protected execution context
 
 `src/operators/execution-context.ts` captures a currently verified human Access assertion under exact activity/operator, approved artifact and policy identities. It validates bounded identifiers/digests and actual signed expiry, then uses the existing fail-closed operator AES-GCM envelope with the activity ID as authenticated context. Durable state contains owner provenance and ciphertext, never a raw JWT. `projectOperatorExecution` removes ciphertext before parent-safe readback; nothing from this projection grants child authority.

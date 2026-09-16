@@ -101,7 +101,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-durable-activity-runtime)
 
-**Verification:** Shared direct/container behavioral tests and deployed egress/R2/RP acceptance.
+**Verification:** Shared interception RED at `7c9a3a19`, CI 35154969943: 10 intended policy/interceptor failures reached unimplemented decisions/forwarded paths; one later existing R2 assertion was collateral from an unrestored failed-test spy and is repaired in the finished package while typecheck and quality passed. Implementation shares credential-free exact/wildcard, GitHub repository/method and R2 operation/prefix decisions between existing transports; exact-head GREEN is pending. JWT stamping, inference intersection, restricted-session profile persistence and deployed egress/R2/RP acceptance remain in this requirement's later packages.
 
 **Status:** Planned
 
