@@ -71,6 +71,18 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return await this.ctx.storage.get<string>(`webhook-key:${operatorId}`) ?? null;
   }
 
+  /** Authorized registration changes must invalidate prior distribution approval. */
+  async setDistribution(
+    _operatorId: string, _endpoint: string, _connectionSecret: string, _expectedRevision: number,
+  ): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
+    throw new Error('Protected operator distribution configuration is not implemented');
+  }
+
+  /** Parent-only discovery/download input; ciphertext must never enter public projections. */
+  async getProtectedDistribution(_operatorId: string): Promise<{ endpoint: string; connectionSecretCiphertext: string } | null> {
+    throw new Error('Protected operator distribution readback is not implemented');
+  }
+
   /** Create disabled ordering state; duplicate IDs never overwrite it. */
   async create(operatorId: string): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
     return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
