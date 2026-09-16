@@ -12,12 +12,28 @@ export interface OperatorLoaderBinding {
   }): { getEntrypoint(): Fetcher };
 }
 
-/** REQ-OPERATOR-003 loader boundary under TDD; no production binding yet. */
+/**
+ * REQ-OPERATOR-003: Instantiate approved code in a fresh Worker with only the
+ * parent-owned Operator Interface binding and explicit outbound interception.
+ * The caller verifies artifact integrity, current authority and admission first,
+ * and creates principal/activity-bound service bindings. No parent environment
+ * or credentials are copied. Null outbound denies networking; omission is not
+ * supported. Returns the default entrypoint; loader errors propagate, without
+ * fallback or retries. The activity owns checkpoints and effect reconciliation,
+ * never this isolate. Example: loadOperatorWorker(loader, approved, api, egress).
+ */
 export function loadOperatorWorker(
-  _loader: OperatorLoaderBinding,
-  _bundle: OperatorBundle,
-  _capability: Fetcher,
-  _outbound: Fetcher | null,
+  loader: OperatorLoaderBinding,
+  bundle: OperatorBundle,
+  capability: Fetcher,
+  outbound: Fetcher | null,
 ): Fetcher {
-  throw new Error('Operator Worker loading is not implemented');
+  return loader.load({
+    compatibilityDate: bundle.compatibilityDate,
+    compatibilityFlags: bundle.compatibilityFlags,
+    mainModule: bundle.mainModule,
+    modules: bundle.modules,
+    env: { OPERATOR: capability },
+    globalOutbound: outbound,
+  }).getEntrypoint();
 }

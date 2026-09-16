@@ -67,7 +67,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. Protected activity-owned credential storage retains only the invoking human's verified authority; child inputs cannot select principal, bucket, policy or credential. Reauthentication requires the same owner. Expiry blocks new protected work and uploads.
-2. Approved versioned artifact bytes are bounded, digest-checked and loaded through fresh `LOADER.load()` calls with explicit parent capabilities and outbound interception, never inherited unrestricted bindings/egress. The loader accepts validated bundle data and parent-owned service bindings, passes only the Operator Interface binding to children, and does not use isolate memory as durable state. A CI-only Wrangler fixture must demonstrate fresh loads, unspoofable parent-bound identity and controlled outbound allow/deny outcomes in workerd. This fixture is not deployed activity/DO acceptance. <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: Worker Loader runtime boundary) -->
+2. Approved versioned artifact bytes are bounded, digest-checked and loaded through fresh `LOADER.load()` calls with explicit parent capabilities and outbound interception, never inherited unrestricted bindings/egress. The loader accepts validated bundle data and parent-owned service bindings, passes only the Operator Interface binding to children, and does not use isolate memory as durable state. A CI-only Wrangler fixture must demonstrate fresh loads, unspoofable parent-bound identity and controlled outbound allow/deny outcomes in workerd. This fixture is not deployed activity/DO acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: Worker Loader runtime boundary) -->
 3. Activity DO state owns durable intent, operation IDs, bounded checkpoint/generation, progress, result and cleanup. Recovery reconciles known operations; unknown external effects are not automatically replayed. Stale drives cannot commit checkpoints or initiate work.
 4. Cancellation/expiry stops only owned compute and records actual pending/failed/unknown cleanup without after-expiry final uploads. Overview reads use non-waking safe projections.
 
@@ -75,7 +75,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-registration-and-serialized-admission)
 
-**Verification:** Runtime/DO behavioral tests and real Dynamic Worker lifecycle, recovery and isolation acceptance.
+**Verification:** Worker Loader fixture RED at `b35285c9`, CI 35125373725: four behavioral cases reached the unimplemented loader in real local workerd. Loader GREEN is pending. Durable activity/DO behavior and deployed Dynamic Worker lifecycle, recovery and isolation acceptance remain outstanding.
 
 **Status:** Planned
 
