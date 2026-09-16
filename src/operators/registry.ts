@@ -41,7 +41,20 @@ export type OperatorRegistryResult<T> = { ok: true; value: T } | {
  * its own consume/queue transaction. Readback grants no renewed authority.
  * Protected metadata/policy snapshots and production route wiring remain separate.
  */
-export class OperatorRegistry extends DurableObject {
+export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }> {
+  /** Parent-authorized rotation; return plaintext only to this successful mutation. */
+  async rotateWebhookKey(
+    _operatorId: string,
+    _expectedRevision: number,
+  ): Promise<OperatorRegistryResult<{ registration: OperatorRegistrationState; key: string }>> {
+    throw new Error('Operator webhook key rotation is not implemented');
+  }
+
+  /** Protected parent-only read for handoff decryption; never a public projection. */
+  async getEncryptedWebhookKey(_operatorId: string): Promise<string | null> {
+    throw new Error('Operator webhook key persistence is not implemented');
+  }
+
   /** Create disabled ordering state; duplicate IDs never overwrite it. */
   async create(operatorId: string): Promise<OperatorRegistryResult<OperatorRegistrationState>> {
     return this.ctx.storage.transaction<OperatorRegistryResult<OperatorRegistrationState>>(async tx => {
