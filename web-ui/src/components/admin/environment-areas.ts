@@ -81,7 +81,10 @@ function describe(section: ConfigurationSection, raw: unknown): Pick<Environment
     }
     case 'securityEgress': {
       const enabled = value.strictGatewayEgress === true;
-      return { summary: enabled ? 'Strict Gateway egress' : 'Standard egress', status: enabled ? 'Enabled' : 'Disabled' };
+      const stamping = record(value.jwtStamping).mode;
+      const suffix = stamping === 'all' ? ' · JWT All' : stamping === 'list' ? ' · JWT destination list' : '';
+      return { summary: `${enabled ? 'Strict Gateway egress' : 'Standard egress'}${suffix}`,
+        status: enabled || stamping === 'all' || stamping === 'list' ? 'Enabled' : 'Disabled' };
     }
     case 'dataGovernance': {
       const governed = value.governedMode === true;

@@ -17,6 +17,7 @@ import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProf
 import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
 import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, rebindNativeVerificationConnection, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import { preservesDisabledNativeTarget } from './native-ai-target-draft';
+import { jwtStampingPolicySchema, parseJwtStampingPolicy } from '../operators/jwt-stamping';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -160,7 +161,7 @@ const sectionSchemas: Record<ConfigurationSection, z.ZodType<ConfigurationValues
     accountId: z.string().trim().max(128).optional().default(''),
     replacementToken: replacementSecret,
   }).strict(),
-  securityEgress: z.object({ strictGatewayEgress: z.boolean() }).strict(),
+  securityEgress: z.object({ strictGatewayEgress: z.boolean(), jwtStamping: jwtStampingPolicySchema }).strict(),
   dataGovernance: z.object({ governedMode: z.boolean(), viewOnlyStorage: z.boolean() }).strict(),
   managedEnvironment: z.discriminatedUnion('enabled', [
     z.object({ enabled: z.literal(false) }).strict(),
@@ -539,8 +540,12 @@ async function readCurrentConfigurationValues(
       return { activeAgents: CONFIGURABLE_ENTERPRISE_AGENTS.filter((agent) => installedAgents(env).includes(agent)) };
     case 'browserRendering':
       return { accountId: (await env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '' };
-    case 'securityEgress':
-      return { strictGatewayEgress: (await env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active' };
+    case 'securityEgress': {
+      let jwtStamping;
+      try { jwtStamping = parseJwtStampingPolicy(await env.KV.get(SETUP_KEYS.OPERATOR_JWT_STAMPING, 'json')); }
+      catch { jwtStamping = { mode: 'off' as const, destinations: [] as [] }; }
+      return { strictGatewayEgress: (await env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active', jwtStamping };
+    }
     case 'dataGovernance':
       return {
         governedMode: (await env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active',
@@ -808,7 +813,9 @@ export async function buildConfigurationPreview(
     : TASKS[section];
   const warnings = section === 'aiRouting'
     ? reasoningConfigurationWarnings(values.reasoningConfiguration as ReasoningConfiguration, values.dynamicRoutes as string[])
-    : [];
+    : section === 'securityEgress' && (values.jwtStamping as { mode?: string }).mode === 'all'
+      ? [{ code: 'jwt_stamping_all_disclosure', message: 'All sends the invoking human Access assertion to every otherwise allowed HTTPS destination; recipients may echo or disclose it.' }]
+      : [];
   return {
     section,
     baseRevision,
@@ -1020,6 +1027,7 @@ export async function executeConfigurationTask(
     }
     case 'configure_strict_egress':
       await env.KV.put(SETUP_KEYS.STRICT_EGRESS, values.strictGatewayEgress === true ? 'active' : 'inactive');
+      await env.KV.put(SETUP_KEYS.OPERATOR_JWT_STAMPING, JSON.stringify(parseJwtStampingPolicy(values.jwtStamping)));
       return;
     case 'configure_r2_sse':
       await env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, values.governedMode === true ? 'active' : 'inactive');
