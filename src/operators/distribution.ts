@@ -117,7 +117,7 @@ export async function parseOperatorBundle(bytes: Uint8Array, digest: string): Pr
   if (actual !== digest) throw new ValidationError('Operator artifact integrity check failed');
   let json: string;
   try {
-    json = new TextDecoder('utf-8', { fatal: true }).decode(approvedBytes);
+    json = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(approvedBytes);
   } catch {
     throw new ValidationError('Invalid operator artifact encoding');
   }
