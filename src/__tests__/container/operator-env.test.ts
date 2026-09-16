@@ -23,7 +23,7 @@ function state(overrides: Partial<ContainerEnvState> = {}): ContainerEnvState {
     _defaultRoute: 'route-1', _defaultReasoning: 'medium', _routeContextWindows: {}, _routeReasoningLevels: {},
     _modelDisplayNames: {}, _promptCacheTargets: [], _userTimezone: null, _gitCloneRepo: 'octo/repo', _gitCloneRef: null,
     _remoteCurationActive: true, _remoteCurationReleaseDigest: 'a'.repeat(64), _remoteCurationManifestDigest: 'b'.repeat(64),
-    _managedResourcePolicy: 'protected', _managedResourcePathsDigest: 'c'.repeat(64), ...overrides };
+    _managedResourcePolicy: 'immutable', _managedResourcePathsDigest: 'c'.repeat(64), ...overrides };
 }
 
 describe('operator container environment', () => {
