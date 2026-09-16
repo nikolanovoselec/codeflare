@@ -1,7 +1,9 @@
 import { fileURLToPath, URL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { unstable_dev, type Unstable_DevWorker } from 'wrangler';
-import type { RegistryFixtureCommand } from './fixtures/loader-worker';
+import { createHash } from 'node:crypto';
+import type { RegistryFixtureCommand, ActivityFixtureCommand } from './fixtures/loader-worker';
+import type { OperatorActivityPreparation } from '../../operators/activity';
 import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../operators/registry';
 
 // Real pinned Wrangler/workerd, executed only in the Node CI suite. No deploy,
@@ -164,5 +166,84 @@ describe('REQ-OPERATOR-002: SQLite registration and admission ordering', () => {
     }
     expect(await registry(fixture, { action: 'admit', request: { ...admission(), expectedRevision: 4 } }))
       .toEqual({ ok: false, reason: 'disabled' });
+  });
+});
+
+const START_TOKEN = 's'.repeat(43);
+async function activity(id: string, command: ActivityFixtureCommand): Promise<unknown> {
+  const response = await worker!.fetch(`/activity?activity=${id}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command),
+  });
+  const result = await response.json();
+  expect(response.status, JSON.stringify(result)).toBe(200);
+  return result;
+}
+async function preparedActivity(patch: Partial<OperatorActivityPreparation> = {}, loseResponse = false) {
+  const operatorId = `${loseResponse ? 'lost-response-' : 'operator-'}${crypto.randomUUID()}`;
+  expect(await registry('registry', { action: 'create', operatorId })).toMatchObject({ ok: true });
+  expect(await registry('registry', { action: 'approve', operatorId, artifactDigest: ARTIFACT, expectedRevision: 1 })).toMatchObject({ ok: true });
+  expect(await registry('registry', { action: 'enable', operatorId, enabled: true, expectedRevision: 2 })).toMatchObject({ ok: true });
+  const intent: OperatorActivityPreparation = {
+    ...admission(), operatorId, startVerifier: createHash('sha256').update(START_TOKEN).digest('hex'),
+    startExpiresAt: Date.now() + 60_000, ...patch,
+  };
+  expect(await activity(intent.activityId, { action: 'prepare', intent })).toEqual({ ok: true, phase: 'prepared' });
+  return intent;
+}
+
+describe('REQ-OPERATOR-003: activity admission consume and queue', () => {
+  it('prepares without admission and cannot overwrite an existing activity', async () => {
+    const intent = await preparedActivity();
+    expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual({ ok: true, value: null });
+    expect(await activity(intent.activityId, { action: 'observe' })).toEqual({ activityId: intent.activityId, phase: 'prepared', receipt: null });
+    expect(await activity(intent.activityId, { action: 'prepare', intent })).toEqual({ ok: false, reason: 'already-prepared' });
+  });
+
+  it('rejects an invalid capability before creating any registry receipt', async () => {
+    const intent = await preparedActivity();
+    expect(await activity(intent.activityId, { action: 'start', capability: 't'.repeat(43) })).toEqual({ ok: false, reason: 'invalid-capability' });
+    expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual({ ok: true, value: null });
+    expect(await activity(intent.activityId, { action: 'observe' })).toMatchObject({ phase: 'prepared' });
+  });
+
+  it.each([
+    [{ startExpiresAt: 1 }, 'capability-expired'],
+    [{ deadline: 1 }, 'authority-expired'],
+  ] as const)('rejects expired admission before registry I/O: %j', async (patch, reason) => {
+    const intent = await preparedActivity(patch);
+    expect(await activity(intent.activityId, { action: 'start', capability: START_TOKEN })).toEqual({ ok: false, reason });
+    expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual({ ok: true, value: null });
+  });
+
+  it('atomically consumes the start capability with one queued execution', async () => {
+    const intent = await preparedActivity();
+    const results = await Promise.all(Array.from({ length: 8 }, () => activity(intent.activityId, { action: 'start', capability: START_TOKEN })));
+    expect(results.filter(result => (result as { ok: boolean }).ok)).toEqual([{ ok: true, phase: 'queued' }]);
+    for (const result of results.filter(result => !(result as { ok: boolean }).ok)) {
+      expect(result).toEqual({ ok: false, reason: 'already-started' });
+    }
+    expect(await activity(intent.activityId, { action: 'observe' })).toMatchObject({ phase: 'queued', receipt: {
+      activityId: intent.activityId, operatorId: intent.operatorId, intentDigest: intent.intentDigest, artifactDigest: ARTIFACT,
+    } });
+    expect(await activity(intent.activityId, { action: 'start', capability: START_TOKEN })).toEqual({ ok: false, reason: 'already-started' });
+  });
+
+  it('does not queue when disablement wins admission', async () => {
+    const intent = await preparedActivity();
+    expect(await registry('registry', { action: 'enable', operatorId: intent.operatorId, enabled: false, expectedRevision: 3 })).toMatchObject({ ok: true });
+    expect(await activity(intent.activityId, { action: 'start', capability: START_TOKEN })).toEqual({ ok: false, reason: 'admission-denied' });
+    expect(await activity(intent.activityId, { action: 'observe' })).toMatchObject({ phase: 'admitting', receipt: null });
+    expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual({ ok: true, value: null });
+  });
+
+  it('reconciles a lost admission response by the same activity before consume/queue', async () => {
+    const intent = await preparedActivity({}, true);
+    expect(await activity(intent.activityId, { action: 'start', capability: START_TOKEN })).toEqual({ ok: false, reason: 'admission-uncertain' });
+    expect(await activity(intent.activityId, { action: 'observe' })).toMatchObject({ phase: 'admitting', receipt: null });
+    const receipt = await registry('registry', { action: 'receipt', activityId: intent.activityId });
+    expect(receipt).toMatchObject({ ok: true, value: { activityId: intent.activityId } });
+    expect(await registry('registry', { action: 'enable', operatorId: intent.operatorId, enabled: false, expectedRevision: 3 })).toMatchObject({ ok: true });
+    expect(await activity(intent.activityId, { action: 'start', capability: START_TOKEN })).toEqual({ ok: true, phase: 'queued' });
+    expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual(receipt);
   });
 });

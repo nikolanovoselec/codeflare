@@ -52,7 +52,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims)
 
-**Verification:** SQLite registry fixture RED at `7916f5b8`, CI 35127226112: 13 cases reached the unimplemented registry. Transactional ordering implementation awaits GREEN. Protected registration/policy data, route authorization, activity-side consume/queue and deployed allowed/denied acceptance remain outstanding.
+**Verification:** SQLite registry fixture RED at `7916f5b8`, CI 35127226112: 13 cases reached the unimplemented registry. Transactional ordering GREEN at `2154eca0`, CI 35127781945. Protected registration/policy data, route authorization, activity-side consume/queue and deployed allowed/denied acceptance remain outstanding.
 
 **Status:** Planned
 
@@ -68,7 +68,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 1. Protected activity-owned credential storage retains only the invoking human's verified authority; child inputs cannot select principal, bucket, policy or credential. Reauthentication requires the same owner. Expiry blocks new protected work and uploads.
 2. Approved versioned artifact bytes are bounded, digest-checked and loaded through fresh `LOADER.load()` calls with explicit parent capabilities and outbound interception, never inherited unrestricted bindings/egress. The loader accepts validated bundle data and parent-owned service bindings, passes only the Operator Interface binding to children, and does not use isolate memory as durable state. A CI-only Wrangler fixture must demonstrate fresh loads, unspoofable parent-bound identity and controlled outbound allow/deny outcomes in workerd. This fixture is not deployed activity/DO acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: Worker Loader runtime boundary) -->
-3. Activity DO state owns durable intent, operation IDs, bounded checkpoint/generation, progress, result and cleanup. Recovery reconciles known operations; unknown external effects are not automatically replayed. Stale drives cannot commit checkpoints or initiate work.
+3. Activity DO state owns durable intent, operation IDs, bounded checkpoint/generation, progress, result and cleanup. Recovery reconciles known operations; unknown external effects are not automatically replayed. Stale drives cannot commit checkpoints or initiate work. Admission validates the verifier-backed start capability and its expiry before registry I/O, persists pending intent, and atomically consumes the capability with queued execution only after a matching registry receipt and a fresh authority/expiry check. Concurrent starts queue once. An uncertain registry response leaves pending intent unconsumed; retry reconciles the same activity receipt rather than creating new intent. Disable-first leaves the activity unqueued. <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003: activity admission consume and queue) -->
 4. Cancellation/expiry stops only owned compute and records actual pending/failed/unknown cleanup without after-expiry final uploads. Overview reads use non-waking safe projections.
 
 **Priority:** P0

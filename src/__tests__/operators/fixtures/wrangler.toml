@@ -10,11 +10,15 @@ binding = "LOADER"
 
 [[durable_objects.bindings]]
 name = "REGISTRY"
-class_name = "OperatorRegistry"
+class_name = "FixtureRegistry"
+
+[[durable_objects.bindings]]
+name = "ACTIVITY"
+class_name = "OperatorActivity"
 
 [[migrations]]
 tag = "fixture-v1"
-new_sqlite_classes = ["OperatorRegistry"]
+new_sqlite_classes = ["FixtureRegistry", "OperatorActivity"]
 
 [vars]
 PARENT_SECRET = "fixture-parent-only"

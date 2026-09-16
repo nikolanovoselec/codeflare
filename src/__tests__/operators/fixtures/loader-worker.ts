@@ -3,7 +3,26 @@ import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operato
 import type { OperatorBundle } from '../../../operators/distribution';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
-export { OperatorRegistry };
+import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
+export { OperatorActivity };
+
+/** Simulates one lost RPC response after receipt commit, without changing registry logic. */
+export class FixtureRegistry extends OperatorRegistry {
+  override async admit(request: OperatorAdmissionRequest) {
+    const result = await super.admit(request);
+    const faultKey = `fixture:lost:${request.activityId}`;
+    if (result.ok && request.operatorId.startsWith('lost-response-') && !await this.ctx.storage.get(faultKey)) {
+      await this.ctx.storage.put(faultKey, true);
+      throw new Error('Fixture lost admission response after commit');
+    }
+    return result;
+  }
+}
+
+export type ActivityFixtureCommand =
+  | { action: 'prepare'; intent: OperatorActivityPreparation }
+  | { action: 'start'; capability: string }
+  | { action: 'observe' };
 
 export type RegistryFixtureCommand =
   | { action: 'create'; operatorId: string }
@@ -16,6 +35,7 @@ interface FixtureEnv {
   LOADER: OperatorLoaderBinding;
   PARENT_SECRET: string;
   REGISTRY: DurableObjectNamespace<OperatorRegistry>;
+  ACTIVITY: DurableObjectNamespace<OperatorActivity>;
 }
 
 /** Test-only RPC capability. Identity comes from the parent binding, not arguments. */
@@ -62,6 +82,15 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      if (url.pathname === '/activity') {
+        const activity = env.ACTIVITY.getByName(url.searchParams.get('activity') ?? 'default');
+        const command = await request.json<ActivityFixtureCommand>();
+        switch (command.action) {
+          case 'prepare': return Response.json(await activity.prepare(command.intent));
+          case 'start': return Response.json(await activity.start(command.capability));
+          case 'observe': return Response.json(await activity.getAdmission());
+        }
+      }
       if (url.pathname === '/registry') {
         const registry = env.REGISTRY.getByName(url.searchParams.get('fixture') ?? 'default');
         const command = await request.json<RegistryFixtureCommand>();
