@@ -1027,7 +1027,11 @@ export async function executeConfigurationTask(
     }
     case 'configure_strict_egress':
       await env.KV.put(SETUP_KEYS.STRICT_EGRESS, values.strictGatewayEgress === true ? 'active' : 'inactive');
-      await env.KV.put(SETUP_KEYS.OPERATOR_JWT_STAMPING, JSON.stringify(parseJwtStampingPolicy(values.jwtStamping)));
+      // First-time Setup reuses this task with only the legacy strict toggle;
+      // preserve that caller by materializing the documented Off default.
+      await env.KV.put(SETUP_KEYS.OPERATOR_JWT_STAMPING, JSON.stringify(parseJwtStampingPolicy(
+        values.jwtStamping ?? { mode: 'off', destinations: [] },
+      )));
       return;
     case 'configure_r2_sse':
       await env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, values.governedMode === true ? 'active' : 'inactive');
