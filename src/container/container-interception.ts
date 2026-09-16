@@ -29,6 +29,7 @@ import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
 import { getOrImportKey } from '../lib/kv-crypto';
 import type { OperatorPolicy } from '../operators/policy';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 
 /** The DO surface the interception registry consumes (explicit interface, not inheritance). */
 export interface InterceptionHost {
@@ -51,9 +52,19 @@ export interface InterceptionHost {
   _strictEgress?: boolean;
   /** Present only for a parent-bound operator session; never read from requests. */
   _operatorPolicy?: OperatorPolicy;
+  /** Parent-only automatic stamping configuration and verified authority. */
+  _jwtStamping?: JwtStampingPolicy;
+  _jwtAuthority?: JwtStampingAuthority;
 }
 
 /** One resolved outbound-interception transport, ready to register. */
+function jwtProps(host: InterceptionHost): Record<string, unknown> {
+  return host._jwtStamping ? {
+    jwtStamping: host._jwtStamping,
+    ...(host._jwtAuthority ? { jwtAuthority: host._jwtAuthority } : {}),
+  } : {};
+}
+
 interface InterceptorRegistration {
   /** `ctx.exports` entrypoint name holding the interceptor WorkerEntrypoint. */
   entrypoint: string;
@@ -135,6 +146,7 @@ const llm: InterceptorSpec = {
         gatewayUrl: aig.gatewayUrl,
         ...(aig.gatewayId ? { gatewayId: aig.gatewayId } : {}),
         token: aig.token,
+        ...jwtProps(host),
       },
       hosts: INTERCEPTED_LLM_HOSTS,
       mandatory: true,
@@ -168,6 +180,7 @@ const github: InterceptorSpec = {
         user, bucket,
         ...((host._strictEgress || host._operatorPolicy) ? { strict: true } : {}),
         ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+        ...jwtProps(host),
       },
       hosts,
       wiredLog: 'Enterprise GitHub interception wired',
@@ -199,7 +212,7 @@ const browserRendering: InterceptorSpec = {
       }
       return {
         entrypoint: 'CloudflareBrowserInterceptor',
-        props: { browserAccountId: accountId, browserToken: token, strict: host._strictEgress },
+        props: { browserAccountId: accountId, browserToken: token, strict: host._strictEgress, ...jwtProps(host) },
         hosts: INTERCEPTED_CF_BROWSER_HOSTS,
         wiredLog: 'Enterprise Browser Rendering interception wired',
         wiredLogData: { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length },
@@ -252,6 +265,7 @@ function resolveStrictEgress(
       ...security,
       strict: true,
       ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+      ...jwtProps(host),
     },
     mandatory: !!host._operatorPolicy,
     hosts: ['*'],

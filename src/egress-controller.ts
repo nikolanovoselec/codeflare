@@ -58,6 +58,7 @@ import { createLogger } from './lib/logger';
 import { interceptedGithubHosts } from './github-interceptor';
 import { decideOperatorNetwork, decideOperatorStorage, type OperatorStorageOperation } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
+import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 
 const logger = createLogger('egress-controller');
 
@@ -80,6 +81,9 @@ interface EgressProps {
   operatorPolicy?: OperatorPolicy;
   /** True only for an upload ID already owned by this activity. */
   ownedMultipart?: boolean;
+  /** Deployment policy plus current parent-verified authority; neither grants egress. */
+  jwtStamping?: JwtStampingPolicy;
+  jwtAuthority?: JwtStampingAuthority;
 }
 
 function s3PolicyError(status: 403 | 503, code: string, requestId: string): Response {
@@ -266,6 +270,11 @@ export class EgressController extends WorkerEntrypoint<Env> {
           return s3PolicyError(503, 'ServiceUnavailable', requestId);
         }
       }
+    }
+
+    if (props.jwtStamping) {
+      try { effectiveRequest = prepareJwtStampedRequest(effectiveRequest, props.jwtStamping, props.jwtAuthority); }
+      catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
     }
 
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream

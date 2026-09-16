@@ -31,6 +31,7 @@ import type { Env } from './types';
 import { getValidGithubToken } from './lib/github-token';
 import { decideOperatorGithub } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
+import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 
 /** Pinned default GitHub REST API version (set only when the client didn't pin one). */
 const GITHUB_API_VERSION = '2022-11-28';
@@ -100,6 +101,8 @@ interface GithubInterceptorProps {
   strict?: boolean;
   /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
   operatorPolicy?: OperatorPolicy;
+  jwtStamping?: JwtStampingPolicy;
+  jwtAuthority?: JwtStampingAuthority;
 }
 
 function jsonError(status: number, code: string, error: string): Response {
@@ -188,18 +191,21 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     // Stream the request body through unbuffered (git packfile uploads can be large);
     // GET/HEAD carry none. No timeout: a clone/fetch may legitimately run long.
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    let forward = new Request(url.toString(), {
+      method: request.method,
+      headers,
+      body: hasBody ? request.body : undefined,
+      // Do not transparently follow redirects to an arbitrary Location host;
+      // surface the 3xx to the agent's client instead.
+      redirect: 'manual',
+    });
+    if (props?.jwtStamping) {
+      try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }
+      catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
+    }
     let upstream: Response;
     try {
-      upstream = await send(
-        new Request(url.toString(), {
-          method: request.method,
-          headers,
-          body: hasBody ? request.body : undefined,
-          // Do not transparently follow redirects to an arbitrary Location host;
-          // surface the 3xx to the agent's client instead.
-          redirect: 'manual',
-        }),
-      );
+      upstream = await send(forward);
     } catch (err) {
       console.error('GitHubInterceptor: upstream fetch failed', {
         error: err instanceof Error ? err.message : String(err),

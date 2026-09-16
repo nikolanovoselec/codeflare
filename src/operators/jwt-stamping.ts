@@ -42,10 +42,11 @@ export function shouldStampAccessJwt(policy: JwtStampingPolicy, url: URL): boole
 }
 
 export function prepareJwtStampedRequest(request: Request, policy: JwtStampingPolicy,
-  authority: JwtStampingAuthority): Request {
+  authority?: JwtStampingAuthority): Request {
   const headers = new Headers(request.headers);
   headers.delete('cf-access-jwt-assertion');
   if (shouldStampAccessJwt(policy, new URL(request.url))) {
+    if (!authority) throw new ForbiddenError('Human authority unavailable');
     if (!Number.isFinite(authority.human.expiresAt) || authority.human.expiresAt * 1000 <= Date.now()) {
       throw new ForbiddenError('Human authority expired');
     }

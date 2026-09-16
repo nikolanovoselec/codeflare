@@ -44,6 +44,7 @@
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { ForbiddenError } from './lib/error-types';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
@@ -58,6 +59,7 @@ import { nativeProviderSelector } from './lib/native-ai-targets';
 import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
 import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
 import { encryptForKV, getAndDecrypt, getOrImportKey } from './lib/kv-crypto';
+import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -131,6 +133,8 @@ interface InterceptorProps {
   gatewayUrl?: string;
   gatewayId?: string;
   token?: string;
+  jwtStamping?: JwtStampingPolicy;
+  jwtAuthority?: JwtStampingAuthority;
 }
 
 /**
@@ -571,18 +575,19 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // to one surfaces the masked "Model execution failed", also 404). A 404 is a
     // complete error body — not a stream — so the replay never double-bills or
     // truncates a partial response. Genuine non-404 errors are returned as-is.
-    const sendTo = (target: string, h: Headers, body: BodyInit | null | undefined = outboundBody): Promise<Response> =>
-      fetch(
-        new Request(target, {
-          method: request.method,
-          headers: h,
-          body,
-          // Do not transparently follow gateway/provider redirects — a 3xx would
-          // otherwise be chased to an arbitrary Location host. Surface it to the
-          // agent's client instead.
-          redirect: 'manual',
-        }),
-      );
+    const sendTo = (target: string, h: Headers, body: BodyInit | null | undefined = outboundBody): Promise<Response> => {
+      let forward = new Request(target, {
+        method: request.method,
+        headers: h,
+        body,
+        // Do not transparently follow gateway/provider redirects — a 3xx would
+        // otherwise be chased to an arbitrary Location host. Surface it to the
+        // agent's client instead.
+        redirect: 'manual',
+      });
+      if (props?.jwtStamping) forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority);
+      return fetch(forward);
+    };
 
     let upstream: Response;
     try {
@@ -595,6 +600,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         upstream = await sendTo(compatUrl, compatHeaders, stripOpenAiOnlyFields(outboundBody));
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) return new Response(JSON.stringify({
+        error: 'Current human Access authority is required', code: 'JWT_STAMPING_AUTHORITY_UNAVAILABLE',
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } });
       // A thrown fetch (DNS, TLS, connection reset to the gateway) would otherwise
       // escape as an opaque 500; surface it as a clean 502 and log the cause.
       console.error('LlmInterceptor: upstream gateway fetch failed', {
