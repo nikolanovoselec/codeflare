@@ -19,6 +19,7 @@ import {
   INTERCEPTED_CF_OAUTH_HOSTS,
 } from '../cloudflare-browser-interceptor';
 import { getValidCloudflareToken } from '../lib/cloudflare-token';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 
 vi.mock('../lib/cloudflare-token', () => ({ getValidCloudflareToken: vi.fn() }));
 const mockGetValidToken = vi.mocked(getValidCloudflareToken);
@@ -27,6 +28,9 @@ const PLACEHOLDER = 'codeflare-enterprise';
 const REAL_TOKEN = 'real-browser-rendering-token';
 const OAUTH_PLACEHOLDER = 'codeflare-oauth';
 const FRESH_TOKEN = 'cf_refreshed_oauth_token';
+const jwtAuthority: JwtStampingAuthority = { human: { subject: 'human', email: 'human@example.test',
+  issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+  expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'verified.jwt' };
 
 /** OAuth-mode construction: only the bound bucket in props (no enterprise browser token/account). */
 function makeOAuthInterceptor(bucket = 'session-bucket') {
@@ -36,7 +40,8 @@ function makeOAuthInterceptor(bucket = 'session-bucket') {
 }
 
 function makeInterceptor(
-  props: { browserAccountId?: string; browserToken?: string; strict?: boolean } = {},
+  props: { browserAccountId?: string; browserToken?: string; strict?: boolean;
+    jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority } = {},
   envOverrides: Partial<Env> = {},
 ) {
   const egressFetch = vi.fn(async (_req: Request) => new Response('gateway', { status: 200 }));
@@ -68,6 +73,18 @@ describe('REQ-BROWSER-008: isBrowserRenderingPath (account-scoped trust)', () =>
 });
 
 describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
+  it('REQ-OPERATOR-004: stamps verified Access while preserving the Browser credential', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
+    try {
+      const { interceptor } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN,
+        jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority });
+      expect((await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot'))).status).toBe(200);
+      const forwarded = fetchSpy.mock.calls[0][0] as Request;
+      expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
+      expect(forwarded.headers.get('authorization')).toBe(`Bearer ${REAL_TOKEN}`);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
   it('strips the placeholder + injects the real token on the configured account path, egress DIRECT (not Gateway)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
     const { interceptor, egressFetch } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN });

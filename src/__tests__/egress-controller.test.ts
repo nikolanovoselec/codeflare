@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
 import type { OperatorPolicy } from '../operators/policy';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 
 const policyLogs = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -26,6 +27,9 @@ vi.mock('../lib/logger', () => ({
 }));
 
 const STRICT_KEY = 'setup:strict_egress';
+const jwtAuthority: JwtStampingAuthority = { human: { subject: 'human', email: 'human@example.test',
+  issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+  expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'verified.jwt' };
 const operatorPolicy: OperatorPolicy = { schemaVersion: 1, networkHosts: ['allowed.example.test'],
   github: { repositories: [], methods: [] }, storage: { readPrefixes: ['inputs/'], writePrefixes: ['outputs/activity/'] },
   inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null,
@@ -45,6 +49,8 @@ function makeController(
     strict?: boolean;
     operatorPolicy?: OperatorPolicy;
     ownedMultipart?: boolean;
+    jwtStamping?: JwtStampingPolicy;
+    jwtAuthority?: JwtStampingAuthority;
   } = { accountId: 'acc' },
 ) {
   const kvStore = envOverrides.__kv ?? { [STRICT_KEY]: 'active' };
@@ -82,6 +88,29 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-OPERATOR-004: verified Access stamping in generic egress', () => {
+  it('stamps an eligible request after network authorization while preserving Authorization', async () => {
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy,
+      jwtStamping: { mode: 'list', destinations: ['allowed.example.test'] }, jwtAuthority });
+    const response = await controller.fetch(new Request('https://allowed.example.test/path', {
+      headers: { authorization: 'Bearer specialized', 'cf-access-jwt-assertion': 'spoof' },
+    }));
+    expect(response.status).toBe(200);
+    const forwarded = egressFetch.mock.calls[0][0] as Request;
+    expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
+    expect(forwarded.headers.get('authorization')).toBe('Bearer specialized');
+  });
+
+  it('strips spoofed assertions when stamping is Off', async () => {
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy,
+      jwtStamping: { mode: 'off', destinations: [] }, jwtAuthority });
+    expect((await controller.fetch(new Request('https://allowed.example.test/path', {
+      headers: { 'cf-access-jwt-assertion': 'spoof' },
+    }))).status).toBe(200);
+    expect((egressFetch.mock.calls[0][0] as Request).headers.get('cf-access-jwt-assertion')).toBeNull();
+  });
 });
 
 describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials', () => {

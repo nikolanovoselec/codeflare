@@ -23,6 +23,7 @@ export const jwtStampingPolicySchema = z.discriminatedUnion('mode', [
 ]);
 
 export type JwtStampingPolicy = z.infer<typeof jwtStampingPolicySchema>;
+export interface JwtStampingAuthority { human: VerifiedHumanAccessClaims; accessJwt: string }
 
 export function parseJwtStampingPolicy(input: unknown): JwtStampingPolicy {
   try { return jwtStampingPolicySchema.parse(input); }
@@ -41,7 +42,7 @@ export function shouldStampAccessJwt(policy: JwtStampingPolicy, url: URL): boole
 }
 
 export function prepareJwtStampedRequest(request: Request, policy: JwtStampingPolicy,
-  authority: { human: VerifiedHumanAccessClaims; accessJwt: string }): Request {
+  authority: JwtStampingAuthority): Request {
   const headers = new Headers(request.headers);
   headers.delete('cf-access-jwt-assertion');
   if (shouldStampAccessJwt(policy, new URL(request.url))) {

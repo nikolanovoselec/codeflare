@@ -34,6 +34,7 @@ import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
@@ -50,10 +51,13 @@ vi.mock('../lib/ai-gateway-management', async (original) => ({
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai';
 const AIG_TOKEN = 'aig-secret-token';
-const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
+const SESSION_USER = 'nikola@novoselec.ch';
+const jwtAuthority: JwtStampingAuthority = { human: { subject: 'human', email: SESSION_USER,
+  issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+  expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'verified.jwt' }; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string; jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -105,6 +109,17 @@ afterEach(() => {
 });
 
 describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () => {
+  it('REQ-OPERATOR-004: stamps the verified assertion on the actual Gateway recipient without replacing gateway auth', async () => {
+    const res = await makeInterceptor({}, { user: SESSION_USER, sessionId: 'session-1',
+      jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"dynamic/codeflare-enterprise"}',
+        headers: { 'cf-access-jwt-assertion': 'spoof' } }),
+    );
+    expect(res.status).toBe(200);
+    expect(lastFetch?.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
+    expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+  });
+
   it('AC1: api.openai.com/v1/chat/completions -> REST /ai/v1/chat/completions under the account', async () => {
     const res = await makeInterceptor().fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"dynamic/codeflare-enterprise"}' }),
