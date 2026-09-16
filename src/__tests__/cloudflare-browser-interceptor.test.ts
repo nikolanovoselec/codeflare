@@ -20,6 +20,7 @@ import {
 } from '../cloudflare-browser-interceptor';
 import { getValidCloudflareToken } from '../lib/cloudflare-token';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import type { OperatorPolicy } from '../operators/policy';
 
 vi.mock('../lib/cloudflare-token', () => ({ getValidCloudflareToken: vi.fn() }));
 const mockGetValidToken = vi.mocked(getValidCloudflareToken);
@@ -40,7 +41,7 @@ function makeOAuthInterceptor(bucket = 'session-bucket') {
 }
 
 function makeInterceptor(
-  props: { browserAccountId?: string; browserToken?: string; strict?: boolean;
+  props: { browserAccountId?: string; browserToken?: string; strict?: boolean; operatorPolicy?: OperatorPolicy;
     jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority } = {},
   envOverrides: Partial<Env> = {},
 ) {
@@ -73,6 +74,22 @@ describe('REQ-BROWSER-008: isBrowserRenderingPath (account-scoped trust)', () =>
 });
 
 describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
+  it('REQ-OPERATOR-004: denies the specialized admin Browser credential to operator sessions before forwarding', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('unsafe', { status: 200 }));
+    try {
+      const operatorPolicy: OperatorPolicy = { schemaVersion: 1, networkHosts: ['api.cloudflare.com'],
+        github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
+        inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null,
+          inheritUserDefaults: false } };
+      const { interceptor, egressFetch } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN, operatorPolicy });
+      const response = await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot'));
+      expect(response.status).toBe(403);
+      expect((await response.json() as { code?: string }).code).toBe('OPERATOR_BROWSER_DENIED');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(egressFetch).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
   it('REQ-OPERATOR-004: stamps verified Access while preserving the Browser credential', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
     try {
