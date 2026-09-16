@@ -107,6 +107,12 @@ Updates have `{ schemaVersion: 1, status, checkpoint, result? }`, with status `w
 
 An absent/invalid encryption key, plaintext value, wrong context or tampered ciphertext fails closed with a safe validation error. There is no plaintext migration, logging, persistence or alternate-key fallback in this boundary. The caller authorizes access, stores ciphertext and keeps decrypted values out of public projections/child bindings. Existing ordinary KV credential migration remains unchanged.
 
+## Independent sync evidence
+
+`src/operators/sync-verification.ts::verifyOperatorSync(expected, read)` reads the final `manifest.json` and declared objects from the parent-selected operation prefix. The owner-scoped reader must enforce the supplied byte bound before buffering. Version-1 manifests bind activity, session, operation, request digest and policy digest, with unique canonical relative file paths, sizes and SHA-256 hashes. Limits are 64 KiB for the manifest, 128 files and 8 MiB total declared output.
+
+The verifier compares the independently read manifest's exact digest and scope before file reads, then checks each stored file's size/digest. Expired authority, missing/changed bytes and unsafe paths fail closed. Returned file/byte counts are verification facts, not an upload acknowledgment. The parent must seal the operation before recording durable completion; this helper does not implement upload, sealing, receipt persistence or shutdown. All remain required in Phase 1. Human bisync and timestamp-based final-sync behavior are untouched.
+
 ## Verification
 
 Behavioral tests in `src/__tests__/lib/jwt.test.ts` cover signed human identity versus legacy email authentication. `src/__tests__/operators/distribution.test.ts` covers bounded metadata, origin confinement, exact-byte integrity, module restrictions and non-execution. Full live distribution/Worker acceptance remains a separate requirement; parser tests do not prove it.
