@@ -4,12 +4,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(process.argv[2]);
-const require = createRequire(path.join(root, 'package.json'));
-const { getModel } = await import(pathToFileURL(require.resolve('@earendil-works/pi-ai/compat')).href);
 const { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager } =
   await import(pathToFileURL(path.join(root, 'dist/index.js')).href);
 const directory = await mkdtemp(path.join(tmpdir(), 'operator-pi-sdk-'));
@@ -25,12 +22,12 @@ try {
     await writeFile(path.join(folder, 'candidate.ts'), 'throw new Error("Unapproved extension executed");');
   }
   await writeFile(path.join(cwd, 'AGENTS.md'), 'UNAPPROVED_CONTEXT_MARKER');
-  const model = getModel('anthropic', 'claude-sonnet-4-5');
-  assert.ok(model, 'Pinned SDK must supply the explicitly selected fixture model');
   const modelRuntime = await ModelRuntime.create({
     authPath: path.join(agentDir, 'auth.json'), modelsPath: path.join(agentDir, 'models.json'),
     allowModelNetwork: false,
   });
+  const model = modelRuntime.getModel('anthropic', 'claude-sonnet-4-5');
+  assert.ok(model, 'Pinned SDK must supply the explicitly selected fixture model');
   const runtime = createExtensionRuntime();
   const resourceLoader = {
     getExtensions: () => ({ extensions: [], errors: [], runtime }),
