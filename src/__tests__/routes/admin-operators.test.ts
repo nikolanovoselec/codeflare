@@ -24,7 +24,8 @@ vi.mock('../../operators/distribution-client', () => ({
   fetchOperatorBundle: async () => ({ schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05',
     compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js', modules: { 'index.js': { js: 'export default {}' } } }),
 }));
-vi.mock('../../middleware/auth', () => ({
+vi.mock('../../middleware/auth', async importOriginal => ({
+  ...await importOriginal<typeof import('../../middleware/auth')>(),
   authMiddleware: async (c: any, next: any) => {
     if (!state.authenticated) throw new AuthError();
     c.set('user', { email: 'admin@example.test', role: state.role, authenticated: true });
@@ -35,7 +36,8 @@ vi.mock('../../middleware/auth', () => ({
     return next();
   },
 }));
-vi.mock('../../lib/jwt', () => ({
+vi.mock('../../lib/jwt', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/jwt')>(),
   verifyHumanAccessJWT: async () => state.human ? {
     subject: 'human', email: state.claimEmail, issuer: 'https://example.cloudflareaccess.com',
     audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10, expiresAt: Math.floor(Date.now() / 1000) + 60,
@@ -56,7 +58,7 @@ async function withApi(test: (request: (path: string, method?: string, body?: un
       ? c.json(error.toJSON(), error.statusCode as ContentfulStatusCode)
       : c.json({ error: 'Internal error' }, 500));
     app.route('/api/admin/operators', routes);
-    const request = (path: string, method = 'GET', body?: unknown, enterprise = true) => app.request(`/api/admin/operators${path}`, {
+    const request = async (path: string, method = 'GET', body?: unknown, enterprise = true) => app.request(`/api/admin/operators${path}`, {
       method, headers: { 'content-type': 'application/json', 'cf-access-jwt-assertion': 'fixture-human-token' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : 'inactive',
