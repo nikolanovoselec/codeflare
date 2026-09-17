@@ -150,7 +150,7 @@ All browser activity routes are enterprise-only. Missing bindings return `503`; 
 
 ### Webhook activity endpoint details
 
-The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/activity.ts -->
+The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/activity.ts --> <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp -->
 
 Non-enterprise or unknown routes return `404`; an invalid method returns `405`; a body returns `400`; throttling returns `429`; and missing or invalid capability returns `401`. Durable capability outcomes map expiry to `410`, consumed/already-started to `409`, missing preparation to `404`, admission or authority denial to `403`, and uncertain/unavailable service to `503`. The asset configuration routes `/operator-webhook/*` through Worker logic before SPA fallback. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/orchestrator.ts -->
 
