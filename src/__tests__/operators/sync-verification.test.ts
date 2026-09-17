@@ -16,13 +16,13 @@ async function fixture(patch: Record<string, unknown> = {}) {
   const content = new TextEncoder().encode('durable marker');
   const expected: OperatorSyncExpectation = { activityId: 'activity', sessionId: 'session', operationId: 'sync',
     requestDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), manifestDigest: '',
-    prefix: 'Operator Output/activity/session/sync/', deadline: Date.now() + 60_000 };
+    prefix: '.codeflare/operators/activity/session/sync/', filePrefix: 'Operators/', deadline: Date.now() + 60_000 };
   const manifest = { schemaVersion: 1, activityId: expected.activityId, sessionId: expected.sessionId,
     operationId: expected.operationId, requestDigest: expected.requestDigest, policyDigest: expected.policyDigest,
     files: [{ path: 'result.txt', size: content.byteLength, sha256: await sha256(content) }], ...patch };
   const bytes = encode(manifest);
   expected.manifestDigest = await sha256(bytes);
-  const objects = new Map<string, Uint8Array>([[`${expected.prefix}manifest.json`, bytes], [`${expected.prefix}result.txt`, content]]);
+  const objects = new Map<string, Uint8Array>([[`${expected.prefix}manifest.json`, bytes], [`${expected.filePrefix}result.txt`, content]]);
   const reads: string[] = [];
   const read = async (key: string, maxBytes: number) => {
     reads.push(key);
@@ -38,7 +38,7 @@ describe('REQ-OPERATOR-024: independently verified sync bytes', () => {
     const f = await fixture();
     expect(await verifyOperatorSync(f.expected, f.read)).toEqual({ manifestDigest: f.expected.manifestDigest,
       filesVerified: 1, bytesVerified: new TextEncoder().encode('durable marker').byteLength });
-    expect(f.reads).toEqual([`${f.expected.prefix}manifest.json`, `${f.expected.prefix}result.txt`]);
+    expect(f.reads).toEqual([`${f.expected.prefix}manifest.json`, `${f.expected.filePrefix}result.txt`]);
   });
 
   it.each(['activityId', 'sessionId', 'operationId', 'requestDigest', 'policyDigest'])
@@ -57,13 +57,14 @@ describe('REQ-OPERATOR-024: independently verified sync bytes', () => {
 
   it.each(['manifest.json', 'result.txt'])('rejects missing stored %s instead of trusting daemon success', async path => {
     const f = await fixture();
-    f.objects.delete(`${f.expected.prefix}${path}`);
+    f.objects.delete(`${path === 'manifest.json' ? f.expected.prefix : f.expected.filePrefix}${path}`);
     await expect(verifyOperatorSync(f.expected, f.read)).rejects.toBeInstanceOf(ValidationError);
   });
 
   it.each(['manifest.json', 'result.txt'])('rejects changed stored %s bytes', async path => {
     const f = await fixture();
-    f.objects.set(`${f.expected.prefix}${path}`, new TextEncoder().encode('changed'));
+    f.objects.set(`${path === 'manifest.json' ? f.expected.prefix : f.expected.filePrefix}${path}`,
+      new TextEncoder().encode('changed'));
     await expect(verifyOperatorSync(f.expected, f.read)).rejects.toBeInstanceOf(ValidationError);
   });
 

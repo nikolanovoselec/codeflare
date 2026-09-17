@@ -16,7 +16,10 @@ export interface OperatorSyncExpectation {
   requestDigest: string;
   policyDigest: string;
   manifestDigest: string;
+  /** Private manifest namespace for this exact operation. */
   prefix: string;
+  /** Human-readable output namespace mirrored from ~/Operators. */
+  filePrefix: string;
   deadline: number;
 }
 
@@ -73,6 +76,7 @@ export async function verifyOperatorSync(
   try {
     checkAuthority();
     if (!expected.prefix.endsWith('/') || !canonicalPath(expected.prefix.slice(0, -1))
+      || !expected.filePrefix.endsWith('/') || !canonicalPath(expected.filePrefix.slice(0, -1))
       || !digest.safeParse(expected.manifestDigest).success) throw new Error('Invalid operation scope');
     const stored = await read(`${expected.prefix}manifest.json`, MAX_MANIFEST_BYTES);
     if (!stored || stored.byteLength > MAX_MANIFEST_BYTES) throw new Error('Missing or oversized manifest');
@@ -87,7 +91,7 @@ export async function verifyOperatorSync(
     let bytesVerified = 0;
     for (const file of manifest.files) {
       checkAuthority();
-      const bytes = await read(`${expected.prefix}${file.path}`, file.size);
+      const bytes = await read(`${expected.filePrefix}${file.path}`, file.size);
       if (!bytes || bytes.byteLength !== file.size || await sha256(bytes) !== file.sha256) {
         throw new Error('Output integrity mismatch');
       }

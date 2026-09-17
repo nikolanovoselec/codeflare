@@ -105,7 +105,7 @@ export function parseOperatorContainerProfile(value: unknown): OperatorContainer
     || typeof profile.ownerBucket !== 'string' || !OWNER.test(profile.ownerBucket)
     || typeof profile.policyDigest !== 'string' || !DIGEST.test(profile.policyDigest)
     || typeof profile.deadline !== 'number' || !Number.isFinite(profile.deadline) || profile.deadline <= 0
-    || !canonicalPrefix(profile.outputPrefix)) {
+    || profile.outputPrefix !== 'Operators/' || !canonicalPrefix(profile.outputPrefix)) {
     throw new Error('Invalid operator container profile');
   }
   return { schemaVersion: 1, activityId: profile.activityId, operatorId: profile.operatorId,

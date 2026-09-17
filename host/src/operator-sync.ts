@@ -62,23 +62,27 @@ export class OperatorSyncService {
   private readonly activityId: string;
   private readonly sessionId: string;
   private readonly policyDigest: string;
-  private readonly remotePrefix: string;
+  private readonly filePrefix: string;
+  private readonly manifestPrefix: string;
   private readonly deadline: number;
   private readonly store: OperatorSyncStore;
   private readonly files: OperatorSyncFiles;
   private readonly uploader: OperatorSyncUploader;
 
   constructor(options: { activityId: string; sessionId: string; policyDigest: string; root: string;
-    remotePrefix: string; deadline: number; store: OperatorSyncStore; files: OperatorSyncFiles; uploader: OperatorSyncUploader }) {
+    filePrefix: string; manifestPrefix: string; deadline: number; store: OperatorSyncStore;
+    files: OperatorSyncFiles; uploader: OperatorSyncUploader }) {
     if (!ID.test(options.activityId) || !ID.test(options.sessionId) || !DIGEST.test(options.policyDigest)
-      || !path.isAbsolute(options.root) || !options.remotePrefix.endsWith('/')
-      || !canonicalPath(options.remotePrefix.slice(0, -1)) || !Number.isFinite(options.deadline)) {
+      || !path.isAbsolute(options.root) || !options.filePrefix.endsWith('/') || !options.manifestPrefix.endsWith('/')
+      || !canonicalPath(options.filePrefix.slice(0, -1)) || !canonicalPath(options.manifestPrefix.slice(0, -1))
+      || !Number.isFinite(options.deadline)) {
       throw new Error('Invalid operator sync configuration');
     }
     this.activityId = options.activityId;
     this.sessionId = options.sessionId;
     this.policyDigest = options.policyDigest;
-    this.remotePrefix = options.remotePrefix;
+    this.filePrefix = options.filePrefix;
+    this.manifestPrefix = options.manifestPrefix;
     this.deadline = options.deadline;
     this.store = options.store;
     this.files = options.files;
@@ -86,8 +90,7 @@ export class OperatorSyncService {
   }
 
   async upload(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }): Promise<OperatorSyncReceipt> {
-    if (!ID.test(request.operationId) || !DIGEST.test(request.requestDigest)
-      || !this.remotePrefix.endsWith(`/${request.operationId}/`)) throw new Error('Invalid operator sync request');
+    if (!ID.test(request.operationId) || !DIGEST.test(request.requestDigest)) throw new Error('Invalid operator sync request');
     const files = validateFiles(request.files);
     let existing: OperatorSyncReceipt | null;
     try { existing = await this.store.load(request.operationId); }
@@ -135,10 +138,10 @@ export class OperatorSyncService {
     try {
       for (const file of files) {
         this.checkAuthority();
-        await this.uploader.put(`${this.remotePrefix}${file.path}`, local.get(file.path)!);
+        await this.uploader.put(`${this.filePrefix}${file.path}`, local.get(file.path)!);
       }
       this.checkAuthority();
-      await this.uploader.put(`${this.remotePrefix}manifest.json`, manifest);
+      await this.uploader.put(`${this.manifestPrefix}${request.operationId}/manifest.json`, manifest);
     } catch {
       receipt = { ...receipt, status: 'unknown' };
       await this.persist(receipt);

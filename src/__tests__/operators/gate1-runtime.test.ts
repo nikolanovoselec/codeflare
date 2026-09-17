@@ -4,10 +4,10 @@ import type { OperatorContainerProfile } from '../../container/operator-context'
 
 const profile = { schemaVersion: 1, activityId: 'activity-gate1', operatorId: 'codeflare-gate1-fixture',
   sessionId: 'gate1a1b2c3d4e5f6a7b8', ownerBucket: 'owner-bucket', policyDigest: 'a'.repeat(64),
-  deadline: Date.now() + 60_000, outputPrefix: 'operator-fixtures/gate-1/activity-gate1/gate1a1b2c3d4e5f6a7b8/',
+  deadline: Date.now() + 60_000, outputPrefix: 'Operators/',
   human: { subject: 'human', email: 'owner@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
   policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
-    storage: { readPrefixes: ['operator-fixtures/gate-1/'], writePrefixes: ['operator-fixtures/gate-1/'] },
+    storage: { readPrefixes: ['Operators/'], writePrefixes: ['Operators/'] },
     inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
       defaultReasoningLevel: 'off', inheritUserDefaults: false } },
   jwtPolicy: { mode: 'off', destinations: [] },

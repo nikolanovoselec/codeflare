@@ -27,8 +27,8 @@ const policy = () => parseOperatorPolicy({
   networkHosts: [],
   github: { repositories: [], methods: [] },
   storage: {
-    readPrefixes: ['operator-fixtures/gate-1/'],
-    writePrefixes: ['operator-fixtures/gate-1/'],
+    readPrefixes: ['Operators/'],
+    writePrefixes: ['Operators/'],
   },
   inference: {
     routeIds: ['route-approved'],
@@ -79,7 +79,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
       sessionId,
       ownerBucket: 'owner-bucket',
       policyDigest: 'c'.repeat(64),
-      outputPrefix: `operator-fixtures/gate-1/${activityId}/${sessionId}/`,
+      outputPrefix: 'Operators/',
       human: {
         subject: human.subject,
         email: 'owner@example.test',
@@ -90,15 +90,15 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
         provider: 'codeflare-gateway',
         model: 'route-approved',
         thinkingLevel: 'high',
-        systemPrompt: 'Call the write tool now and do not respond with text. Use exactly this JSON argument: {"path":"/home/user/.codeflare/operators/activity-gate1/output/gate1-marker.txt","content":"codeflare-gate1-marker-v1"}. Call no other tools, append no newline, and create no other files.',
+        systemPrompt: 'Call the write tool now and do not respond with text. Use exactly this JSON argument: {"path":"/home/user/Operators/Gate 1/gate1-marker-activity-gate1.txt","content":"codeflare-gate1-marker-v1"}. Call no other tools, append no newline, and create no other files.',
         tools: ['write'],
         initialToolChoice: 'write',
       },
     });
     expect(result.profile).not.toHaveProperty('accessJwt');
     expect(result.marker).toEqual({
-      relativePath: 'gate1-marker.txt',
-      storagePath: `operator-fixtures/gate-1/${activityId}/${sessionId}/gate1-marker.txt`,
+      relativePath: 'Gate 1/gate1-marker-activity-gate1.txt',
+      storagePath: 'Operators/Gate 1/gate1-marker-activity-gate1.txt',
       content: 'codeflare-gate1-marker-v1',
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
@@ -137,7 +137,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
 
   it('fails closed when policy or current eligibility does not cover derived inference and storage', async () => {
     await expect(resolveGate1Resources(input({ policy: parseOperatorPolicy({ ...policy(), storage: {
-      readPrefixes: [], writePrefixes: ['operator-fixtures/gate-1/'],
+      readPrefixes: [], writePrefixes: ['Operators/'],
     } }) }))).rejects.toThrow(/Gate 1 resources/i);
     await expect(resolveGate1Resources(input({ eligibleInference: {
       routeIds: ['route-other'], defaultRouteId: 'route-other', defaultReasoningLevel: 'off',

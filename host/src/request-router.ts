@@ -240,17 +240,17 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
-    // Restricted sessions never enter the ordinary whole-home bisync/final-sync
-    // machinery. Authentication still runs first and ordinary sessions retain
-    // their existing routes because operatorSync is absent there.
-    if (deps.operatorSync && (pathname === '/internal/bisync-trigger' || pathname === '/internal/final-sync')) {
+    // Restricted sessions never enter ordinary whole-home final sync. Their
+    // authenticated Sync now path is handled below by the scoped operator
+    // controller; ordinary sessions retain the existing daemon trigger.
+    if (deps.operatorSync && pathname === '/internal/final-sync') {
       req.resume();
       res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ error: 'Ordinary bisync is unavailable to operator sessions', code: 'OPERATOR_BISYNC_DENIED' }));
       return;
     }
 
-    if (deps.operatorSync && pathname?.startsWith('/internal/operator/sync/')) {
+    if (deps.operatorSync && (pathname === '/internal/bisync-trigger' || pathname?.startsWith('/internal/operator/sync/'))) {
       const url = new URL(req.url ?? '/', 'http://container');
       const response = await deps.operatorSync.handle({ method: method ?? '', pathname, query: url.searchParams,
         body: await readBoundedBody(req, 64 * 1024) });

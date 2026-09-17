@@ -108,11 +108,11 @@ export class Gate1OperatorCapability {
     if (task.status !== 'completed') return this.waiting('pi');
 
     const requestDigest = await sha256(JSON.stringify({ activityId, marker: resources.marker }));
-    const prefix = `${resources.profile.outputPrefix}${OPERATION_ID}/`;
+    const prefix = `.codeflare/operators/${activityId}/${OPERATION_ID}/`;
     const prepared = await sync.prepare({ operationId: OPERATION_ID, sessionId: resources.profile.sessionId,
       requestDigest, policyDigest: resources.profile.policyDigest, prefix, deadline });
     if (!prepared.ok) throw new Error('Sync preparation failed');
-    const upload = await host.fetch('/internal/operator/sync/operations', {
+    const upload = await host.fetch('/internal/bisync-trigger', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
         operationId: OPERATION_ID, requestDigest, files: [{ path: resources.marker.relativePath,
           size: new TextEncoder().encode(resources.marker.content).byteLength, sha256: resources.marker.sha256 }],
@@ -138,7 +138,7 @@ export class Gate1OperatorCapability {
     if (!uploaded.ok) throw new Error('Sync seal failed');
     const evidence = await this.options.verify({ activityId, sessionId: resources.profile.sessionId,
       operationId: OPERATION_ID, requestDigest, policyDigest: resources.profile.policyDigest,
-      manifestDigest: receipt.manifestDigest, prefix, deadline });
+      manifestDigest: receipt.manifestDigest, prefix, filePrefix: resources.profile.outputPrefix, deadline });
     const verified = await sync.verified(OPERATION_ID, evidence);
     if (!verified.ok) throw new Error('Sync verification failed');
     return this.finish(evidence);

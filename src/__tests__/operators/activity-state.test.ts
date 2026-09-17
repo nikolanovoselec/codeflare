@@ -92,7 +92,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       ownerBucket: 'owner-bucket', sessionId: 'session-1', status: 'reserved' as const,
       profile: { schemaVersion: 1 as const, activityId: 'activity', operatorId: 'operator', sessionId: 'session-1',
         ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64), deadline: Date.now() + 60_000,
-        outputPrefix: 'operator-fixtures/gate-1/activity/session-1/',
+        outputPrefix: 'Operators/',
         human: { subject: 'human', email: 'human@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
         policy: { schemaVersion: 1 as const, networkHosts: [], github: { repositories: [], methods: [] },
           storage: { readPrefixes: ['operator-fixtures/'], writePrefixes: ['operator-fixtures/'] },

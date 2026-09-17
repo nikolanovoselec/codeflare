@@ -268,6 +268,7 @@ const operatorPi = createOperatorPiService({
 });
 const operatorSync = createOperatorSyncService({
   allowedRoot: '/home/user/.codeflare/operators',
+  outputRoot: '/home/user/Operators',
   rcloneConfig: '/home/user/.config/rclone/rclone.conf',
   ...(process.env.CODEFLARE_OPERATOR_SYNC_CONFIG
     ? { serializedConfig: process.env.CODEFLARE_OPERATOR_SYNC_CONFIG }

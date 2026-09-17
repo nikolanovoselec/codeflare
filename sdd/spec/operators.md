@@ -470,15 +470,15 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ### REQ-OPERATOR-023: Explicit operator synchronization
 
-**Intent:** Explicit synchronization uploads only declared canonical files through idempotent requests.
+**Intent:** Scoped Sync now persists only declared canonical files from the human-readable Operators folder through idempotent requests.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Explicit sync accepts only canonical files matching their declared exact size and hash. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/operator-sync-io.ts --> <!-- @test: host/__tests__/operator-sync-io.test.js (REQ-OPERATOR-023: local adapter reads only exact regular non-symlink files beneath the owned root) -->
-2. Explicit sync writes no implicit deletions. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
-3. Explicit sync publishes the canonical manifest after all declared files. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
+1. Scoped Sync now accepts only canonical files beneath `~/Operators` matching their declared exact size and hash. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/operator-sync-io.ts --> <!-- @test: host/__tests__/operator-sync-io.test.js (REQ-OPERATOR-023: local adapter reads only exact regular non-symlink files beneath the owned root) -->
+2. Scoped Sync now mirrors declared paths under the `Operators/` storage prefix and writes no implicit deletions. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
+3. Scoped Sync now publishes the canonical manifest under private `.codeflare/operators/` metadata after all declared files. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
 4. Stable receipts reconcile identical sync requests, while changed request reuse conflicts. <!-- @impl: host/src/operator-sync-http.ts::OperatorSyncHttpController --> <!-- @impl: host/src/operator-sync-service.ts::createOperatorSyncService --> <!-- @test: host/__tests__/operator-sync-http.test.js (REQ-OPERATOR-023: fixed POST upload and GET receipt expose uploaded but not verified state) --> <!-- @test: host/__tests__/operator-sync-service.test.js (REQ-OPERATOR-023: trusted config composes an exact upload with durable receipt) -->
 5. Interrupted sync effects become unknown before any further writes. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
 6. The sync router authenticates requests before forwarding the fixed explicit-sync contract. <!-- @impl: host/src/request-router.ts --> <!-- @test: host/__tests__/operator-sync-router.test.js (REQ-OPERATOR-023: router authenticates before forwarding fixed explicit-sync requests) -->

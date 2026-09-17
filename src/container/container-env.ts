@@ -351,8 +351,9 @@ export function buildEnvVars(
       CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1,
         activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
         policyDigest: operatorProfile.policyDigest,
-        root: `/home/user/.codeflare/operators/${operatorProfile.activityId}/output`,
-        remotePrefix: operatorProfile.outputPrefix,
+        root: '/home/user/Operators',
+        filePrefix: operatorProfile.outputPrefix,
+        manifestPrefix: `.codeflare/operators/${operatorProfile.activityId}/`,
         deadline: operatorProfile.deadline }),
     }),
     // Terminal server port

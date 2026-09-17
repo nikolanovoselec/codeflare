@@ -9,8 +9,8 @@ import { parseOperatorPolicy, type OperatorPolicy } from './policy';
 export const GATE1_OPERATOR_ID = 'codeflare-gate1-fixture';
 const GATE1_SESSION_PROFILE_ID = 'gate1-pi-file-v1';
 const GATE1_STORAGE_SCOPE_ID = 'gate1-output-v1';
-const OUTPUT_ROOT = 'operator-fixtures/gate-1/';
-const MARKER_PATH = 'gate1-marker.txt';
+const OUTPUT_ROOT = 'Operators/';
+const MARKER_DIRECTORY = 'Gate 1';
 const MARKER_CONTENT = 'codeflare-gate1-marker-v1';
 
 export interface Gate1Resources {
@@ -63,9 +63,10 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
     trusted: invocation.resources.inference,
   });
   const sessionId = `gate1${(await sha256(input.activityId)).slice(0, 16)}`;
-  const outputPrefix = `${OUTPUT_ROOT}${input.activityId}/${sessionId}/`;
-  const storagePath = `${outputPrefix}${MARKER_PATH}`;
-  const localMarkerPath = `/home/user/.codeflare/operators/${input.activityId}/output/${MARKER_PATH}`;
+  const outputPrefix = OUTPUT_ROOT;
+  const relativePath = `${MARKER_DIRECTORY}/gate1-marker-${input.activityId}.txt`;
+  const storagePath = `${outputPrefix}${relativePath}`;
+  const localMarkerPath = `/home/user/${storagePath}`;
   if (!decideOperatorStorage(policy, 'write', storagePath).allowed
     || !decideOperatorStorage(policy, 'read', storagePath).allowed) invalid();
 
@@ -93,6 +94,6 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
       initialToolChoice: 'write',
     },
   });
-  return { profile, effectiveInference, marker: { relativePath: MARKER_PATH, storagePath,
+  return { profile, effectiveInference, marker: { relativePath, storagePath,
     content: MARKER_CONTENT, sha256: await sha256(MARKER_CONTENT) } };
 }

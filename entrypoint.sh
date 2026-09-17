@@ -608,6 +608,7 @@ RCLONE_FILTERS_COMMON=(
     "${VAULT_FILTER[@]}"
     --filter "+ Uploads/**"
     --filter "+ Temporary/**"
+    --filter "+ Operators/**"
 
     # Global graphify graph is rebuilt at boot from per-project graphs and
     # the vault. Keep it ephemeral; it has no R2 round-trip value.
@@ -4491,12 +4492,12 @@ if (!pi || !sync || pi.schemaVersion !== 1 || sync.schemaVersion !== 1
   || !id.test(pi.activityId) || pi.activityId !== sync.activityId
   || !id.test(pi.sessionId) || pi.sessionId !== sync.sessionId) fail();
 const root = path.resolve('/home/user/.codeflare/operators', pi.activityId);
-if (path.resolve(pi.root) !== root || path.resolve(sync.root) !== path.join(root, 'output')) fail();
+if (path.resolve(pi.root) !== root || path.resolve(sync.root) !== '/home/user/Operators') fail();
 process.stdout.write(root);
 NODE
     )
     install -d -m 0700 "$operator_root" "$operator_root/work" "$operator_root/agent" \
-        "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare"
+        "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare" "$USER_HOME/Operators"
     for trusted_file in models.json settings.json auth.json; do
         if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
             install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"

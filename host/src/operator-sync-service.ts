@@ -17,42 +17,44 @@ interface Config {
   sessionId: string;
   policyDigest: string;
   root: string;
-  remotePrefix: string;
+  filePrefix: string;
+  manifestPrefix: string;
   deadline: number;
 }
-function parseConfig(serialized: string, allowedRoot: string): Config {
+function parseConfig(serialized: string, outputRoot: string): Config {
   let value: unknown;
   try { value = JSON.parse(serialized); } catch { throw new Error('Invalid operator sync configuration'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator sync configuration');
   const config = value as Record<string, unknown>;
-  const boundary = path.resolve(allowedRoot);
+  const expectedRoot = path.resolve(outputRoot);
   const activityId = typeof config.activityId === 'string' ? config.activityId : '';
-  const expectedRoot = path.join(boundary, activityId, 'output');
-  if (Object.keys(config).length !== 7 || config.schemaVersion !== 1 || !ID.test(activityId)
+  if (Object.keys(config).length !== 8 || config.schemaVersion !== 1 || !ID.test(activityId)
     || typeof config.sessionId !== 'string' || !ID.test(config.sessionId)
     || typeof config.policyDigest !== 'string' || !DIGEST.test(config.policyDigest)
     || typeof config.root !== 'string' || !path.isAbsolute(config.root) || path.resolve(config.root) !== expectedRoot
-    || !canonicalPrefix(config.remotePrefix) || typeof config.deadline !== 'number'
+    || config.filePrefix !== 'Operators/' || config.manifestPrefix !== `.codeflare/operators/${activityId}/`
+    || !canonicalPrefix(config.filePrefix) || !canonicalPrefix(config.manifestPrefix) || typeof config.deadline !== 'number'
     || !Number.isFinite(config.deadline) || config.deadline <= 0) throw new Error('Invalid operator sync configuration');
   return { schemaVersion: 1, activityId, sessionId: config.sessionId, policyDigest: config.policyDigest,
-    root: expectedRoot, remotePrefix: config.remotePrefix, deadline: config.deadline };
+    root: expectedRoot, filePrefix: config.filePrefix, manifestPrefix: config.manifestPrefix, deadline: config.deadline };
 }
 
 class ConfiguredCoordinator implements OperatorSyncCoordinator {
   private readonly store: FileOperatorSyncStore;
   private readonly files: OwnedOperatorSyncFiles;
   private readonly uploader: RcloneOperatorSyncUploader;
-  constructor(private readonly config: Config, options: { bucket: string; rcloneConfig: string;
+  constructor(private readonly config: Config, options: { bucket: string; rcloneConfig: string; stateRoot: string;
     run?: (command: string, args: readonly string[], bytes: Uint8Array) => Promise<number> }) {
-    this.store = new FileOperatorSyncStore(path.join(config.root, '..', '.codeflare/sync-receipts'));
+    this.store = new FileOperatorSyncStore(path.join(options.stateRoot, config.activityId, '.codeflare/sync-receipts'));
     this.files = new OwnedOperatorSyncFiles(config.root);
-    this.uploader = new RcloneOperatorSyncUploader({ bucket: options.bucket, prefix: config.remotePrefix,
+    this.uploader = new RcloneOperatorSyncUploader({ bucket: options.bucket,
+      prefixes: [config.filePrefix, config.manifestPrefix],
       configFile: options.rcloneConfig, ...(options.run ? { run: options.run } : {}) });
   }
   upload(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }): Promise<OperatorSyncReceipt> {
     return new OperatorSyncService({ activityId: this.config.activityId, sessionId: this.config.sessionId,
       policyDigest: this.config.policyDigest, root: this.config.root,
-      remotePrefix: `${this.config.remotePrefix}${request.operationId}/`, deadline: this.config.deadline,
+      filePrefix: this.config.filePrefix, manifestPrefix: this.config.manifestPrefix, deadline: this.config.deadline,
       store: this.store, files: this.files, uploader: this.uploader }).upload(request);
   }
   status(operationId: string): Promise<OperatorSyncReceipt | null> { return this.store.load(operationId); }
@@ -61,14 +63,16 @@ class ConfiguredCoordinator implements OperatorSyncCoordinator {
 export function createOperatorSyncService(options: {
   serializedConfig?: string;
   allowedRoot: string;
+  outputRoot: string;
   bucket?: string;
   rcloneConfig: string;
   run?: (command: string, args: readonly string[], bytes: Uint8Array) => Promise<number>;
 }): OperatorSyncHttpController | undefined {
   if (!options.serializedConfig) return undefined;
   if (!options.bucket) throw new Error('Invalid operator sync configuration');
-  const config = parseConfig(options.serializedConfig, options.allowedRoot);
+  const config = parseConfig(options.serializedConfig, options.outputRoot);
   return new OperatorSyncHttpController(new ConfiguredCoordinator(config, {
-    bucket: options.bucket, rcloneConfig: options.rcloneConfig, ...(options.run ? { run: options.run } : {}),
+    bucket: options.bucket, rcloneConfig: options.rcloneConfig, stateRoot: path.resolve(options.allowedRoot),
+    ...(options.run ? { run: options.run } : {}),
   }));
 }

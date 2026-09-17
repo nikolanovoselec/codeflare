@@ -47,13 +47,13 @@ function parseRequest(body?: Uint8Array): { operationId: string; requestDigest: 
 export class OperatorSyncHttpController {
   constructor(private readonly coordinator: OperatorSyncCoordinator) {}
   async handle(input: { method: string; pathname: string; query?: URLSearchParams; body?: Uint8Array }): Promise<OperatorSyncHttpResult | null> {
-    if (!input.pathname.startsWith(PREFIX)) return null;
+    if (input.pathname !== '/internal/bisync-trigger' && !input.pathname.startsWith(PREFIX)) return null;
     if (input.query && [...input.query.keys()].length > 0) {
       return result(400, { error: 'Invalid sync request', code: 'SYNC_REQUEST_INVALID' });
     }
     if (input.body && input.body.byteLength > 64 * 1024) return result(413, { error: 'Request body too large', code: 'REQUEST_TOO_LARGE' });
     try {
-      if (input.pathname === `${PREFIX}operations`) {
+      if (input.pathname === '/internal/bisync-trigger') {
         if (input.method !== 'POST') return result(405, { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' });
         return result(200, await this.coordinator.upload(parseRequest(input.body)));
       }

@@ -26,10 +26,10 @@ const operationId = 'gate1-output-v1';
 const sessionId = 'gate1a1b2c3d4e5f6a7b8';
 const resources = {
   profile: { activityId, sessionId, policyDigest: 'c'.repeat(64),
-    outputPrefix: `operator-fixtures/gate-1/${activityId}/${sessionId}/`,
+    outputPrefix: 'Operators/',
     piProfile: { systemPrompt: 'Write the fixed Gate 1 marker.' } },
   effectiveInference: { routeId: 'route-approved', reasoningLevel: 'high' },
-  marker: { relativePath: 'gate1-marker.txt', storagePath: `operator-fixtures/gate-1/${activityId}/${sessionId}/gate1-marker.txt`,
+  marker: { relativePath: `Gate 1/gate1-marker-${activityId}.txt`, storagePath: `Operators/Gate 1/gate1-marker-${activityId}.txt`,
     content: 'codeflare-gate1-marker-v1', sha256: 'd'.repeat(64) },
 } as unknown as Gate1Resources;
 const request = (generation = 3) => new Request('https://operator.invalid/v1/gate1/session', {
@@ -47,7 +47,7 @@ function fixture(overrides: Partial<Gate1CapabilityOptions> = {}) {
     calls.push(path);
     if (path.endsWith('/ensure')) return Response.json({ conversationId: 'conversation-1', ready: true });
     if (path.endsWith('/tasks')) return Response.json({ taskId: 'gate1-pi-file-v1', status: 'completed' }, { status: 202 });
-    if (path.endsWith('/operations')) return Response.json({ schemaVersion: 1, operationId,
+    if (path === '/internal/bisync-trigger') return Response.json({ schemaVersion: 1, operationId,
       requestDigest: JSON.parse(String(init?.body)).requestDigest, status: 'uploaded', manifestDigest: 'f'.repeat(64),
       files: [{ path: resources.marker.relativePath, size: resources.marker.content.length, sha256: resources.marker.sha256 }] });
     throw new Error(`unexpected host path ${path}`);
@@ -82,7 +82,7 @@ describe('REQ-OPERATOR-018: platform operator capability binding', () => {
       } };
     const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
       github: { repositories: [], methods: [] }, storage: {
-        readPrefixes: ['operator-fixtures/gate-1/'], writePrefixes: ['operator-fixtures/gate-1/'],
+        readPrefixes: ['Operators/'], writePrefixes: ['Operators/'],
       }, inference: { routeIds: ['route-approved'], defaultRouteId: 'route-approved',
         reasoningLevels: ['off', 'high'], defaultReasoningLevel: 'off', inheritUserDefaults: false } });
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
@@ -156,12 +156,13 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
       result: { fixture: 'codeflare-gate1', activityId, sessionId,
         operationId, filesVerified: 1, bytesVerified: resources.marker.content.length } });
     expect(calls).toEqual(['session.ensure', '/internal/operator/pi/ensure', '/internal/operator/pi/tasks',
-      'sync.prepare', '/internal/operator/sync/operations', 'sync.uploaded', 'sync.verify',
+      'sync.prepare', '/internal/bisync-trigger', 'sync.uploaded', 'sync.verify',
       'sync.verified', 'session.stop']);
     expect(sync.prepare).toHaveBeenCalledWith(expect.objectContaining({ operationId,
-      prefix: `${resources.profile.outputPrefix}${operationId}/` }));
+      prefix: `.codeflare/operators/${activityId}/${operationId}/` }));
     expect(verify).toHaveBeenCalledWith(expect.objectContaining({ operationId,
-      prefix: `${resources.profile.outputPrefix}${operationId}/`, manifestDigest: 'f'.repeat(64) }));
+      prefix: `.codeflare/operators/${activityId}/${operationId}/`, filePrefix: 'Operators/',
+      manifestDigest: 'f'.repeat(64) }));
   });
 
   it('returns a bounded waiting checkpoint without repeating later effects while startup is pending', async () => {

@@ -140,19 +140,20 @@ async function runRclone(command: string, args: readonly string[], bytes: Uint8A
 
 export class RcloneOperatorSyncUploader implements OperatorSyncUploader {
   private readonly bucket: string;
-  private readonly prefix: string;
+  private readonly prefixes: readonly string[];
   private readonly configFile: string;
   private readonly run: Runner;
-  constructor(options: { bucket: string; prefix: string; configFile: string; run?: Runner }) {
-    if (!/^[a-z0-9][a-z0-9.-]{1,62}$/.test(options.bucket) || !canonicalPath(options.prefix.slice(0, -1))
-      || !options.prefix.endsWith('/') || !path.isAbsolute(options.configFile)) throw new Error('Invalid operator upload scope');
+  constructor(options: { bucket: string; prefixes: readonly string[]; configFile: string; run?: Runner }) {
+    if (!/^[a-z0-9][a-z0-9.-]{1,62}$/.test(options.bucket) || options.prefixes.length < 1
+      || options.prefixes.some(prefix => !canonicalPath(prefix.slice(0, -1)) || !prefix.endsWith('/'))
+      || !path.isAbsolute(options.configFile)) throw new Error('Invalid operator upload scope');
     this.bucket = options.bucket;
-    this.prefix = options.prefix;
+    this.prefixes = [...options.prefixes];
     this.configFile = path.resolve(options.configFile);
     this.run = options.run ?? runRclone;
   }
   async put(key: string, bytes: Uint8Array): Promise<void> {
-    if (!key.startsWith(this.prefix) || !canonicalPath(key) || bytes.byteLength > MAX_BYTES) {
+    if (!this.prefixes.some(prefix => key.startsWith(prefix)) || !canonicalPath(key) || bytes.byteLength > MAX_BYTES) {
       throw new Error('Operator upload escaped its scope');
     }
     const code = await this.run('rclone', ['rcat', `r2:${this.bucket}/${key}`, '--config', this.configFile,

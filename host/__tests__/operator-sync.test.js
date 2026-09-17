@@ -22,7 +22,7 @@ function fixture(overrides = {}) {
   const files = { async read(path, size) { const value = content.get(path); if (!value || value.length !== size) throw new Error('bad file'); return value; } };
   const uploader = { async put(key, bytes) { puts.push([key, Buffer.from(bytes)]); } };
   const service = new OperatorSyncService({ activityId: 'activity-1', sessionId: 'session-1', policyDigest: 'b'.repeat(64),
-    root: '/owned/output', remotePrefix: 'Remote Reviews/activity-1/session-1/sync-1/',
+    root: '/home/user/Operators', filePrefix: 'Operators/', manifestPrefix: '.codeflare/operators/activity-1/',
     deadline: Date.now() + 60_000, store, files, uploader, ...overrides.options });
   return { service, store, files, uploader, saves, puts, receipt: () => receipt };
 }
@@ -33,9 +33,9 @@ test('REQ-OPERATOR-023: persists intent then uploads exact files and canonical m
   assert.equal(result.status, 'uploaded');
   assert.deepEqual(f.saves.map(value => value.status), ['accepted', 'uploading', 'uploaded']);
   assert.deepEqual(f.puts.map(([key]) => key), [
-    'Remote Reviews/activity-1/session-1/sync-1/reports/a.txt',
-    'Remote Reviews/activity-1/session-1/sync-1/reports/b.txt',
-    'Remote Reviews/activity-1/session-1/sync-1/manifest.json',
+    'Operators/reports/a.txt',
+    'Operators/reports/b.txt',
+    '.codeflare/operators/activity-1/sync-1/manifest.json',
   ]);
   const manifest = f.puts.at(-1)[1];
   assert.equal(digest(manifest), result.manifestDigest);
