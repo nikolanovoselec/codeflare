@@ -5,8 +5,9 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
-import type { OperatorBundle } from '../../../operators/distribution';
+import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
+import { GATE1_BUNDLE_BYTES } from '../../../../fixtures/operator-gate1/src/bundle';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
@@ -94,6 +95,13 @@ const bundle: OperatorBundle = {
   ` } },
 };
 
+async function loadGate1Bundle(env: FixtureEnv, capability: Fetcher): Promise<Fetcher> {
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', GATE1_BUNDLE_BYTES)))
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const parsed = await parseOperatorBundle(GATE1_BUNDLE_BYTES, digest);
+  return loadOperatorWorker(env.LOADER, parsed, capability, null);
+}
+
 export default {
   async fetch(request: Request, env: FixtureEnv, ctx: ExecutionContext): Promise<Response> {
     const entrypoints = (ctx as unknown as { exports: Record<string,
@@ -157,10 +165,21 @@ export default {
       }
       const create = () => loadOperatorWorker(env.LOADER, bundle,
         entrypoints.FixtureCapability({ props }), entrypoints.FixtureOutbound({ props }));
-      if (new URL(request.url).pathname === '/fresh') {
+      if (url.pathname === '/fresh') {
         const first = await create().fetch(new Request('https://child.test/count'));
         const second = await create().fetch(new Request('https://child.test/count'));
         return Response.json([await first.json(), await second.json()]);
+      }
+      if (url.pathname === '/gate1-bundle') {
+        const loaded = await loadGate1Bundle(env, entrypoints.FixtureCapability({ props }));
+        const testCase = url.searchParams.get('case');
+        if (testCase === 'wrong-route') return await loaded.fetch(new Request('https://operator.internal/wrong'));
+        const body = testCase === 'malformed' ? '{' : JSON.stringify({ schemaVersion: 1, action: 'start',
+          activityId: 'gate1-activity', generation: 1, checkpoint: null,
+          invocation: { resources: { session: testCase === 'session' ? { profileId: 'gate1-pi-file-v1' } : null } },
+        });
+        return await loaded.fetch(new Request('https://operator.internal/drive', { method: 'POST',
+          headers: { 'content-type': 'application/json' }, body }));
       }
       return await create().fetch(request);
     } catch (error) {

@@ -44,6 +44,26 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     expect(response.status).toBe(403);
     expect(await response.text()).toBe('denied');
   });
+
+  it('executes the exact Gate 1 artifact through the native Loader boundary', async () => {
+    const direct = await worker!.fetch('/gate1-bundle?case=direct');
+    expect(direct.status).toBe(200);
+    expect(await direct.json()).toEqual({ schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { fixture: 'codeflare-gate1', activityId: 'gate1-activity' } });
+
+    const session = await worker!.fetch('/gate1-bundle?case=session');
+    expect(session.status).toBe(200);
+    expect(await session.json()).toEqual({ schemaVersion: 1, status: 'failed', checkpoint: null,
+      result: { code: 'GATE1_SESSION_CAPABILITY_NOT_CONNECTED' } });
+
+    const wrongRoute = await worker!.fetch('/gate1-bundle?case=wrong-route');
+    expect(wrongRoute.status).toBe(404);
+    expect(await wrongRoute.json()).toEqual({ error: 'Not found' });
+
+    const malformed = await worker!.fetch('/gate1-bundle?case=malformed');
+    expect(malformed.status).toBe(500);
+    expect(await malformed.json()).toEqual({ error: expect.any(String) });
+  });
 });
 
 const ARTIFACT = 'a'.repeat(64);
