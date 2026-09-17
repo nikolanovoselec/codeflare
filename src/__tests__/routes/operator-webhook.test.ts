@@ -29,17 +29,21 @@ function request(path: string, method: string, token = capability) {
 }
 
 describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
-  it('routes fixed start/status/result operations with no-store responses and no token reflection', async () => {
+  it('routes fixed operations with exact response shapes, no-store and no token reflection', async () => {
     const { env, activity } = environment();
     const cases = [
-      ['POST', 'start', 200], ['GET', 'status', 200], ['POST', 'result', 202],
+      ['POST', 'start', 200, { ok: true, phase: 'queued', readCapability: 'r'.repeat(43) }],
+      ['GET', 'status', 200, { ok: true, terminal: false, status: 'queued' }],
+      ['POST', 'result', 202, { error: 'Webhook capability operation rejected', code: 'WEBHOOK_NOT_READY' }],
     ] as const;
-    for (const [method, action, status] of cases) {
+    for (const [method, action, status, expectedBody] of cases) {
       const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/${action}`, method), env as never,
         { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {} });
       expect(response.status).toBe(status);
       expect(response.headers.get('cache-control')).toBe('no-store');
-      expect(await response.text()).not.toContain(capability);
+      const body = await response.text();
+      expect(JSON.parse(body)).toEqual(expectedBody);
+      expect(body).not.toContain(capability);
     }
     expect(activity.startWebhook).toHaveBeenCalledWith(capability);
     expect(orchestration.run).toHaveBeenCalledTimes(1);
