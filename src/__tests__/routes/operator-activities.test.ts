@@ -139,7 +139,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything(), expect.any(Function));
     expect(waitUntil).toHaveBeenCalledOnce();
 
-    activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, checkpoint: null, result: null });
+    activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, checkpoint: { step: 1 }, result: null });
     expect((await request('/activity-1/continue', 'POST', {})).status).toBe(409);
     expect((await request('/activity-1/continue', 'POST', {}, false)).status).toBe(403);
     expect(orchestration.run).toHaveBeenCalledTimes(1);

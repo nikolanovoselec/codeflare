@@ -89,7 +89,7 @@ app.post('/:activityId/start', async c => {
 });
 async function handleContinue(c: Context<ActivityRouteEnv>) {
   const activityId = c.req.param('activityId');
-  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
   const activity = c.env.OPERATOR_ACTIVITY!.getByName(activityId);
   const detail = await browserDetail(activity);
   if (detail?.executionStatus !== 'waiting' || detail.checkpoint === null || detail.checkpoint === undefined) {
