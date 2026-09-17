@@ -47,6 +47,11 @@ function fixture(overrides: Partial<Gate1CapabilityOptions> = {}) {
     calls.push(path);
     if (path.endsWith('/ensure')) return Response.json({ conversationId: 'conversation-1', ready: true });
     if (path.endsWith('/tasks')) return Response.json({ taskId: 'gate1-pi-file-v1', status: 'completed' }, { status: 202 });
+    if (path === '/internal/operator/pi/events?cursor=0') return Response.json({ events: [
+      { sequence: 1, event: { type: 'tool_execution_start', toolCallId: 'write-1', toolName: 'write',
+        args: { path: `/home/user/${resources.marker.storagePath}`, content: resources.marker.content } } },
+      { sequence: 2, event: { type: 'tool_execution_end', toolCallId: 'write-1', toolName: 'write', isError: false } },
+    ], nextCursor: 2, gap: false });
     if (path === '/internal/bisync-trigger') return Response.json({ schemaVersion: 1, operationId,
       requestDigest: JSON.parse(String(init?.body)).requestDigest, status: 'uploaded', manifestDigest: 'f'.repeat(64),
       files: [{ path: resources.marker.relativePath, size: resources.marker.content.length, sha256: resources.marker.sha256 }] });
@@ -156,7 +161,7 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
       result: { fixture: 'codeflare-gate1', activityId, sessionId,
         operationId, filesVerified: 1, bytesVerified: resources.marker.content.length } });
     expect(calls).toEqual(['session.ensure', '/internal/operator/pi/ensure', '/internal/operator/pi/tasks',
-      'sync.prepare', '/internal/bisync-trigger', 'sync.uploaded', 'sync.verify',
+      '/internal/operator/pi/events?cursor=0', 'sync.prepare', '/internal/bisync-trigger', 'sync.uploaded', 'sync.verify',
       'sync.verified', 'session.stop']);
     expect(sync.prepare).toHaveBeenCalledWith(expect.objectContaining({ operationId,
       prefix: `.codeflare/operators/${activityId}/${operationId}/` }));
@@ -196,9 +201,24 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
       result: { code: 'GATE1_PI_FAILED' } });
     expect(failed.session.stop).toHaveBeenCalledOnce();
 
+    const noWrite = fixture({ host: { fetch: vi.fn(async (path: string) => {
+      if (path.endsWith('/ensure')) return Response.json({ ready: true, conversationId: 'conversation-1' });
+      if (path.endsWith('/tasks')) return Response.json({ taskId: 'gate1-pi-file-v1', status: 'completed' }, { status: 202 });
+      if (path.includes('/events?')) return Response.json({ events: [], nextCursor: 0, gap: false });
+      throw new Error(`unexpected host path ${path}`);
+    }) } });
+    expect(await (await noWrite.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
+      result: { code: 'GATE1_PI_WRITE_NOT_OBSERVED' } });
+    expect(noWrite.session.stop).toHaveBeenCalledOnce();
+
     const missingOutput = fixture({ host: { fetch: vi.fn(async (path: string) => {
       if (path.endsWith('/ensure')) return Response.json({ ready: true, conversationId: 'conversation-1' });
       if (path.endsWith('/tasks')) return Response.json({ taskId: 'gate1-pi-file-v1', status: 'completed' }, { status: 202 });
+      if (path.includes('/events?')) return Response.json({ events: [
+        { sequence: 1, event: { type: 'tool_execution_start', toolCallId: 'write-1', toolName: 'write',
+          args: { path: `/home/user/${resources.marker.storagePath}`, content: resources.marker.content } } },
+        { sequence: 2, event: { type: 'tool_execution_end', toolCallId: 'write-1', toolName: 'write', isError: false } },
+      ], nextCursor: 2, gap: false });
       return Response.json({ error: 'Sync output is unavailable', code: 'SYNC_OUTPUT_NOT_FOUND' }, { status: 409 });
     }) } });
     expect(await (await missingOutput.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
@@ -208,6 +228,11 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
     const stateFailure = fixture({ host: { fetch: vi.fn(async (path: string) => {
       if (path.endsWith('/ensure')) return Response.json({ ready: true, conversationId: 'conversation-1' });
       if (path.endsWith('/tasks')) return Response.json({ taskId: 'gate1-pi-file-v1', status: 'completed' }, { status: 202 });
+      if (path.includes('/events?')) return Response.json({ events: [
+        { sequence: 1, event: { type: 'tool_execution_start', toolCallId: 'write-1', toolName: 'write',
+          args: { path: `/home/user/${resources.marker.storagePath}`, content: resources.marker.content } } },
+        { sequence: 2, event: { type: 'tool_execution_end', toolCallId: 'write-1', toolName: 'write', isError: false } },
+      ], nextCursor: 2, gap: false });
       return Response.json({ error: 'Sync state is unavailable', code: 'SYNC_STATE_FAILED' }, { status: 503 });
     }) } });
     expect(await (await stateFailure.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
