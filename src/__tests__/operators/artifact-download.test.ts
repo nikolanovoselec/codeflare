@@ -28,7 +28,7 @@ async function approvedManifest() {
 const response = () => new Response(bytes, { headers: { 'content-type': 'application/json' } });
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-describe('REQ-OPERATOR-010: authenticated approved artifact download', () => {
+describe('REQ-OPERATOR-035: authenticated approved artifact download', () => {
   it('returns only the pinned bundle from an endpoint requiring both credentials and manual redirects', async () => {
     const approved = await approvedManifest();
     const auth = credentials();

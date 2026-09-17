@@ -1,5 +1,5 @@
 /**
- * REQ-OPERATOR-006 edge capability boundary.
+ * REQ-OPERATOR-006/029/031 edge capability boundary.
  *
  * Cloudflare Access bypasses only this route family. This handler therefore
  * owns enterprise, path, method and bearer-capability validation before the

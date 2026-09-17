@@ -92,7 +92,7 @@ describe('Environment report fields', () => {
     expect(values.reasoningConfiguration.routeAssignments.development.activeProfile.id).toBe('workers-ai-kimi-k-thinking');
   });
 
-  it('REQ-OPERATOR-019: renders Off/list/All stamping controls and serializes canonical destination lines', () => {
+  it('REQ-OPERATOR-028: renders Off/list/All stamping controls and serializes canonical destination lines', () => {
     const { getByLabelText, getByText, container } = render(() => (
       <EnvironmentAreaFields section="securityEgress" mode="enterprise" current={{ strictGatewayEgress: false,
         jwtStamping: { mode: 'all', destinations: [] } }} />

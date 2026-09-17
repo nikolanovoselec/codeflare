@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 /**
- * REQ-OPERATOR-026: the only edge-Access bypass route still authenticates fixed
+ * REQ-OPERATOR-029: the managed edge route still authenticates fixed
  * methods and activity-scoped capabilities in Worker code. These fixtures are
  * Worker boundary evidence, not deployed public-host Access acceptance.
  */
@@ -28,7 +28,7 @@ function request(path: string, method: string, token = capability) {
   });
 }
 
-describe('REQ-OPERATOR-026: capability-authenticated webhook edge', () => {
+describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
   it('routes fixed start/status/result operations with no-store responses and no token reflection', async () => {
     const { env, activity } = environment();
     const cases = [

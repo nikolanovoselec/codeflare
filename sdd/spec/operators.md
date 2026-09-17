@@ -44,10 +44,12 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. Enterprise administrators can register a validated HTTPS distribution and protected connection secret. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setDistribution --> <!-- @impl: src/operators/protected-secrets.ts::sealOperatorSecret --> <!-- @impl: src/operators/protected-secrets.ts::openOperatorSecret --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
-2. Administrators independently discover, approve and enable a registered operator. <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
-3. Distribution-credential replacement rejects stale revisions, disables the registration and clears approval without changing admitted receipts. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setDistribution --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
-4. Invalid distribution input or secret-encryption failure leaves registration state unchanged. <!-- @impl: src/operators/protected-secrets.ts::sealOperatorSecret --> <!-- @test: src/__tests__/operators/protected-secrets.test.ts (REQ-OPERATOR-002: fail-closed protected secrets) -->
-5. Ordinary registration readback exposes no secret material. <!-- @impl: src/operators/protected-secrets.ts::openOperatorSecret --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
+2. Administrators can discover a registered operator without approving it. <!-- @impl: src/operators/administration.ts::discoverRegisteredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
+3. Administrators approve an explicitly selected artifact digest without enabling the operator. <!-- @impl: src/operators/administration.ts::approveRegisteredOperator --> <!-- @test: src/__tests__/operators/registry-manifest.test.ts (REQ-OPERATOR-011: approved manifest snapshots) -->
+4. Administrators enable an approved operator through a separate mutation. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+5. Distribution-credential replacement rejects stale revisions, disables the registration and clears approval without changing admitted receipts. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setDistribution --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
+6. Invalid distribution input or secret-encryption failure leaves registration state unchanged. <!-- @impl: src/operators/protected-secrets.ts::sealOperatorSecret --> <!-- @test: src/__tests__/operators/protected-secrets.test.ts (REQ-OPERATOR-002: fail-closed protected secrets) -->
+7. Ordinary registration readback exposes no secret material. <!-- @impl: src/operators/protected-secrets.ts::openOperatorSecret --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
 
 **Constraints:** Registration never grants human eligibility or execution authority. Secrets remain parent-readable only in protected form; ordinary projections are secret-free.
 
@@ -65,15 +67,16 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Intent:** Admission is revision-safe, idempotent and immutable after authorization.
 
-**Applies To:** Admin, User
+**Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Registration mutations reject stale revisions. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
-2. New registrations are disabled and unapproved, and approval remains separate from enablement. <!-- @impl: src/operators/registry.ts::OperatorRegistry.approveManifest --> <!-- @test: src/__tests__/operators/registry-manifest.test.ts (REQ-OPERATOR-011: approved manifest snapshots) -->
-3. Admission stores an idempotent receipt pinning the approved manifest, policy, revision, activity intent and deadline. Later registration changes cannot mutate that receipt. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
-4. Identical concurrent admission requests reconcile to the same receipt, while reuse with changed input conflicts. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
-5. A disable committed before admission denies the request; a receipt committed first remains readable for reconciliation. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+1. Admission stores an idempotent receipt pinning the approved manifest, policy, revision, activity intent and deadline. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+2. Later registration changes cannot mutate an admitted receipt. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+3. Identical concurrent admission requests reconcile to the same receipt. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+4. Reusing an admission identity with changed input returns a conflict. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+5. A disable committed before admission denies the request. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
+6. A receipt committed before disablement remains readable for reconciliation. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
 
 **Constraints:** No transaction spans registry and activity Durable Objects.
 
@@ -97,10 +100,10 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 1. Administrators can generate an optional 256-bit per-operator webhook key. <!-- @impl: src/operators/registry.ts::OperatorRegistry.rotateWebhookKey --> <!-- @impl: src/operators/protected-secrets.ts::createOperatorWebhookKey --> <!-- @test: src/__tests__/operators/webhook-key.test.ts (REQ-OPERATOR-012: optional per-operator webhook key) -->
 2. Webhook-key rotation is revision-checked. <!-- @impl: src/operators/registry.ts::OperatorRegistry.rotateWebhookKey --> <!-- @test: src/__tests__/operators/registry-webhook-key.test.ts (REQ-OPERATOR-012: encrypted registry webhook key rotation) -->
-3. Only the winning mutation displays plaintext once, together with `CODEFLARE_OPERATOR_WEBHOOK_KEY` placement instructions. <!-- @impl: src/operators/registry.ts::OperatorRegistry.rotateWebhookKey --> <!-- @test: src/__tests__/operators/registry-webhook-key.test.ts (REQ-OPERATOR-012: encrypted registry webhook key rotation) -->
+3. Only the winning mutation displays plaintext once, together with observable placement instructions. <!-- @impl: src/operators/registry.ts::OperatorRegistry.rotateWebhookKey --> <!-- @test: src/__tests__/operators/registry-webhook-key.test.ts (REQ-OPERATOR-012: encrypted registry webhook key rotation) -->
 4. Normal projections expose neither webhook-key plaintext nor ciphertext. <!-- @impl: src/operators/registry.ts::OperatorRegistry.rotateWebhookKey --> <!-- @test: src/__tests__/operators/registry-webhook-key.test.ts (REQ-OPERATOR-012: encrypted registry webhook key rotation) -->
 5. Stale rotation or encryption failure preserves the prior revision and key. <!-- @impl: src/operators/protected-secrets.ts::createOperatorWebhookKey --> <!-- @test: src/__tests__/operators/registry-webhook-key.test.ts (REQ-OPERATOR-012: encrypted registry webhook key rotation) -->
-6. Retired webhook keys are not accepted indefinitely. <!-- @test: src/__tests__/operators/webhook-key.test.ts (REQ-OPERATOR-012: optional per-operator webhook key) -->
+6. Retired webhook keys are not accepted indefinitely. <!-- @impl: src/operators/protected-secrets.ts::createOperatorWebhookKey --> <!-- @test: src/__tests__/operators/webhook-key.test.ts (REQ-OPERATOR-012: optional per-operator webhook key) -->
 
 **Constraints:** Retained keys remain protected and absent from ordinary projections.
 
@@ -126,8 +129,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 2. Every administration mutation requires current administrator authorization and matching verified human Access claims. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
 3. Service or mixed-principal authentication cannot authorize an administration mutation. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
 4. Failed discovery changes no registration state. <!-- @impl: src/operators/administration.ts::registerDiscoveredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-5. Identity collisions and stale revisions return conflicts without replaying mutations. <!-- @impl: src/operators/administration.ts::approveRegisteredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-6. Operator administration leaves ordinary authentication, quotas, routing and local reviews unchanged. <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
+5. Registration mutations reject stale revisions without replaying mutations. <!-- @impl: src/operators/administration.ts::approveRegisteredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
+6. Identity collisions return conflicts without changing registration state. <!-- @impl: src/operators/administration.ts::registerDiscoveredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
+7. Operator administration leaves ordinary authentication, quotas, routing and local reviews unchanged. <!-- @impl: src/routes/admin/operators.ts --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
 
 **Constraints:** Administration grants neither user eligibility nor execution authority.
 
@@ -145,7 +149,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Intent:** Registered policy narrows operator capabilities and remains pinned for admitted activity.
 
-**Applies To:** Admin, User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
@@ -205,13 +209,13 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 1. Each execution freshly loads the bounded, digest-matched approved artifact. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 2. The loaded Worker receives only parent-provided Operator Interface capabilities and intercepted outbound access. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 3. Child code inherits neither unrestricted bindings nor durable isolate state. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
-4. Native-runtime fixtures prove parent-bound identity and outbound allow/deny behavior, but do not count as deployment acceptance. <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
+4. Native-runtime fixtures prove parent-bound identity and outbound allow/deny behavior, but do not count as deployment acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 
 **Constraints:** Child code receives no unrestricted binding or inherited outbound access.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-010](#req-operator-010-bounded-discovery-and-immutable-bundle-validation)
+**Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-035](#req-operator-035-approved-artifact-transport)
 
 **Verification:** Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
 
@@ -232,8 +236,8 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Admission consumes start authority only after a matching receipt and fresh expiry check. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 4. Concurrent starts queue once, and uncertain responses reconcile against the same receipt. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 5. Disable-first admission remains unqueued, and unknown effects are never replayed automatically. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
-6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry.
-7. Overview reads use non-waking safe projections.
+6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @manual: documentation/lanes/operator-gate-1.md G1-16 and G1-22 -->
+7. Overview reads use non-waking safe projections. <!-- @impl: src/operators/registry.ts::OperatorRegistry.listOwnedActivities --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
 **Constraints:** Unknown external effects are fenced rather than replayed.
 
@@ -311,12 +315,12 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. Effective access intersects current human authority with admitted operator restrictions before credential lookup, signing or forwarding. <!-- @impl: src/operators/interception-policy.ts --> <!-- @test: src/__tests__/operators/interception-policy.test.ts (REQ-OPERATOR-004: shared operator restriction decisions) -->
-2. Specialized-service denial cannot be bypassed through generic egress. <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-OPERATOR-004: GitHub restrictions before credentials) -->
-3. Network permission never grants the Browser administrator credential. <!-- @test: src/__tests__/operators/interception-policy.test.ts (REQ-OPERATOR-004: shared operator restriction decisions) -->
+2. Specialized-service denial cannot be bypassed through generic egress. <!-- @impl: src/github-interceptor.ts --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-OPERATOR-004: GitHub restrictions before credentials) -->
+3. Network permission never grants the Browser administrator credential. <!-- @impl: src/cloudflare-browser-interceptor.ts --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-OPERATOR-004: denies the specialized admin Browser credential to operator sessions before forwarding) -->
 4. Network, GitHub and owner-relative storage decisions are shared across transports. <!-- @impl: src/operators/interception-policy.ts --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
-5. Restricted interception is mandatory regardless of ordinary human strict-egress preferences.
-6. Approved inference, platform and storage access remains distinct from general Internet permission.
-7. Existing SWG transport remains intact.
+5. Restricted interception is mandatory regardless of ordinary human strict-egress preferences. <!-- @impl: src/container/container-interception.ts --> <!-- @test: src/__tests__/container/operator-env.test.ts (operator container environment) -->
+6. Approved inference, platform and storage access remains distinct from general Internet permission. <!-- @impl: src/operators/interception-policy.ts --> <!-- @test: src/__tests__/operators/interception-policy.test.ts (REQ-OPERATOR-004: shared operator restriction decisions) -->
+7. Existing SWG transport remains intact. <!-- @impl: src/egress-controller.ts --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
 
 **Constraints:** Operator policy can only narrow current human authority. Specialized service credentials never enter child-controlled state.
 
@@ -334,24 +338,23 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Intent:** Authorized outbound requests can receive a verified human assertion without changing service authentication.
 
-**Applies To:** Admin, User
+**Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Automatic HTTPS Access stamping defaults Off. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/operators/jwt-stamping.test.ts (REQ-OPERATOR-019: automatic human Access JWT stamping) -->
-2. Configuration supports exact hosts, subdomain-only wildcards and a disclosure-confirmed All mode. <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (previews, applies and reloads automatic JWT stamping without mutating during preview) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-019: renders Off/list/All stamping controls and serializes canonical destination lines) -->
-3. Every redirect destination is independently authorized; stamping does not follow redirects automatically. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/operators/jwt-stamping.test.ts (REQ-OPERATOR-019: automatic human Access JWT stamping) -->
-4. Stamping removes caller assertions while preserving specialized Authorization. <!-- @test: src/__tests__/github-interceptor.test.ts (stamps verified Access after repository authorization while preserving the GitHub credential) -->
-5. Generic egress, GitHub, AI Gateway and Browser stamp only after their existing authorization decisions. <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-019: verified Access stamping in generic egress) --> <!-- @test: src/__tests__/github-interceptor.test.ts (stamps verified Access after repository authorization while preserving the GitHub credential) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-OPERATOR-004: stamps the verified assertion on the actual Gateway recipient without replacing gateway auth) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-OPERATOR-004: stamps verified Access while preserving the Browser credential) -->
-6. Explicit endpoint authentication remains independent of automatic stamping. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/operators/jwt-stamping.test.ts (REQ-OPERATOR-019: automatic human Access JWT stamping) -->
+1. Every redirect destination is independently authorized without automatic redirect following. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/operators/jwt-stamping.test.ts (REQ-OPERATOR-019: automatic human Access JWT stamping) -->
+2. Stamping removes caller assertions while preserving specialized Authorization. <!-- @impl: src/operators/jwt-stamping.ts::prepareJwtStampedRequest --> <!-- @test: src/__tests__/github-interceptor.test.ts (stamps verified Access after repository authorization while preserving the GitHub credential) -->
+3. Generic egress stamps only after its existing authorization decision. <!-- @impl: src/egress-controller.ts --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-019: verified Access stamping in generic egress) -->
+4. GitHub, AI Gateway and Browser transports stamp only after their existing authorization decisions. <!-- @impl: src/github-interceptor.ts --> <!-- @impl: src/llm-interceptor.ts --> <!-- @impl: src/cloudflare-browser-interceptor.ts --> <!-- @test: src/__tests__/github-interceptor.test.ts (stamps verified Access after repository authorization while preserving the GitHub credential) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-OPERATOR-004: stamps the verified assertion on the actual Gateway recipient without replacing gateway auth) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-OPERATOR-004: stamps verified Access while preserving the Browser credential) -->
+5. Explicit endpoint authentication remains independent of automatic stamping. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/operators/jwt-stamping.test.ts (REQ-OPERATOR-019: automatic human Access JWT stamping) -->
 
 **Constraints:** Stamping never authorizes egress or renews authority.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
+**Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception), [REQ-OPERATOR-028](#req-operator-028-access-jwt-stamping-configuration)
 
-**Verification:** JWT-stamping behavior is covered by the adjacent transport, route and UI tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
+**Verification:** JWT-stamping behavior is covered by the adjacent transport tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
 
 **Status:** Planned
 
@@ -365,10 +368,10 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. R2 reads, listing, writes and multipart operations are server-bound to permitted owner and activity scope.
-2. Unsupported copy, deletion and control operations are denied.
-3. Writes to sealed operations are denied.
-4. Existing managed-resource protections remain enforced.
+1. R2 reads, listing, writes and multipart operations are server-bound to permitted owner and activity scope. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
+2. Unsupported copy, deletion and control operations are denied. <!-- @impl: src/operators/interception-policy.ts::decideOperatorStorage --> <!-- @test: src/__tests__/operators/interception-policy.test.ts (REQ-OPERATOR-004: shared operator restriction decisions) -->
+3. Writes to sealed operations are denied. <!-- @impl: src/operators/activity.ts::OperatorActivity.authorizeSyncWrite --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
+4. Existing managed-resource protections remain enforced. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
 
 **Constraints:** Storage access cannot escape the admitted owner or activity scope.
 
@@ -395,7 +398,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Lost startup responses reconcile against the same reservation, while uncertain configuration remains uncertain. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) -->
 4. Stop affects only the owned session. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) -->
 5. Wake restores restrictions but requires same-human authority rebind. <!-- @impl: src/container/operator-context.ts --> <!-- @test: src/__tests__/container/operator-context.test.ts (operator container context) -->
-6. Operator/operator and operator/human overlap cannot corrupt unrelated state or stop another activity.
+6. Operator/operator and operator/human overlap cannot corrupt unrelated state or stop another activity. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) -->
 
 **Constraints:** Non-operator sessions remain unchanged.
 
@@ -422,8 +425,8 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Conversation intent persists before submission, and retries reconcile by stable operation ID. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-021: creates once, persists exact identity and reopens only the recorded file) -->
 4. Only the recorded session file and ID may reopen a conversation. <!-- @impl: host/src/operator-pi-sdk.ts::createProvisionedOperatorPiFactory --> <!-- @test: host/__tests__/operator-pi-sdk.test.js (REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory) -->
 5. Missing conversations and uncertain tool effects are neither replaced nor replayed. <!-- @impl: host/src/operator-pi-service.ts::createOperatorPiService --> <!-- @test: host/__tests__/operator-pi-service.test.js (REQ-OPERATOR-021: trusted config binds identity/root/profile and produces a ready service) -->
-6. The Pi router authenticates requests before forwarding its fixed request and response contract. <!-- @test: host/__tests__/operator-pi-router.test.js (REQ-OPERATOR-021: router authenticates then forwards fixed Pi request bytes/query and response) -->
-7. Ordinary PTYs and root execution remain unchanged.
+6. The Pi router authenticates requests before forwarding its fixed request and response contract. <!-- @impl: host/src/request-router.ts --> <!-- @test: host/__tests__/operator-pi-router.test.js (REQ-OPERATOR-021: router authenticates then forwards fixed Pi request bytes/query and response) -->
+7. Ordinary PTYs and root execution remain unchanged. <!-- @impl: host/src/request-router.ts --> <!-- @test: host/__tests__/request-router.test.js (request router) -->
 
 **Constraints:** Unknown SDK effects are not replayed.
 
@@ -448,9 +451,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 1. Restricted startup restores only approved inputs. <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-OPERATOR-022: operator startup selects only restricted initialization) -->
 2. Restricted startup never enters ordinary whole-home restore, bisync or baseline-daemon paths. <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-OPERATOR-022: operator startup selects only restricted initialization) -->
 3. Restricted shutdown may drain an accepted explicit upload but never starts bisync. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) -->
-4. A stop under valid authority drains explicit persistence.
-5. Expiry blocks upload in both Durable Object and PID1 paths.
-6. Stop awaits owned SDK cancellation and reports unsynced output honestly.
+4. A stop under valid authority drains explicit persistence. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) -->
+5. Expiry blocks upload in both Durable Object and PID1 paths. <!-- @impl: src/operators/activity.ts::OperatorActivity.prepareSync --> <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
+6. Stop awaits owned SDK cancellation and reports unsynced output honestly. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-021: creates once, persists exact identity and reopens only the recorded file) -->
 
 **Constraints:** Ordinary non-operator persistence remains unchanged.
 
@@ -477,7 +480,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Explicit sync publishes the canonical manifest after all declared files. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
 4. Stable receipts reconcile identical sync requests, while changed request reuse conflicts. <!-- @impl: host/src/operator-sync-http.ts::OperatorSyncHttpController --> <!-- @impl: host/src/operator-sync-service.ts::createOperatorSyncService --> <!-- @test: host/__tests__/operator-sync-http.test.js (REQ-OPERATOR-023: fixed POST upload and GET receipt expose uploaded but not verified state) --> <!-- @test: host/__tests__/operator-sync-service.test.js (REQ-OPERATOR-023: trusted config composes an exact upload with durable receipt) -->
 5. Interrupted sync effects become unknown before any further writes. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
-6. The sync router authenticates requests before forwarding the fixed explicit-sync contract. <!-- @test: host/__tests__/operator-sync-router.test.js (REQ-OPERATOR-023: router authenticates before forwarding fixed explicit-sync requests) -->
+6. The sync router authenticates requests before forwarding the fixed explicit-sync contract. <!-- @impl: host/src/request-router.ts --> <!-- @test: host/__tests__/operator-sync-router.test.js (REQ-OPERATOR-023: router authenticates before forwarding fixed explicit-sync requests) -->
 
 **Constraints:** Unknown upload effects are not replayed.
 
@@ -525,11 +528,13 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Versioned webhook routes use distinct 256-bit capabilities for start, status and terminal-result redemption. Scope is fixed before issuance; concurrent consumers have one winner, while status and not-ready reads are non-consuming. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
-2. Consuming a start capability durably queues execution. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
-3. Terminal failure, cancellation, expiry and supersession produce bounded results. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
-4. Valid result authority remains collectible after user JWT expiry or operator disablement without extending execution. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
-5. Lost terminal-result delivery remains consumed and never triggers execution rerun. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+1. Versioned webhook routes use distinct 256-bit capabilities for start, status and terminal-result redemption. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+2. Capability scope is fixed before issuance. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+3. Concurrent start-capability consumers produce one winner. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+4. Consuming a start capability durably queues execution. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+5. Terminal failure, cancellation, expiry and supersession produce bounded results. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+6. Valid result authority remains collectible after user JWT expiry or operator disablement without extending execution. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+7. Lost terminal-result delivery remains consumed and never triggers execution rerun. <!-- @impl: src/operators/activity.ts::OperatorActivity.startWebhook --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
 
 **Constraints:** Capabilities are route-, activity-, operation- and purpose-bound. They neither renew human authority nor create an independent execution identity.
 
@@ -551,10 +556,11 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. A configured optional operator webhook key encrypts handoff using AES-GCM and bound context. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
-2. Without a configured key, handoff permits the one-time token alone and emits a dispatch-visibility warning. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
-3. Configured encryption failure never silently downgrades to unencrypted handoff. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
-4. Webhook tokens and keys stay out of logs and candidate-controlled steps. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
+1. A configured optional operator webhook key protects handoff with authenticated encryption and bound context. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
+2. Without a configured key, handoff permits the one-time token alone. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
+3. Unencrypted handoff emits a dispatch-visibility warning. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
+4. Configured encryption failure never silently downgrades to unencrypted handoff. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
+5. Webhook tokens and keys stay out of logs and candidate-controlled steps. <!-- @impl: src/operators/webhook-handoff.ts::createWebhookHandoff --> <!-- @test: src/__tests__/operators/webhook-handoff.test.ts (REQ-OPERATOR-025: optional encrypted webhook handoff) -->
 
 **Constraints:** Handoff reveals no reusable execution credential.
 
@@ -572,14 +578,14 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Intent:** Enterprise setup exposes only the capability-authenticated webhook path through Access.
 
-**Applies To:** Admin, User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Enterprise Access setup idempotently manages a narrow, higher-precedence bypass for `/operator-webhook/v1/activities/*`. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access) -->
-2. Setup reports bypass provisioning failure and removes incomplete new configuration without weakening other Access protection. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access) -->
-3. The Worker rejects invalid capabilities, methods, paths and non-enterprise requests. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-026: capability-authenticated webhook edge) -->
-4. Webhook edge responses are bounded, throttled and non-cacheable. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-026: capability-authenticated webhook edge) -->
+2. Setup reports bypass provisioning failure. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access) -->
+3. Setup removes an incomplete new bypass configuration. <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (REQ-OPERATOR-026: removes a newly-created incomplete operator bypass and reports policy failure) -->
+4. Bypass provisioning failure preserves all other Access protection. <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (REQ-OPERATOR-026: removes a newly-created incomplete operator bypass and reports policy failure) -->
 
 **Constraints:** The bypass weakens no protection outside its exact versioned path.
 
@@ -587,7 +593,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Managed bypass and webhook edge behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
+**Verification:** Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
 
 **Status:** Planned
 
@@ -597,7 +603,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Intent:** Operator defaults and restrictions reuse current provider eligibility rather than grant new inference access.
 
-**Applies To:** Admin, User
+**Applies To:** User
 
 **Acceptance Criteria:**
 
@@ -628,15 +634,13 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 1. Enterprise Administration presents registration, discovery, digest approval and enablement as separate actions. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
 2. The administration surface exposes restrictive policy, inference, webhook-key and managed-bypass state through existing responsive patterns. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
 3. New registrations deny by default. <!-- @impl: src/operators/administration.ts::discoverRegisteredOperator --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
-4. Administrative readback exposes flags rather than secrets. One-time keys remain only until dismissal, and rotation requires confirmation. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getAdminDetail --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
-5. Conflicts require explicit reconciliation, and administration mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operators.ts --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
-6. Operator detail reads perform neither discovery nor secret decryption. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getAdminDetail --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
+4. Conflicts require explicit reconciliation, and administration mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operators.ts --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
 
 **Constraints:** Administration UI is enterprise-only. Secret readback is prohibited.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass)
+**Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback)
 
 **Verification:** Enterprise operator administration is covered by the adjacent component and client tests.
 
@@ -658,7 +662,6 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 4. Unknown activity values are never displayed as zero. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 5. Authenticated account-scoped details, results and cancellation, plus CSRF-protected browser summary-to-start POST, preserve ownership. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.listOwnedActivities --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 6. Activity GET requests are non-effectful; browser closure neither loses valid activity progress nor extends authority. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-7. Non-enterprise mode renders no operator UI and issues no operator data requests; keyboard, focus, stale, loading, error, account-switch and mobile behavior remain usable.
 
 **Constraints:** Data routes are enterprise-only and owner-scoped. Writes require CSRF protection and are never replayed automatically.
 
@@ -682,7 +685,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 1. Touched services/interceptors expose typed reusable interfaces with adjacent ownership, trust, error, side-effect, retry/expiry and compatibility documentation. Shared behavior has one implementation; no fabricated route-header facade or general plugin framework. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 2. Bounded attachments and immutable source, revision and run references reject spoofed identity, changed inputs and recursive use of human admission. Fixture compatibility grants no Review or history authority. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
-3. Minimal distribution/direct/session/webhook fixtures prove platform seams. Existing local-review resources remain unchanged; no private Flue core, operational Review hooks/enrollment/monitor/publisher or merge-gate activation ships in this phase. <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) --> <!-- @test: src/__tests__/operators/legacy-review-unchanged.test.ts (REQ-OPERATOR-009: unchanged canonical local-review resource) -->
+3. Minimal distribution/direct/session/webhook fixtures prove platform seams without changing local-review resources or shipping private workflows. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) --> <!-- @test: src/__tests__/operators/legacy-review-unchanged.test.ts (REQ-OPERATOR-009: unchanged canonical local-review resource) -->
 4. Behavioral TDD governs changes. Enterprise and non-enterprise deployment evidence is recorded separately from fixtures; implementation completion never substitutes for deployed acceptance. <!-- @manual: documentation/lanes/operator-gate-1.md G1-01–G1-29 -->
 
 **Constraints:** Consumer fixtures carry no credentials, publisher authority, Review authority or business workflow. Fixture success is not deployment acceptance.
@@ -697,29 +700,233 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ---
 
-### REQ-OPERATOR-010: Bounded discovery and immutable bundle validation
+### REQ-OPERATOR-010: Bounded operator discovery document
 
-**Intent:** Registration and loading share one versioned input boundary that cannot execute discovery content, inherit parent bindings or silently accept incompatible code.
+**Intent:** Administrators discover one versioned operator manifest without executing its content or accepting caller-selected authority.
 
-**Applies To:** Admin, User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. A discovery JSON document of at most 64 KiB declares schema/interface version 1, stable ID, name/description, core/intent versions, bounded input-contract metadata, supported required capabilities and an artifact path/SHA-256. Unknown versions/capabilities, duplicate capabilities, malformed/missing fields and caller identity/binding fields are rejected. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
-2. Distribution uses a credential-free, fragment-free HTTPS URL with a DNS hostname. Artifact paths are canonical origin-relative paths without query/fragment, encoded ambiguity, traversal or backslash; a validated artifact URL cannot leave the registered origin. Network discovery must independently reject redirects/login responses; parsing grants no network or Access permission. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
-3. Before loading, validate at most 8 MiB of exact artifact bytes against the approved SHA-256, then parse schema/interface version 1, main module, fixed supported compatibility date/flags and at most 128 JS/text modules. Require a declared JS main module, canonical relative module names and no undeclared loader options, env/bindings, script execution or inherited global outbound. The platform owns all capabilities and outbound configuration. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: approved bundle boundary) -->
-4. Parsing produces validated data only and never evaluates module source. Invalid/oversized/incompatible inputs return typed safe validation errors without including source bytes or credentials. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: approved bundle boundary) -->
+1. A discovery document is at most 64 KiB and declares version-1 schema/interface, stable identity, descriptive metadata, core/intent versions, bounded input metadata, supported capabilities and artifact path/digest. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+2. Unknown versions or capabilities, duplicate capabilities, malformed fields, missing fields and caller identity or binding fields are rejected. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+3. A distribution endpoint is a credential-free, fragment-free HTTPS URL with a DNS hostname. <!-- @impl: src/operators/distribution.ts::validateOperatorEndpoint --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+4. Artifact paths are canonical origin-relative paths without query, fragment, encoded ambiguity, traversal or backslash, and cannot leave the registered origin. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+5. Manifest parsing returns validated data without granting network, Access or execution authority. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
+6. Invalid, oversized or incompatible manifests return typed safe errors without source bytes or credentials. <!-- @impl: src/operators/distribution.ts::parseOperatorManifest --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-010: operator discovery boundary) -->
 
-5. Discovery transport sends the already-verified, unexpired human assertion in `cf-access-jwt-assertion` and the separate connection secret as Bearer Authorization. Validate the endpoint and require both credentials before I/O. Use manual redirects; accept only HTTP 200 JSON, enforce the 64 KiB bound while streaming and a maximum 15-second request deadline (never beyond human expiry), cancel rejected bodies, recheck authority after reading, and return safe errors without credential/network diagnostics. A connection secret cannot substitute for human Access eligibility. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-010: authenticated bounded discovery transport) -->
+**Constraints:** Discovery validation does not establish invoking-user eligibility or execute an operator.
 
-6. Approved artifact download uses the same explicit human/connection authentication and transport deadline as discovery, enforces an 8 MiB streaming limit, and validates exact received bytes against the pinned approved digest before returning module data. The derived artifact URL must match the approved canonical path on the registered origin before credentials are sent. Reject redirect/login responses and expired authority; never substitute a newly discovered digest for the approved one. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-010: authenticated approved artifact download) -->
+**Priority:** P0
 
-**Constraints:** Version 1 uses the platform's current Worker compatibility date and `nodejs_compat` flag; dependency/runtime upgrades are not implicit. Static intent resources can be text modules. Discovery and bundle validation alone do not establish invoking-user eligibility or execute an operator.
+**Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
+
+**Verification:** Discovery and bundle parser behavior passed exact-head CI 35122553530 at `798fccda`. Deployed registration acceptance remains pending.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-028: Access JWT stamping configuration
+
+**Intent:** Administrators explicitly choose which HTTPS destinations may receive automatic human Access assertions.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Automatic HTTPS Access stamping defaults Off. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/operators/jwt-stamping.test.ts (REQ-OPERATOR-019: automatic human Access JWT stamping) -->
+2. Configuration accepts exact hosts and subdomain-only wildcards. <!-- @impl: src/operators/jwt-stamping.ts --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (previews, applies and reloads automatic JWT stamping without mutating during preview) -->
+3. All-destination mode requires explicit disclosure confirmation. <!-- @impl: src/lib/admin-configuration.ts --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-028: renders Off/list/All stamping controls and serializes canonical destination lines) -->
+
+**Constraints:** Configuration grants neither egress nor renewable identity.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
+
+**Verification:** Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-029: Capability-authenticated webhook edge
+
+**Intent:** Users reach only the fixed enterprise webhook contract through the managed edge path.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Worker rejects invalid capabilities, methods, paths and non-enterprise requests. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: capability-authenticated webhook edge) -->
+2. Webhook edge responses are bounded, throttled and non-cacheable. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: capability-authenticated webhook edge) -->
+
+**Constraints:** Edge access grants no identity outside the presented capability.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass)
+
+**Verification:** Webhook edge behavior is covered by the adjacent route tests.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-030: Immutable approved bundle validation
+
+**Intent:** User execution accepts only the approved bounded Worker bundle without inheriting parent authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Bundle validation accepts at most 8 MiB whose exact bytes match the approved SHA-256. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+2. Version-1 bundles declare a main module, fixed supported compatibility settings and at most 128 JavaScript or text modules. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+3. Bundles require a declared JavaScript main module and canonical relative module names. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+4. Undeclared loader options, environment, bindings, script execution and inherited global outbound are rejected. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+5. The platform owns every capability and outbound configuration. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
+6. Bundle parsing validates data without evaluating module source. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+7. Invalid, oversized or incompatible bundles return typed safe errors without source bytes or credentials. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+
+**Constraints:** Version 1 uses the platform's current Worker compatibility date and `nodejs_compat`; static intent resources may be text modules. Validation does not execute the operator.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-010](#req-operator-010-bounded-operator-discovery-document)
+
+**Verification:** Approved bundle validation is covered by the adjacent parser and Loader tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-031: Non-consuming webhook observation
+
+**Intent:** Users can observe pending webhook activity without consuming terminal result authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Status reads do not consume result authority. <!-- @impl: src/operators/activity.ts::OperatorActivity.getWebhookStatus --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+2. A not-ready result read does not consume result authority. <!-- @impl: src/operators/activity.ts::OperatorActivity.redeemWebhookResult --> <!-- @test: src/__tests__/operators/activity-state.test.ts (issues a distinct read capability only to the single start winner and consumes one terminal redemption) -->
+
+**Constraints:** Observation cannot extend execution or capability expiry.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
+
+**Verification:** Non-consuming status and not-ready behavior is covered by the adjacent activity test.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-032: Secret-safe administration readback
+
+**Intent:** Administrators inspect operator state without recovering retained secrets or causing side effects.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administrative readback exposes secret-presence flags instead of secret values. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getAdminDetail --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
+2. A newly rotated plaintext key remains visible only until dismissal. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
+3. Webhook-key rotation requires administrator confirmation. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
+4. Operator detail reads perform neither discovery nor secret decryption. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getAdminDetail --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
+
+**Constraints:** Readback never returns plaintext or ciphertext secrets.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys), [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
+
+**Verification:** Secret-safe readback and key interaction behavior are covered by the adjacent tests.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-033: Activity surface resilience
+
+**Intent:** The owned-activity surface remains absent outside enterprise mode and usable across interaction states.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Non-enterprise mode renders no operator UI. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+2. Non-enterprise mode issues no operator data request. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+3. Keyboard and focus behavior remains usable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+4. Stale, loading and error states remain distinguishable and recoverable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+5. Account switching does not expose another owner's activity. <!-- @manual: documentation/lanes/operator-gate-1.md G1-07 and G1-23 -->
+6. The activity surface remains usable on mobile. <!-- @manual: documentation/lanes/operator-gate-1.md G1-23 -->
+
+**Constraints:** Visual acceptance does not substitute for owner-scoped API enforcement.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
+
+**Verification:** Component behavior is automated; account-switch and mobile acceptance remain assigned to Gate 1.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-034: Authenticated discovery transport
+
+**Intent:** Administrators fetch discovery metadata through one bounded, independently authenticated transport.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Discovery sends the verified unexpired human assertion and separate connection secret in their designated headers. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+2. A validated endpoint and both independent credentials are required before I/O; the connection secret cannot replace human eligibility. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+3. Discovery uses manual redirects and accepts only HTTP 200 JSON. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+4. Discovery enforces the 64 KiB limit while streaming. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+5. The request deadline is at most 15 seconds and never exceeds human authority. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+6. Rejected bodies are cancelled and authority is rechecked after reading. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+7. Transport failures return safe errors without credential or network diagnostics. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorManifest --> <!-- @test: src/__tests__/operators/distribution-client.test.ts (REQ-OPERATOR-034: authenticated bounded discovery transport) -->
+
+**Constraints:** Discovery transport grants no execution authority.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** RED at `5b530c82`, CI 35121144349: 47 discovery/bundle behavioral cases fail against unimplemented boundaries. Parser GREEN at `798fccda`, CI 35122553530. Authenticated transport RED at `a745099a`, CI 35123769141: 26 failing behavioral cases against the unimplemented boundary. Transport GREEN at `d186e79f`, CI 35124293226. Artifact download RED at `0bd575cc`, CI 35135422114: nine failing behavioral cases against the unimplemented boundary. Artifact transport GREEN at `7edcbe88`, CI 35136427822; deployed registration/Worker Loader acceptance remains required. Interface reference: [Operators](../../documentation/lanes/operators.md).
+**Verification:** Authenticated bounded discovery transport is covered by the adjacent tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-035: Approved artifact transport
+
+**Intent:** User execution downloads only the approved artifact through the authenticated bounded transport.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Artifact download uses the same explicit human and connection authentication as discovery. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+2. Artifact download shares discovery's bounded transport deadline. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+3. Artifact download enforces an 8 MiB streaming limit. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+4. Exact received bytes must match the pinned approved digest before module data is returned. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+5. The derived artifact URL matches the approved canonical path and registered origin before credentials are sent. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+6. Redirect responses, login responses and expired authority are rejected. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+7. A newly discovered digest never replaces the approved digest. <!-- @impl: src/operators/distribution-client.ts::fetchOperatorBundle --> <!-- @test: src/__tests__/operators/artifact-download.test.ts (REQ-OPERATOR-035: authenticated approved artifact download) -->
+
+**Constraints:** Download does not establish eligibility or execute module source.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
+
+**Verification:** Authenticated approved artifact download is covered by the adjacent tests.
 
 **Status:** Implemented

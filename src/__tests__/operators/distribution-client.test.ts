@@ -28,7 +28,7 @@ const jsonResponse = () => new Response(JSON.stringify(manifest), {
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-describe('REQ-OPERATOR-010: authenticated bounded discovery transport', () => {
+describe('REQ-OPERATOR-034: authenticated bounded discovery transport', () => {
   it('obtains metadata from a fixture requiring both human assertion and connection secret without redirect following', async () => {
     const auth = credentials();
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {

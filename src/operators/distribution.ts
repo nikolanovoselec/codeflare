@@ -112,7 +112,7 @@ export function validateOperatorEndpoint(endpoint: string): URL {
 }
 
 /**
- * REQ-OPERATOR-010: Check exact received bytes against the parent-approved SHA-256
+ * REQ-OPERATOR-030: Check exact received bytes against the parent-approved SHA-256
  * before parsing the bounded v1 bundle. No module is evaluated and no loader
  * options/bindings are accepted from the artifact. Returns compatible JS/text
  * module data only. Caller must bound the network body before materializing it,

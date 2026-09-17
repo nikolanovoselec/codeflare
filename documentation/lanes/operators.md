@@ -39,7 +39,7 @@ Implements [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verif
 
 ## Distribution validation
 
-Implements the distribution and registration boundaries in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration) and [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-discovery-and-immutable-bundle-validation).
+Implements the distribution and registration boundaries in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), and [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport).
 
 `src/operators/distribution.ts` provides pure typed boundaries:
 
@@ -108,7 +108,7 @@ The isolated fixture at `src/__tests__/operators/fixtures/wrangler.toml` uses th
 
 ## Shared interception restrictions
 
-Implements [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-shared-restrictive-interception) and [REQ-OPERATOR-019](../../sdd/spec/operators.md#req-operator-019-automatic-human-access-jwt-stamping).
+Implements [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-shared-restrictive-interception), [REQ-OPERATOR-019](../../sdd/spec/operators.md#req-operator-019-automatic-human-access-jwt-stamping), and [REQ-OPERATOR-028](../../sdd/spec/operators.md#req-operator-028-access-jwt-stamping-configuration).
 
 `src/operators/interception-policy.ts` is the credential-free decision boundary shared by direct Worker capabilities and container interceptors. The parent supplies a previously validated `OperatorPolicy`; request identity cannot select or widen it. Exact network names and `*.example.test` subdomain rules are matched canonically (the wildcard excludes its apex). Standard and configured GitHub destinations never fall through a general-host allow rule. An operator marker also denies the enterprise Browser administrator-token interceptor outright; listing `api.cloudflare.com` as general egress cannot acquire that specialized credential.
 
@@ -166,7 +166,7 @@ Each mutation is one local storage transaction. The parent must authorize and va
 
 ## Enterprise registration backend
 
-Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](../../sdd/spec/operators.md#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface), and [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-discovery-and-immutable-bundle-validation).
+Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](../../sdd/spec/operators.md#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), and [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport).
 
 `/api/admin/operators` is mounted in the Worker, with `OPERATOR_REGISTRY` backed by the additive `v3` SQLite migration. Non-enterprise requests return 404. Existing authentication and administrator/group authorization run before a stricter human Access check using the existing configured issuer/audiences. The verified email must match the authenticated identity; service/setup/session authentication cannot substitute. Bodies are bounded to 64 KiB and mutation schemas reject unknown fields.
 
@@ -226,7 +226,7 @@ An absent/invalid encryption key, plaintext value, wrong context or tampered cip
 
 ## Webhook capability handoff
 
-Implements [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-025](../../sdd/spec/operators.md#req-operator-025-optional-encrypted-webhook-handoff), and [REQ-OPERATOR-026](../../sdd/spec/operators.md#req-operator-026-managed-webhook-edge-bypass).
+Implements [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-025](../../sdd/spec/operators.md#req-operator-025-optional-encrypted-webhook-handoff), [REQ-OPERATOR-026](../../sdd/spec/operators.md#req-operator-026-managed-webhook-edge-bypass), [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge), and [REQ-OPERATOR-031](../../sdd/spec/operators.md#req-operator-031-non-consuming-webhook-observation).
 
 The fixed enterprise `/operator-webhook/v1/activities/:activityId/{start,status,result}` family accepts no body and authorizes only a bearer capability for the exact activity/action. Start is single-use; status is bounded read authority; result is non-consuming while not ready and consuming when available. Responses are `no-store`, rate limited, and never reflect capabilities. Managed Access bypass is provisioned only for this route family; it does not bypass the handler's enterprise, path, method, capability, expiry, or activity checks. <!-- @impl: src/routes/operator-webhook.ts -->
 
@@ -240,7 +240,7 @@ Implements [REQ-OPERATOR-007](../../sdd/spec/operators.md#req-operator-007-opera
 
 ## Owner-scoped activity surface
 
-Implements the browser-facing portion of [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface).
+Implements the browser-facing portion of [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) and [REQ-OPERATOR-033](../../sdd/spec/operators.md#req-operator-033-activity-surface-resilience).
 
 Enterprise activity list/detail/start/cancel/result routes derive the current signed human owner key and never accept owner identity from request data. Mutations require the existing CSRF boundary; projections remain bounded and secret-free. The responsive header control and activity detail states distinguish loading, empty, attention, terminal, and unknown outcomes without treating queued work as complete. Backend and UI tests are complete; actual desktop/mobile and deployed owner-isolation acceptance remain pending. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx -->
 

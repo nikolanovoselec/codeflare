@@ -17,7 +17,7 @@ export interface OperatorDistributionCredentials {
 }
 
 /**
- * REQ-OPERATOR-010: Download only the parent-approved artifact using explicit
+ * REQ-OPERATOR-035: Download only the parent-approved artifact using explicit
  * human/connection authentication. Re-resolve its canonical path on the registered
  * origin before sending credentials; reject inconsistent stored URL metadata.
  * Bound bytes before buffering, verify the approved digest before parsing, never
@@ -40,7 +40,7 @@ const MAX_MANIFEST_BYTES = 64 * 1024;
 const REQUEST_DEADLINE_MS = 15_000;
 
 /**
- * REQ-OPERATOR-010: Fetch discovery using explicit endpoint authentication, not
+ * REQ-OPERATOR-034: Fetch discovery using explicit endpoint authentication, not
  * automatic JWT stamping. The parent must cryptographically verify the supplied
  * human JWT and resolve enterprise/user eligibility before calling. This function
  * never renews authority or substitutes a service credential. Redirects, non-JSON

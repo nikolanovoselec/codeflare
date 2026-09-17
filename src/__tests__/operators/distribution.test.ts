@@ -96,7 +96,7 @@ async function digest(bytes: Uint8Array): Promise<string> {
   });
 });
 
-describe('REQ-OPERATOR-010: approved bundle boundary', () => {
+describe('REQ-OPERATOR-030: approved bundle boundary', () => {
   it('returns only validated approved bundle data without evaluating JavaScript', async () => {
     const input = bundle();
     input.modules['index.js'].js = 'throw new Error("Module must not execute during validation");';
