@@ -30,6 +30,20 @@ afterEach(() => {
 });
 
 describe('Environment report fields', () => {
+  it('REQ-OPERATOR-006: shows managed Webhook Endpoint Access bypass status only for enterprise Access', () => {
+    const { getByText, unmount } = render(() => (
+      <EnvironmentAreaFields section="access" mode="enterprise" current={{ adminUsers: [], userAccessGroups: [],
+        adminAccessGroups: [], operatorWebhookBypassStatus: 'error' }} />
+    ));
+    expect(getByText('Webhook Endpoint Access bypass: Failed')).toBeTruthy();
+    unmount();
+    const ordinary = render(() => (
+      <EnvironmentAreaFields section="access" mode="default" current={{ adminUsers: [], allowedUsers: [],
+        operatorWebhookBypassStatus: 'configured' }} />
+    ));
+    expect(ordinary.queryByText(/Webhook Endpoint Access bypass/)).toBeNull();
+  });
+
   it('REQ-SETUP-020 AC1: renders canonical IANA timezone choices as a select', () => {
     const { getByLabelText } = render(() => (
       <EnvironmentAreaFields
