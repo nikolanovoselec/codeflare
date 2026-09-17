@@ -117,6 +117,7 @@ interface RestartPrefsInput {
 }
 
 export interface SetBucketNameCreds {
+  sessionId?: string;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -473,6 +474,14 @@ export async function applyBucketName(
   storage: { put: (key: string, value: unknown) => Promise<void> },
   r2Creds?: SetBucketNameCreds,
 ): Promise<void> {
+  const sessionId = r2Creds?.sessionId;
+  if (sessionId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) {
+    throw new Error('Invalid session identity');
+  }
+  if (sessionId) {
+    await storage.put('_sessionId', sessionId);
+    state._sessionId = sessionId;
+  }
   state._bucketName = name;
   await storage.put('bucketName', name);
   if (typeof r2Creds?.workspaceSyncEnabled === 'boolean') {

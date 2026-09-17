@@ -339,6 +339,29 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env).ENTERPRISE_PROMPT_CACHE_TARGETS).toBe('[]');
   });
 
+  it('applyBucketName binds a validated session identity before container configuration', async () => {
+    const state = baseState();
+    state._sessionId = null;
+    const { writes, storage } = makeStorage();
+
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { sessionId: 'gate1a1b2c3d4e5f6a7b8' });
+
+    expect(state._sessionId).toBe('gate1a1b2c3d4e5f6a7b8');
+    expect(writes._sessionId).toBe('gate1a1b2c3d4e5f6a7b8');
+  });
+
+  it('applyBucketName rejects an invalid session identity before mutating container state', async () => {
+    const state = baseState();
+    state._sessionId = null;
+    const { writes, storage } = makeStorage();
+
+    await expect(applyBucketName(state, 'codeflare-test', baseEnv, storage, { sessionId: '../other' }))
+      .rejects.toThrow('Invalid session identity');
+
+    expect(state._sessionId).toBeNull();
+    expect(writes).toEqual({});
+  });
+
   it('applyBucketName persists userTimezone into both state and storage', async () => {
     const state = baseState();
     const { writes, storage } = makeStorage();
