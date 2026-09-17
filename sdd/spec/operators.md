@@ -206,7 +206,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Touched services/interceptors expose typed reusable interfaces with adjacent ownership, trust, error, side-effect, retry/expiry and compatibility documentation. Shared behavior has one implementation; no fabricated route-header facade or general plugin framework.
+1. Touched services/interceptors expose typed reusable interfaces with adjacent ownership, trust, error, side-effect, retry/expiry and compatibility documentation. Shared behavior has one implementation; no fabricated route-header facade or general plugin framework. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 2. Bounded opaque attachments, source/revision/run references and parent-bound session-origin admission reject spoofed identity, changed immutable inputs and recursive operator use of human admission. Fixture compatibility does not confer Review/history authority.
 3. Minimal distribution/direct/session/webhook fixtures prove platform seams. Existing local-review resources remain unchanged; no private Flue core, operational Review hooks/enrollment/monitor/publisher or merge-gate activation ships in this phase.
 4. Existing SDD and behavioral TDD govern all changes. Deployed enterprise and non-enterprise integration acceptance records versions and evidence separately from unit fixtures; no implementation completion claim replaces deployment proof.
@@ -215,7 +215,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-session-structured-pi-and-explicit-persistence), [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-codeflare-webhook-endpoint)
 
-**Verification:** Shared component/fixture tests, unchanged-resource regression evidence and recorded integration acceptance.
+**Verification:** Activity header/browser implementation through `e03c48ec`, full CI 35174509964 GREEN. Shared component/fixture tests, unchanged-resource regression evidence and recorded integration acceptance.
 
 **Status:** Planned
 
