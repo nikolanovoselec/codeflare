@@ -2,7 +2,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { authMiddleware, type AuthVariables } from '../middleware/auth';
 import { requireOperatorHumanContext } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
@@ -11,17 +10,20 @@ import type { OperatorRegistry } from '../operators/registry';
 import type { OperatorActivity } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
 
-const app = new Hono<{ Bindings: Env; Variables: AuthVariables & { ownerKey: string;
+const app = new Hono<{ Bindings: Env; Variables: { ownerKey: string;
   registry: DurableObjectStub<OperatorRegistry> } }>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
+type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
+type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
 
 app.use('*', async (c, next) => isEnterpriseMode(c.env) ? next() : c.notFound());
-app.use('*', authMiddleware);
 app.use('*', async (c, next) => {
   if (!c.env.OPERATOR_REGISTRY || !c.env.OPERATOR_ACTIVITY) throw new AppError('UNAVAILABLE', 503, 'Operator activity unavailable');
-  const human = await requireOperatorHumanContext(c.req.raw, c.env, c.get('user').email);
+  const email = c.req.header('cf-access-authenticated-user-email')?.trim().toLowerCase();
+  if (!email) throw new AppError('UNAUTHORIZED', 401, 'Authentication required');
+  const human = await requireOperatorHumanContext(c.req.raw, c.env, email);
   c.set('ownerKey', await operatorOwnerKey(human.human));
   c.set('registry', c.env.OPERATOR_REGISTRY.getByName('registry'));
   if (c.req.method === 'POST' && c.req.header('x-requested-with') !== 'XMLHttpRequest') {
@@ -39,8 +41,8 @@ async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: st
   if (!ID.test(activityId)) return null;
   return registry.getOwnedActivity(ownerKey, activityId);
 }
-async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise<Awaited<ReturnType<OperatorActivity['getBrowserDetail']>>> {
-  return await stub.getBrowserDetail() as never;
+async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise<BrowserDetail | null> {
+  return await stub.getBrowserDetail() as BrowserDetail | null;
 }
 
 app.get('/:activityId', async c => {
@@ -58,8 +60,7 @@ app.get('/:activityId/result', async c => {
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const outcome: Awaited<ReturnType<OperatorActivity['collectBrowserResult']>> =
-    await c.env.OPERATOR_ACTIVITY!.getByName(activityId).collectBrowserResult() as never;
+  const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).collectBrowserResult() as BrowserCollection;
   if (!outcome.ok) return c.json({ error: 'Result is not ready', code: 'RESULT_NOT_READY' }, 409);
   return c.json({ ...outcome.detail, updatedAt: new Date(outcome.detail.updatedAt).toISOString() });
 });
