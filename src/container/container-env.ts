@@ -161,6 +161,7 @@ export interface SetBucketNameCreds {
  */
 export function validateBucketNameInput(input: {
   bucketName: unknown;
+  sessionId?: unknown;
   r2AccessKeyId?: unknown;
   r2SecretAccessKey?: unknown;
   r2AccountId?: unknown;
@@ -174,10 +175,13 @@ export function validateBucketNameInput(input: {
   modelDisplayNames?: unknown;
   promptCacheTargets?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
+  const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
+  }
+  if (sessionId !== undefined && (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId))) {
+    return 'sessionId must be 8-24 lowercase alphanumeric characters when provided';
   }
   if (r2AccessKeyId !== undefined && (typeof r2AccessKeyId !== 'string' || r2AccessKeyId.trim() === '')) {
     return 'r2AccessKeyId must be a non-empty string when provided';
