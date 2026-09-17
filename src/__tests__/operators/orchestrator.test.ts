@@ -47,7 +47,8 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
   });
 
   it('binds a Gate 1 invocation to the server-generated activity identity before persistence', async () => {
-    const prepareAuthorized = vi.fn(async () => ({ ok: true, phase: 'prepared' }));
+    const prepareAuthorized = vi.fn(async (_intent: unknown, _context: unknown, _invocationJson: string) =>
+      ({ ok: true, phase: 'prepared' }));
     const registry = { resolveForExecution: vi.fn(async () => ({ ok: true, value: {
       operatorId: 'codeflare-gate1-fixture', revision: 3, artifactDigest: 'a'.repeat(64),
       manifestJson: '{}', policyJson: '{"schemaVersion":1}',

@@ -48,11 +48,18 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   if (!parsed.success || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) {
     throw new ValidationError('Invalid operator activity request');
   }
-  const invocation = boundedInvocation(parsed.data.invocation);
+  const activityId = crypto.randomUUID();
+  const bounded = boundedInvocation(parsed.data.invocation);
+  const invocation = parsed.data.operatorId === GATE1_OPERATOR_ID
+    ? (() => {
+      const gate1 = parseOperatorConsumerInvocation(bounded);
+      if (gate1.operatorId !== parsed.data.operatorId) throw new ValidationError('Invalid operator invocation');
+      return { ...gate1, operatorId: parsed.data.operatorId, activityId };
+    })()
+    : bounded;
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const resolved = await registry.resolveForExecution(parsed.data.operatorId);
   if (!resolved.ok) throw new AppError('CONFLICT', 409, 'Operator is not available for execution');
-  const activityId = crypto.randomUUID();
   const startCapability = capability();
   const startVerifier = await digest(startCapability);
   const deadline = authority.human.expiresAt * 1000;

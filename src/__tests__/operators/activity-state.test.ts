@@ -166,7 +166,10 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       startVerifier: verifier }, context)).toEqual({ ok: true, phase: 'prepared' });
     const ownerKey = await operatorOwnerKey(context.owner);
     expect(await registry.listOwnedActivities(ownerKey)).toEqual([]);
+    expect(await secured.ownsPrepared(ownerKey)).toBe(true);
+    expect(await secured.ownsPrepared('f'.repeat(64))).toBe(false);
     expect(await secured.start(token)).toEqual({ ok: true, phase: 'queued' });
+    expect(await secured.ownsPrepared(ownerKey)).toBe(false);
     expect(await registry.listOwnedActivities(ownerKey)).toHaveLength(1);
     expect(await secured.getExecutionContext()).toMatchObject({ artifactDigest: 'a'.repeat(64), policyDigest });
     expect(await secured.getRuntimePlan()).toMatchObject({ activityId: 'activity', invocationJson: 'null',

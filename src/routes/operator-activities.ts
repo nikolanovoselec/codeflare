@@ -75,9 +75,12 @@ app.post('/:activityId/result', async c => {
 });
 app.post('/:activityId/start', async c => {
   const activityId = c.req.param('activityId');
-  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  if (!ID.test(activityId)) return c.notFound();
+  const activity = c.env.OPERATOR_ACTIVITY!.getByName(activityId);
+  const indexed = await owned(c.get('registry'), c.get('ownerKey'), activityId);
+  if (!indexed && !await activity.ownsPrepared(c.get('ownerKey'))) return c.notFound();
   const body = await parseJsonBody(c, startBody);
-  const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).start(body.capability);
+  const outcome = await activity.start(body.capability);
   if (!outcome.ok) return c.json({ error: 'Activity start rejected', code: outcome.reason }, 409);
   c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env).catch(() => {}));
   return c.json(outcome);

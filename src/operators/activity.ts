@@ -200,6 +200,13 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     return projectOperatorExecution(replacement);
   }
 
+  /** Authorize the pre-index start gap from the durable owner binding, without exposing prepared state. */
+  async ownsPrepared(ownerKey: string): Promise<boolean> {
+    if (!syncDigest.safeParse(ownerKey).success) return false;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
+  }
+
   /** Parent-safe activity identity read; no credential ciphertext or token. */
   async getExecutionContext(): Promise<OperatorExecutionProjection | null> {
     const context = (await this.ctx.storage.get<AdmissionState>('admission'))?.executionContext;
