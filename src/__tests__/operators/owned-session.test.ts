@@ -21,7 +21,7 @@ function fixture(initial: OwnedOperatorSessionState | null = null) {
   } };
   const runtime: OwnedOperatorSessionRuntime = {
     reserve: vi.fn(async () => { calls.push('reserve'); return { sessionId: 'session-1' }; }),
-    configure: vi.fn(async () => { calls.push('configure'); expect(state?.status).toBe('reserved'); }),
+    configure: vi.fn(async () => { calls.push('configure'); expect(state?.status).toBe('configuring'); }),
     start: vi.fn(async () => { calls.push('start'); }),
     readiness: vi.fn(async () => { calls.push('readiness'); return 'ready' as const; }),
     stop: vi.fn(async (_sessionId, drain) => { calls.push(`stop:${drain}`); return 'stopped' as const; }),
@@ -34,7 +34,8 @@ describe('owned operator session service', () => {
     const f = fixture();
     const result = await f.service.ensure(input);
     expect(result.status).toBe('ready');
-    expect(f.calls).toEqual(['reserve', 'save:reserved', 'configure', 'save:configured', 'save:starting', 'start', 'readiness', 'save:ready']);
+    expect(f.calls).toEqual(['reserve', 'save:reserved', 'save:configuring', 'configure', 'save:configured',
+      'save:starting', 'start', 'readiness', 'save:ready']);
     expect(f.saves[0]).not.toHaveProperty('authority');
     expect(f.saves[0].profile).toEqual(profile);
   });
@@ -50,14 +51,16 @@ describe('owned operator session service', () => {
     expect(f.calls).toEqual(['readiness', 'save:ready']);
   });
 
-  it('retains a reserved record after configure failure so retry cannot create another session', async () => {
+  it('fences uncertain configuration without replaying the configure effect', async () => {
     const f = fixture();
     vi.mocked(f.runtime.configure).mockRejectedValueOnce(new Error('configure uncertain'));
     await expect(f.service.ensure(input)).rejects.toThrow('configure uncertain');
-    expect(f.state()?.status).toBe('reserved');
+    expect(f.state()?.status).toBe('unknown');
     expect(f.runtime.reserve).toHaveBeenCalledTimes(1);
-    expect((await f.service.ensure(input)).status).toBe('ready');
+    expect(f.runtime.configure).toHaveBeenCalledTimes(1);
+    expect((await f.service.ensure(input)).status).toBe('unknown');
     expect(f.runtime.reserve).toHaveBeenCalledTimes(1);
+    expect(f.runtime.configure).toHaveBeenCalledTimes(1);
   });
 
   it('rejects conflicting request/owner/profile identities before runtime calls', async () => {
