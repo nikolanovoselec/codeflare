@@ -25,7 +25,9 @@ const OperatorActivityButton: Component<Props> = (props) => {
   const interval = setInterval(() => { if (props.enabled) void refetch(); }, 15_000);
   onCleanup(() => clearInterval(interval));
   createEffect(() => { if (open()) queueMicrotask(() => closeButton?.focus()); });
-  const stale = (updatedAt: string) => Date.now() - new Date(updatedAt).getTime() > 2 * 60_000;
+  const updatedDate = (updatedAt: string | number) => typeof updatedAt === 'number'
+    ? new Date(updatedAt) : new Date(updatedAt);
+  const stale = (updatedAt: string | number) => Date.now() - updatedDate(updatedAt).getTime() > 2 * 60_000;
   const cancel = async (activityId: string) => {
     setCancelling(activityId);
     try { await cancelOperatorActivity(activityId); await refetch(); } finally { setCancelling(undefined); }
@@ -54,7 +56,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
                     <dl><div><dt>Execution</dt><dd>Execution: {item.executionStatus}</dd></div>
                       <div><dt>Cleanup</dt><dd>Cleanup: {item.cleanupStatus}</dd></div>
                       <div><dt>Collection</dt><dd>Collection: {item.collectionStatus}</dd></div></dl>
-                    <small>Updated {new Date(item.updatedAt).toLocaleString()}</small>
+                    <small>Updated {updatedDate(item.updatedAt).toLocaleString()}</small>
                     <nav><Show when={item.sessionId}>{sessionId => <a href={`/app?session=${encodeURIComponent(sessionId())}`}>Open session</a>}</Show>
                       <a href={`/api/operator-activities/${encodeURIComponent(item.activityId)}/result`}>View result</a>
                       <Show when={workingStates.has(item.executionStatus)}><button type="button" disabled={cancelling() === item.activityId}
