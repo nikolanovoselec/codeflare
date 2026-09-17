@@ -6,7 +6,8 @@
  */
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { OperatorContainerProfile } from './operator-context';
-import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../lib/constants';
+import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER,
+  ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER, SESSION_ID_PATTERN } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -475,7 +476,7 @@ export async function applyBucketName(
   r2Creds?: SetBucketNameCreds,
 ): Promise<void> {
   const sessionId = r2Creds?.sessionId;
-  if (sessionId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) {
+  if (sessionId !== undefined && !SESSION_ID_PATTERN.test(sessionId)) {
     throw new Error('Invalid session identity');
   }
   if (sessionId) {
