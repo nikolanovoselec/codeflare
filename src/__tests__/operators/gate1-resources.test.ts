@@ -4,11 +4,11 @@ import { parseOperatorPolicy } from '../../operators/policy';
 import { resolveGate1Resources, type Gate1ResourceInput } from '../../operators/gate1-resources';
 
 const activityId = 'activity-gate1';
-const invocation = () => parseOperatorConsumerInvocation({
+const invocation = (resolvedActivityId = activityId) => parseOperatorConsumerInvocation({
   schemaVersion: 1,
   interfaceVersion: 1,
   consumerId: 'gate1-acceptance',
-  activityId,
+  activityId: resolvedActivityId,
   operatorId: 'codeflare-gate1-fixture',
   runId: 'run-gate1',
   source: { kind: 'direct', reference: 'gate1-session-smoke' },
@@ -71,7 +71,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
     const result = await resolveGate1Resources(input());
     expect(result.effectiveInference).toEqual({ routeId: 'route-approved', reasoningLevel: 'high' });
     const sessionId = result.profile.sessionId;
-    expect(sessionId).toMatch(/^gate1[0-9a-f]{16}$/);
+    expect(sessionId).toBe('gate15d1485c714851da8');
     expect(result.profile).toMatchObject({
       schemaVersion: 1,
       activityId,
@@ -100,6 +100,17 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
       content: 'codeflare-gate1-marker-v1\n',
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
+  });
+
+  it('derives stable and distinct session identities for distinct activities', async () => {
+    const first = await resolveGate1Resources(input());
+    const repeat = await resolveGate1Resources(input());
+    const secondActivityId = 'activity-gate2';
+    const second = await resolveGate1Resources(input({ activityId: secondActivityId,
+      invocation: invocation(secondActivityId) }));
+    expect(repeat.profile.sessionId).toBe(first.profile.sessionId);
+    expect(second.profile.sessionId).toBe('gate17092f0f097bf1ee7');
+    expect(second.profile.sessionId).not.toBe(first.profile.sessionId);
   });
 
   it.each([

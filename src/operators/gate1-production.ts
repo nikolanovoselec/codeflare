@@ -1,5 +1,6 @@
 import { getContainer } from '@cloudflare/containers';
 import type { Env } from '../types';
+import { parseOperatorContainerProfile } from '../container/operator-context';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup } from '../lib/access';
 import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getR2Config } from '../lib/r2-config';
@@ -8,16 +9,22 @@ import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
 import { resolveGate1Resources, type Gate1Resources } from './gate1-resources';
 import { ContainerOwnedSessionRuntime, type Gate1ContainerStub } from './gate1-runtime';
-import { OwnedOperatorSessionService, type OwnedOperatorSessionState } from './owned-session';
+import { OwnedOperatorSessionService, type OwnedOperatorSessionState,
+  type OwnedOperatorSessionStore } from './owned-session';
 import { Gate1OperatorCapability } from './gate1-capability';
 import { verifyOperatorSync, type OperatorSyncReader } from './sync-verification';
 import type { OperatorRuntimePlan, OperatorActivity } from './activity';
 
 type Gate1Activity = DurableObjectStub<OperatorActivity>;
 
-function activityStore(activity: Gate1Activity) {
+function activityStore(activity: Gate1Activity): OwnedOperatorSessionStore {
   return {
-    load: () => activity.getOwnedSession(),
+    load: async () => {
+      const state = await activity.getOwnedSession();
+      return state ? { schemaVersion: 1, requestId: state.requestId, requestDigest: state.requestDigest,
+        activityId: state.activityId, ownerBucket: state.ownerBucket, sessionId: state.sessionId,
+        profile: parseOperatorContainerProfile(state.profile), status: state.status } : null;
+    },
     save: async (state: OwnedOperatorSessionState) => {
       const result = await activity.saveOwnedSession(state);
       if (!result.ok) throw new Error(`Owned session state ${result.reason}`);
