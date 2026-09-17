@@ -7,8 +7,8 @@ import { decideOperatorStorage } from './interception-policy';
 import { parseOperatorPolicy, type OperatorPolicy } from './policy';
 
 export const GATE1_OPERATOR_ID = 'codeflare-gate1-fixture';
-export const GATE1_SESSION_PROFILE_ID = 'gate1-pi-file-v1';
-export const GATE1_STORAGE_SCOPE_ID = 'gate1-output-v1';
+const GATE1_SESSION_PROFILE_ID = 'gate1-pi-file-v1';
+const GATE1_STORAGE_SCOPE_ID = 'gate1-output-v1';
 const OUTPUT_ROOT = 'operator-fixtures/gate-1/';
 const MARKER_PATH = 'gate1-marker.txt';
 const MARKER_CONTENT = 'codeflare-gate1-marker-v1\n';
@@ -62,7 +62,7 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
     policy,
     trusted: invocation.resources.inference,
   });
-  const sessionId = `gate1-${input.activityId}`;
+  const sessionId = `gate1${(await sha256(input.activityId)).slice(0, 16)}`;
   const outputPrefix = `${OUTPUT_ROOT}${input.activityId}/${sessionId}/`;
   const storagePath = `${outputPrefix}${MARKER_PATH}`;
   if (!decideOperatorStorage(policy, 'write', storagePath).allowed

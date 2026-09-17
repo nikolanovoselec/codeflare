@@ -13,7 +13,7 @@ export interface Gate1ContainerStub {
 }
 
 export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime {
-  constructor(private readonly options: { activityId: string; ownerBucket: string;
+  constructor(private readonly options: { activityId: string; ownerBucket: string; sessionId: string;
     resolve: (containerId: string) => Gate1ContainerStub }) {}
 
   private container(sessionId: string): Gate1ContainerStub {
@@ -23,7 +23,7 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
   async reserve(input: { requestId: string; requestDigest: string; activityId: string; ownerBucket: string;
     sessionId: string }): Promise<{ sessionId: string }> {
     if (input.activityId !== this.options.activityId || input.ownerBucket !== this.options.ownerBucket
-      || input.sessionId !== `gate1-${this.options.activityId}`) throw new Error('Gate 1 session ownership mismatch');
+      || input.sessionId !== this.options.sessionId) throw new Error('Gate 1 session ownership mismatch');
     return { sessionId: input.sessionId };
   }
 

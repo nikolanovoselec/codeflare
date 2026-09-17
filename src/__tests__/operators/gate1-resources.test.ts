@@ -70,14 +70,16 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
   it('derives the exact owned session, Pi profile, inference and storage target from parent state', async () => {
     const result = await resolveGate1Resources(input());
     expect(result.effectiveInference).toEqual({ routeId: 'route-approved', reasoningLevel: 'high' });
+    const sessionId = result.profile.sessionId;
+    expect(sessionId).toMatch(/^gate1[0-9a-f]{16}$/);
     expect(result.profile).toMatchObject({
       schemaVersion: 1,
       activityId,
       operatorId: 'codeflare-gate1-fixture',
-      sessionId: `gate1-${activityId}`,
+      sessionId,
       ownerBucket: 'owner-bucket',
       policyDigest: 'c'.repeat(64),
-      outputPrefix: `operator-fixtures/gate-1/${activityId}/gate1-${activityId}/`,
+      outputPrefix: `operator-fixtures/gate-1/${activityId}/${sessionId}/`,
       human: {
         subject: human.subject,
         email: 'owner@example.test',
@@ -94,7 +96,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
     expect(result.profile).not.toHaveProperty('accessJwt');
     expect(result.marker).toEqual({
       relativePath: 'gate1-marker.txt',
-      storagePath: `operator-fixtures/gate-1/${activityId}/gate1-${activityId}/gate1-marker.txt`,
+      storagePath: `operator-fixtures/gate-1/${activityId}/${sessionId}/gate1-marker.txt`,
       content: 'codeflare-gate1-marker-v1\n',
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     });

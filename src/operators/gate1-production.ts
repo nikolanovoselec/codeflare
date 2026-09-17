@@ -13,8 +13,7 @@ import { Gate1OperatorCapability } from './gate1-capability';
 import { verifyOperatorSync, type OperatorSyncReader } from './sync-verification';
 import type { OperatorRuntimePlan, OperatorActivity } from './activity';
 
-type Gate1Activity = Pick<OperatorActivity, 'getOwnedSession' | 'saveOwnedSession' | 'getSync'
-  | 'prepareSync' | 'recordSyncUploaded' | 'recordSyncVerified'>;
+type Gate1Activity = DurableObjectStub<OperatorActivity>;
 
 function activityStore(activity: Gate1Activity) {
   return {
@@ -51,6 +50,7 @@ export async function createGate1ProductionCapability(input: {
   const { env, plan, activity } = input;
   const authority = await openOperatorExecutionAccess(plan.executionContext, env);
   const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
+  if (!plan.receipt.policyJson) throw new Error('Gate 1 policy unavailable');
   const policy = parseOperatorPolicy(JSON.parse(plan.receipt.policyJson));
   const ownerBucket = await resolveBucketName(env, authority.human.email);
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
@@ -64,6 +64,7 @@ export async function createGate1ProductionCapability(input: {
       defaultReasoningLevel: routes.defaultReasoning,
     } });
   const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket,
+    sessionId: resources.profile.sessionId,
     resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as Gate1ContainerStub });
   const service = new OwnedOperatorSessionService(activityStore(activity), runtime);
   const requestDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.invocationJson));
@@ -84,5 +85,5 @@ export async function createGate1ProductionCapability(input: {
     },
     verify: expected => verifyOperatorSync(expected, reader),
   });
-  return { capability, resources };
+  return { capability: capability as unknown as Fetcher, resources };
 }

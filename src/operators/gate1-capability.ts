@@ -7,12 +7,12 @@ const MAX_BODY = 64 * 1024;
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
 
 type SessionStatus = 'reserved' | 'configuring' | 'configured' | 'starting' | 'ready' | 'stopping' | 'stopped' | 'unknown';
-export interface SessionController {
+interface SessionController {
   ensure(): Promise<{ status: SessionStatus }>;
   stop(): Promise<{ status: SessionStatus }>;
 }
-export interface HostClient { fetch(path: string, init?: RequestInit): Promise<Response> }
-export interface SyncOwner {
+interface HostClient { fetch(path: string, init?: RequestInit): Promise<Response> }
+interface SyncOwner {
   get(operationId: string): Promise<{ phase: string; evidence?: { filesVerified: number; bytesVerified: number } | null } | null>;
   prepare(input: unknown): Promise<{ ok: boolean; phase?: string; reason?: string }>;
   uploaded(operationId: string, manifestDigest: string): Promise<{ ok: boolean; phase?: string; reason?: string }>;
@@ -40,7 +40,7 @@ export interface Gate1CapabilityOptions {
 }
 
 /** One generation-bound, fixed-purpose capability. No generic session, Pi or storage API is exposed. */
-export class Gate1OperatorCapability implements Fetcher {
+export class Gate1OperatorCapability {
   constructor(private readonly options: Gate1CapabilityOptions) {}
 
   async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

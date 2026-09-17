@@ -4,11 +4,13 @@ import type { Gate1Resources } from '../../operators/gate1-resources';
 
 const activityId = 'activity-gate1';
 const operationId = 'gate1-output-v1';
+const sessionId = 'gate1a1b2c3d4e5f6a7b8';
 const resources = {
-  profile: { activityId, sessionId: `gate1-${activityId}`, policyDigest: 'c'.repeat(64),
-    outputPrefix: `operator-fixtures/gate-1/${activityId}/gate1-${activityId}/` },
+  profile: { activityId, sessionId, policyDigest: 'c'.repeat(64),
+    outputPrefix: `operator-fixtures/gate-1/${activityId}/${sessionId}/`,
+    piProfile: { systemPrompt: 'Write the fixed Gate 1 marker.' } },
   effectiveInference: { routeId: 'route-approved', reasoningLevel: 'high' },
-  marker: { relativePath: 'gate1-marker.txt', storagePath: `operator-fixtures/gate-1/${activityId}/gate1-${activityId}/gate1-marker.txt`,
+  marker: { relativePath: 'gate1-marker.txt', storagePath: `operator-fixtures/gate-1/${activityId}/${sessionId}/gate1-marker.txt`,
     content: 'codeflare-gate1-marker-v1\n', sha256: 'd'.repeat(64) },
 } as unknown as Gate1Resources;
 const request = (generation = 3) => new Request('https://operator.invalid/v1/gate1/session', {
@@ -18,9 +20,9 @@ const request = (generation = 3) => new Request('https://operator.invalid/v1/gat
 
 function fixture(overrides: Partial<Gate1CapabilityOptions> = {}) {
   const calls: string[] = [];
-  const session = {
-    ensure: vi.fn(async () => { calls.push('session.ensure'); return { status: 'ready' }; }),
-    stop: vi.fn(async () => { calls.push('session.stop'); return { status: 'stopped' }; }),
+  const session: Gate1CapabilityOptions['session'] = {
+    ensure: vi.fn(async () => { calls.push('session.ensure'); return { status: 'ready' as const }; }),
+    stop: vi.fn(async () => { calls.push('session.stop'); return { status: 'stopped' as const }; }),
   };
   const host = { fetch: vi.fn(async (path: string, init?: RequestInit) => {
     calls.push(path);
@@ -51,7 +53,7 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
     const response = await capability.fetch(request());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ schemaVersion: 1, status: 'completed', checkpoint: null,
-      result: { fixture: 'codeflare-gate1', activityId, sessionId: `gate1-${activityId}`,
+      result: { fixture: 'codeflare-gate1', activityId, sessionId,
         operationId, filesVerified: 1, bytesVerified: resources.marker.content.length } });
     expect(calls).toEqual(['session.ensure', '/internal/operator/pi/ensure', '/internal/operator/pi/tasks',
       'sync.prepare', '/internal/operator/sync/operations', 'sync.uploaded', 'sync.verify',
@@ -64,7 +66,8 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
 
   it('returns a bounded waiting checkpoint without repeating later effects while startup is pending', async () => {
     const { capability, host } = fixture({ session: {
-      ensure: vi.fn(async () => ({ status: 'starting' })), stop: vi.fn(),
+      ensure: vi.fn(async () => ({ status: 'starting' as const })),
+      stop: vi.fn(async () => ({ status: 'stopped' as const })),
     } });
     const response = await capability.fetch(request());
     expect(await response.json()).toEqual({ schemaVersion: 1, status: 'waiting',
@@ -73,7 +76,10 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
   });
 
   it('fails closed on unknown effects and still requests owned stop after a terminal Pi failure', async () => {
-    const unknown = fixture({ session: { ensure: vi.fn(async () => ({ status: 'unknown' })), stop: vi.fn() } });
+    const unknown = fixture({ session: {
+      ensure: vi.fn(async () => ({ status: 'unknown' as const })),
+      stop: vi.fn(async () => ({ status: 'stopped' as const })),
+    } });
     expect(await (await unknown.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
       result: { code: 'GATE1_SESSION_UNKNOWN' } });
     const failed = fixture({ host: { fetch: vi.fn(async (path: string) => path.endsWith('/ensure')
