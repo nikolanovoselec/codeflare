@@ -18,6 +18,11 @@ export interface OperatorContainerProfile {
   activityId: string;
   sessionId: string;
   ownerBucket: string;
+  policyDigest: string;
+  /** Absolute milliseconds, never extended by the child or host. */
+  deadline: number;
+  /** Parent-resolved owner-scoped namespace; individual operations append their stable ID. */
+  outputPrefix: string;
   human: { subject: string; email: string; issuer: string; audiences: string[] };
   policy: OperatorPolicy;
   jwtPolicy: JwtStampingPolicy;
@@ -41,6 +46,13 @@ const STORAGE_KEY = 'operatorContainerProfile';
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const OWNER = /^[A-Za-z0-9._-]{1,128}$/;
 const TOOL = /^[A-Za-z0-9_-]{1,64}$/;
+const DIGEST = /^[0-9a-f]{64}$/;
+
+function canonicalPrefix(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 1 && value.length <= 2048 && value.endsWith('/')
+    && !/[\\%\x00-\x1f\x7f]/.test(value)
+    && value.slice(0, -1).split('/').every(part => part !== '' && part !== '.' && part !== '..');
+}
 
 function bounded(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.trim() === value && value.length > 0
@@ -76,14 +88,18 @@ function parseHuman(value: unknown): OperatorContainerProfile['human'] {
 export function parseOperatorContainerProfile(value: unknown): OperatorContainerProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator container profile');
   const profile = value as Record<string, unknown>;
-  if (Object.keys(profile).length !== 8 || profile.schemaVersion !== 1
+  if (Object.keys(profile).length !== 11 || profile.schemaVersion !== 1
     || typeof profile.activityId !== 'string' || !ID.test(profile.activityId)
     || typeof profile.sessionId !== 'string' || !ID.test(profile.sessionId)
-    || typeof profile.ownerBucket !== 'string' || !OWNER.test(profile.ownerBucket)) {
+    || typeof profile.ownerBucket !== 'string' || !OWNER.test(profile.ownerBucket)
+    || typeof profile.policyDigest !== 'string' || !DIGEST.test(profile.policyDigest)
+    || typeof profile.deadline !== 'number' || !Number.isFinite(profile.deadline) || profile.deadline <= 0
+    || !canonicalPrefix(profile.outputPrefix)) {
     throw new Error('Invalid operator container profile');
   }
   return { schemaVersion: 1, activityId: profile.activityId, sessionId: profile.sessionId,
-    ownerBucket: profile.ownerBucket, human: parseHuman(profile.human),
+    ownerBucket: profile.ownerBucket, policyDigest: profile.policyDigest, deadline: profile.deadline,
+    outputPrefix: profile.outputPrefix, human: parseHuman(profile.human),
     policy: parseOperatorPolicy(profile.policy), jwtPolicy: parseJwtStampingPolicy(profile.jwtPolicy),
     piProfile: parsePiProfile(profile.piProfile) };
 }
@@ -110,7 +126,8 @@ function requireAuthority(profile: OperatorContainerProfile, authority: JwtStamp
     || !sameAudience(authority.human.audiences, profile.human.audiences)) {
     throw new Error('Operator authority mismatch');
   }
-  if (!Number.isFinite(authority.human.expiresAt) || authority.human.expiresAt * 1000 <= Date.now()) {
+  if (!Number.isFinite(authority.human.expiresAt) || authority.human.expiresAt * 1000 <= Date.now()
+    || profile.deadline <= Date.now() || profile.deadline > authority.human.expiresAt * 1000) {
     throw new Error('Operator authority expired');
   }
 }

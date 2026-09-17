@@ -333,6 +333,12 @@ export function buildEnvVars(
         activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
         root: `/home/user/.codeflare/operators/${operatorProfile.activityId}`,
         profile: operatorProfile.piProfile }),
+      CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1,
+        activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
+        policyDigest: operatorProfile.policyDigest,
+        root: `/home/user/.codeflare/operators/${operatorProfile.activityId}/output`,
+        remotePrefix: operatorProfile.outputPrefix,
+        deadline: operatorProfile.deadline }),
     }),
     // Terminal server port
     TERMINAL_PORT: String(TERMINAL_SERVER_PORT),

@@ -4,7 +4,8 @@ import { OwnedOperatorSessionService, type OwnedOperatorSessionRuntime, type Own
 import type { OperatorContainerProfile } from '../../container/operator-context';
 
 const profile: OperatorContainerProfile = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', ownerBucket: 'owner-bucket',
-  human: { subject: 'human-1', email: 'owner@example.test', issuer: 'https://issuer.example.test/', audiences: ['aud-1'] },
+  policyDigest: 'b'.repeat(64), deadline: Date.now() + 500_000,
+  outputPrefix: 'Remote Reviews/activity-1/session-1/', human: { subject: 'human-1', email: 'owner@example.test', issuer: 'https://issuer.example.test/', audiences: ['aud-1'] },
   policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } },
   jwtPolicy: { mode: 'off', destinations: [] }, piProfile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'off', systemPrompt: 'Approved', tools: ['read'] } };
