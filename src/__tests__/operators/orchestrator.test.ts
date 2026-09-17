@@ -148,13 +148,16 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
       OPERATOR_ACTIVITY: { getByName: () => activity }, OPERATOR_REGISTRY: { getByName: () => registry },
     } as unknown as Env;
 
-    await runOperatorActivity('activity-1', env);
+    const loopback = { fetch: vi.fn(async () => new Response('loopback')) } as unknown as Fetcher;
+    const bindLoopback = vi.fn((_activityId: string, _generation: number) => loopback);
+    await runOperatorActivity('activity-1', env, bindLoopback);
 
     expect(registry.getPinnedDistribution).toHaveBeenCalledWith('activity-1');
     expect(fetch).toHaveBeenCalledOnce();
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({ redirect: 'manual' });
     expect(loaded?.globalOutbound).toBeNull();
-    expect((await loaded!.env.OPERATOR.fetch('https://operator.internal/capability')).status).toBe(403);
+    expect(bindLoopback).toHaveBeenCalledWith('activity-1', 1);
+    expect(loaded?.env.OPERATOR).toBe(loopback);
     expect(requestBody).toMatchObject({ activityId: 'activity-1', generation: 1,
       invocation: { repository: 'owner/repo' } });
     expect(activity.commitDrive).toHaveBeenCalledOnce();

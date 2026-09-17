@@ -54,15 +54,17 @@ function fixture() {
     : c.json({ error: 'Internal error' }, 500));
   app.route('/api/operator-activities', routes);
   const waitUntil = vi.fn();
+  const loopback = vi.fn(({ props }: { props: { activityId: string; generation: number } }) =>
+    ({ fetch: vi.fn(), props }) as unknown as Fetcher);
   const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env) => app.request(
     `https://enterprise.example.test/api/operator-activities${path}`,
     { method, headers: {
       'content-type': 'application/json', 'cf-access-authenticated-user-email': claims.email,
       ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}),
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
-    { waitUntil, passThroughOnException: vi.fn(), props: {} },
+    { waitUntil, passThroughOnException: vi.fn(), props: {}, exports: { OperatorRuntimeCapability: loopback } },
   );
-  return { activity, registry, env, request, waitUntil };
+  return { activity, registry, env, request, waitUntil, loopback };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -117,7 +119,10 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(started.status).toBe(200);
     expect(activity.ownsPrepared).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/));
     expect(activity.start).toHaveBeenCalledWith(body.startCapability);
-    expect(orchestration.run).toHaveBeenCalledWith(body.activityId, expect.anything());
+    expect(orchestration.run).toHaveBeenCalledWith(body.activityId, expect.anything(), expect.any(Function));
+    const bindLoopback = orchestration.run.mock.calls[0]?.[2] as (activityId: string, generation: number) => Fetcher;
+    const capability = bindLoopback(body.activityId, 3);
+    expect(capability).toMatchObject({ props: { activityId: body.activityId, generation: 3 } });
     expect(waitUntil).toHaveBeenCalledOnce();
   });
 
@@ -129,7 +134,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const started = await request('/activity-1/start', 'POST', { capability: 's'.repeat(43) });
     expect(started.status).toBe(200);
     expect(activity.start).toHaveBeenCalledWith('s'.repeat(43));
-    expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything());
+    expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything(), expect.any(Function));
     expect(waitUntil).toHaveBeenCalledOnce();
     const cancelled = await request('/activity-1/cancel', 'POST', {});
     expect(cancelled.status).toBe(200);
