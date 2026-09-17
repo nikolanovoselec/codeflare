@@ -35,6 +35,7 @@ import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import type { OperatorPolicy } from '../operators/policy';
 import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
@@ -57,7 +58,7 @@ const jwtAuthority: JwtStampingAuthority = { human: { subject: 'human', email: S
   expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'verified.jwt' }; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string; jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string; jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority; operatorInference?: { activityId: string; operatorId: string; policy: OperatorPolicy; trusted: { routeId: string; reasoningLevel: string | null } } } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -620,6 +621,37 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
         ...(def !== undefined && { 'setup:default_route': JSON.stringify({ route: def, reasoning: 'off' }) }),
       },
     } as unknown as Partial<Env>);
+
+  it('REQ-OPERATOR-007: enforces parent-trusted route/reasoning over child payload and stamps trusted attribution', async () => {
+    const restricted: OperatorPolicy = { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: ['production'],
+        defaultRouteId: 'production', reasoningLevels: ['high'], defaultReasoningLevel: 'high', inheritUserDefaults: false } };
+    await makeInterceptor(withCatalog(['development', 'production'], 'development'), { user: SESSION_USER,
+      operatorInference: { activityId: 'activity-1', operatorId: 'operator-1', policy: restricted,
+        trusted: { routeId: 'production', reasoningLevel: 'high' } } }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: 'development', reasoning_effort: 'off', messages: [],
+      }) }),
+    );
+    const sent = JSON.parse(lastFetch?.body as string);
+    expect(sent.model).toBe('dynamic/production');
+    expect(sent.reasoning_effort).toBe('high');
+    const metadata = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
+    expect(metadata).toMatchObject({ user: SESSION_USER, operator: 'operator-1', activity: 'activity-1' });
+  });
+
+  it('REQ-OPERATOR-007: rejects a parent selection outside current user eligibility without fallback', async () => {
+    const restricted: OperatorPolicy = { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: ['missing'],
+        defaultRouteId: 'missing', reasoningLevels: ['off'], defaultReasoningLevel: 'off', inheritUserDefaults: false } };
+    const response = await makeInterceptor(withCatalog(['development'], 'development'), { user: SESSION_USER,
+      operatorInference: { activityId: 'activity-1', operatorId: 'operator-1', policy: restricted,
+        trusted: { routeId: 'missing', reasoningLevel: 'off' } } }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'development' }) }),
+    );
+    expect(response.status).toBe(403);
+    expect(lastFetch).toBeNull();
+  });
 
   it('maps a known slash-free handle to dynamic/<route> on chat/completions', async () => {
     await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(

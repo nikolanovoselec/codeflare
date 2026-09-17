@@ -163,13 +163,13 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 1. Resolve current eligible verified catalog, intersect registered allowed routes, then apply valid trusted invocation selection or registered defaults; user defaults are inherited only explicitly. <!-- @impl: src/operators/inference-selection.ts::resolveOperatorInference --> <!-- @test: src/__tests__/operators/inference-selection.test.ts (REQ-OPERATOR-007: operator inference intersection) -->
 2. Unsupported/unauthorized operator route or reasoning fails without silent substitution. Child payload and lane/resource settings cannot override trusted selection; provider-default is distinct from Off.
-3. Direct and Pi calls enforce identical effective selection and trusted activity attribution, preserving existing human fallback behavior.
+3. Direct and Pi calls enforce identical effective selection and trusted activity attribution, preserving existing human fallback behavior. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/container/container-interception.ts --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-OPERATOR-007 trusted route/reasoning and attribution) -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception-and-jwt-stamping)
 
-**Verification:** Selection RED at `98c22ccb`, CI 35172132809: typecheck, import/quality and four behavioral cases reached the absent shared resolver. Behavioral interceptor tests and actual provider-request acceptance remain required.
+**Verification:** Selection RED at `98c22ccb`, CI 35172132809: typecheck, import/quality and four behavioral cases reached the absent shared resolver; implementation `d3a7b814`, export correction `10bbab7d`, full CI 35172339542 GREEN. Behavioral interceptor tests and actual provider-request acceptance remain required.
 
 **Status:** Planned
 
