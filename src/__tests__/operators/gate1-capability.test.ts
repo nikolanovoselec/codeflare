@@ -8,6 +8,7 @@ import type { Env } from '../../types';
 
 const production = vi.hoisted(() => ({
   getContainer: vi.fn(() => ({})),
+  createR2Client: vi.fn(() => ({ sign: vi.fn() })),
   resolveBucketName: vi.fn(async () => 'owner-bucket'),
   resolveSessionAccessGroup: vi.fn(async () => []),
   loadEnterpriseRouteConfig: vi.fn(async () => ({ routeCatalog: ['route-approved'],
@@ -19,6 +20,8 @@ const production = vi.hoisted(() => ({
       managedResourcePolicy: 'mutable' } })),
 }));
 vi.mock('@cloudflare/containers', () => ({ getContainer: production.getContainer }));
+vi.mock('../../lib/r2-client', () => ({ createR2Client: production.createR2Client,
+  getR2Url: (endpoint: string, bucket: string, key: string) => `${endpoint}/${bucket}/${key}` }));
 vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: production.bootstrapOperatorSession }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
@@ -120,6 +123,9 @@ describe('REQ-OPERATOR-018: platform operator capability binding', () => {
     await expect(response.json()).resolves.toMatchObject({ status: 'completed', result: {
       fixture: 'codeflare-gate1', activityId, sessionId: profile.sessionId,
     } });
+    expect(production.createR2Client).toHaveBeenCalledWith({
+      R2_ACCESS_KEY_ID: 'key', R2_SECRET_ACCESS_KEY: 'secret',
+    });
     expect((await capability.fetch(request(4))).status).toBe(403);
   });
 
