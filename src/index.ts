@@ -18,6 +18,7 @@ import deployKeysRoutes from './routes/deploy-keys';
 import githubRoutes from './routes/github';
 import cloudflareRoutes from './routes/cloudflare';
 import publicRoutes from './routes/public/index';
+import operatorWebhookRoutes from './routes/operator-webhook';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
 import adminOperatorsRoutes from './routes/admin/operators';
@@ -276,6 +277,9 @@ app.route('/api/setup', setupRoutes);
 app.use('/public/stripe/*', bodyLimit({ maxSize: 1024 * 1024 }));
 app.route('/public/stripe', stripeWebhookRoute);  // Must be before /public catch-all
 app.route('/public', publicRoutes);
+// This fixed route is outside /api because its narrow Access application is the
+// only interactive-Access bypass; Worker capability authentication remains mandatory.
+app.route('/', operatorWebhookRoutes);
 
 // API routes
 app.route('/api/user', userRoutes);
