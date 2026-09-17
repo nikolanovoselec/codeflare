@@ -90,6 +90,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
         provider: 'codeflare-gateway',
         model: 'route-approved',
         thinkingLevel: 'high',
+        systemPrompt: 'Use the write tool exactly once with path "../output/gate1-marker.txt" and exact content "codeflare-gate1-marker-v1". Do not append a newline or create other files.',
         tools: ['read', 'write'],
       },
     });
@@ -97,7 +98,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
     expect(result.marker).toEqual({
       relativePath: 'gate1-marker.txt',
       storagePath: `operator-fixtures/gate-1/${activityId}/${sessionId}/gate1-marker.txt`,
-      content: 'codeflare-gate1-marker-v1\n',
+      content: 'codeflare-gate1-marker-v1',
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
   });
