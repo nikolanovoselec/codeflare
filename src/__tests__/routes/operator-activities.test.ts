@@ -127,6 +127,24 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(waitUntil).toHaveBeenCalledOnce();
   });
 
+  it('continues only durable waiting work through an explicit owner-authenticated POST', async () => {
+    const { request, activity, waitUntil } = fixture();
+    activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'waiting',
+      checkpoint: { stage: 'session' }, result: null });
+
+    const continued = await request('/activity-1/continue', 'POST', {});
+
+    expect(continued.status).toBe(202);
+    expect(await continued.json()).toEqual({ ok: true, phase: 'queued' });
+    expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything(), expect.any(Function));
+    expect(waitUntil).toHaveBeenCalledOnce();
+
+    activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, checkpoint: null, result: null });
+    expect((await request('/activity-1/continue', 'POST', {})).status).toBe(409);
+    expect((await request('/activity-1/continue', 'POST', {}, false)).status).toBe(403);
+    expect(orchestration.run).toHaveBeenCalledTimes(1);
+  });
+
   it('uses CSRF-protected POST start and cancellation while composing the existing activity methods', async () => {
     const { request, activity, waitUntil } = fixture();
     expect((await request('/activity-1/start', 'POST', { capability: 's'.repeat(43) }, false)).status).toBe(403);

@@ -265,6 +265,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 4. Terminal, cancelled or unknown-effect work does not restart automatically. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-017: durable drive generation and checkpoint) -->
 5. Late generation results are rejected. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-017: durable drive generation and checkpoint) -->
 6. Drive begin and commit recheck actual human-authority expiry. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-017: durable drive generation and checkpoint) -->
+7. The owning human explicitly resumes durable waiting work through a protected request. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
 **Constraints:** Generation transitions do not extend human authority.
 
