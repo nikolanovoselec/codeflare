@@ -152,12 +152,14 @@ export class RcloneOperatorSyncUploader implements OperatorSyncUploader {
     this.configFile = path.resolve(options.configFile);
     this.run = options.run ?? runRclone;
   }
-  async put(key: string, bytes: Uint8Array): Promise<void> {
-    if (!this.prefixes.some(prefix => key.startsWith(prefix)) || !canonicalPath(key) || bytes.byteLength > MAX_BYTES) {
+  async put(operationId: string, key: string, bytes: Uint8Array): Promise<void> {
+    if (!ID.test(operationId) || !this.prefixes.some(prefix => key.startsWith(prefix))
+      || !canonicalPath(key) || bytes.byteLength > MAX_BYTES) {
       throw new Error('Operator upload escaped its scope');
     }
     const code = await this.run('rclone', ['rcat', `r2:${this.bucket}/${key}`, '--config', this.configFile,
-      '--size', String(bytes.byteLength)], Uint8Array.from(bytes));
+      '--size', String(bytes.byteLength), '--header-upload', `X-Codeflare-Operator-Sync-Operation: ${operationId}`],
+    Uint8Array.from(bytes));
     if (code !== 0) throw new Error('Operator upload failed');
   }
 }

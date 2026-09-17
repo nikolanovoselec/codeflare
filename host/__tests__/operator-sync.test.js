@@ -20,7 +20,7 @@ function fixture(overrides = {}) {
   } };
   const content = new Map([['reports/a.txt', a], ['reports/b.txt', b]]);
   const files = { async read(path, size) { const value = content.get(path); if (!value || value.length !== size) throw new Error('bad file'); return value; } };
-  const uploader = { async put(key, bytes) { puts.push([key, Buffer.from(bytes)]); } };
+  const uploader = { async put(operationId, key, bytes) { puts.push([operationId, key, Buffer.from(bytes)]); } };
   const service = new OperatorSyncService({ activityId: 'activity-1', sessionId: 'session-1', policyDigest: 'b'.repeat(64),
     root: '/home/user/Operators', filePrefix: 'Operators/', manifestPrefix: '.codeflare/operators/activity-1/',
     deadline: Date.now() + 60_000, store, files, uploader, ...overrides.options });
@@ -32,12 +32,13 @@ test('REQ-OPERATOR-023: persists intent then uploads exact files and canonical m
   const result = await f.service.upload(request);
   assert.equal(result.status, 'uploaded');
   assert.deepEqual(f.saves.map(value => value.status), ['accepted', 'uploading', 'uploaded']);
-  assert.deepEqual(f.puts.map(([key]) => key), [
+  assert.deepEqual(f.puts.map(([, key]) => key), [
     'Operators/reports/a.txt',
     'Operators/reports/b.txt',
     '.codeflare/operators/activity-1/sync-1/manifest.json',
   ]);
-  const manifest = f.puts.at(-1)[1];
+  assert.deepEqual(f.puts.map(([operationId]) => operationId), ['sync-1', 'sync-1', 'sync-1']);
+  const manifest = f.puts.at(-1)[2];
   assert.equal(digest(manifest), result.manifestDigest);
   assert.deepEqual(JSON.parse(manifest), { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1',
     operationId: 'sync-1', requestDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), files: request.files });
@@ -55,7 +56,9 @@ test('REQ-OPERATOR-023: same operation reconciles and changed reuse conflicts wi
 
 test('REQ-OPERATOR-023: interrupted upload becomes unknown and is never automatically replayed', async () => {
   const f = fixture();
-  f.uploader.put = async (key, bytes) => { f.puts.push([key, Buffer.from(bytes)]); throw new Error('transport lost'); };
+  f.uploader.put = async (operationId, key, bytes) => {
+    f.puts.push([operationId, key, Buffer.from(bytes)]); throw new Error('transport lost');
+  };
   await assert.rejects(f.service.upload(request), /outcome.*unknown/i);
   assert.equal(f.receipt().status, 'unknown');
   assert.equal(f.puts.length, 1);

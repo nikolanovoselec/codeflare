@@ -59,11 +59,13 @@ test('REQ-OPERATOR-023: rclone adapter uses fixed rcat destination and stdin wit
   const calls = [];
   const uploader = new RcloneOperatorSyncUploader({ bucket: 'owner-bucket', prefixes: ['Operators/', '.codeflare/operators/activity/'],
     configFile: '/run/codeflare/rclone.conf', run: async (command, args, bytes) => { calls.push({ command, args, bytes: Buffer.from(bytes) }); return 0; } });
-  await uploader.put('Operators/reports/result.txt', new TextEncoder().encode('result'));
+  await uploader.put('sync-1', 'Operators/reports/result.txt', new TextEncoder().encode('result'));
   assert.deepEqual(calls, [{ command: 'rclone', args: ['rcat', 'r2:owner-bucket/Operators/reports/result.txt',
-    '--config', '/run/codeflare/rclone.conf', '--size', '6'], bytes: Buffer.from('result') }]);
-  await assert.rejects(uploader.put('Other/result.txt', new Uint8Array()), /scope/i);
+    '--config', '/run/codeflare/rclone.conf', '--size', '6', '--header-upload',
+    'X-Codeflare-Operator-Sync-Operation: sync-1'], bytes: Buffer.from('result') }]);
+  await assert.rejects(uploader.put('sync-1', 'Other/result.txt', new Uint8Array()), /scope/i);
+  await assert.rejects(uploader.put('../escape', 'Operators/result.txt', new Uint8Array()), /scope/i);
   const failed = new RcloneOperatorSyncUploader({ bucket: 'owner-bucket', prefixes: ['Operators/', '.codeflare/operators/activity/'],
     configFile: '/run/codeflare/rclone.conf', run: async () => 7 });
-  await assert.rejects(failed.put('.codeflare/operators/activity/sync-1/manifest.json', new Uint8Array()), /upload failed/i);
+  await assert.rejects(failed.put('sync-1', '.codeflare/operators/activity/sync-1/manifest.json', new Uint8Array()), /upload failed/i);
 });

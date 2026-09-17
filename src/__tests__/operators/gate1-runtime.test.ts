@@ -19,6 +19,15 @@ const routes = { routeCatalog: ['route'], defaultRoute: 'route', defaultReasonin
   modelDisplayNames: { route: 'Route' }, promptCacheTargets: [] };
 const userEmail = 'owner@example.test';
 const userGroups = ['engineering'];
+const bootstrap = {
+  r2AccessKeyId: 'scoped-key', r2SecretAccessKey: 'scoped-secret', r2AccountId: 'account',
+  r2Endpoint: 'https://account.r2.cloudflarestorage.com', r2SseDisabled: true,
+  workspaceSyncEnabled: false, fastStartEnabled: true, sessionMode: 'advanced',
+  sessionWorkspace: 'terminal' as const, terminalMode: 'classic' as const,
+  remoteCurationActive: true, remoteCurationReleaseDigest: 'c'.repeat(64),
+  remoteCurationManifestDigest: 'd'.repeat(64), managedResourcePolicy: 'exclusive' as const,
+  managedResourcePathsDigest: 'e'.repeat(64),
+};
 
 describe('REQ-OPERATOR-005: owned container runtime', () => {
   it('uses the exact parent-owned container identity for configure, readiness and restricted stop', async () => {
@@ -38,7 +47,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     };
     const resolve = vi.fn(() => stub);
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
-      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, resolve });
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap, resolve });
     expect(await runtime.reserve({ requestId: 'request', requestDigest: 'b'.repeat(64),
       activityId: profile.activityId, ownerBucket: profile.ownerBucket, sessionId: profile.sessionId }))
       .toEqual({ sessionId: profile.sessionId });
@@ -48,7 +57,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     expect(await runtime.stop(profile.sessionId, false)).toBe('stopped');
     expect(resolve).toHaveBeenCalledWith(`owner-bucket-${profile.sessionId}`);
     expect(stub.setBucketName).toHaveBeenCalledWith(profile.ownerBucket,
-      { sessionId: profile.sessionId, userEmail, userGroups, ...routes });
+      { sessionId: profile.sessionId, userEmail, userGroups, ...routes, ...bootstrap });
     expect(stub.configureOperatorContext).toHaveBeenCalledWith(profile, authority);
     expect(stub.fetch).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://container/health' }));
     expect(stub.stopOperatorSession).toHaveBeenCalledWith(profile.activityId, profile.sessionId);
@@ -62,7 +71,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
       fetch: vi.fn(async () => Response.json({ initFlagObserved: false, terminalServiceReady: false })),
     };
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
-      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes,
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap,
       resolve: () => stub as never });
     await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow('Gate 1 session configuration failed');
     await expect(runtime.start(profile.sessionId)).rejects.toThrow('Gate 1 session startup failed:init-not-ready');
@@ -71,7 +80,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
   it('fails closed for mismatched ownership and maps uncertain observations without starting replacement compute', async () => {
     const stub = { getState: vi.fn(async () => { throw new Error('uncertain'); }) };
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
-      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes,
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap,
       resolve: () => stub as never });
     await expect(runtime.reserve({ requestId: 'request', requestDigest: 'b'.repeat(64),
       activityId: 'other', ownerBucket: profile.ownerBucket, sessionId: profile.sessionId })).rejects.toThrow(/ownership/i);

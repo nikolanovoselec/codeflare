@@ -178,10 +178,14 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(JSON.stringify(await secured.getBrowserDetail())).not.toContain('protectedAccessCiphertext');
 
     const sync = { operationId: 'sync-1', sessionId: 'session-1', requestDigest: 'd'.repeat(64), policyDigest,
-      prefix: 'Remote Reviews/activity/session-1/sync-1/', deadline: Date.now() + 60_000 };
+      prefix: '.codeflare/operators/activity/sync-1/', keys: ['Operators/Gate 1/result.txt'],
+      deadline: Date.now() + 60_000 };
     expect(await secured.prepareSync(sync)).toEqual({ ok: true, phase: 'prepared' });
     expect(await secured.prepareSync(sync)).toEqual({ ok: true, phase: 'prepared' });
-    expect(await secured.authorizeSyncWrite('sync-1', `${sync.prefix}report.txt`)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncWrite('sync-1', `${sync.prefix}manifest.json`)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncWrite('sync-1', sync.keys[0])).toEqual({ ok: true });
+    expect(await secured.authorizeSyncWrite('sync-1', 'Operators/Gate 1/undeclared.txt'))
+      .toEqual({ ok: false, reason: 'invalid-scope' });
     expect(await secured.recordSyncUploaded('sync-1', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
     expect(await secured.authorizeSyncWrite('sync-1', `${sync.prefix}late.txt`)).toEqual({ ok: false, reason: 'sealed' });
     expect(await secured.recordSyncVerified('sync-1', { manifestDigest: 'f'.repeat(64), filesVerified: 1, bytesVerified: 6 }))

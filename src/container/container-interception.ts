@@ -279,6 +279,7 @@ function resolveStrictEgress(
       ...(host._operatorContainerProfile ? { operatorSync: {
         activityId: host._operatorContainerProfile.activityId,
         outputPrefix: host._operatorContainerProfile.outputPrefix,
+        manifestPrefix: `.codeflare/operators/${host._operatorContainerProfile.activityId}/`,
       } } : {}),
       ...jwtProps(host),
     },

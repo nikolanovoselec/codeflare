@@ -13,6 +13,7 @@ import { ContainerOwnedSessionRuntime, type Gate1ContainerStub } from './gate1-r
 import { OwnedOperatorSessionService, type OwnedOperatorSessionState,
   type OwnedOperatorSessionStore } from './owned-session';
 import { Gate1OperatorCapability } from './gate1-capability';
+import { bootstrapOperatorSession } from './session-bootstrap';
 import { verifyOperatorSync, type OperatorSyncReader } from './sync-verification';
 import type { OperatorRuntimePlan, OperatorActivity } from './activity';
 
@@ -94,6 +95,7 @@ async function createGate1ProductionCapability(input: {
   if (!plan.receipt.policyJson) throw new Error('Gate 1 policy unavailable');
   const policy = parseOperatorPolicy(JSON.parse(plan.receipt.policyJson));
   const ownerBucket = await resolveBucketName(env, authority.human.email);
+  const { bootstrap } = await bootstrapOperatorSession({ env, authority, ownerBucket });
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': authority.accessJwt },
   }), env);
@@ -105,7 +107,8 @@ async function createGate1ProductionCapability(input: {
       defaultReasoningLevel: routes.defaultReasoning,
     } });
   const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket,
-    sessionId: resources.profile.sessionId, userEmail: authority.human.email.toLowerCase(), userGroups: groups, routes,
+    sessionId: resources.profile.sessionId, userEmail: authority.human.email.toLowerCase(), userGroups: groups,
+    routes, bootstrap,
     resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as Gate1ContainerStub });
   const service = new OwnedOperatorSessionService(activityStore(activity), runtime);
   const requestDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.invocationJson));

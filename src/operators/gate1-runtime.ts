@@ -1,4 +1,5 @@
 import type { OperatorContainerProfile } from '../container/operator-context';
+import type { ManagedResourcePolicy, SessionWorkspace, TerminalMode } from '../types';
 import { getContainerId } from '../lib/container-helpers';
 import type { JwtStampingAuthority } from './jwt-stamping';
 import type { OwnedOperatorSessionRuntime } from './owned-session';
@@ -13,9 +14,27 @@ export interface Gate1RouteConfig {
   promptCacheTargets?: string[];
 }
 
+export interface Gate1SessionBootstrap {
+  r2AccessKeyId: string;
+  r2SecretAccessKey: string;
+  r2AccountId: string;
+  r2Endpoint: string;
+  r2SseDisabled?: boolean;
+  workspaceSyncEnabled: false;
+  fastStartEnabled: boolean;
+  sessionMode: string;
+  sessionWorkspace: SessionWorkspace;
+  terminalMode: TerminalMode;
+  remoteCurationActive?: boolean;
+  remoteCurationReleaseDigest?: string;
+  remoteCurationManifestDigest?: string;
+  managedResourcePolicy: ManagedResourcePolicy;
+  managedResourcePathsDigest?: string;
+}
+
 export interface Gate1ContainerStub {
   setBucketName(name: string, options: { sessionId: string; userEmail: string; userGroups: string[] }
-    & Gate1RouteConfig): Promise<void>;
+    & Gate1RouteConfig & Gate1SessionBootstrap): Promise<void>;
   configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void>;
   startAndWaitForPorts(): Promise<void>;
   getState(): Promise<{ status: string }>;
@@ -25,7 +44,7 @@ export interface Gate1ContainerStub {
 
 export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime {
   constructor(private readonly options: { activityId: string; ownerBucket: string; sessionId: string;
-    userEmail: string; userGroups: string[]; routes: Gate1RouteConfig;
+    userEmail: string; userGroups: string[]; routes: Gate1RouteConfig; bootstrap: Gate1SessionBootstrap;
     resolve: (containerId: string) => Gate1ContainerStub }) {}
 
   private container(sessionId: string): Gate1ContainerStub {
@@ -45,7 +64,8 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
     const container = this.container(sessionId);
     try {
       await container.setBucketName(this.options.ownerBucket, { sessionId,
-        userEmail: this.options.userEmail, userGroups: this.options.userGroups, ...this.options.routes });
+        userEmail: this.options.userEmail, userGroups: this.options.userGroups,
+        ...this.options.routes, ...this.options.bootstrap });
       await container.configureOperatorContext(profile, authority);
     } catch { throw new Error('Gate 1 session configuration failed'); }
   }

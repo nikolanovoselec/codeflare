@@ -61,6 +61,7 @@ import type { OperatorPolicy } from './operators/policy';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 
 const logger = createLogger('egress-controller');
+const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 
 /** Props the container DO passes at wiring time (resolved once, never per-request). */
 interface EgressProps {
@@ -80,7 +81,7 @@ interface EgressProps {
   /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
   operatorPolicy?: OperatorPolicy;
   /** Durable owner and prefix used to seal explicit sync writes before signing. */
-  operatorSync?: { activityId: string; outputPrefix: string };
+  operatorSync?: { activityId: string; outputPrefix: string; manifestPrefix: string };
   /** True only for an upload ID already owned by this activity. */
   ownedMultipart?: boolean;
   /** Deployment policy plus current parent-verified authority; neither grants egress. */
@@ -214,16 +215,12 @@ export class EgressController extends WorkerEntrypoint<Env> {
       if (props.operatorPolicy) {
         const path = operatorR2Path(url, accountId, boundBucket);
         const operation = operatorR2Operation(request, url);
-        const decision = path === null ? { allowed: false as const } : decideOperatorStorage(
-          props.operatorPolicy, operation, operation === 'list' ? (url.searchParams.get('prefix') ?? path) : path,
-          props.ownedMultipart === true,
-        );
-        if (!decision.allowed) return jsonError(403, 'OPERATOR_STORAGE_DENIED', 'Operator storage operation is not permitted');
-        if ((operation === 'write' || operation === 'multipart-write') && props.operatorSync
-          && path !== null && path.startsWith(props.operatorSync.outputPrefix)) {
-          const suffix = path.slice(props.operatorSync.outputPrefix.length);
-          const operationId = suffix.split('/')[0];
-          if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId) || !suffix.includes('/')) {
+        const syncWrite = (operation === 'write' || operation === 'multipart-write') && props.operatorSync
+          && path !== null && (path.startsWith(props.operatorSync.outputPrefix)
+            || path.startsWith(props.operatorSync.manifestPrefix));
+        if (syncWrite) {
+          const operationId = request.headers.get(OPERATOR_SYNC_OPERATION_HEADER) ?? '';
+          if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId)) {
             return jsonError(403, 'OPERATOR_SYNC_SCOPE_DENIED', 'Operator sync write scope is invalid');
           }
           if (!this.env.OPERATOR_ACTIVITY) {
@@ -231,7 +228,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
           }
           try {
             const authorization = await this.env.OPERATOR_ACTIVITY.getByName(props.operatorSync.activityId)
-              .authorizeSyncWrite(operationId, path);
+              .authorizeSyncWrite(operationId, path!);
             if (!authorization.ok) {
               const sealed = authorization.reason === 'sealed';
               return jsonError(403, sealed ? 'OPERATOR_SYNC_SEALED' : 'OPERATOR_SYNC_SCOPE_DENIED',
@@ -240,6 +237,12 @@ export class EgressController extends WorkerEntrypoint<Env> {
           } catch {
             return jsonError(503, 'OPERATOR_SYNC_AUTHORITY_UNAVAILABLE', 'Operator sync authority is unavailable');
           }
+        } else {
+          const decision = path === null ? { allowed: false as const } : decideOperatorStorage(
+            props.operatorPolicy, operation, operation === 'list' ? (url.searchParams.get('prefix') ?? path) : path,
+            props.ownedMultipart === true,
+          );
+          if (!decision.allowed) return jsonError(403, 'OPERATOR_STORAGE_DENIED', 'Operator storage operation is not permitted');
         }
       }
       if (!scopedR2Credentials) {
@@ -343,6 +346,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
     for (const h of STRIPPED_REQUEST_HOP_BY_HOP) headers.delete(h);
     headers.delete('host');
     headers.delete('content-length');
+    headers.delete(OPERATOR_SYNC_OPERATION_HEADER);
 
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.

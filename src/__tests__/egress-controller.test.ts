@@ -48,7 +48,7 @@ function makeController(
     r2SseDisabled?: boolean;
     strict?: boolean;
     operatorPolicy?: OperatorPolicy;
-    operatorSync?: { activityId: string; outputPrefix: string };
+    operatorSync?: { activityId: string; outputPrefix: string; manifestPrefix: string };
     ownedMultipart?: boolean;
     jwtStamping?: JwtStampingPolicy;
     jwtAuthority?: JwtStampingAuthority;
@@ -139,17 +139,57 @@ describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credenti
       const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
         accountId: 'acc', operatorPolicy: { ...operatorPolicy,
           storage: { ...operatorPolicy.storage, writePrefixes: ['outputs/activity/'] } },
-        operatorSync: { activityId: 'activity', outputPrefix: 'outputs/activity/' },
+        operatorSync: { activityId: 'activity', outputPrefix: 'outputs/activity/',
+          manifestPrefix: '.codeflare/operators/activity/' },
       });
       const response = await controller.fetch(new Request(
-        'https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/sync-1/late.txt',
-        { method: 'PUT', body: 'late' },
+        'https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/report.txt',
+        { method: 'PUT', body: 'late', headers: { 'x-codeflare-operator-sync-operation': 'sync-1' } },
       ));
       expect(response.status).toBe(403);
       expect((await response.json() as { code?: string }).code).toBe('OPERATOR_SYNC_SEALED');
       expect(activityNamespace.getByName).toHaveBeenCalledWith('activity');
-      expect(authorizeSyncWrite).toHaveBeenCalledWith('sync-1', 'outputs/activity/sync-1/late.txt');
+      expect(authorizeSyncWrite).toHaveBeenCalledWith('sync-1', 'outputs/activity/report.txt');
       expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it('authorizes exact visible and private sync writes by the sealed operation header and strips it before signing', async () => {
+    const authorizeSyncWrite = vi.fn(async () => ({ ok: true as const }));
+    const activityNamespace = { getByName: vi.fn(() => ({ authorizeSyncWrite })) };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const operatorSync = { activityId: 'activity', outputPrefix: 'Operators/',
+      manifestPrefix: '.codeflare/operators/activity/' };
+    try {
+      for (const key of ['Operators/Gate%201/report.txt', '.codeflare/operators/activity/sync-1/manifest.json']) {
+        const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
+          accountId: 'acc', operatorPolicy: { ...operatorPolicy, storage: { readPrefixes: [], writePrefixes: [] } },
+          operatorSync,
+        });
+        const response = await controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
+          method: 'PUT', body: 'value', headers: { 'x-codeflare-operator-sync-operation': 'sync-1' },
+        }));
+        expect(response.status).toBe(200);
+      }
+      expect(authorizeSyncWrite).toHaveBeenNthCalledWith(1, 'sync-1', 'Operators/Gate 1/report.txt');
+      expect(authorizeSyncWrite).toHaveBeenNthCalledWith(2, 'sync-1', '.codeflare/operators/activity/sync-1/manifest.json');
+      for (const call of fetchSpy.mock.calls) {
+        expect((call[0] as Request).headers.get('x-codeflare-operator-sync-operation')).toBeNull();
+      }
+
+      for (const value of [null, '../spoof']) {
+        const headers = value === null ? undefined : { 'x-codeflare-operator-sync-operation': value };
+        const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
+          accountId: 'acc', operatorPolicy, operatorSync,
+        });
+        const denied = await controller.fetch(new Request(
+          'https://acc.r2.cloudflarestorage.com/bucket/Operators/Gate%201/report.txt',
+          { method: 'PUT', body: 'value', headers },
+        ));
+        expect(denied.status).toBe(403);
+        expect((await denied.json() as { code?: string }).code).toBe('OPERATOR_SYNC_SCOPE_DENIED');
+      }
+      expect(authorizeSyncWrite).toHaveBeenCalledTimes(2);
     } finally { fetchSpy.mockRestore(); }
   });
 

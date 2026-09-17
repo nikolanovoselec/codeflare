@@ -54,6 +54,7 @@ interface OperatorSyncState {
   requestDigest: string;
   policyDigest: string;
   prefix: string;
+  keys: string[];
   deadline: number;
   phase: 'prepared' | 'uploaded' | 'verified';
   manifestDigest: string | null;
@@ -93,7 +94,9 @@ const syncIdentity = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const syncDigest = z.string().regex(/^[0-9a-f]{64}$/);
 const syncPreparationSchema = z.strictObject({
   operationId: syncIdentity, sessionId: syncIdentity, requestDigest: syncDigest, policyDigest: syncDigest,
-  prefix: z.string().min(2).max(2048), deadline: z.number().finite().positive(),
+  prefix: z.string().min(2).max(2048),
+  keys: z.array(z.string().min(1).max(4096)).min(1).max(128),
+  deadline: z.number().finite().positive(),
 });
 
 function canonicalSyncPrefix(value: string, operationId: string): boolean {
@@ -382,7 +385,9 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
   /** Persist a stable parent-authorized upload scope before host-side effects. */
   async prepareSync(input: unknown): Promise<OperatorSyncResult> {
     const parsed = syncPreparationSchema.safeParse(input);
-    if (!parsed.success || !canonicalSyncPrefix(parsed.data.prefix, parsed.data.operationId)) {
+    if (!parsed.success || !canonicalSyncPrefix(parsed.data.prefix, parsed.data.operationId)
+      || new Set(parsed.data.keys).size !== parsed.data.keys.length
+      || parsed.data.keys.some(key => !canonicalSyncKey(key) || key.startsWith(parsed.data.prefix))) {
       return { ok: false, reason: 'invalid-scope' };
     }
     const scope = parsed.data;
@@ -397,7 +402,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       if (existing) {
         const same = existing.sessionId === scope.sessionId && existing.requestDigest === scope.requestDigest
           && existing.policyDigest === scope.policyDigest && existing.prefix === scope.prefix
-          && existing.deadline === scope.deadline;
+          && JSON.stringify(existing.keys) === JSON.stringify(scope.keys) && existing.deadline === scope.deadline;
         return same ? { ok: true, phase: existing.phase } : { ok: false, reason: 'conflict' };
       }
       if (Object.keys(operations).length >= 1024) return { ok: false, reason: 'operation-limit' };
@@ -415,7 +420,8 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     if (!operation) return { ok: false, reason: 'not-prepared' };
     if (operation.phase !== 'prepared') return { ok: false, reason: 'sealed' };
     if (operation.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
-    if (!key.startsWith(operation.prefix) || key === operation.prefix || !canonicalSyncPrefix(operation.prefix, operationId)
+    const privateKey = key.startsWith(operation.prefix) && key !== operation.prefix;
+    if ((!privateKey && !operation.keys.includes(key)) || !canonicalSyncPrefix(operation.prefix, operationId)
       || !canonicalSyncKey(key)) return { ok: false, reason: 'invalid-scope' };
     return { ok: true };
   }

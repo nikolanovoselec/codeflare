@@ -26,7 +26,7 @@ export interface OperatorSyncFiles {
 }
 export interface OperatorSyncUploader {
   /** Exact object put only; implementations must not expose sync/delete/copy. */
-  put(key: string, bytes: Uint8Array): Promise<void>;
+  put(operationId: string, key: string, bytes: Uint8Array): Promise<void>;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -138,10 +138,10 @@ export class OperatorSyncService {
     try {
       for (const file of files) {
         this.checkAuthority();
-        await this.uploader.put(`${this.filePrefix}${file.path}`, local.get(file.path)!);
+        await this.uploader.put(request.operationId, `${this.filePrefix}${file.path}`, local.get(file.path)!);
       }
       this.checkAuthority();
-      await this.uploader.put(`${this.manifestPrefix}${request.operationId}/manifest.json`, manifest);
+      await this.uploader.put(request.operationId, `${this.manifestPrefix}${request.operationId}/manifest.json`, manifest);
     } catch {
       receipt = { ...receipt, status: 'unknown' };
       await this.persist(receipt);

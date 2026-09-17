@@ -122,7 +122,8 @@ export class Gate1OperatorCapability {
     const requestDigest = await sha256(JSON.stringify({ activityId, marker: resources.marker }));
     const prefix = `.codeflare/operators/${activityId}/${OPERATION_ID}/`;
     const prepared = await sync.prepare({ operationId: OPERATION_ID, sessionId: resources.profile.sessionId,
-      requestDigest, policyDigest: resources.profile.policyDigest, prefix, deadline });
+      requestDigest, policyDigest: resources.profile.policyDigest, prefix,
+      keys: [resources.marker.storagePath], deadline });
     if (!prepared.ok) throw new Error('Sync preparation failed');
     const upload = await host.fetch('/internal/bisync-trigger', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({

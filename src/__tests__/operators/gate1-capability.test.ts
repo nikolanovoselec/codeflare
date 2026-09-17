@@ -163,7 +163,7 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
       digest: expect.stringMatching(/^[0-9a-f]{64}$/), mode: 'tool', toolName: 'write',
       arguments: { path: `/home/user/${resources.marker.storagePath}`, content: resources.marker.content } });
     expect(sync.prepare).toHaveBeenCalledWith(expect.objectContaining({ operationId,
-      prefix: `.codeflare/operators/${activityId}/${operationId}/` }));
+      prefix: `.codeflare/operators/${activityId}/${operationId}/`, keys: [resources.marker.storagePath] }));
     expect(verify).toHaveBeenCalledWith(expect.objectContaining({ operationId,
       prefix: `.codeflare/operators/${activityId}/${operationId}/`, filePrefix: 'Operators/',
       manifestDigest: 'f'.repeat(64) }));

@@ -369,7 +369,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. R2 reads, listing, writes and multipart operations are server-bound to permitted owner and activity scope. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
+1. R2 reads, listing, writes and multipart operations are server-bound to permitted owner and activity scope; explicit Sync writes carry a stripped internal operation identity and are authorized against exact prepared keys. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/operators/activity.ts::OperatorActivity.authorizeSyncWrite --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
 2. Unsupported copy, deletion and control operations are denied. <!-- @impl: src/operators/interception-policy.ts::decideOperatorStorage --> <!-- @test: src/__tests__/operators/interception-policy.test.ts (REQ-OPERATOR-004: shared operator restriction decisions) -->
 3. Writes to sealed operations are denied. <!-- @impl: src/operators/activity.ts::OperatorActivity.authorizeSyncWrite --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
 4. Existing managed-resource protections remain enforced. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
@@ -400,6 +400,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 4. Stop affects only the owned session. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/container/index.ts::Container.stopOperatorSession --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/gate1-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 5. Wake restores restrictions but requires same-human authority rebind. <!-- @impl: src/container/operator-context.ts --> <!-- @test: src/__tests__/container/operator-context.test.ts (operator container context) -->
 6. Operator/operator and operator/human overlap cannot corrupt unrelated state or stop another activity. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) -->
+7. Before startup, the parent programmatically reconciles the verified human's bucket and passes fresh bucket-scoped credentials plus the applied managed-resource identity to the owned container. <!-- @impl: src/operators/session-bootstrap.ts::bootstrapOperatorSession --> <!-- @impl: src/operators/gate1-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @test: src/__tests__/operators/gate1-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 
 **Constraints:** Non-operator sessions remain unchanged.
 
