@@ -119,8 +119,10 @@ export function createProvisionedOperatorPiFactory(options: {
           streamOptions?: Record<string, unknown>) => {
           const required = initialToolChoice;
           initialToolChoice = undefined;
-          return target.streamSimple(model, promptContext,
-            required === undefined ? streamOptions : { ...streamOptions, toolChoice: 'required' });
+          return target.streamSimple(model, promptContext, required === undefined ? streamOptions : {
+            ...streamOptions,
+            toolChoice: { type: 'function', function: { name: required } },
+          });
         };
         const value = Reflect.get(target, property, target);
         return typeof value === 'function' ? value.bind(target) : value;

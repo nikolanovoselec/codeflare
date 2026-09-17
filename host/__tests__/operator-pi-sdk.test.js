@@ -73,8 +73,8 @@ test('REQ-OPERATOR-021: each conversation owns its approved initial tool choice'
   assert.equal(first.streamSimple('model', 'second-a', { signal: 'three' }), 'stream');
   assert.equal(second.streamSimple('model', 'second-b', { signal: 'four' }), 'stream');
   assert.deepEqual(f.calls.stream, [
-    ['model', 'first-a', { signal: 'one', toolChoice: 'required' }],
-    ['model', 'first-b', { signal: 'two', toolChoice: 'required' }],
+    ['model', 'first-a', { signal: 'one', toolChoice: { type: 'function', function: { name: 'write' } } }],
+    ['model', 'first-b', { signal: 'two', toolChoice: { type: 'function', function: { name: 'write' } } }],
     ['model', 'second-a', { signal: 'three' }],
     ['model', 'second-b', { signal: 'four' }],
   ]);
