@@ -57,7 +57,10 @@ describe('REQ-OPERATOR-005: programmatic operator session bootstrap', () => {
     mocks.authenticateRequest.mockResolvedValue({ user: { email: 'owner@example.test', authenticated: true,
       subscriptionTier: 'unlimited' }, bucketName: 'owner-bucket' });
     mocks.reconcile.mockImplementation(async () => { mocks.calls.push('reconcile'); mocks.current = true; return {}; });
-    mocks.plan.mockResolvedValue({ state: {}, migrating: false, pending: false });
+    mocks.plan.mockImplementation(async () => { mocks.calls.push('plan'); return {
+      state: {}, migrating: false, pending: false,
+    }; });
+    mocks.advance.mockImplementation(async () => { mocks.calls.push('advance'); });
     mocks.ensure.mockImplementation(async () => { mocks.calls.push('ensure'); return {
       r2Config: { accountId: 'account', endpoint: 'https://account.r2.cloudflarestorage.com' }, r2SseDisabled: true,
     }; });
@@ -68,12 +71,25 @@ describe('REQ-OPERATOR-005: programmatic operator session bootstrap', () => {
 
   it('reconciles stale bucket state before minting scoped credentials and returns complete restricted configuration', async () => {
     const result = await bootstrapOperatorSession({ env: env(), authority, ownerBucket: 'owner-bucket' });
-    expect(mocks.calls).toEqual(['reconcile', 'ensure', 'credentials']);
+    expect(mocks.calls).toEqual(['plan', 'reconcile', 'ensure', 'credentials']);
     expect(result.bootstrap).toEqual(expect.objectContaining({
       r2AccessKeyId: 'scoped-key', r2SecretAccessKey: 'scoped-secret', r2AccountId: 'account',
       r2Endpoint: 'https://account.r2.cloudflarestorage.com', r2SseDisabled: true,
       workspaceSyncEnabled: false, sessionMode: 'advanced', managedResourcePolicy: 'mutable',
     }));
+  });
+
+  it('advances a migrating encryption regime before reconciling stale managed state', async () => {
+    let planned = 0;
+    mocks.plan.mockImplementation(async () => {
+      mocks.calls.push('plan');
+      planned += 1;
+      return { state: {}, migrating: planned === 1, pending: false };
+    });
+
+    await bootstrapOperatorSession({ env: env(), authority, ownerBucket: 'owner-bucket' });
+
+    expect(mocks.calls).toEqual(['plan', 'advance', 'plan', 'reconcile', 'ensure', 'credentials']);
   });
 
   it('rejects a resolved identity or bucket mismatch before bucket mutation', async () => {

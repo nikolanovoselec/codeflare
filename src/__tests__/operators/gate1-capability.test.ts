@@ -1,24 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Gate1OperatorCapability, type Gate1CapabilityOptions } from '../../operators/gate1-capability';
-import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { createOperatorSyncReader, OperatorRuntimeCapability } from '../../operators/gate1-production';
 import { resolveGate1Resources, type Gate1Resources } from '../../operators/gate1-resources';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { parseOperatorPolicy } from '../../operators/policy';
 import type { Env } from '../../types';
 
-const production = vi.hoisted(() => ({
-  getContainer: vi.fn(() => ({})),
-  createR2Client: vi.fn(() => ({ sign: vi.fn() })),
-  resolveBucketName: vi.fn(async () => 'owner-bucket'),
-  resolveSessionAccessGroup: vi.fn(async () => []),
-  loadEnterpriseRouteConfig: vi.fn(async () => ({ routeCatalog: ['route-approved'],
-    defaultRoute: 'route-approved', defaultReasoning: 'off' })),
-  bootstrapOperatorSession: vi.fn(async () => ({ user: { email: 'human@example.test', authenticated: true },
-    bootstrap: { r2AccessKeyId: 'key', r2SecretAccessKey: 'secret', r2AccountId: 'account',
-      r2Endpoint: 'https://account.r2.cloudflarestorage.com', workspaceSyncEnabled: false,
-      fastStartEnabled: true, sessionMode: 'advanced', sessionWorkspace: 'terminal', terminalMode: 'classic',
-      managedResourcePolicy: 'mutable' } })),
-}));
+const production = vi.hoisted(() => {
+  const r2Sign = vi.fn(async (url: string, init?: RequestInit) => new Request(url, init));
+  return {
+    getContainer: vi.fn(() => ({})),
+    r2Sign,
+    createR2Client: vi.fn(() => ({ sign: r2Sign })),
+    resolveBucketName: vi.fn(async () => 'owner-bucket'),
+    resolveSessionAccessGroup: vi.fn(async () => []),
+    loadEnterpriseRouteConfig: vi.fn(async () => ({ routeCatalog: ['route-approved'],
+      defaultRoute: 'route-approved', defaultReasoning: 'off' })),
+    bootstrapOperatorSession: vi.fn(async () => ({ user: { email: 'human@example.test', authenticated: true },
+      bootstrap: { r2AccessKeyId: 'key', r2SecretAccessKey: 'secret', r2AccountId: 'account',
+        r2Endpoint: 'https://account.r2.cloudflarestorage.com', workspaceSyncEnabled: false,
+        fastStartEnabled: true, sessionMode: 'advanced', sessionWorkspace: 'terminal', terminalMode: 'classic',
+        managedResourcePolicy: 'mutable' } })),
+  };
+});
 vi.mock('@cloudflare/containers', () => ({ getContainer: production.getContainer }));
 vi.mock('../../lib/r2-client', () => ({ createR2Client: production.createR2Client,
   getR2Url: (endpoint: string, bucket: string, key: string) => `${endpoint}/${bucket}/${key}` }));
@@ -74,6 +78,31 @@ function fixture(overrides: Partial<Gate1CapabilityOptions> = {}) {
     deadline: Date.now() + 60_000, resources, session, host, sync, verify, ...overrides });
   return { capability, calls, session, host, sync, verify };
 }
+
+describe('REQ-OPERATOR-024: trusted operator output verification', () => {
+  it('reads non-Governed output with trusted SSE-C headers and scoped credentials', async () => {
+    const encryptionKey = btoa('a'.repeat(32));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('marker', {
+      status: 200, headers: { 'content-length': '6' },
+    }));
+    try {
+      const reader = await createOperatorSyncReader({ R2_ACCOUNT_ID: 'account', ENCRYPTION_KEY: encryptionKey } as Env,
+        'owner-bucket', { r2AccessKeyId: 'key', r2SecretAccessKey: 'secret', r2AccountId: 'account',
+          r2Endpoint: 'https://account.r2.cloudflarestorage.com', r2SseDisabled: false,
+          workspaceSyncEnabled: false, fastStartEnabled: true, sessionMode: 'advanced',
+          sessionWorkspace: 'terminal', terminalMode: 'classic', managedResourcePolicy: 'mutable' });
+
+      await expect(reader('Operators/report.txt', 16)).resolves.toEqual(new TextEncoder().encode('marker'));
+      expect(production.r2Sign).toHaveBeenCalledWith(
+        'https://account.r2.cloudflarestorage.com/owner-bucket/Operators/report.txt',
+        { headers: expect.objectContaining({
+          'x-amz-server-side-encryption-customer-algorithm': 'AES256',
+          'x-amz-server-side-encryption-customer-key': encryptionKey,
+        }) },
+      );
+    } finally { fetchSpy.mockRestore(); }
+  });
+});
 
 describe('REQ-OPERATOR-018: platform operator capability binding', () => {
   it('delegates an admitted Gate 1 session through the activity- and generation-bound entrypoint', async () => {

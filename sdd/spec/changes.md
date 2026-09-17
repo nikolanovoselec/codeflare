@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-17
+
+- **Operator final-review corrections** ([Operators](operators.md), REQ-OPERATOR-005/009/020/022/023/027/036–039). Non-Governed operator R2 writes and independent reads use trusted parent-owned SSE-C headers so ordinary `Operators/**` restore remains readable without exposing the encryption key. Headless bootstrap settles bucket encryption migration before managed configuration reconciliation. Scoped Sync documentation distinguishes visible output from private manifests and its classified failures. Acceptance criteria separate lifecycle, consumer and owner-scoped mutation outcomes while preserving the existing implementation boundary.
+
 ## 2026-09-16
 
 - **Operator review corrections** ([Operators](operators.md), REQ-OPERATOR-002–035). Restore requirements with pending deployed acceptance to Planned, split independently observable criteria and use independently resolvable source/test anchors. Add authenticated request-attached direct orchestration with one 25-second transport/runtime deadline, admission-pinned distribution authority, admission-only activity publication, safe host JSON responses, descriptor-validated output reads and explicit webhook asset routing. Gate 1 deployment proof remains pending.

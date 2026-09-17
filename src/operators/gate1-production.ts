@@ -5,6 +5,7 @@ import { parseOperatorContainerProfile } from '../container/operator-context';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup } from '../lib/access';
 import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getR2Config } from '../lib/r2-config';
+import { getSseHeaders } from '../lib/r2-sse';
 import { openOperatorExecutionAccess } from './execution-context';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
@@ -67,14 +68,20 @@ function activityStore(activity: Gate1Activity): OwnedOperatorSessionStore {
   };
 }
 
-async function r2Reader(env: Env, bucket: string, bootstrap: Gate1SessionBootstrap): Promise<OperatorSyncReader> {
+export async function createOperatorSyncReader(
+  env: Env,
+  bucket: string,
+  bootstrap: Gate1SessionBootstrap,
+): Promise<OperatorSyncReader> {
   const config = await getR2Config(env);
   const client = createR2Client({
     R2_ACCESS_KEY_ID: bootstrap.r2AccessKeyId,
     R2_SECRET_ACCESS_KEY: bootstrap.r2SecretAccessKey,
   });
   return async (key, maxBytes) => {
-    const signed = await client.sign(getR2Url(config.endpoint, bucket, key));
+    const signed = await client.sign(getR2Url(config.endpoint, bucket, key), {
+      headers: getSseHeaders(env, bootstrap.r2SseDisabled === true),
+    });
     const response = await fetch(signed);
     if (response.status === 404) return null;
     const declared = Number(response.headers.get('content-length') ?? 0);
@@ -120,7 +127,7 @@ async function createGate1ProductionCapability(input: {
     activityId: plan.activityId, ownerBucket, profile: resources.profile, authority });
   const stop = () => service.stop({ activityId: plan.activityId, ownerBucket, drain: false });
   const container = getContainer(env.CONTAINER, `${ownerBucket}-${resources.profile.sessionId}`) as unknown as Gate1ContainerStub;
-  const reader = await r2Reader(env, ownerBucket, bootstrap);
+  const reader = await createOperatorSyncReader(env, ownerBucket, bootstrap);
   const capability = new Gate1OperatorCapability({ activityId: plan.activityId, generation: input.generation,
     deadline: plan.deadline, resources, session: { ensure, stop },
     host: { fetch: (path, init) => container.fetch(new Request(`http://container${path}`, init)) },

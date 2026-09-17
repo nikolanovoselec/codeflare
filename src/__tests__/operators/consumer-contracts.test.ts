@@ -20,6 +20,7 @@ describe('REQ-OPERATOR-009: reusable bounded consumer contracts', () => {
     const base = consumerContractFixtures[1];
     for (const invalid of [
       { ...base, attachments: Array.from({ length: 17 }, (_, i) => ({ ...base.attachments[0], name: `a${i}` })) },
+      { ...base, attachments: [{ ...base.attachments[0], size: 8 * 1024 * 1024 + 1 }] },
       { ...base, attachments: [{ ...base.attachments[0], name: '../secret' }] },
       { ...base, accessJwt: 'private.jwt' },
       { ...base, input: { nested: { authority: { token: 'private' } } } },

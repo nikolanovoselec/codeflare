@@ -16,7 +16,7 @@
  *     container's PLACEHOLDER `authorization` is STRIPPED and the request is RE-SIGNED with
  *     that bucket's Worker-held scoped R2 key (aws4fetch,
  *     reusing the request's `x-amz-content-sha256` so the body streams through unbuffered
- *     and SSE-C headers are preserved) — so the real R2 key never enters the container.
+ *     while trusted SSE-C headers are applied) — so neither R2 nor encryption keys enter the container.
  *   - own account-scoped CF API: direct passthrough (dormant fallback — `api.cloudflare.com`
  *     Browser Rendering is normally claimed by the per-host CloudflareBrowserInterceptor
  *     (REQ-BROWSER-008), which strips the placeholder + injects the real token and TAKES
@@ -348,6 +348,16 @@ export class EgressController extends WorkerEntrypoint<Env> {
     headers.delete('host');
     headers.delete('content-length');
     headers.delete(OPERATOR_SYNC_OPERATION_HEADER);
+    if (ownR2) {
+      for (const name of [
+        'x-amz-server-side-encryption-customer-algorithm',
+        'x-amz-server-side-encryption-customer-key',
+        'x-amz-server-side-encryption-customer-key-md5',
+      ]) headers.delete(name);
+      for (const [name, value] of Object.entries(getSseHeaders(this.env, props.r2SseDisabled === true))) {
+        headers.set(name, value);
+      }
+    }
 
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.
@@ -366,8 +376,8 @@ export class EgressController extends WorkerEntrypoint<Env> {
       if (ownR2 && scopedR2Credentials) {
         // Own R2: strip the container's PLACEHOLDER signature and RE-SIGN with the bound
         // bucket's scoped key. aws4fetch reuses the request's existing x-amz-content-sha256
-        // (so the body streams through unbuffered) and signs every present header (SSE-C
-        // x-amz-* preserved). Account-scoped ⇒ egresses direct, never env.EGRESS.
+        // (so the body streams through unbuffered) and signs the trusted SSE-C headers above.
+        // Account-scoped ⇒ egresses direct, never env.EGRESS.
         const signHeaders = new Headers(forward.headers);
         signHeaders.delete('authorization');
         const signed = await createR2Client({

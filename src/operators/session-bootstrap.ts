@@ -64,11 +64,6 @@ export async function bootstrapOperatorSession(input: {
   const mode = await resolveEffectiveSessionMode(preferences ?? null, user, env);
   const projectionIdentity = codingAgentProjectionIdentity(env.CODING_AGENTS);
   const active = await getActiveManagedRelease(env);
-  if (needsReconciliation(env, preferences, mode, active, projectionIdentity)) {
-    await reconcileAgentConfigsForBootstrap({ env, bucketName, user }, true);
-    preferences = await env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
-  }
-
   const regime = await planRegimeReconcile(env, bucketName, () => hasHealthyContainer(env, bucketName));
   if (regime.pending) throw new Error('Operator bootstrap bucket update pending');
   if (regime.migrating) {
@@ -78,6 +73,11 @@ export async function bootstrapOperatorSession(input: {
     });
     const observed = await planRegimeReconcile(env, bucketName, () => hasHealthyContainer(env, bucketName));
     if (observed.migrating || observed.pending) throw new Error('Operator bootstrap bucket update pending');
+  }
+
+  if (needsReconciliation(env, preferences, mode, active, projectionIdentity)) {
+    await reconcileAgentConfigsForBootstrap({ env, bucketName, user }, true);
+    preferences = await env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
   }
 
   const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier,

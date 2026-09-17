@@ -154,27 +154,42 @@ describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credenti
     } finally { fetchSpy.mockRestore(); }
   });
 
-  it('authorizes exact visible and private sync writes by the sealed operation header and strips it before signing', async () => {
+  it('authorizes exact visible and private sync writes with parent-owned SSE-C before signing', async () => {
     const authorizeSyncWrite = vi.fn(async () => ({ ok: true as const }));
     const activityNamespace = { getByName: vi.fn(() => ({ authorizeSyncWrite })) };
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const operatorSync = { activityId: 'activity', outputPrefix: 'Operators/',
       manifestPrefix: '.codeflare/operators/activity/' };
+    const encryptionKey = btoa('a'.repeat(32));
     try {
       for (const key of ['Operators/Gate%201/report.txt', '.codeflare/operators/activity/sync-1/manifest.json']) {
-        const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
+        const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never,
+          ENCRYPTION_KEY: encryptionKey }, {
           accountId: 'acc', operatorPolicy: { ...operatorPolicy, storage: { readPrefixes: [], writePrefixes: [] } },
-          operatorSync,
+          operatorSync, r2SseDisabled: false,
         });
         const response = await controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
-          method: 'PUT', body: 'value', headers: { 'x-codeflare-operator-sync-operation': 'sync-1' },
+          method: 'PUT', body: 'value', headers: {
+            'x-codeflare-operator-sync-operation': 'sync-1',
+            'x-amz-server-side-encryption-customer-algorithm': 'spoof',
+            'x-amz-server-side-encryption-customer-key': 'spoof',
+            'x-amz-server-side-encryption-customer-key-md5': 'spoof',
+          },
         }));
         expect(response.status).toBe(200);
       }
       expect(authorizeSyncWrite).toHaveBeenNthCalledWith(1, 'sync-1', 'Operators/Gate 1/report.txt');
       expect(authorizeSyncWrite).toHaveBeenNthCalledWith(2, 'sync-1', '.codeflare/operators/activity/sync-1/manifest.json');
       for (const call of fetchSpy.mock.calls) {
-        expect((call[0] as Request).headers.get('x-codeflare-operator-sync-operation')).toBeNull();
+        const request = call[0] as Request;
+        expect(request.headers.get('x-codeflare-operator-sync-operation')).toBeNull();
+        expect(request.headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe('AES256');
+        expect(request.headers.get('x-amz-server-side-encryption-customer-key')).toBe(encryptionKey);
+        expect(request.headers.get('x-amz-server-side-encryption-customer-key-md5')).not.toBe('spoof');
+        expect(request.headers.get('authorization')).toContain(
+          'x-amz-server-side-encryption-customer-algorithm;x-amz-server-side-encryption-customer-key;'
+          + 'x-amz-server-side-encryption-customer-key-md5',
+        );
       }
 
       for (const value of [null, '../spoof']) {
