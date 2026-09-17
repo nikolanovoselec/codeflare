@@ -759,7 +759,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Webhook-path requests reach the fixed Worker contract rather than the SPA fallback. <!-- @impl: wrangler.toml --> <!-- @test: host/__tests__/wrangler-static-assets.test.js (REQ-AUTH-020 AC1, REQ-AUTH-022 AC7, REQ-OPERATOR-029 AC1: Worker-first asset routing) -->
+1. Webhook-path requests reach the fixed Worker contract rather than the SPA fallback. <!-- @impl: wrangler.toml::run_worker_first --> <!-- @impl: src/index.ts::fetch --> <!-- @test: host/__tests__/wrangler-static-assets.test.js (REQ-AUTH-020 AC1, REQ-AUTH-022 AC7, REQ-OPERATOR-029 AC1: Worker-first asset routing) --> <!-- @test: src/__tests__/index.test.ts (REQ-OPERATOR-029: routes the public webhook family through Hono instead of SPA assets) -->
 2. The Worker rejects invalid capabilities, methods, paths and non-enterprise requests. <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (rejects non-enterprise, missing capability, unknown paths, wrong methods and request bodies before activity RPC) -->
 3. Webhook edge operations return fixed response shapes. <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (routes fixed operations with exact response shapes, no-store and no token reflection) -->
 4. Webhook edge responses are non-cacheable. <!-- @impl: src/routes/operator-webhook.ts::response --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (routes fixed operations with exact response shapes, no-store and no token reflection) -->
