@@ -117,6 +117,7 @@ export function createOperatorPiService(options: {
   serializedConfig?: string;
   allowedRoot: string;
   importSdk?: () => Promise<Record<string, unknown>>;
+  importPiAi?: () => Promise<Record<string, unknown>>;
 }): OperatorPiHttpController | undefined {
   if (!options.serializedConfig) return undefined;
   const config = parseConfig(options.serializedConfig, options.allowedRoot);
@@ -128,6 +129,7 @@ export function createOperatorPiService(options: {
       cwd: path.join(config.root, 'work'), agentDir: path.join(config.root, 'agent'),
       sessionDir: path.join(config.root, 'sessions'), profile: config.profile,
       ...(options.importSdk ? { importSdk: options.importSdk } : {}),
+      ...(options.importPiAi ? { importPiAi: options.importPiAi } : {}),
     }),
   });
   return new OperatorPiHttpController(conversation);

@@ -39,7 +39,9 @@ test('REQ-OPERATOR-021: trusted config binds identity/root/profile and produces 
   const serializedConfig = JSON.stringify({ schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', root,
     profile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'off',
       systemPrompt: 'Approved operator context', tools: ['read'] } });
-  const service = createOperatorPiService({ serializedConfig, allowedRoot: root, importSdk: async () => sdk });
+  const piAi = { validateToolArguments: (_tool, toolCall) => toolCall.arguments };
+  const service = createOperatorPiService({ serializedConfig, allowedRoot: root,
+    importSdk: async () => sdk, importPiAi: async () => piAi });
   assert.ok(service);
   const response = await service.handle({ method: 'POST', pathname: '/internal/operator/pi/ensure',
     body: new TextEncoder().encode('{}') });
