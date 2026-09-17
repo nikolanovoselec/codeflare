@@ -30,7 +30,7 @@ const resources = {
     piProfile: { systemPrompt: 'Write the fixed Gate 1 marker.' } },
   effectiveInference: { routeId: 'route-approved', reasoningLevel: 'high' },
   marker: { relativePath: 'gate1-marker.txt', storagePath: `operator-fixtures/gate-1/${activityId}/${sessionId}/gate1-marker.txt`,
-    content: 'codeflare-gate1-marker-v1\n', sha256: 'd'.repeat(64) },
+    content: 'codeflare-gate1-marker-v1', sha256: 'd'.repeat(64) },
 } as unknown as Gate1Resources;
 const request = (generation = 3) => new Request('https://operator.invalid/v1/gate1/session', {
   method: 'POST', headers: { 'content-type': 'application/json' },

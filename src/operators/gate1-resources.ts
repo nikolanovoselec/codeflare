@@ -11,7 +11,7 @@ const GATE1_SESSION_PROFILE_ID = 'gate1-pi-file-v1';
 const GATE1_STORAGE_SCOPE_ID = 'gate1-output-v1';
 const OUTPUT_ROOT = 'operator-fixtures/gate-1/';
 const MARKER_PATH = 'gate1-marker.txt';
-const MARKER_CONTENT = 'codeflare-gate1-marker-v1\n';
+const MARKER_CONTENT = 'codeflare-gate1-marker-v1';
 
 export interface Gate1Resources {
   profile: OperatorContainerProfile;
@@ -87,7 +87,7 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
       provider: 'codeflare-gateway',
       model: effectiveInference.routeId,
       thinkingLevel: effectiveInference.reasoningLevel ?? 'off',
-      systemPrompt: `Write the exact UTF-8 bytes ${JSON.stringify(MARKER_CONTENT)} to ../output/${MARKER_PATH}. Do not create other files.`,
+      systemPrompt: `Use the write tool exactly once with path "../output/${MARKER_PATH}" and exact content ${JSON.stringify(MARKER_CONTENT)}. Do not append a newline or create other files.`,
       tools: ['read', 'write'],
     },
   });
