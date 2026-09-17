@@ -1,0 +1,41 @@
+name: Deploy Operator Gate 1 Fixture
+run-name: Deploy operator Gate 1 fixture (${{ github.ref_name }})
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-operator-gate1-fixture
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: enterprise integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Provision independent connection secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATE1_OPERATOR_CONNECTION_SECRET: ${{ secrets.GATE1_OPERATOR_CONNECTION_SECRET }}
+        run: |
+          set -euo pipefail
+          test "${#GATE1_OPERATOR_CONNECTION_SECRET}" -ge 32
+          printf '%s' "$GATE1_OPERATOR_CONNECTION_SECRET" \
+            | npx wrangler secret put GATE1_OPERATOR_CONNECTION_SECRET \
+                --config fixtures/operator-gate1/wrangler.toml
+      - name: Deploy stateless fixture Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config fixtures/operator-gate1/wrangler.toml

@@ -53,8 +53,8 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
 
     const session = await worker!.fetch('/gate1-bundle?case=session');
     expect(session.status).toBe(200);
-    expect(await session.json()).toEqual({ schemaVersion: 1, status: 'failed', checkpoint: null,
-      result: { code: 'GATE1_SESSION_CAPABILITY_NOT_CONNECTED' } });
+    expect(await session.json()).toEqual({ schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { fixture: 'codeflare-gate1', activityId: 'gate1-activity', via: 'parent-capability' } });
 
     const wrongRoute = await worker!.fetch('/gate1-bundle?case=wrong-route');
     expect(wrongRoute.status).toBe(404);

@@ -8,6 +8,9 @@ import { parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveOperatorRuntime } from './runtime';
 import { createOperatorIntentDigest } from './activity';
+import { parseOperatorConsumerInvocation } from './consumer-contracts';
+import { GATE1_OPERATOR_ID } from './gate1-resources';
+import { createGate1ProductionCapability } from './gate1-production';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const preparationSchema = z.strictObject({ operatorId: ID, invocation: z.json() });
@@ -114,9 +117,17 @@ export async function runOperatorActivity(activityId: string, env: Env): Promise
     }
     const bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
       attemptDeadline);
+    const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
-      invocation: JSON.parse(plan.invocationJson) as unknown,
-      bind: generation => ({ capability: denyByDefaultCapability(activityId, generation), outbound: null }),
+      invocation,
+      bind: async generation => {
+        if (plan.receipt.operatorId === GATE1_OPERATOR_ID
+          && parseOperatorConsumerInvocation(invocation).resources.session !== null) {
+          const connected = await createGate1ProductionCapability({ env, plan, activity, generation });
+          return { capability: connected.capability, outbound: null };
+        }
+        return { capability: denyByDefaultCapability(activityId, generation), outbound: null };
+      },
     });
     if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure();
   } catch {

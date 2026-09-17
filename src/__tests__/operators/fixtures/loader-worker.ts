@@ -63,6 +63,15 @@ export class FixtureCapability extends WorkerEntrypoint<FixtureEnv> {
     return (this.ctx.props as { principal: string }).principal;
   }
   driveGeneration(): number { return (this.ctx.props as { generation: number }).generation; }
+  async fetch(request: Request): Promise<Response> {
+    if (request.method !== 'POST' || new URL(request.url).pathname !== '/v1/gate1/session') {
+      return Response.json({ error: 'Not found' }, { status: 404 });
+    }
+    const body = await request.json() as { activityId?: string; generation?: number };
+    return Response.json({ schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { fixture: 'codeflare-gate1', activityId: body.activityId,
+        via: body.generation === 1 ? 'parent-capability' : 'invalid-generation' } });
+  }
 }
 
 /** Deterministic transport fixture: no provider, Internet, credentials or billing. */

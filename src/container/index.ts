@@ -351,6 +351,20 @@ export class container extends Container<Env> implements ContainerEnvState {
     contextBindOperatorAuthority(this.operatorContextHost, authority);
   }
 
+  /** Parent-only restricted stop: never invokes the ordinary whole-home final bisync lane. */
+  async stopOperatorSession(activityId: string, sessionId: string): Promise<'stopped' | 'unknown'> {
+    const profile = this._operatorContainerProfile;
+    if (!profile || profile.activityId !== activityId || profile.sessionId !== sessionId) {
+      throw new Error('Operator session ownership mismatch');
+    }
+    try {
+      await this.superDestroy();
+      return 'stopped';
+    } catch {
+      return 'unknown';
+    }
+  }
+
   /** Set the bucket name for this container (called by worker on first access). */
   async setBucketName(name: string, r2Creds?: SetBucketNameCreds): Promise<void> {
     await configSetBucketName(this.host, name, r2Creds);

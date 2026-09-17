@@ -13,6 +13,8 @@ import { AppError } from '../lib/error-types';
 import { projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
 import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
+import { parseOperatorContainerProfile } from '../container/operator-context';
+import type { OwnedOperatorSessionState } from './owned-session';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export interface OperatorActivityPreparation extends OperatorAdmissionRequest {
@@ -211,6 +213,51 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     return { activityId: state.intent.activityId, deadline: state.intent.deadline,
       invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
       executionContext: structuredClone(state.executionContext) };
+  }
+
+  /** Activity-owned session state; immutable identity and profile, monotonic finite transitions. */
+  async saveOwnedSession(input: unknown): Promise<{ ok: true } | { ok: false; reason: 'invalid' | 'conflict' }> {
+    const value = input as Partial<OwnedOperatorSessionState>;
+    const statuses = ['reserved', 'configuring', 'configured', 'starting', 'ready', 'stopping', 'stopped', 'unknown'];
+    let profile;
+    try {
+      const encoded = JSON.stringify(input);
+      if (!encoded || new TextEncoder().encode(encoded).byteLength > 64 * 1024) return { ok: false, reason: 'invalid' };
+      profile = parseOperatorContainerProfile(value.profile);
+    } catch { return { ok: false, reason: 'invalid' }; }
+    if (value.schemaVersion !== 1 || !syncIdentity.safeParse(value.requestId).success
+      || !syncDigest.safeParse(value.requestDigest).success || !syncIdentity.safeParse(value.activityId).success
+      || !syncIdentity.safeParse(value.sessionId).success || typeof value.ownerBucket !== 'string'
+      || !/^[A-Za-z0-9._-]{1,128}$/.test(value.ownerBucket) || !statuses.includes(value.status ?? '')
+      || profile.activityId !== value.activityId || profile.sessionId !== value.sessionId
+      || profile.ownerBucket !== value.ownerBucket) return { ok: false, reason: 'invalid' };
+    const candidate = { ...value, profile } as OwnedOperatorSessionState;
+    const transitions: Record<OwnedOperatorSessionState['status'], readonly OwnedOperatorSessionState['status'][]> = {
+      reserved: ['reserved', 'configuring'], configuring: ['configuring', 'configured', 'unknown'],
+      configured: ['configured', 'starting'], starting: ['starting', 'ready', 'unknown'],
+      ready: ['ready', 'stopping'], stopping: ['stopping', 'stopped', 'unknown'],
+      stopped: ['stopped'], unknown: ['unknown'],
+    };
+    return this.ctx.storage.transaction(async tx => {
+      const admission = await tx.get<AdmissionState>('admission');
+      if (!admission || admission.phase !== 'queued' || admission.intent.activityId !== candidate.activityId) {
+        return { ok: false, reason: 'invalid' } as const;
+      }
+      const existing = await tx.get<OwnedOperatorSessionState>('ownedSession');
+      if (existing) {
+        const same = existing.requestId === candidate.requestId && existing.requestDigest === candidate.requestDigest
+          && existing.activityId === candidate.activityId && existing.ownerBucket === candidate.ownerBucket
+          && existing.sessionId === candidate.sessionId && JSON.stringify(existing.profile) === JSON.stringify(candidate.profile);
+        if (!same || !transitions[existing.status].includes(candidate.status)) return { ok: false, reason: 'conflict' } as const;
+      } else if (candidate.status !== 'reserved') return { ok: false, reason: 'conflict' } as const;
+      await tx.put('ownedSession', candidate);
+      return { ok: true } as const;
+    });
+  }
+
+  async getOwnedSession(): Promise<OwnedOperatorSessionState | null> {
+    const state = await this.ctx.storage.get<OwnedOperatorSessionState>('ownedSession');
+    return state ? structuredClone(state) : null;
   }
 
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
