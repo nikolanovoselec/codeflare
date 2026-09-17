@@ -45,12 +45,45 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
 
 interface ActivityEnv { OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string }
 
+interface OperatorSyncState {
+  operationId: string;
+  sessionId: string;
+  requestDigest: string;
+  policyDigest: string;
+  prefix: string;
+  deadline: number;
+  phase: 'prepared' | 'uploaded' | 'verified';
+  manifestDigest: string | null;
+  evidence: { filesVerified: number; bytesVerified: number } | null;
+}
+
+export type OperatorSyncResult = { ok: true; phase: OperatorSyncState['phase'] } | { ok: false; reason:
+  'not-admitted' | 'invalid-scope' | 'conflict' | 'operation-limit' | 'authority-expired'
+    | 'not-prepared' | 'sealed' | 'evidence-mismatch' };
+
 interface AdmissionState {
   intent: OperatorActivityPreparation;
   phase: ActivityAdmissionProjection['phase'];
   receipt: OperatorAdmissionReceipt | null;
   executionContext?: OperatorExecutionContext;
   drive?: OperatorDriveState;
+  syncOperations?: Record<string, OperatorSyncState>;
+}
+
+const syncIdentity = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const syncDigest = z.string().regex(/^[0-9a-f]{64}$/);
+const syncPreparationSchema = z.strictObject({
+  operationId: syncIdentity, sessionId: syncIdentity, requestDigest: syncDigest, policyDigest: syncDigest,
+  prefix: z.string().min(2).max(2048), deadline: z.number().finite().positive(),
+});
+
+function canonicalSyncPrefix(value: string, operationId: string): boolean {
+  return value.endsWith(`/${operationId}/`) && !/[\\%\x00-\x1f\x7f]/.test(value)
+    && value.slice(0, -1).split('/').every(part => part !== '' && part !== '.' && part !== '..');
+}
+function canonicalSyncKey(value: string): boolean {
+  return value.length > 0 && value.length <= 4096 && !/[\\%\x00-\x1f\x7f]/.test(value)
+    && value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 }
 
 const driveUpdateSchema = z.strictObject({
@@ -180,6 +213,97 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       });
       return { ok: true, phase: 'queued' };
     });
+  }
+
+  /** Persist a stable parent-authorized upload scope before host-side effects. */
+  async prepareSync(input: unknown): Promise<OperatorSyncResult> {
+    const parsed = syncPreparationSchema.safeParse(input);
+    if (!parsed.success || !canonicalSyncPrefix(parsed.data.prefix, parsed.data.operationId)) {
+      return { ok: false, reason: 'invalid-scope' };
+    }
+    const scope = parsed.data;
+    return this.ctx.storage.transaction<OperatorSyncResult>(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      if (!record || record.phase !== 'queued' || !record.executionContext) return { ok: false, reason: 'not-admitted' };
+      if (scope.policyDigest !== record.executionContext.policyDigest
+        || scope.deadline > record.intent.deadline) return { ok: false, reason: 'invalid-scope' };
+      if (scope.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+      const operations = record.syncOperations ?? {};
+      const existing = operations[scope.operationId];
+      if (existing) {
+        const same = existing.sessionId === scope.sessionId && existing.requestDigest === scope.requestDigest
+          && existing.policyDigest === scope.policyDigest && existing.prefix === scope.prefix
+          && existing.deadline === scope.deadline;
+        return same ? { ok: true, phase: existing.phase } : { ok: false, reason: 'conflict' };
+      }
+      if (Object.keys(operations).length >= 1024) return { ok: false, reason: 'operation-limit' };
+      const next: OperatorSyncState = { ...scope, phase: 'prepared', manifestDigest: null, evidence: null };
+      await tx.put<AdmissionState>('admission', { ...record,
+        syncOperations: { ...operations, [scope.operationId]: next } });
+      return { ok: true, phase: 'prepared' };
+    });
+  }
+
+  /** The R2 interceptor calls this before each write; uploaded/verified is sealed. */
+  async authorizeSyncWrite(operationId: string, key: string): Promise<{ ok: true } | { ok: false; reason: 'not-prepared' | 'sealed' | 'authority-expired' | 'invalid-scope' }> {
+    const record = await this.ctx.storage.get<AdmissionState>('admission');
+    const operation = record?.syncOperations?.[operationId];
+    if (!operation) return { ok: false, reason: 'not-prepared' };
+    if (operation.phase !== 'prepared') return { ok: false, reason: 'sealed' };
+    if (operation.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+    if (!key.startsWith(operation.prefix) || key === operation.prefix || !canonicalSyncPrefix(operation.prefix, operationId)
+      || !canonicalSyncKey(key)) return { ok: false, reason: 'invalid-scope' };
+    return { ok: true };
+  }
+
+  /** Recording uploaded bytes seals the namespace before independent reads. */
+  async recordSyncUploaded(operationId: string, manifestDigest: string): Promise<OperatorSyncResult> {
+    if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(manifestDigest).success) {
+      return { ok: false, reason: 'invalid-scope' };
+    }
+    return this.ctx.storage.transaction<OperatorSyncResult>(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      const operation = record?.syncOperations?.[operationId];
+      if (!record || !operation) return { ok: false, reason: 'not-prepared' };
+      if (operation.phase !== 'prepared') {
+        return operation.manifestDigest === manifestDigest
+          ? { ok: true, phase: operation.phase } : { ok: false, reason: 'conflict' };
+      }
+      if (operation.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+      const uploaded: OperatorSyncState = { ...operation, phase: 'uploaded', manifestDigest };
+      await tx.put<AdmissionState>('admission', { ...record,
+        syncOperations: { ...(record.syncOperations ?? {}), [operationId]: uploaded } });
+      return { ok: true, phase: 'uploaded' };
+    });
+  }
+
+  /** Commit only evidence matching the already sealed manifest identity. */
+  async recordSyncVerified(operationId: string,
+    evidence: { manifestDigest: string; filesVerified: number; bytesVerified: number }): Promise<OperatorSyncResult> {
+    if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(evidence?.manifestDigest).success
+      || !Number.isSafeInteger(evidence?.filesVerified) || evidence.filesVerified < 0 || evidence.filesVerified > 128
+      || !Number.isSafeInteger(evidence?.bytesVerified) || evidence.bytesVerified < 0
+      || evidence.bytesVerified > 8 * 1024 * 1024) return { ok: false, reason: 'evidence-mismatch' };
+    return this.ctx.storage.transaction<OperatorSyncResult>(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      const operation = record?.syncOperations?.[operationId];
+      if (!record || !operation) return { ok: false, reason: 'not-prepared' };
+      if (operation.manifestDigest !== evidence.manifestDigest) return { ok: false, reason: 'evidence-mismatch' };
+      if (operation.phase === 'verified') return { ok: true, phase: 'verified' };
+      if (operation.phase !== 'uploaded') return { ok: false, reason: 'not-prepared' };
+      const verified: OperatorSyncState = { ...operation, phase: 'verified',
+        evidence: { filesVerified: evidence.filesVerified, bytesVerified: evidence.bytesVerified } };
+      await tx.put<AdmissionState>('admission', { ...record,
+        syncOperations: { ...(record.syncOperations ?? {}), [operationId]: verified } });
+      return { ok: true, phase: 'verified' };
+    });
+  }
+
+  /** Parent-safe durable receipt projection; contains no authority or bucket credentials. */
+  async getSync(operationId: string): Promise<OperatorSyncState | null> {
+    if (!syncIdentity.safeParse(operationId).success) return null;
+    const operation = (await this.ctx.storage.get<AdmissionState>('admission'))?.syncOperations?.[operationId];
+    return operation ? structuredClone(operation) : null;
   }
 
   /**
