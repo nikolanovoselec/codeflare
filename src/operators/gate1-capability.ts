@@ -107,6 +107,11 @@ export class Gate1OperatorCapability {
       return this.failed('GATE1_PI_FAILED');
     }
     if (task.status !== 'completed') return this.waiting('pi');
+    const writeFailure = await this.verifyPiWrite();
+    if (writeFailure) {
+      await session.stop();
+      return this.failed(writeFailure);
+    }
 
     const requestDigest = await sha256(JSON.stringify({ activityId, marker: resources.marker }));
     const prefix = `.codeflare/operators/${activityId}/${OPERATION_ID}/`;
@@ -143,6 +148,46 @@ export class Gate1OperatorCapability {
     const verified = await sync.verified(OPERATION_ID, evidence);
     if (!verified.ok) throw new Error('Sync verification failed');
     return this.finish(evidence);
+  }
+
+  private async verifyPiWrite(): Promise<string | null> {
+    const expectedPath = `/home/user/${this.options.resources.marker.storagePath}`;
+    const expectedContent = this.options.resources.marker.content;
+    const exactCalls = new Set<string>();
+    let sawWrongArguments = false;
+    let cursor = 0;
+    for (let pageNumber = 0; pageNumber < 16; pageNumber += 1) {
+      const observed = await this.options.host.fetch(`/internal/operator/pi/events?cursor=${cursor}`);
+      if (!observed.ok) return 'GATE1_PI_EVIDENCE_UNKNOWN';
+      const page = await observed.json().catch(() => null) as Record<string, unknown> | null;
+      if (!page || page.gap !== false || !Array.isArray(page.events)
+        || typeof page.nextCursor !== 'number' || !Number.isSafeInteger(page.nextCursor) || page.nextCursor < cursor) {
+        return 'GATE1_PI_EVIDENCE_UNKNOWN';
+      }
+      for (const item of page.events) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+        const event = (item as { event?: unknown }).event;
+        if (!event || typeof event !== 'object' || Array.isArray(event)) continue;
+        const record = event as Record<string, unknown>;
+        if (record.type === 'tool_execution_start' && record.toolName === 'write'
+          && typeof record.toolCallId === 'string') {
+          const args = record.args;
+          if (args && typeof args === 'object' && !Array.isArray(args)
+            && (args as Record<string, unknown>).path === expectedPath
+            && (args as Record<string, unknown>).content === expectedContent) exactCalls.add(record.toolCallId);
+          else sawWrongArguments = true;
+        }
+        if (record.type === 'tool_execution_end' && record.toolName === 'write'
+          && typeof record.toolCallId === 'string' && exactCalls.has(record.toolCallId)) {
+          return record.isError === false ? null : 'GATE1_PI_WRITE_FAILED';
+        }
+      }
+      const nextCursor = page.nextCursor as number;
+      if (nextCursor === cursor) break;
+      cursor = nextCursor;
+    }
+    if (exactCalls.size > 0) return 'GATE1_PI_WRITE_FAILED';
+    return sawWrongArguments ? 'GATE1_PI_WRITE_ARGUMENT_MISMATCH' : 'GATE1_PI_WRITE_NOT_OBSERVED';
   }
 
   private async finish(evidence: { filesVerified: number; bytesVerified: number }): Promise<unknown> {
