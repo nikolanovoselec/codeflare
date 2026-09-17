@@ -404,9 +404,10 @@ export default {
       });
     }
 
-    // Only route API requests through Hono
-    // Non-API routes fall through to static assets (SPA)
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/')) {
+    // Route API and the fixed public webhook family through Hono.
+    // Other non-API routes fall through to static assets (SPA).
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/')
+      || url.pathname.startsWith('/operator-webhook/v1/activities/')) {
       return app.fetch(request, env, ctx);
     }
 
