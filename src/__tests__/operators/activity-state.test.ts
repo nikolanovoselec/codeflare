@@ -134,6 +134,21 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       startVerifier: verifier }, context)).toEqual({ ok: true, phase: 'prepared' });
     expect(await secured.start(token)).toEqual({ ok: true, phase: 'queued' });
     expect(await secured.getExecutionContext()).toMatchObject({ artifactDigest: 'a'.repeat(64), policyDigest });
+
+    const sync = { operationId: 'sync-1', sessionId: 'session-1', requestDigest: 'd'.repeat(64), policyDigest,
+      prefix: 'Remote Reviews/activity/session-1/sync-1/', deadline: Date.now() + 60_000 };
+    expect(await secured.prepareSync(sync)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await secured.prepareSync(sync)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await secured.authorizeSyncWrite('sync-1', `${sync.prefix}report.txt`)).toEqual({ ok: true });
+    expect(await secured.recordSyncUploaded('sync-1', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
+    expect(await secured.authorizeSyncWrite('sync-1', `${sync.prefix}late.txt`)).toEqual({ ok: false, reason: 'sealed' });
+    expect(await secured.recordSyncVerified('sync-1', { manifestDigest: 'f'.repeat(64), filesVerified: 1, bytesVerified: 6 }))
+      .toEqual({ ok: false, reason: 'evidence-mismatch' });
+    expect(await secured.recordSyncVerified('sync-1', { manifestDigest: 'e'.repeat(64), filesVerified: 1, bytesVerified: 6 }))
+      .toEqual({ ok: true, phase: 'verified' });
+    expect(await secured.getSync('sync-1')).toMatchObject({ phase: 'verified', manifestDigest: 'e'.repeat(64),
+      evidence: { filesVerified: 1, bytesVerified: 6 } });
+    expect(JSON.stringify(await secured.getSync('sync-1'))).not.toContain('private.jwt');
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {
