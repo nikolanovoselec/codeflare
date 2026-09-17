@@ -4,14 +4,17 @@ import test from 'node:test';
 import { createProvisionedOperatorPiFactory } from '../dist/operator-pi-sdk.js';
 
 function fixture() {
-  const calls = { runtime: [], create: [], managers: [], disposed: 0 };
+  const calls = { runtime: [], create: [], managers: [], stream: [], disposed: 0 };
   const sdkSession = {
     sessionId: 'pi-1', sessionFile: '/owned/sessions/pi-1.jsonl', isStreaming: false,
     prompt: async () => {}, followUp: async () => {}, steer: async () => {}, abort: async () => {},
     subscribe: () => () => {}, dispose: () => { calls.disposed += 1; },
   };
   const manager = kind => ({ kind });
-  const runtime = { getModel: (provider, model) => provider === 'anthropic' && model === 'approved-model' ? { provider, id: model } : undefined };
+  const runtime = {
+    getModel: (provider, model) => provider === 'anthropic' && model === 'approved-model' ? { provider, id: model } : undefined,
+    streamSimple: (model, context, options) => { calls.stream.push([model, context, options]); return 'stream'; },
+  };
   const sdk = {
     ModelRuntime: { create: async options => { calls.runtime.push(options); return runtime; } },
     SettingsManager: { inMemory: options => ({ options }) },
@@ -47,6 +50,24 @@ test('REQ-OPERATOR-021: creates with explicit offline model, settings and approv
   assert.deepEqual(options.resourceLoader.getSkills().skills, [{ name: 'approved-skill' }]);
   assert.deepEqual(options.resourceLoader.getAgentsFiles().agentsFiles, []);
   assert.equal(options.sessionManager.kind, 'create');
+});
+
+test('REQ-OPERATOR-021: an approved initial tool choice applies only to the first model turn', async () => {
+  const f = fixture();
+  const forced = createProvisionedOperatorPiFactory({
+    cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
+    profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'medium',
+      systemPrompt: 'Approved operator context', tools: ['write'], initialToolChoice: 'write' },
+    importSdk: f.importSdk,
+  });
+  await forced.create();
+  const runtime = f.calls.create[0].modelRuntime;
+  assert.equal(runtime.streamSimple('model', 'first', { signal: 'one' }), 'stream');
+  assert.equal(runtime.streamSimple('model', 'second', { signal: 'two' }), 'stream');
+  assert.deepEqual(f.calls.stream, [
+    ['model', 'first', { signal: 'one', toolChoice: 'required' }],
+    ['model', 'second', { signal: 'two' }],
+  ]);
 });
 
 test('REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory', async () => {

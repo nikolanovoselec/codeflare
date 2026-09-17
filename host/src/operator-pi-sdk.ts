@@ -15,6 +15,8 @@ export interface OperatorPiSdkProfile {
   thinkingLevel: string;
   systemPrompt: string;
   tools: readonly string[];
+  /** Require a tool call on the first model turn; the named tool must be the sole approved tool. */
+  initialToolChoice?: string;
   extensions?: readonly unknown[];
   skills?: readonly unknown[];
   prompts?: readonly unknown[];
@@ -24,6 +26,7 @@ export interface OperatorPiSdkProfile {
 
 interface PiModelRuntime {
   getModel(provider: string, model: string): unknown;
+  streamSimple(model: unknown, context: unknown, options?: Record<string, unknown>): unknown;
 }
 interface PiSdk {
   ModelRuntime: { create(options: object): Promise<PiModelRuntime> };
@@ -39,7 +42,9 @@ function validateProfile(profile: OperatorPiSdkProfile): void {
   const bounded = (value: string, max: number) => value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= max;
   if (!bounded(profile.provider, 128) || !bounded(profile.model, 256) || !bounded(profile.thinkingLevel, 32)
     || !bounded(profile.systemPrompt, 64 * 1024) || profile.tools.length > 64
-    || profile.tools.some(tool => !/^[a-zA-Z0-9_-]{1,64}$/.test(tool))) {
+    || profile.tools.some(tool => !/^[a-zA-Z0-9_-]{1,64}$/.test(tool))
+    || (profile.initialToolChoice !== undefined
+      && (profile.tools.length !== 1 || profile.tools[0] !== profile.initialToolChoice))) {
     throw new Error('Invalid approved Pi profile');
   }
 }
@@ -72,10 +77,24 @@ export function createProvisionedOperatorPiFactory(options: {
         || !sdk.SessionManager.open || !sdk.createExtensionRuntime || !sdk.createAgentSession) {
         throw new Error('Provisioned Pi SDK is incompatible');
       }
-      const modelRuntime = await sdk.ModelRuntime.create({
+      const provisionedRuntime = await sdk.ModelRuntime.create({
         authPath: path.join(agentDir, 'auth.json'),
         modelsPath: path.join(agentDir, 'models.json'),
         allowModelNetwork: false,
+      });
+      let initialToolChoice = options.profile.initialToolChoice;
+      const modelRuntime = initialToolChoice === undefined ? provisionedRuntime : new Proxy(provisionedRuntime, {
+        get(target, property) {
+          if (property === 'streamSimple') return (model: unknown, promptContext: unknown,
+            streamOptions?: Record<string, unknown>) => {
+            const required = initialToolChoice;
+            initialToolChoice = undefined;
+            return target.streamSimple(model, promptContext,
+              required === undefined ? streamOptions : { ...streamOptions, toolChoice: 'required' });
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
       });
       const model = modelRuntime.getModel(options.profile.provider, options.profile.model);
       if (!model) throw new Error('Approved model is unavailable in the provisioned Pi SDK');

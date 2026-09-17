@@ -59,6 +59,7 @@ describe('operator container context', () => {
       { ...profile, ownerBucket: 'other' }, { ...profile, sessionId: 'other' },
       { ...profile, deadline: authority.human.expiresAt * 1000 + 1 },
       { ...profile, outputPrefix: '../escape/' },
+      { ...profile, piProfile: { ...profile.piProfile, initialToolChoice: 'write' } },
       { ...profile, policy: { ...policy, networkHosts: ['https://bad.example.test'] } },
     ]) {
       const f = fixture();

@@ -92,6 +92,7 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
         thinkingLevel: 'high',
         systemPrompt: 'Call the write tool now and do not respond with text. Use exactly this JSON argument: {"path":"../output/gate1-marker.txt","content":"codeflare-gate1-marker-v1"}. Call no other tools, append no newline, and create no other files.',
         tools: ['write'],
+        initialToolChoice: 'write',
       },
     });
     expect(result.profile).not.toHaveProperty('accessJwt');
