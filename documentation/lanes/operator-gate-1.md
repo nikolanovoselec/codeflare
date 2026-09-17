@@ -44,7 +44,7 @@ A source/CI entry means the primitive is implemented and regression-tested. It i
 - Direct/session/webhook outcomes: `src/__tests__/operators/platform-acceptance-fixtures.test.ts`.
 - Generic input/source/revision/run/resource contracts: `src/operators/consumer-contracts.ts` and its tests.
 - Native Loader behavior: `src/__tests__/operators/loader-runtime.test.ts` plus the isolated Wrangler fixture.
-- Deployable distribution fixture source: `fixtures/operator-gate1/`, with explicit enterprise-integration deployment in `.github/workflows/deploy-operator-gate1.yml`; Access configuration and live authenticated retrieval remain pending.
+- Deployable distribution fixture source: `fixtures/operator-gate1/`; successful Enterprise Integration deploys call `.github/workflows/deploy-operator-gate1.yml`, which also remains manually dispatchable. Access configuration and live authenticated retrieval remain pending.
 - Fixed session acceptance composition: `src/operators/gate1-production.ts`, `src/operators/gate1-capability.ts`, `src/operators/gate1-runtime.ts`, and `src/operators/gate1-resources.ts`; CI does not count as deployed session/Pi/R2/stop evidence.
 - Canonical local-review fence: `src/__tests__/operators/legacy-review-unchanged.test.ts`; inspected packet-builder SHA-256 `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`.
 - Full exact-head CI for this fixture package: commit `548159ac`, run `35175644803`.
