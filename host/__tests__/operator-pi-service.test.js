@@ -27,6 +27,7 @@ test('REQ-OPERATOR-021: trusted config binds identity/root/profile and produces 
   const root = await mkdtemp(path.join(tmpdir(), 'operator-pi-service-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const sdkSession = { sessionId: 'pi-1', sessionFile: path.join(root, 'sessions/pi-1.jsonl'), isStreaming: false,
+    agent: { state: { tools: [{ name: 'read', execute: async () => ({ content: [], details: undefined }) }] } },
     prompt: async () => {}, followUp: async () => {}, steer: async () => {}, abort: async () => {},
     subscribe: () => () => {}, dispose() {} };
   const sdk = {

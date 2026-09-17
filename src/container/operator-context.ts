@@ -12,8 +12,6 @@ interface OperatorPiProfile {
   thinkingLevel: string;
   systemPrompt: string;
   tools: string[];
-  /** Force only the first model turn to call this already-approved tool. */
-  initialToolChoice?: string;
 }
 export interface OperatorContainerProfile {
   schemaVersion: 1;
@@ -65,20 +63,17 @@ function bounded(value: unknown, max: number): value is string {
 function parsePiProfile(value: unknown): OperatorPiProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator Pi profile');
   const profile = value as Record<string, unknown>;
-  if ((Object.keys(profile).length !== 5 && Object.keys(profile).length !== 6)
-    || Object.keys(profile).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools', 'initialToolChoice'].includes(key))
+  if (Object.keys(profile).length !== 5
+    || Object.keys(profile).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools'].includes(key))
     || !bounded(profile.provider, 128) || !bounded(profile.model, 256)
     || !bounded(profile.thinkingLevel, 32) || !bounded(profile.systemPrompt, 64 * 1024)
     || !Array.isArray(profile.tools) || profile.tools.length > 64
     || profile.tools.some(tool => typeof tool !== 'string' || !TOOL.test(tool))
-    || new Set(profile.tools).size !== profile.tools.length
-    || (profile.initialToolChoice !== undefined
-      && (typeof profile.initialToolChoice !== 'string' || !profile.tools.includes(profile.initialToolChoice)))) {
+    || new Set(profile.tools).size !== profile.tools.length) {
     throw new Error('Invalid operator Pi profile');
   }
   return { provider: profile.provider, model: profile.model, thinkingLevel: profile.thinkingLevel,
-    systemPrompt: profile.systemPrompt, tools: [...profile.tools] as string[],
-    ...(typeof profile.initialToolChoice === 'string' ? { initialToolChoice: profile.initialToolChoice } : {}) };
+    systemPrompt: profile.systemPrompt, tools: [...profile.tools] as string[] };
 }
 
 function parseHuman(value: unknown): OperatorContainerProfile['human'] {

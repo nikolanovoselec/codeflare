@@ -15,8 +15,6 @@ export interface OperatorPiSdkProfile {
   thinkingLevel: string;
   systemPrompt: string;
   tools: readonly string[];
-  /** Require a tool call on the first model turn; the named tool must be the sole approved tool. */
-  initialToolChoice?: string;
   extensions?: readonly unknown[];
   skills?: readonly unknown[];
   prompts?: readonly unknown[];
@@ -26,14 +24,30 @@ export interface OperatorPiSdkProfile {
 
 interface PiModelRuntime {
   getModel(provider: string, model: string): unknown;
-  streamSimple(model: unknown, context: unknown, options?: Record<string, unknown>): unknown;
+}
+interface PiAgentTool {
+  name: string;
+  prepareArguments?: (arguments_: unknown) => unknown;
+  execute(toolCallId: string, arguments_: unknown, signal?: AbortSignal): Promise<unknown>;
+}
+interface PiAgentSession {
+  readonly sessionId: string;
+  readonly sessionFile?: string;
+  readonly isStreaming: boolean;
+  readonly agent: { state: { tools: readonly PiAgentTool[] } };
+  prompt(text: string): Promise<void>;
+  followUp(text: string): Promise<void>;
+  steer(text: string): Promise<void>;
+  abort(): Promise<void>;
+  subscribe(listener: (event: unknown) => void): () => void;
+  dispose(): void;
 }
 interface PiSdk {
   ModelRuntime: { create(options: object): Promise<PiModelRuntime> };
   SettingsManager: { inMemory(options: object): unknown };
   SessionManager: { create(cwd: string, sessionDir: string): unknown; open(file: string, sessionDir: string): unknown };
   createExtensionRuntime(): unknown;
-  createAgentSession(options: object): Promise<{ session: OperatorPiSession }>;
+  createAgentSession(options: object): Promise<{ session: PiAgentSession }>;
 }
 
 const DEFAULT_SDK_ROOT = '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent';
@@ -42,9 +56,7 @@ function validateProfile(profile: OperatorPiSdkProfile): void {
   const bounded = (value: string, max: number) => value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= max;
   if (!bounded(profile.provider, 128) || !bounded(profile.model, 256) || !bounded(profile.thinkingLevel, 32)
     || !bounded(profile.systemPrompt, 64 * 1024) || profile.tools.length > 64
-    || profile.tools.some(tool => !/^[a-zA-Z0-9_-]{1,64}$/.test(tool))
-    || (profile.initialToolChoice !== undefined
-      && (profile.tools.length !== 1 || profile.tools[0] !== profile.initialToolChoice))) {
+    || profile.tools.some(tool => !/^[a-zA-Z0-9_-]{1,64}$/.test(tool))) {
     throw new Error('Invalid approved Pi profile');
   }
 }
@@ -111,31 +123,33 @@ export function createProvisionedOperatorPiFactory(options: {
 
   const createWith = async (sessionManager: unknown): Promise<OperatorPiSession> => {
     const { sdk, base } = await context();
-    const provisionedRuntime = base.modelRuntime as PiModelRuntime;
-    let initialToolChoice: string | undefined;
-    const modelRuntime = options.profile.initialToolChoice === undefined ? provisionedRuntime : new Proxy(provisionedRuntime, {
-      get(target, property) {
-        if (property === 'streamSimple') return (model: unknown, promptContext: unknown,
-          streamOptions?: Record<string, unknown>) => {
-          const required = initialToolChoice;
-          initialToolChoice = undefined;
-          return target.streamSimple(model, promptContext, required === undefined ? streamOptions : {
-            ...streamOptions,
-            toolChoice: { type: 'function', function: { name: required } },
-          });
-        };
-        const value = Reflect.get(target, property, target);
-        return typeof value === 'function' ? value.bind(target) : value;
+    const result = await sdk.createAgentSession({ ...base, sessionManager });
+    const session = result?.session;
+    if (!session?.sessionId || !session.agent?.state || !Array.isArray(session.agent.state.tools)) {
+      throw new Error('Provisioned Pi SDK returned no session');
+    }
+    return {
+      get sessionId() { return session.sessionId; },
+      get sessionFile() { return session.sessionFile; },
+      get isStreaming() { return session.isStreaming; },
+      prompt: text => session.prompt(text),
+      async executeTool(input) {
+        if (session.isStreaming) throw new Error('Pi conversation is busy');
+        if (!options.profile.tools.includes(input.name)) throw new Error('Approved Pi tool is unavailable');
+        const matches = session.agent.state.tools.filter(tool => tool.name === input.name);
+        if (matches.length !== 1) throw new Error('Approved Pi tool is unavailable');
+        input.signal.throwIfAborted();
+        const tool = matches[0];
+        const arguments_ = tool.prepareArguments ? tool.prepareArguments(structuredClone(input.arguments)) : input.arguments;
+        await tool.execute(input.toolCallId, arguments_, input.signal);
+        input.signal.throwIfAborted();
       },
-    });
-    const result = await sdk.createAgentSession({ ...base, modelRuntime, sessionManager });
-    if (!result?.session?.sessionId) throw new Error('Provisioned Pi SDK returned no session');
-    const messages = (result.session as OperatorPiSession & { messages?: unknown }).messages;
-    const hasModelTurn = Array.isArray(messages) && messages.some(message => Boolean(message)
-      && typeof message === 'object' && !Array.isArray(message)
-      && (message as { role?: unknown }).role === 'assistant');
-    initialToolChoice = hasModelTurn ? undefined : options.profile.initialToolChoice;
-    return result.session;
+      followUp: text => session.followUp(text),
+      steer: text => session.steer(text),
+      abort: () => session.abort(),
+      subscribe: listener => session.subscribe(listener),
+      dispose: () => session.dispose(),
+    };
   };
 
   return {

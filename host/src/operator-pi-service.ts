@@ -31,7 +31,7 @@ function parseMetadata(value: unknown): OperatorPiMetadata {
     if (!ID.test(taskId) || !task || typeof task !== 'object' || Array.isArray(task)) throw new Error('Invalid Pi metadata');
     const item = task as Record<string, unknown>;
     if (Object.keys(item).length !== 3 || typeof item.digest !== 'string' || !DIGEST.test(item.digest)
-      || (item.mode !== 'prompt' && item.mode !== 'follow-up' && item.mode !== 'steer')
+      || (item.mode !== 'prompt' && item.mode !== 'follow-up' && item.mode !== 'steer' && item.mode !== 'tool')
       || typeof item.status !== 'string' || !TASK_STATUS.has(item.status)) throw new Error('Invalid Pi metadata');
   }
   return structuredClone(record) as unknown as OperatorPiMetadata;
@@ -103,17 +103,14 @@ function parseConfig(serialized: string, allowedRoot: string): SerializedConfig 
     throw new Error('Invalid operator Pi configuration');
   }
   const p = profile as Record<string, unknown>;
-  if (Object.keys(p).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools', 'initialToolChoice'].includes(key))
+  if (Object.keys(p).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools'].includes(key))
     || typeof p.provider !== 'string' || typeof p.model !== 'string' || typeof p.thinkingLevel !== 'string'
-    || typeof p.systemPrompt !== 'string' || !Array.isArray(p.tools) || p.tools.some(tool => typeof tool !== 'string')
-    || (p.initialToolChoice !== undefined
-      && (typeof p.initialToolChoice !== 'string' || !p.tools.includes(p.initialToolChoice)))) {
+    || typeof p.systemPrompt !== 'string' || !Array.isArray(p.tools) || p.tools.some(tool => typeof tool !== 'string')) {
     throw new Error('Invalid operator Pi configuration');
   }
   return { schemaVersion: 1, activityId: record.activityId, sessionId: record.sessionId, root,
     profile: { provider: p.provider, model: p.model, thinkingLevel: p.thinkingLevel,
-      systemPrompt: p.systemPrompt, tools: p.tools as string[],
-      ...(typeof p.initialToolChoice === 'string' ? { initialToolChoice: p.initialToolChoice } : {}) } };
+      systemPrompt: p.systemPrompt, tools: p.tools as string[] } };
 }
 
 export function createOperatorPiService(options: {

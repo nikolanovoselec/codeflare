@@ -13,7 +13,7 @@ export interface OperatorPiMetadata {
   sessionId: string;
   conversationId: string;
   sessionFile: string;
-  tasks: Record<string, { digest: string; mode: 'prompt' | 'follow-up' | 'steer'; status: string }>;
+  tasks: Record<string, { digest: string; mode: 'prompt' | 'follow-up' | 'steer' | 'tool'; status: string }>;
 }
 
 export interface OperatorPiStore {
@@ -26,6 +26,7 @@ export interface OperatorPiSession {
   readonly sessionFile?: string;
   readonly isStreaming: boolean;
   prompt(text: string): Promise<void>;
+  executeTool(input: { toolCallId: string; name: string; arguments: Record<string, unknown>; signal: AbortSignal }): Promise<void>;
   followUp(text: string): Promise<void>;
   steer(text: string): Promise<void>;
   abort(): Promise<void>;
@@ -47,6 +48,15 @@ const PAGE_BYTES = 64 * 1024;
 
 interface SequencedEvent { sequence: number; event: unknown; bytes: number }
 
+type OperatorPiTaskInput = { taskId: string; digest: string } & (
+  { mode: 'prompt' | 'follow-up' | 'steer'; text: string }
+  | { mode: 'tool'; toolName: string; arguments: Record<string, unknown> }
+);
+
+function plain(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 export class OperatorPiConversation {
   private readonly activityId: string;
   private readonly sessionId: string;
@@ -59,6 +69,7 @@ export class OperatorPiConversation {
   private eventBytes = 0;
   private nextSequence = 1;
   private activePrompt: Promise<void> | null = null;
+  private activeToolAbort: AbortController | null = null;
   private pendingFollowUp = false;
   private pendingSteer = false;
   private saveChain: Promise<void> = Promise.resolve();
@@ -101,9 +112,12 @@ export class OperatorPiConversation {
   }
 
   /** Persist stable intent before invoking the SDK; same ID/digest only reconciles. */
-  async send(input: { taskId: string; digest: string; text: string; mode: 'prompt' | 'follow-up' | 'steer' }): Promise<{ status: string }> {
-    if (!ID.test(input.taskId) || !DIGEST.test(input.digest) || !input.text.trim()
-      || new TextEncoder().encode(input.text).byteLength > 32 * 1024) throw new Error('Invalid Pi task');
+  async send(input: OperatorPiTaskInput): Promise<{ status: string }> {
+    const payload = input.mode === 'tool' ? JSON.stringify(input.arguments) : input.text;
+    if (!ID.test(input.taskId) || !DIGEST.test(input.digest)
+      || (input.mode === 'tool' && (!ID.test(input.toolName) || !plain(input.arguments)))
+      || (input.mode !== 'tool' && !input.text.trim())
+      || new TextEncoder().encode(payload).byteLength > 32 * 1024) throw new Error('Invalid Pi task');
     await this.ensure();
     const metadata = this.metadata!;
     const existing = metadata.tasks[input.taskId];
@@ -112,19 +126,31 @@ export class OperatorPiConversation {
       return { status: existing.status };
     }
     const active = this.activePrompt !== null || this.session!.isStreaming;
-    if (input.mode === 'prompt' && active) throw new Error('Pi conversation is busy');
+    if ((input.mode === 'prompt' || input.mode === 'tool') && active) throw new Error('Pi conversation is busy');
     if (input.mode === 'follow-up' && !active) throw new Error('Follow-up requires an active run');
     if (input.mode === 'steer' && !active) throw new Error('Steering requires an active run');
     if (input.mode === 'follow-up' && this.pendingFollowUp) throw new Error('Pi follow-up queue is full');
     if (input.mode === 'steer' && this.pendingSteer) throw new Error('Pi steering input is pending');
 
-    const status = input.mode === 'prompt' ? 'running' : input.mode === 'follow-up' ? 'queued' : 'accepted';
+    const status = input.mode === 'prompt' || input.mode === 'tool'
+      ? 'running' : input.mode === 'follow-up' ? 'queued' : 'accepted';
     metadata.tasks[input.taskId] = { digest: input.digest, mode: input.mode, status };
     await this.persist();
-    if (input.mode === 'prompt') {
+    if (input.mode === 'prompt' || input.mode === 'tool') {
       let operation: Promise<void>;
-      try { operation = this.session!.prompt(input.text); }
-      catch (error) { metadata.tasks[input.taskId].status = 'failed'; await this.persist(); throw error; }
+      try {
+        if (input.mode === 'prompt') operation = this.session!.prompt(input.text);
+        else {
+          this.activeToolAbort = new AbortController();
+          operation = this.session!.executeTool({ toolCallId: input.taskId, name: input.toolName,
+            arguments: input.arguments, signal: this.activeToolAbort.signal });
+        }
+      } catch (error) {
+        this.activeToolAbort = null;
+        metadata.tasks[input.taskId].status = 'failed';
+        await this.persist();
+        throw error;
+      }
       this.activePrompt = this.settlePrompt(input.taskId, operation);
     } else if (input.mode === 'follow-up') {
       this.pendingFollowUp = true;
@@ -160,6 +186,7 @@ export class OperatorPiConversation {
     const task = this.metadata!.tasks[taskId];
     if (!task) throw new Error('Pi task not found');
     if (task.status === 'cancelled') return { status: 'cancelled' };
+    this.activeToolAbort?.abort();
     await this.session!.abort();
     if (this.activePrompt) await this.activePrompt;
     task.status = 'cancelled';
@@ -195,6 +222,7 @@ export class OperatorPiConversation {
     } finally {
       this.pendingFollowUp = false;
       this.pendingSteer = false;
+      this.activeToolAbort = null;
       this.activePrompt = null;
       await this.persist();
     }

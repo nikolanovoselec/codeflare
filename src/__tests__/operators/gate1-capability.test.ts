@@ -149,7 +149,7 @@ describe('REQ-OPERATOR-018: platform operator capability binding', () => {
 
 describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
   it('owns session, structured Pi, explicit upload, independent verification and stop in order', async () => {
-    const { capability, calls, sync, verify } = fixture();
+    const { capability, calls, host, sync, verify } = fixture();
     const response = await capability.fetch(request());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ schemaVersion: 1, status: 'completed', checkpoint: null,

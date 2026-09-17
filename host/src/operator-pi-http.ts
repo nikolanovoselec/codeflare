@@ -48,16 +48,24 @@ export class OperatorPiHttpController {
         if (input.method !== 'POST') return this.methodNotAllowed();
         const body = parseBody(input.body);
         const keys = Object.keys(body);
-        const valid = keys.length === 4 && keys.every(key => ['taskId', 'digest', 'text', 'mode'].includes(key))
-          && typeof body.taskId === 'string' && ID.test(body.taskId)
-          && typeof body.digest === 'string' && DIGEST.test(body.digest)
+        const baseValid = typeof body.taskId === 'string' && ID.test(body.taskId)
+          && typeof body.digest === 'string' && DIGEST.test(body.digest);
+        const promptValid = keys.length === 4 && keys.every(key => ['taskId', 'digest', 'text', 'mode'].includes(key))
           && typeof body.text === 'string' && body.text.trim().length > 0
           && new TextEncoder().encode(body.text).byteLength <= 32 * 1024
           && (body.mode === 'prompt' || body.mode === 'follow-up' || body.mode === 'steer');
-        if (!valid) return this.invalid();
+        const toolValid = keys.length === 5
+          && keys.every(key => ['taskId', 'digest', 'mode', 'toolName', 'arguments'].includes(key))
+          && body.mode === 'tool' && typeof body.toolName === 'string' && ID.test(body.toolName)
+          && body.arguments !== null && typeof body.arguments === 'object' && !Array.isArray(body.arguments)
+          && new TextEncoder().encode(JSON.stringify(body.arguments)).byteLength <= 32 * 1024;
+        if (!baseValid || (!promptValid && !toolValid)) return this.invalid();
         const taskId = body.taskId as string;
-        const task = await this.conversation.send({ taskId, digest: body.digest as string,
-          text: body.text as string, mode: body.mode as 'prompt' | 'follow-up' | 'steer' });
+        const task = body.mode === 'tool'
+          ? await this.conversation.send({ taskId, digest: body.digest as string, mode: 'tool',
+            toolName: body.toolName as string, arguments: body.arguments as Record<string, unknown> })
+          : await this.conversation.send({ taskId, digest: body.digest as string,
+            text: body.text as string, mode: body.mode as 'prompt' | 'follow-up' | 'steer' });
         return result(202, { taskId, status: task.status });
       }
       if (input.pathname === `${PREFIX}events`) {
