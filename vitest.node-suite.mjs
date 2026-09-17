@@ -8,6 +8,8 @@
 export const NODE_SUITE_FILES = [
   // Isolated Wrangler/workerd fixture verifies the real Worker Loader boundary.
   'src/__tests__/operators/loader-runtime.test.ts',
+  // Phase-1 regression fence for canonical local-review packet bytes.
+  'src/__tests__/operators/legacy-review-unchanged.test.ts',
   // CI gate scripts: spawned as subprocesses against temp trees.
   'src/__tests__/ci/suite-gates.test.ts',
   'src/__tests__/ci/usage-d1-deploy.test.ts',
