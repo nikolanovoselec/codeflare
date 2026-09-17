@@ -194,7 +194,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Protected execution-context behavior is covered by the adjacent tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -219,7 +219,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -247,7 +247,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Activity admission behavior is covered by the adjacent tests. Owned-compute cancellation remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -275,7 +275,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Durable drive generation and checkpoint behavior is covered by the adjacent tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -301,9 +301,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations)
 
-**Verification:** Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Prior exact-head CI 35154419607 at `981c0694` is GREEN; orchestration review-fix CI is pending.
+**Verification:** Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Exact-head CI 35285707512 at `137ffcb5` is GREEN; deployed evidence is recorded in `documentation/lanes/operator-gate-1.md`.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -331,7 +331,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Shared interception and Browser denial are covered by the adjacent transport tests. Deployed direct and session egress acceptance remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -357,7 +357,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** JWT-stamping behavior is covered by the adjacent transport tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -380,9 +380,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** R2 transport behavior is pending deployed acceptance.
+**Verification:** R2 transport behavior passed exact-head CI 35285707512 at `137ffcb5` and deployed activity `e44f0abe-8097-46d5-9265-8a4750024b8e` independently verified the exact uploaded marker bytes.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -410,7 +410,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Owned-session and container-context behavior is covered by the adjacent tests. Deployed stop and concurrency acceptance remain unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -438,7 +438,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Structured Pi conversation behavior is covered by the adjacent host tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -465,7 +465,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Restricted startup and shutdown selection is covered by the adjacent tests. Deployed stop acceptance remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -492,7 +492,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Explicit-sync behavior is covered by the adjacent host tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -518,7 +518,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Independent byte verification is covered by the adjacent tests. Exact-head CI 35169456503 at `0ce22c80` is GREEN. Deployed file-to-R2 restoration remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -546,7 +546,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Capability consumption and activity-result behavior is covered by the adjacent tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -572,7 +572,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Optional encrypted webhook handoff is covered by the adjacent tests. Public-host callback acceptance in both handoff modes remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -597,7 +597,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -621,7 +621,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Selection and interceptor behavior is covered by the adjacent tests. Exact-head CI 35172865340 at `d51d0039` is GREEN. Actual provider-request acceptance remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -646,7 +646,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Enterprise operator administration is covered by the adjacent component and client tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -673,7 +673,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Activity control and owner-scoped browser API behavior is covered by the adjacent tests. Exact-head CI 35174509964 at `e03c48ec` is GREEN. Deployed desktop, tablet and mobile acceptance remains unverified.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -699,9 +699,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation), [REQ-OPERATOR-024](#req-operator-024-independent-synchronization-verification), [REQ-OPERATOR-025](#req-operator-025-optional-encrypted-webhook-handoff), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Consumer contracts and direct/session/webhook fixtures are covered by the adjacent tests. Exact-head CI 35175644803 at `548159ac` is GREEN. Deployed Gate 1 evidence remains pending.
+**Verification:** Consumer contracts and direct/session/webhook fixtures are covered by the adjacent tests. Exact-head CI 35285707512 at `137ffcb5` is GREEN and the deployed Gate 1 evidence is recorded in `documentation/lanes/operator-gate-1.md`.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -726,7 +726,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Discovery and bundle parser behavior passed exact-head CI 35122553530 at `798fccda`. Deployed registration acceptance remains pending.
+**Verification:** Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; deployed registration revision 5 and the approved artifact digest are recorded in `documentation/lanes/operator-gate-1.md`.
 
 **Status:** Implemented
 
@@ -752,7 +752,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -778,7 +778,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Webhook edge behavior is covered by the adjacent route tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -829,7 +829,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Non-consuming status and not-ready behavior is covered by the adjacent activity test.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -854,7 +854,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Secret-safe readback and key interaction behavior are covered by the adjacent tests.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -881,7 +881,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Verification:** Component behavior is automated; account-switch and mobile acceptance remain assigned to Gate 1.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
