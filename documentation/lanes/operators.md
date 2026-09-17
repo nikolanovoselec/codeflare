@@ -163,6 +163,23 @@ An absent/invalid encryption key, plaintext value, wrong context or tampered cip
 
 The verifier compares the independently read manifest's exact digest and scope before file reads, then checks each stored file's size/digest. Expired authority, missing/changed bytes and unsafe paths fail closed. Returned file/byte counts are verification facts, not an upload acknowledgment. The parent must seal the operation before recording durable completion; this helper does not implement upload, sealing, receipt persistence or shutdown. All remain required in Phase 1. Human bisync and timestamp-based final-sync behavior are untouched.
 
+## Consumer contract and dependency inventory
+
+`src/operators/consumer-contracts.ts` is the complete Phase-1 generic consumer wire seam. It binds stable consumer/activity/operator/run, source, revision and input digests; at most 16 opaque attachment references; and parent-selected inference/session/storage references. Exact repeats reconcile and changed immutable fields conflict. Nested credential/authority names, path-like attachment names, oversized JSON and recursive operator use of human session admission fail closed. The contract grants no repository history, Review clearance, credentials, resource access or execution authority.
+
+Current consumers and dependency direction are:
+
+| Consumer | Uses | Does not own |
+|---|---|---|
+| Enterprise Operators administration | Distribution registration, approval, policy and key rotation | Execution or private operator behavior |
+| Activity DO / Loader runtime | Admission receipt, protected context, generation-bound child capabilities | Human UI sessions or consumer business intent |
+| Restricted container host | Parent-owned session, structured Pi and explicit sync APIs | Activity admission, R2 credentials or whole-home persistence |
+| Shared interceptors | Parent-bound policy, inference selection and current human authority | Identity selection or permission grants |
+| Webhook edge | Activity-scoped verifier capabilities and optional handoff envelope | Interactive identity or automatic reruns |
+| Future private Flue / Remote Reviews adapters | The versioned generic contracts above | Codeflare platform internals; not shipped in Phase 1 |
+
+Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. Codeflare does not import a private Flue core, Review prompts, enrollment/monitor/publisher code or production Actions workflow. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
+
 ## Verification
 
 Behavioral tests in `src/__tests__/lib/jwt.test.ts` cover signed human identity versus legacy email authentication. `src/__tests__/operators/distribution.test.ts` covers bounded metadata, origin confinement, exact-byte integrity, module restrictions and non-execution. Full live distribution/Worker acceptance remains a separate requirement; parser tests do not prove it.
