@@ -215,7 +215,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-session-structured-pi-and-explicit-persistence), [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-codeflare-webhook-endpoint)
 
-**Verification:** Activity header/browser implementation through `e03c48ec`, full CI 35174509964 GREEN. Consumer-contract RED at `4b2ce7b8`, CI 35174888023: typecheck, import/quality and four fixture cases reached the absent generic boundary. Platform-fixture RED at `a18c7c1d`, CI 35175371392: typecheck/import and suite gates reached the absent direct/session/webhook fixture implementation. Shared component/fixture tests, unchanged-resource regression evidence and recorded integration acceptance.
+**Verification:** Activity header/browser implementation through `e03c48ec`, full CI 35174509964 GREEN. Consumer-contract RED at `4b2ce7b8`, CI 35174888023: typecheck, import/quality and four fixture cases reached the absent generic boundary. Platform-fixture RED at `a18c7c1d`, CI 35175371392: typecheck/import and suite gates reached the absent direct/session/webhook fixture implementation; fixture implementation `ef77e9ad`, path correction `548159ac`, full CI 35175644803 GREEN. G1-01–29 now have a truthful fixture/native/deployed evidence ledger in `documentation/lanes/operator-gate-1.md`; deployed cells remain pending task #14.
 
 **Status:** Planned
 
