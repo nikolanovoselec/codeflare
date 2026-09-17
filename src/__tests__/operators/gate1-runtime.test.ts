@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ContainerOwnedSessionRuntime, type Gate1ContainerStub } from '../../operators/gate1-runtime';
+import { ContainerOwnedSessionRuntime, type Gate1ContainerStub,
+  type Gate1SessionBootstrap } from '../../operators/gate1-runtime';
 import type { OperatorContainerProfile } from '../../container/operator-context';
 
 const profile = { schemaVersion: 1, activityId: 'activity-gate1', operatorId: 'codeflare-gate1-fixture',
@@ -19,7 +20,7 @@ const routes = { routeCatalog: ['route'], defaultRoute: 'route', defaultReasonin
   modelDisplayNames: { route: 'Route' }, promptCacheTargets: [] };
 const userEmail = 'owner@example.test';
 const userGroups = ['engineering'];
-const bootstrap = {
+const bootstrap: Gate1SessionBootstrap = {
   r2AccessKeyId: 'scoped-key', r2SecretAccessKey: 'scoped-secret', r2AccountId: 'account',
   r2Endpoint: 'https://account.r2.cloudflarestorage.com', r2SseDisabled: true,
   workspaceSyncEnabled: false, fastStartEnabled: true, sessionMode: 'advanced',

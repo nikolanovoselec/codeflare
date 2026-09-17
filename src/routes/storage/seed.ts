@@ -112,7 +112,7 @@ export async function reconcileAgentConfigsForBootstrap(input: {
   env: Env;
   bucketName: string;
   user: AuthVariables['user'];
-}, automatic: boolean): Promise<Record<string, unknown>> {
+}, automatic: boolean) {
   const { env, bucketName, user } = input;
   const preferencesKey = getPreferencesKey(bucketName);
   const preferences = await env.KV.get<UserPreferences>(preferencesKey, 'json');

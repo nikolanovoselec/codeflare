@@ -12,8 +12,14 @@ const production = vi.hoisted(() => ({
   resolveSessionAccessGroup: vi.fn(async () => []),
   loadEnterpriseRouteConfig: vi.fn(async () => ({ routeCatalog: ['route-approved'],
     defaultRoute: 'route-approved', defaultReasoning: 'off' })),
+  bootstrapOperatorSession: vi.fn(async () => ({ user: { email: 'human@example.test', authenticated: true },
+    bootstrap: { r2AccessKeyId: 'key', r2SecretAccessKey: 'secret', r2AccountId: 'account',
+      r2Endpoint: 'https://account.r2.cloudflarestorage.com', workspaceSyncEnabled: false,
+      fastStartEnabled: true, sessionMode: 'advanced', sessionWorkspace: 'terminal', terminalMode: 'classic',
+      managedResourcePolicy: 'mutable' } })),
 }));
 vi.mock('@cloudflare/containers', () => ({ getContainer: production.getContainer }));
+vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: production.bootstrapOperatorSession }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
   resolveBucketName: production.resolveBucketName,

@@ -215,9 +215,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
       if (props.operatorPolicy) {
         const path = operatorR2Path(url, accountId, boundBucket);
         const operation = operatorR2Operation(request, url);
-        const syncWrite = (operation === 'write' || operation === 'multipart-write') && props.operatorSync
-          && path !== null && (path.startsWith(props.operatorSync.outputPrefix)
-            || path.startsWith(props.operatorSync.manifestPrefix));
+        const operatorSync = props.operatorSync;
+        const syncWrite = (operation === 'write' || operation === 'multipart-write') && operatorSync
+          && path !== null && (path.startsWith(operatorSync.outputPrefix)
+            || path.startsWith(operatorSync.manifestPrefix));
         if (syncWrite) {
           const operationId = request.headers.get(OPERATOR_SYNC_OPERATION_HEADER) ?? '';
           if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId)) {
@@ -227,7 +228,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
             return jsonError(503, 'OPERATOR_SYNC_AUTHORITY_UNAVAILABLE', 'Operator sync authority is unavailable');
           }
           try {
-            const authorization = await this.env.OPERATOR_ACTIVITY.getByName(props.operatorSync.activityId)
+            const authorization = await this.env.OPERATOR_ACTIVITY.getByName(operatorSync.activityId)
               .authorizeSyncWrite(operationId, path!);
             if (!authorization.ok) {
               const sealed = authorization.reason === 'sealed';
