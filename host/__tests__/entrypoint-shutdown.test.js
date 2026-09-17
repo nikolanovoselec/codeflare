@@ -112,7 +112,7 @@ function runBaselineTimeout() {
  * shutdown_once when the handler's `exit 0` runs, exercising the guard on
  * every invocation). Returns the effect log lines and the handler's stdout.
  */
-function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, initPid = '', terminalPid = '' } = {}) {
+function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, initPid = '', terminalPid = '', operator = false } = {}) {
   const fixture = mkdtempSync(join(tmpdir(), 'shutdown-'));
   const logFile = join(fixture, 'effects.log');
   const outFile = join(fixture, 'handler.out');
@@ -129,6 +129,7 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     'walk_kill() { echo "walk_kill:$1:$2" >> "$LOG"; }',
     'kill_pidfile_subtree() { echo "kill_pidfile_subtree:$1" >> "$LOG"; }',
     'bisync_with_r2() { echo "bisync_with_r2" >> "$LOG"; return "${BISYNC_RC_STUB:-0}"; }',
+    'drain_operator_sync_shutdown() { echo "drain_operator_sync_shutdown" >> "$LOG"; return 0; }',
     // Stub kill so no real process is ever signalled; the watchdog subshell
     // then finishes on its own (sleeps are shortened below) and the handler's
     // real `wait` reaps it before the script exits.
@@ -138,6 +139,7 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     `BISYNC_INIT_PID=${initPid ? `'${initPid}'` : "''"}`,
     `TERMINAL_PID=${terminalPid ? `'${terminalPid}'` : "''"}`,
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `CODEFLARE_OPERATOR_SESSION='${operator ? 'true' : ''}'`,
     extractFunction('shutdown_handler'),
     extractFunction('shutdown_once'),
     'SHUTDOWN_RAN=0',
@@ -266,6 +268,14 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.notEqual(syncIdx, -1, 'final bisync must still start after the capped wait');
     assert.ok(warnIdx < syncIdx, 'the reap-wait (and its warning) must precede the final bisync');
     assert.ok(log.includes('bisync_with_r2'), 'the final bisync still runs after the capped wait');
+  });
+
+  it('REQ-OPERATOR-005: restricted shutdown drains only accepted explicit upload and never starts bisync', () => {
+    const { log, out } = runShutdown({ operator: true, bisyncInitialized: true, terminalPid: '12345' });
+    assert.ok(log.includes('drain_operator_sync_shutdown'));
+    assert.ok(!log.includes('bisync_with_r2'));
+    assert.ok(log.includes('kill:12345'));
+    assert.ok(out.includes('Restricted operator shutdown'));
   });
 
   it('REQ-OPS-010 AC6: terminal server is killed after the final sync completes', () => {
