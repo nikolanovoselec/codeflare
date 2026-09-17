@@ -89,7 +89,9 @@ export class OperatorSyncService {
     if (!ID.test(request.operationId) || !DIGEST.test(request.requestDigest)
       || !this.remotePrefix.endsWith(`/${request.operationId}/`)) throw new Error('Invalid operator sync request');
     const files = validateFiles(request.files);
-    const existing = await this.store.load(request.operationId);
+    let existing: OperatorSyncReceipt | null;
+    try { existing = await this.store.load(request.operationId); }
+    catch { throw new Error('Operator sync state unavailable'); }
     if (existing) {
       if (existing.requestDigest !== request.requestDigest || JSON.stringify(existing.files) !== JSON.stringify(files)) {
         throw new Error('Operator sync operation conflict');
@@ -97,14 +99,14 @@ export class OperatorSyncService {
       if (existing.status === 'uploaded' || existing.status === 'failed') return existing;
       if (existing.status !== 'unknown') {
         const unknown = { ...existing, status: 'unknown' as const };
-        await this.store.save(unknown);
+        await this.persist(unknown);
       }
       throw new Error('Operator sync outcome is unknown');
     }
     this.checkAuthority();
     let receipt: OperatorSyncReceipt = { schemaVersion: 1, operationId: request.operationId,
       requestDigest: request.requestDigest, status: 'accepted', manifestDigest: null, files };
-    await this.store.save(receipt);
+    await this.persist(receipt);
 
     const local = new Map<string, Uint8Array>();
     try {
@@ -116,7 +118,7 @@ export class OperatorSyncService {
       }
     } catch (error) {
       receipt = { ...receipt, status: 'failed' };
-      await this.store.save(receipt);
+      await this.persist(receipt);
       throw error;
     }
 
@@ -125,11 +127,11 @@ export class OperatorSyncService {
       requestDigest: request.requestDigest, policyDigest: this.policyDigest, files }));
     if (manifest.byteLength > 64 * 1024) {
       receipt = { ...receipt, status: 'failed' };
-      await this.store.save(receipt);
+      await this.persist(receipt);
       throw new Error('Operator sync manifest is too large');
     }
     receipt = { ...receipt, status: 'uploading' };
-    await this.store.save(receipt);
+    await this.persist(receipt);
     try {
       for (const file of files) {
         this.checkAuthority();
@@ -139,12 +141,17 @@ export class OperatorSyncService {
       await this.uploader.put(`${this.remotePrefix}manifest.json`, manifest);
     } catch {
       receipt = { ...receipt, status: 'unknown' };
-      await this.store.save(receipt);
+      await this.persist(receipt);
       throw new Error('Operator sync outcome is unknown');
     }
     receipt = { ...receipt, status: 'uploaded', manifestDigest: hash(manifest) };
-    await this.store.save(receipt);
+    await this.persist(receipt);
     return receipt;
+  }
+
+  private async persist(receipt: OperatorSyncReceipt): Promise<void> {
+    try { await this.store.save(receipt); }
+    catch { throw new Error('Operator sync state unavailable'); }
   }
 
   private checkAuthority(): void {

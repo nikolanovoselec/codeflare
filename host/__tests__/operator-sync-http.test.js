@@ -63,6 +63,10 @@ test('REQ-OPERATOR-023: conflict, unknown and internal errors are explicit and r
   response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });
   assert.equal(response.status, 202);
   assert.equal(JSON.parse(response.body).status, 'unknown');
+  f.coordinator.upload = async () => { throw new Error('Operator sync state unavailable /secret'); };
+  response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });
+  assert.equal(response.status, 503);
+  assert.deepEqual(JSON.parse(response.body), { error: 'Sync state is unavailable', code: 'SYNC_STATE_FAILED' });
   f.coordinator.upload = async () => { throw new Error('disk /secret failed'); };
   response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });
   assert.equal(response.status, 500);

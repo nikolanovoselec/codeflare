@@ -109,7 +109,8 @@ export class Gate1OperatorCapability {
     });
     if (!upload.ok) {
       const failure = await upload.json().catch(() => null) as { code?: unknown } | null;
-      if (failure?.code === 'SYNC_OUTPUT_NOT_FOUND' || failure?.code === 'SYNC_OUTPUT_MISMATCH') {
+      if (failure?.code === 'SYNC_OUTPUT_NOT_FOUND' || failure?.code === 'SYNC_OUTPUT_MISMATCH'
+        || failure?.code === 'SYNC_STATE_FAILED') {
         await session.stop();
         return this.failed(`GATE1_${failure.code}`);
       }

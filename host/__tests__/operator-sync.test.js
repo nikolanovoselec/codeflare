@@ -63,6 +63,13 @@ test('REQ-OPERATOR-023: interrupted upload becomes unknown and is never automati
   assert.equal(f.puts.length, 1);
 });
 
+test('REQ-OPERATOR-023: local receipt persistence failure is classified without starting upload', async () => {
+  const f = fixture();
+  f.store.save = async () => { throw new Error('disk detail'); };
+  await assert.rejects(f.service.upload(request), /sync state unavailable/i);
+  assert.deepEqual(f.puts, []);
+});
+
 test('REQ-OPERATOR-023: rejects expiry, traversal, duplicate paths and size/hash mismatch before remote writes', async () => {
   const expired = fixture({ options: { deadline: Date.now() - 1 } });
   await assert.rejects(expired.service.upload(request), /expired/i);

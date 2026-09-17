@@ -77,6 +77,9 @@ export class OperatorSyncHttpController {
       if (message.includes('owned output size mismatch') || message.includes('operator sync file mismatch')) {
         return result(409, { error: 'Sync output does not match its declaration', code: 'SYNC_OUTPUT_MISMATCH' });
       }
+      if (message.includes('operator sync state unavailable')) {
+        return result(503, { error: 'Sync state is unavailable', code: 'SYNC_STATE_FAILED' });
+      }
       if (message.includes('conflict')) return result(409, { error: 'Sync operation conflict', code: 'SYNC_CONFLICT' });
       if (message.includes('unknown')) return result(202, { status: 'unknown', code: 'SYNC_OUTCOME_UNKNOWN' });
       if (message.includes('expired')) return result(403, { error: 'Sync authority expired', code: 'SYNC_AUTHORITY_EXPIRED' });
