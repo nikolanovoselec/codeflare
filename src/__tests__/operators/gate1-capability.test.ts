@@ -182,6 +182,12 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
     } });
     expect(await (await unknown.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
       result: { code: 'GATE1_SESSION_UNKNOWN' } });
+    const startupFailure = fixture({ session: {
+      ensure: vi.fn(async () => { throw new Error('Gate 1 session startup failed:host-unready'); }),
+      stop: vi.fn(async () => ({ status: 'stopped' as const })),
+    } });
+    expect(await (await startupFailure.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
+      result: { code: 'GATE1_SESSION_START_HOST_UNREADY' } });
     const failed = fixture({ host: { fetch: vi.fn(async (path: string) => path.endsWith('/ensure')
       ? Response.json({ ready: true, conversationId: 'conversation-1' })
       : Response.json({ taskId: 'gate1-pi-file-v1', status: 'failed' }, { status: 202 })) } });

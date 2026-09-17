@@ -43,13 +43,25 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
     if (profile.activityId !== this.options.activityId || profile.ownerBucket !== this.options.ownerBucket
       || profile.sessionId !== sessionId) throw new Error('Gate 1 session ownership mismatch');
     const container = this.container(sessionId);
-    await container.setBucketName(this.options.ownerBucket, { sessionId,
-      userEmail: this.options.userEmail, userGroups: this.options.userGroups, ...this.options.routes });
-    await container.configureOperatorContext(profile, authority);
+    try {
+      await container.setBucketName(this.options.ownerBucket, { sessionId,
+        userEmail: this.options.userEmail, userGroups: this.options.userGroups, ...this.options.routes });
+      await container.configureOperatorContext(profile, authority);
+    } catch { throw new Error('Gate 1 session configuration failed'); }
   }
 
   async start(sessionId: string): Promise<void> {
-    await this.container(sessionId).startAndWaitForPorts();
+    const container = this.container(sessionId);
+    try { await container.startAndWaitForPorts(); }
+    catch {
+      let category = 'unknown';
+      try {
+        const status = (await container.getState()).status;
+        category = status === 'running' || status === 'healthy' ? 'host-unready'
+          : status === 'starting' ? 'starting' : status === 'stopped' || status === 'stopping' ? 'stopped' : 'unknown';
+      } catch { /* keep the bounded unknown category */ }
+      throw new Error(`Gate 1 session startup failed:${category}`);
+    }
   }
 
   async readiness(sessionId: string): Promise<'starting' | 'ready' | 'stopped' | 'unknown'> {

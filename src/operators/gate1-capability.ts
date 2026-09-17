@@ -74,7 +74,18 @@ export class Gate1OperatorCapability {
     const existing = await sync.get(OPERATION_ID);
     if (existing?.phase === 'verified' && existing.evidence) return this.finish(existing.evidence);
 
-    const owned = await session.ensure();
+    let owned: Awaited<ReturnType<SessionController['ensure']>>;
+    try { owned = await session.ensure(); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message === 'Gate 1 session configuration failed') return this.failed('GATE1_SESSION_CONFIG_FAILED');
+      const category = message.startsWith('Gate 1 session startup failed:')
+        ? message.slice('Gate 1 session startup failed:'.length).replace('-', '_').toUpperCase() : '';
+      if (['HOST_UNREADY', 'STARTING', 'STOPPED', 'UNKNOWN'].includes(category)) {
+        return this.failed(`GATE1_SESSION_START_${category}`);
+      }
+      throw error;
+    }
     if (owned.status === 'unknown') return this.failed('GATE1_SESSION_UNKNOWN');
     if (owned.status !== 'ready') return this.waiting('session');
 
