@@ -158,8 +158,10 @@ export class RcloneOperatorSyncUploader implements OperatorSyncUploader {
       throw new Error('Operator upload escaped its scope');
     }
     // `--header` reaches the S3 backend. `--header-upload` is ignored by its PUT path.
+    // The parent performs the trusted read, so avoid rclone's broader post-PUT HEAD.
     const code = await this.run('rclone', ['rcat', `r2:${this.bucket}/${key}`, '--config', this.configFile,
-      '--size', String(bytes.byteLength), '--header', `X-Codeflare-Operator-Sync-Operation: ${operationId}`],
+      '--size', String(bytes.byteLength), '--header', `X-Codeflare-Operator-Sync-Operation: ${operationId}`,
+      '--s3-no-head'],
     Uint8Array.from(bytes));
     if (code !== 0) throw new Error('Operator upload failed');
   }
