@@ -4,7 +4,7 @@ import type { JwtStampingAuthority } from './jwt-stamping';
 import type { OwnedOperatorSessionRuntime } from './owned-session';
 
 export interface Gate1ContainerStub {
-  setBucketName(name: string): Promise<void>;
+  setBucketName(name: string, options: { sessionId: string }): Promise<void>;
   configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void>;
   startAndWaitForPorts(): Promise<void>;
   getState(): Promise<{ status: string }>;
@@ -31,7 +31,7 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
     if (profile.activityId !== this.options.activityId || profile.ownerBucket !== this.options.ownerBucket
       || profile.sessionId !== sessionId) throw new Error('Gate 1 session ownership mismatch');
     const container = this.container(sessionId);
-    await container.setBucketName(this.options.ownerBucket);
+    await container.setBucketName(this.options.ownerBucket, { sessionId });
     await container.configureOperatorContext(profile, authority);
   }
 
