@@ -9,7 +9,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { isEnterpriseMode } from '../lib/subscription';
-import { runOperatorActivity } from '../operators/orchestrator';
+import { bindOperatorRuntimeCapability, runOperatorActivity } from '../operators/orchestrator';
 
 const app = new Hono<{ Bindings: Env }>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -55,13 +55,16 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
 
   const activity = c.env.OPERATOR_ACTIVITY.getByName(activityId);
   try {
+    const bindCapability = action === 'start' ? bindOperatorRuntimeCapability(c.executionCtx) : null;
     const result = action === 'start'
       ? await activity.startWebhook(capability)
       : action === 'status'
         ? await activity.getWebhookStatus(capability)
         : await activity.redeemWebhookResult(capability);
     if (result.ok) {
-      if (action === 'start') c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env).catch(() => {}));
+      if (action === 'start' && bindCapability) {
+        c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
+      }
       return response(result, 200);
     }
     const status = result.reason === 'not-ready' ? 202

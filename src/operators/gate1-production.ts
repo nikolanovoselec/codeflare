@@ -1,4 +1,5 @@
 import { getContainer } from '@cloudflare/containers';
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from '../types';
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup } from '../lib/access';
@@ -7,7 +8,7 @@ import { getR2Config } from '../lib/r2-config';
 import { openOperatorExecutionAccess } from './execution-context';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
-import { resolveGate1Resources, type Gate1Resources } from './gate1-resources';
+import { GATE1_OPERATOR_ID, resolveGate1Resources, type Gate1Resources } from './gate1-resources';
 import { ContainerOwnedSessionRuntime, type Gate1ContainerStub } from './gate1-runtime';
 import { OwnedOperatorSessionService, type OwnedOperatorSessionState,
   type OwnedOperatorSessionStore } from './owned-session';
@@ -16,6 +17,39 @@ import { verifyOperatorSync, type OperatorSyncReader } from './sync-verification
 import type { OperatorRuntimePlan, OperatorActivity } from './activity';
 
 type Gate1Activity = DurableObjectStub<OperatorActivity>;
+interface OperatorRuntimeCapabilityProps { activityId: string; generation: number }
+
+function deniedCapability(activityId: string, generation: number): Response {
+  return new Response(JSON.stringify({ error: 'Capability unavailable',
+    code: 'OPERATOR_CAPABILITY_DENIED', activityId, generation }), {
+    status: 403, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  });
+}
+
+/** Platform loopback service binding supplied to each dynamically loaded operator Worker. */
+export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
+  override async fetch(request: Request): Promise<Response> {
+    const props = (this.ctx as unknown as { props?: OperatorRuntimeCapabilityProps }).props;
+    if (!props || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
+      || !Number.isSafeInteger(props.generation) || props.generation < 1
+      || !this.env.OPERATOR_ACTIVITY) {
+      return deniedCapability('', 0);
+    }
+    const activity = this.env.OPERATOR_ACTIVITY.getByName(props.activityId);
+    const plan = await activity.getRuntimePlan();
+    if (!plan || plan.activityId !== props.activityId) {
+      return deniedCapability(props.activityId, props.generation);
+    }
+    if (plan.receipt.operatorId !== GATE1_OPERATOR_ID) {
+      return deniedCapability(props.activityId, props.generation);
+    }
+    const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
+    if (invocation.resources.session === null) return deniedCapability(props.activityId, props.generation);
+    const connected = await createGate1ProductionCapability({ env: this.env, plan, activity,
+      generation: props.generation });
+    return connected.capability.fetch(request);
+  }
+}
 
 function activityStore(activity: Gate1Activity): OwnedOperatorSessionStore {
   return {

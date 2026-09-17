@@ -554,6 +554,7 @@ export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
 export { OperatorActivity } from './operators/activity';
+export { OperatorRuntimeCapability } from './operators/gate1-production';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +

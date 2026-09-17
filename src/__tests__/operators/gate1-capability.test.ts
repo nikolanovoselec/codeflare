@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Gate1OperatorCapability, type Gate1CapabilityOptions } from '../../operators/gate1-capability';
+import { OperatorRuntimeCapability } from '../../operators/gate1-production';
 import type { Gate1Resources } from '../../operators/gate1-resources';
+import type { Env } from '../../types';
 
 const activityId = 'activity-gate1';
 const operationId = 'gate1-output-v1';
@@ -46,6 +48,21 @@ function fixture(overrides: Partial<Gate1CapabilityOptions> = {}) {
     deadline: Date.now() + 60_000, resources, session, host, sync, verify, ...overrides });
   return { capability, calls, session, host, sync, verify };
 }
+
+describe('REQ-OPERATOR-018: platform operator capability binding', () => {
+  it('keeps direct-only and non-Gate operators on a real deny-default loopback entrypoint', async () => {
+    const getRuntimePlan = vi.fn(async () => ({ activityId, invocationJson: '{}', receipt: { operatorId: 'reviewer' } }));
+    const env = { OPERATOR_ACTIVITY: { getByName: vi.fn(() => ({ getRuntimePlan })) } } as unknown as Env;
+    const capability = new OperatorRuntimeCapability(
+      { props: { activityId, generation: 3 } } as unknown as ExecutionContext, env);
+
+    const response = await capability.fetch(new Request('https://operator.internal/anything'));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Capability unavailable',
+      code: 'OPERATOR_CAPABILITY_DENIED', activityId, generation: 3 });
+  });
+});
 
 describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
   it('owns session, structured Pi, explicit upload, independent verification and stop in order', async () => {

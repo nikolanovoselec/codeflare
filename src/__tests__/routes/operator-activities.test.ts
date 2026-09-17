@@ -18,7 +18,8 @@ const orchestration = vi.hoisted(() => ({
   prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
   run: vi.fn(async () => {}),
 }));
-vi.mock('../../operators/orchestrator', () => ({
+vi.mock('../../operators/orchestrator', async importOriginal => ({
+  ...await importOriginal<typeof import('../../operators/orchestrator')>(),
   prepareOperatorActivity: orchestration.prepare,
   runOperatorActivity: orchestration.run,
 }));

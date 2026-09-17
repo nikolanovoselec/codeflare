@@ -9,7 +9,7 @@ import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/brow
 import type { OperatorRegistry } from '../operators/registry';
 import type { OperatorActivity } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
-import { prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
+import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
 
 const preparationBody = z.strictObject({ operatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), invocation: z.json() });
 type HumanAuthority = Awaited<ReturnType<typeof requireOperatorHumanContext>>;
@@ -80,9 +80,10 @@ app.post('/:activityId/start', async c => {
   const indexed = await owned(c.get('registry'), c.get('ownerKey'), activityId);
   if (!indexed && !await activity.ownsPrepared(c.get('ownerKey'))) return c.notFound();
   const body = await parseJsonBody(c, startBody);
+  const bindCapability = bindOperatorRuntimeCapability(c.executionCtx);
   const outcome = await activity.start(body.capability);
   if (!outcome.ok) return c.json({ error: 'Activity start rejected', code: outcome.reason }, 409);
-  c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env).catch(() => {}));
+  c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
   return c.json(outcome);
 });
 app.post('/:activityId/cancel', async c => {

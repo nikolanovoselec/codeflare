@@ -8,7 +8,10 @@ import { describe, expect, it, vi } from 'vitest';
 import webhookRoutes from '../../routes/operator-webhook';
 
 const orchestration = vi.hoisted(() => ({ run: vi.fn(async () => {}) }));
-vi.mock('../../operators/orchestrator', () => ({ runOperatorActivity: orchestration.run }));
+vi.mock('../../operators/orchestrator', async importOriginal => ({
+  ...await importOriginal<typeof import('../../operators/orchestrator')>(),
+  runOperatorActivity: orchestration.run,
+}));
 
 const activityId = 'activity-1';
 const capability = 's'.repeat(43);
@@ -38,7 +41,10 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
     ] as const;
     for (const [method, action, status, expectedBody] of cases) {
       const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/${action}`, method), env as never,
-        { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {} });
+        { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {
+          OperatorRuntimeCapability: vi.fn(({ props }: { props: { activityId: string; generation: number } }) =>
+            ({ fetch: vi.fn(), props })),
+        } });
       expect(response.status).toBe(status);
       expect(response.headers.get('cache-control')).toBe('no-store');
       const body = await response.text();
@@ -47,7 +53,7 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
     }
     expect(activity.startWebhook).toHaveBeenCalledWith(capability);
     expect(orchestration.run).toHaveBeenCalledTimes(1);
-    expect(orchestration.run).toHaveBeenCalledWith(activityId, env);
+    expect(orchestration.run).toHaveBeenCalledWith(activityId, env, expect.any(Function));
     expect(activity.getWebhookStatus).toHaveBeenCalledWith(capability);
     expect(activity.redeemWebhookResult).toHaveBeenCalledWith(capability);
   });

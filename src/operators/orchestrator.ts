@@ -10,7 +10,6 @@ import { driveOperatorRuntime } from './runtime';
 import { createOperatorIntentDigest } from './activity';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { GATE1_OPERATOR_ID } from './gate1-resources';
-import { createGate1ProductionCapability } from './gate1-production';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const preparationSchema = z.strictObject({ operatorId: ID, invocation: z.json() });
@@ -95,15 +94,27 @@ function parsePinnedManifest(manifestJson: string, endpoint: string) {
   return manifest;
 }
 
-function denyByDefaultCapability(activityId: string, generation: number): Fetcher {
-  return { fetch: async () => new Response(JSON.stringify({ error: 'Capability unavailable',
-    code: 'OPERATOR_CAPABILITY_DENIED', activityId, generation }), {
-    status: 403, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  }) } as unknown as Fetcher;
+export type OperatorCapabilityBinder = (activityId: string, generation: number) => Fetcher;
+type OperatorRuntimeExports = { OperatorRuntimeCapability(input: {
+  props: { activityId: string; generation: number };
+}): Fetcher };
+
+/** Resolve the platform loopback export before an activity is allowed to start. */
+export function bindOperatorRuntimeCapability(ctx: ExecutionContext): OperatorCapabilityBinder {
+  const runtimeExports = (ctx as unknown as { exports?: OperatorRuntimeExports }).exports;
+  if (!runtimeExports?.OperatorRuntimeCapability) {
+    throw new AppError('UNAVAILABLE', 503, 'Operator runtime capability unavailable');
+  }
+  return (activityId, generation) =>
+    runtimeExports.OperatorRuntimeCapability({ props: { activityId, generation } });
 }
 
 /** One request-attached direct drive. Any uncertain attempt is durably fenced and never replayed here. */
-export async function runOperatorActivity(activityId: string, env: Env): Promise<void> {
+export async function runOperatorActivity(
+  activityId: string,
+  env: Env,
+  bindCapability: OperatorCapabilityBinder,
+): Promise<void> {
   const requestDeadline = Date.now() + 25_000;
   if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return;
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
@@ -127,14 +138,7 @@ export async function runOperatorActivity(activityId: string, env: Env): Promise
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
       invocation,
-      bind: async generation => {
-        if (plan.receipt.operatorId === GATE1_OPERATOR_ID
-          && parseOperatorConsumerInvocation(invocation).resources.session !== null) {
-          const connected = await createGate1ProductionCapability({ env, plan, activity, generation });
-          return { capability: connected.capability, outbound: null };
-        }
-        return { capability: denyByDefaultCapability(activityId, generation), outbound: null };
-      },
+      bind: async generation => ({ capability: bindCapability(activityId, generation), outbound: null }),
     });
     if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure();
   } catch {

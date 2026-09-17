@@ -207,7 +207,8 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
       OPERATOR_ACTIVITY: { getByName: () => activity }, OPERATOR_REGISTRY: { getByName: () => registry },
     } as unknown as Env;
 
-    const attempt = runOperatorActivity('activity-1', env);
+    const attempt = runOperatorActivity('activity-1', env,
+      () => ({ fetch: vi.fn() }) as unknown as Fetcher);
     await vi.advanceTimersByTimeAsync(25_001);
     await attempt;
 
@@ -223,7 +224,8 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
       invocationJson: 'null', receipt: {}, executionContext: {} })), fenceRuntimeFailure };
     const env = { OPERATOR_ACTIVITY: { getByName: () => activity },
       OPERATOR_REGISTRY: { getByName: vi.fn() } } as unknown as Env;
-    await runOperatorActivity('activity-1', env);
+    await runOperatorActivity('activity-1', env,
+      () => ({ fetch: vi.fn() }) as unknown as Fetcher);
     expect(fenceRuntimeFailure).toHaveBeenCalledOnce();
     expect(activity.getRuntimePlan).toHaveBeenCalledOnce();
     expect(env.OPERATOR_REGISTRY!.getByName).not.toHaveBeenCalled();
