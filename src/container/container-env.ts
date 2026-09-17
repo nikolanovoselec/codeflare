@@ -119,6 +119,13 @@ interface RestartPrefsInput {
 
 export interface SetBucketNameCreds {
   sessionId?: string;
+  routeCatalog?: string[];
+  defaultRoute?: string;
+  defaultReasoning?: string;
+  routeContextWindows?: Record<string, number>;
+  routeReasoningLevels?: Record<string, string[]>;
+  modelDisplayNames?: Record<string, string>;
+  promptCacheTargets?: string[];
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -486,6 +493,24 @@ export async function applyBucketName(
   if (sessionId) {
     await storage.put('_sessionId', sessionId);
     state._sessionId = sessionId;
+  }
+  if (r2Creds?.routeCatalog !== undefined) {
+    state._routeCatalog = [...r2Creds.routeCatalog];
+    state._defaultRoute = r2Creds.defaultRoute ?? null;
+    state._defaultReasoning = r2Creds.defaultReasoning ?? null;
+    state._routeContextWindows = structuredClone(r2Creds.routeContextWindows ?? {});
+    state._routeReasoningLevels = structuredClone(r2Creds.routeReasoningLevels ?? {});
+    state._modelDisplayNames = structuredClone(r2Creds.modelDisplayNames ?? {});
+    state._promptCacheTargets = [...(r2Creds.promptCacheTargets ?? [])];
+    await Promise.all([
+      storage.put('routeCatalog', state._routeCatalog),
+      storage.put('defaultRoute', state._defaultRoute),
+      storage.put('defaultReasoning', state._defaultReasoning),
+      storage.put('routeContextWindows', state._routeContextWindows),
+      storage.put('routeReasoningLevels', state._routeReasoningLevels),
+      storage.put('modelDisplayNames', state._modelDisplayNames),
+      storage.put('promptCacheTargets', state._promptCacheTargets),
+    ]);
   }
   state._bucketName = name;
   await storage.put('bucketName', name);

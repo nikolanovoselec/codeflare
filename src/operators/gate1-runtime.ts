@@ -3,8 +3,18 @@ import { getContainerId } from '../lib/container-helpers';
 import type { JwtStampingAuthority } from './jwt-stamping';
 import type { OwnedOperatorSessionRuntime } from './owned-session';
 
+export interface Gate1RouteConfig {
+  routeCatalog: string[];
+  defaultRoute: string;
+  defaultReasoning: string;
+  routeContextWindows: Record<string, number>;
+  routeReasoningLevels: Record<string, string[]>;
+  modelDisplayNames: Record<string, string>;
+  promptCacheTargets?: string[];
+}
+
 export interface Gate1ContainerStub {
-  setBucketName(name: string, options: { sessionId: string }): Promise<void>;
+  setBucketName(name: string, options: { sessionId: string } & Gate1RouteConfig): Promise<void>;
   configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void>;
   startAndWaitForPorts(): Promise<void>;
   getState(): Promise<{ status: string }>;
@@ -14,7 +24,7 @@ export interface Gate1ContainerStub {
 
 export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime {
   constructor(private readonly options: { activityId: string; ownerBucket: string; sessionId: string;
-    resolve: (containerId: string) => Gate1ContainerStub }) {}
+    routes: Gate1RouteConfig; resolve: (containerId: string) => Gate1ContainerStub }) {}
 
   private container(sessionId: string): Gate1ContainerStub {
     return this.options.resolve(getContainerId(this.options.ownerBucket, sessionId));
@@ -31,7 +41,7 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
     if (profile.activityId !== this.options.activityId || profile.ownerBucket !== this.options.ownerBucket
       || profile.sessionId !== sessionId) throw new Error('Gate 1 session ownership mismatch');
     const container = this.container(sessionId);
-    await container.setBucketName(this.options.ownerBucket, { sessionId });
+    await container.setBucketName(this.options.ownerBucket, { sessionId, ...this.options.routes });
     await container.configureOperatorContext(profile, authority);
   }
 

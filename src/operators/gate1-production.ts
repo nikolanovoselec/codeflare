@@ -105,7 +105,7 @@ async function createGate1ProductionCapability(input: {
       defaultReasoningLevel: routes.defaultReasoning,
     } });
   const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket,
-    sessionId: resources.profile.sessionId,
+    sessionId: resources.profile.sessionId, routes,
     resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as Gate1ContainerStub });
   const service = new OwnedOperatorSessionService(activityStore(activity), runtime);
   const requestDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.invocationJson));

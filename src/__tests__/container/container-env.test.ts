@@ -350,6 +350,26 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(writes._sessionId).toBe('gate1a1b2c3d4e5f6a7b8');
   });
 
+  it('applyBucketName persists trusted operator routes before restricted container startup', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    const routes = {
+      routeCatalog: ['Development'], defaultRoute: 'Development', defaultReasoning: 'high',
+      routeContextWindows: { Development: 256_000 }, routeReasoningLevels: { Development: ['off', 'high'] },
+      modelDisplayNames: { Development: 'Development' }, promptCacheTargets: [],
+    };
+
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, routes);
+
+    expect(writes).toMatchObject(routes);
+    expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env)).toMatchObject({
+      ENTERPRISE_ROUTE_CATALOG: '["Development"]', ENTERPRISE_DEFAULT_ROUTE: 'Development',
+      ENTERPRISE_DEFAULT_REASONING: 'high', ENTERPRISE_ROUTE_CONTEXT_WINDOWS: '{"Development":256000}',
+      ENTERPRISE_ROUTE_REASONING_LEVELS: '{"Development":["off","high"]}',
+      ENTERPRISE_MODEL_DISPLAY_NAMES: '{"Development":"Development"}', ENTERPRISE_PROMPT_CACHE_TARGETS: '[]',
+    });
+  });
+
   it.each(['Uppercase1', 'abcd-1234', 'abcdefg', 'a'.repeat(25)])(
     'applyBucketName rejects non-canonical session identity %s before mutating container state', async sessionId => {
       const state = baseState();
