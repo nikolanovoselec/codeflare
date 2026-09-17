@@ -734,7 +734,7 @@ jobs:
       - name: Build frontend
         # Not a test dependency — it is here so a broken production build fails
         # a PR. Only one shard needs to pay for it.
-        if: matrix.slug == 'shard-1'
+        if: matrix.slug == 'shard-3'
         run: npm run build
         working-directory: web-ui
 

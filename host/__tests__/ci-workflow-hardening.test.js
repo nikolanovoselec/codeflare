@@ -657,7 +657,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       ['coverage-frontend', 'frontend-tests', {
         'artifact-pattern': 'frontend-shard-*',
         'artifact-prefix': 'frontend-shard',
-        'expected-shards': '3',
+        'expected-shards': '4',
         slug: 'frontend',
         'package-root': 'web-ui',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
