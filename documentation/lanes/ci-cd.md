@@ -193,7 +193,7 @@ Path-gated workload lanes run at maximum parallelism after the `changes` classif
 - **quality** — agent-seed drift guard, backend and frontend oxlint and knip checks, plus a `bash -n` syntax pass over every tracked shell script ([REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)).
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — eight duration-weighted Workers jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
-- **frontend-tests** — four duration-weighted file groups through the same action, so the jsdom suite gets the identical report gate. Only shard 3 also runs `npm run build`; this production-breakage check is not a test dependency.
+- **frontend-tests** — four duration-weighted file groups through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`; this production-breakage check is not a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
 - **browser-ide:** clean-installs under Node 22.21.1, audits the owned extension's pinned dependencies and licenses, typechecks, deterministically bundles native Pi Chat, and runs Pi context/RPC/approval plus official-Claude configuration behavior with coverage and a gated JSON report.
