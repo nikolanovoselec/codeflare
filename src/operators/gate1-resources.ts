@@ -87,8 +87,8 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
       provider: 'codeflare-gateway',
       model: effectiveInference.routeId,
       thinkingLevel: effectiveInference.reasoningLevel ?? 'off',
-      systemPrompt: `Use the write tool exactly once with path "../output/${MARKER_PATH}" and exact content ${JSON.stringify(MARKER_CONTENT)}. Do not append a newline or create other files.`,
-      tools: ['read', 'write'],
+      systemPrompt: `Call the write tool now and do not respond with text. Use exactly this JSON argument: ${JSON.stringify({ path: `../output/${MARKER_PATH}`, content: MARKER_CONTENT })}. Call no other tools, append no newline, and create no other files.`,
+      tools: ['write'],
     },
   });
   return { profile, effectiveInference, marker: { relativePath: MARKER_PATH, storagePath,
