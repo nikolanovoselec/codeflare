@@ -130,7 +130,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
   it('continues only durable waiting work through an explicit owner-authenticated POST', async () => {
     const { request, activity, waitUntil } = fixture();
     activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'waiting',
-      checkpoint: { stage: 'session' }, result: null });
+      checkpoint: { step: 2 }, result: null });
 
     const continued = await request('/activity-1/continue', 'POST', {});
 

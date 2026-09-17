@@ -1,5 +1,5 @@
 /** Authenticated browser adapter for owner-scoped operator activity projections. */
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { requireOperatorHumanContext } from '../lib/access';
@@ -13,8 +13,9 @@ import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActi
 
 const preparationBody = z.strictObject({ operatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), invocation: z.json() });
 type HumanAuthority = Awaited<ReturnType<typeof requireOperatorHumanContext>>;
-const app = new Hono<{ Bindings: Env; Variables: { ownerKey: string; operatorHuman: HumanAuthority;
-  registry: DurableObjectStub<OperatorRegistry> } }>();
+type ActivityRouteEnv = { Bindings: Env; Variables: { ownerKey: string; operatorHuman: HumanAuthority;
+  registry: DurableObjectStub<OperatorRegistry> } };
+const app = new Hono<ActivityRouteEnv>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
@@ -86,6 +87,19 @@ app.post('/:activityId/start', async c => {
   c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
   return c.json(outcome);
 });
+async function handleContinue(c: Context<ActivityRouteEnv>) {
+  const activityId = c.req.param('activityId');
+  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  const activity = c.env.OPERATOR_ACTIVITY!.getByName(activityId);
+  const detail = await browserDetail(activity);
+  if (detail?.executionStatus !== 'waiting' || detail.checkpoint === null || detail.checkpoint === undefined) {
+    return c.json({ error: 'Activity continuation rejected', code: 'CONTINUATION_NOT_READY' }, 409);
+  }
+  const bindCapability = bindOperatorRuntimeCapability(c.executionCtx);
+  c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
+  return c.json({ ok: true, phase: 'queued' }, 202);
+}
+app.post('/:activityId/continue', handleContinue);
 app.post('/:activityId/cancel', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
