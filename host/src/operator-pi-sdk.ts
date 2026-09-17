@@ -82,21 +82,7 @@ export function createProvisionedOperatorPiFactory(options: {
         modelsPath: path.join(agentDir, 'models.json'),
         allowModelNetwork: false,
       });
-      let initialToolChoice = options.profile.initialToolChoice;
-      const modelRuntime = initialToolChoice === undefined ? provisionedRuntime : new Proxy(provisionedRuntime, {
-        get(target, property) {
-          if (property === 'streamSimple') return (model: unknown, promptContext: unknown,
-            streamOptions?: Record<string, unknown>) => {
-            const required = initialToolChoice;
-            initialToolChoice = undefined;
-            return target.streamSimple(model, promptContext,
-              required === undefined ? streamOptions : { ...streamOptions, toolChoice: 'required' });
-          };
-          const value = Reflect.get(target, property, target);
-          return typeof value === 'function' ? value.bind(target) : value;
-        },
-      });
-      const model = modelRuntime.getModel(options.profile.provider, options.profile.model);
+      const model = provisionedRuntime.getModel(options.profile.provider, options.profile.model);
       if (!model) throw new Error('Approved model is unavailable in the provisioned Pi SDK');
       const runtime = sdk.createExtensionRuntime();
       const resourceLoader = {
@@ -113,7 +99,7 @@ export function createProvisionedOperatorPiFactory(options: {
         reload: async () => {},
       };
       return { sdk, base: {
-        cwd, agentDir, model, modelRuntime, resourceLoader,
+        cwd, agentDir, model, modelRuntime: provisionedRuntime, resourceLoader,
         tools: [...options.profile.tools], thinkingLevel: options.profile.thinkingLevel,
         settingsManager: sdk.SettingsManager.inMemory({
           compaction: { enabled: false }, retry: { enabled: false },
@@ -125,8 +111,28 @@ export function createProvisionedOperatorPiFactory(options: {
 
   const createWith = async (sessionManager: unknown): Promise<OperatorPiSession> => {
     const { sdk, base } = await context();
-    const result = await sdk.createAgentSession({ ...base, sessionManager });
+    const provisionedRuntime = base.modelRuntime as PiModelRuntime;
+    let initialToolChoice: string | undefined;
+    const modelRuntime = options.profile.initialToolChoice === undefined ? provisionedRuntime : new Proxy(provisionedRuntime, {
+      get(target, property) {
+        if (property === 'streamSimple') return (model: unknown, promptContext: unknown,
+          streamOptions?: Record<string, unknown>) => {
+          const required = initialToolChoice;
+          initialToolChoice = undefined;
+          return target.streamSimple(model, promptContext,
+            required === undefined ? streamOptions : { ...streamOptions, toolChoice: 'required' });
+        };
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const result = await sdk.createAgentSession({ ...base, modelRuntime, sessionManager });
     if (!result?.session?.sessionId) throw new Error('Provisioned Pi SDK returned no session');
+    const messages = (result.session as OperatorPiSession & { messages?: unknown }).messages;
+    const hasModelTurn = Array.isArray(messages) && messages.some(message => Boolean(message)
+      && typeof message === 'object' && !Array.isArray(message)
+      && (message as { role?: unknown }).role === 'assistant');
+    initialToolChoice = hasModelTurn ? undefined : options.profile.initialToolChoice;
     return result.session;
   };
 
