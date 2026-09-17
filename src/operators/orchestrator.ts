@@ -100,7 +100,7 @@ type OperatorRuntimeExports = { OperatorRuntimeCapability(input: {
 }): Fetcher };
 
 /** Resolve the platform loopback export before an activity is allowed to start. */
-export function bindOperatorRuntimeCapability(ctx: ExecutionContext): OperatorCapabilityBinder {
+export function bindOperatorRuntimeCapability(ctx: unknown): OperatorCapabilityBinder {
   const runtimeExports = (ctx as unknown as { exports?: OperatorRuntimeExports }).exports;
   if (!runtimeExports?.OperatorRuntimeCapability) {
     throw new AppError('UNAVAILABLE', 503, 'Operator runtime capability unavailable');

@@ -16,7 +16,7 @@ vi.mock('../../lib/access', async importOriginal => ({
 }));
 const orchestration = vi.hoisted(() => ({
   prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
-  run: vi.fn(async () => {}),
+  run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
 }));
 vi.mock('../../operators/orchestrator', async importOriginal => ({
   ...await importOriginal<typeof import('../../operators/orchestrator')>(),

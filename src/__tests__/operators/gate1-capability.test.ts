@@ -1,8 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Gate1OperatorCapability, type Gate1CapabilityOptions } from '../../operators/gate1-capability';
 import { OperatorRuntimeCapability } from '../../operators/gate1-production';
-import type { Gate1Resources } from '../../operators/gate1-resources';
+import { resolveGate1Resources, type Gate1Resources } from '../../operators/gate1-resources';
+import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { parseOperatorPolicy } from '../../operators/policy';
 import type { Env } from '../../types';
+
+const production = vi.hoisted(() => ({
+  getContainer: vi.fn(() => ({})),
+  resolveBucketName: vi.fn(async () => 'owner-bucket'),
+  resolveSessionAccessGroup: vi.fn(async () => []),
+  loadEnterpriseRouteConfig: vi.fn(async () => ({ routeCatalog: ['route-approved'],
+    defaultRoute: 'route-approved', defaultReasoning: 'off' })),
+}));
+vi.mock('@cloudflare/containers', () => ({ getContainer: production.getContainer }));
+vi.mock('../../lib/access', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/access')>(),
+  resolveBucketName: production.resolveBucketName,
+  resolveSessionAccessGroup: production.resolveSessionAccessGroup,
+  loadEnterpriseRouteConfig: production.loadEnterpriseRouteConfig,
+}));
 
 const activityId = 'activity-gate1';
 const operationId = 'gate1-output-v1';
@@ -50,7 +67,73 @@ function fixture(overrides: Partial<Gate1CapabilityOptions> = {}) {
 }
 
 describe('REQ-OPERATOR-018: platform operator capability binding', () => {
-  it('keeps direct-only and non-Gate operators on a real deny-default loopback entrypoint', async () => {
+  it('delegates an admitted Gate 1 session through the activity- and generation-bound entrypoint', async () => {
+    const deadline = Date.now() + 300_000;
+    const human = { subject: 'human-gate1', email: 'owner@example.test', issuer: 'https://access.example.test',
+      audiences: ['audience-gate1'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      expiresAt: Math.floor(Date.now() / 1000) + 600 };
+    const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'gate1-acceptance', activityId,
+      operatorId: 'codeflare-gate1-fixture', runId: 'run-gate1',
+      source: { kind: 'direct', reference: 'gate1-session-smoke' },
+      revision: { reference: 'gate1-v1', digest: 'a'.repeat(64) }, inputDigest: 'b'.repeat(64),
+      input: { scenario: 'session-smoke' }, attachments: [], resources: {
+        inference: { routeId: 'route-approved', reasoningLevel: 'high' },
+        session: { profileId: 'gate1-pi-file-v1' }, storage: { scopeId: 'gate1-output-v1' },
+      } };
+    const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
+      github: { repositories: [], methods: [] }, storage: {
+        readPrefixes: ['operator-fixtures/gate-1/'], writePrefixes: ['operator-fixtures/gate-1/'],
+      }, inference: { routeIds: ['route-approved'], defaultRouteId: 'route-approved',
+        reasoningLevels: ['off', 'high'], defaultReasoningLevel: 'off', inheritUserDefaults: false } });
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const executionContext = await createOperatorExecutionContext({ activityId,
+      operatorId: 'codeflare-gate1-fixture', artifactDigest: 'd'.repeat(64), policyDigest: 'c'.repeat(64),
+      human, accessJwt: 'private.jwt' }, encryption);
+    const profile = (await resolveGate1Resources({ invocation: invocation as never,
+      operatorId: 'codeflare-gate1-fixture', activityId, ownerBucket: 'owner-bucket', policy,
+      policyDigest: 'c'.repeat(64), deadline, human, eligibleInference: {
+        routeIds: ['route-approved'], defaultRouteId: 'route-approved', defaultReasoningLevel: 'off',
+      } })).profile;
+    const activity = {
+      getRuntimePlan: vi.fn(async () => ({ activityId, deadline, invocationJson: JSON.stringify(invocation),
+        executionContext, receipt: { operatorId: 'codeflare-gate1-fixture', policyJson: JSON.stringify(policy) } })),
+      getSync: vi.fn(async () => ({ phase: 'verified', evidence: { filesVerified: 1, bytesVerified: 27 } })),
+      getOwnedSession: vi.fn(async () => ({ requestId: 'gate1-session-v1', requestDigest: 'e'.repeat(64),
+        activityId, ownerBucket: 'owner-bucket', sessionId: profile.sessionId, profile, status: 'stopped' })),
+      saveOwnedSession: vi.fn(),
+    };
+    const env = { ...encryption, OPERATOR_ACTIVITY: { getByName: vi.fn(() => activity) }, CONTAINER: {},
+      R2_ACCOUNT_ID: 'account', R2_ACCESS_KEY_ID: 'access-key', R2_SECRET_ACCESS_KEY: 'secret-key',
+    } as unknown as Env;
+    const capability = new OperatorRuntimeCapability(
+      { props: { activityId, generation: 3 } } as unknown as ExecutionContext, env);
+
+    const response = await capability.fetch(request());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ status: 'completed', result: {
+      fixture: 'codeflare-gate1', activityId, sessionId: profile.sessionId,
+    } });
+    expect((await capability.fetch(request(4))).status).toBe(403);
+  });
+
+  it('keeps direct-only Gate 1 invocations on the deny-default loopback path', async () => {
+    const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'gate1-acceptance', activityId,
+      operatorId: 'codeflare-gate1-fixture', runId: 'run-direct',
+      source: { kind: 'direct', reference: 'gate1-direct-smoke' },
+      revision: { reference: 'gate1-v1', digest: 'a'.repeat(64) }, inputDigest: 'b'.repeat(64),
+      input: { scenario: 'direct-smoke' }, attachments: [],
+      resources: { inference: null, session: null, storage: null } };
+    const getRuntimePlan = vi.fn(async () => ({ activityId, invocationJson: JSON.stringify(invocation),
+      receipt: { operatorId: 'codeflare-gate1-fixture' } }));
+    const env = { OPERATOR_ACTIVITY: { getByName: vi.fn(() => ({ getRuntimePlan })) } } as unknown as Env;
+    const capability = new OperatorRuntimeCapability(
+      { props: { activityId, generation: 3 } } as unknown as ExecutionContext, env);
+
+    expect((await capability.fetch(new Request('https://operator.internal/anything'))).status).toBe(403);
+  });
+
+  it('keeps non-Gate operators on a real deny-default loopback entrypoint', async () => {
     const getRuntimePlan = vi.fn(async () => ({ activityId, invocationJson: '{}', receipt: { operatorId: 'reviewer' } }));
     const env = { OPERATOR_ACTIVITY: { getByName: vi.fn(() => ({ getRuntimePlan })) } } as unknown as Env;
     const capability = new OperatorRuntimeCapability(

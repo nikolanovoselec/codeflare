@@ -82,7 +82,7 @@ async function r2Reader(env: Env, bucket: string): Promise<OperatorSyncReader> {
 }
 
 /** Compose the single code-owned Gate 1 profile from protected parent state. */
-export async function createGate1ProductionCapability(input: {
+async function createGate1ProductionCapability(input: {
   env: Env;
   plan: OperatorRuntimePlan;
   activity: Gate1Activity;
