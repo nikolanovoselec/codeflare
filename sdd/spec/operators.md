@@ -147,7 +147,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-durable-activity-runtime)
 
-**Verification:** Concurrent capability RED at `0f66350c`, CI 35169790662: typecheck and native activity tests reached missing start/read/status/result methods; implementation `ab04c4b4`, full CI 35170400746 GREEN. Managed Access bypass RED at `ced0bf9a`, CI 35169925235: typecheck reached the missing status authority; implementation `d122182a`, independent-reconciliation correction `bb9500b4`, full CI 35170400746 GREEN. Webhook edge RED at `df949df3`, CI 35170613779: typecheck, import/quality and boundary tests reached the absent route module; implementation `8a552536`, full CI 35170733082 GREEN. Encrypted handoff RED at `c192b8f6`, CI 35170981127: typecheck, import/quality and behavioral tests reached the absent handoff module; implementation `41169a10`, validation correction `edce880d`, full CI 35171278462 GREEN. Access status surface RED at `554dbd39`, CI 35171598937: enterprise Access configuration omitted the managed webhook bypass state. Actual public-host callback acceptance in both handoff modes remains required.
+**Verification:** Concurrent capability RED at `0f66350c`, CI 35169790662: typecheck and native activity tests reached missing start/read/status/result methods; implementation `ab04c4b4`, full CI 35170400746 GREEN. Managed Access bypass RED at `ced0bf9a`, CI 35169925235: typecheck reached the missing status authority; implementation `d122182a`, independent-reconciliation correction `bb9500b4`, full CI 35170400746 GREEN. Webhook edge RED at `df949df3`, CI 35170613779: typecheck, import/quality and boundary tests reached the absent route module; implementation `8a552536`, full CI 35170733082 GREEN. Encrypted handoff RED at `c192b8f6`, CI 35170981127: typecheck, import/quality and behavioral tests reached the absent handoff module; implementation `41169a10`, validation correction `edce880d`, full CI 35171278462 GREEN. Access status surface RED at `554dbd39`, CI 35171598937: enterprise Access configuration omitted the managed webhook bypass state; implementation `2ac5a5c0`, full CI 35171737437 GREEN. Actual public-host callback acceptance in both handoff modes remains required.
 
 **Status:** Planned
 
@@ -161,7 +161,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Resolve current eligible verified catalog, intersect registered allowed routes, then apply valid trusted invocation selection or registered defaults; user defaults are inherited only explicitly.
+1. Resolve current eligible verified catalog, intersect registered allowed routes, then apply valid trusted invocation selection or registered defaults; user defaults are inherited only explicitly. <!-- @impl: src/operators/inference-selection.ts::resolveOperatorInference --> <!-- @test: src/__tests__/operators/inference-selection.test.ts (REQ-OPERATOR-007: operator inference intersection) -->
 2. Unsupported/unauthorized operator route or reasoning fails without silent substitution. Child payload and lane/resource settings cannot override trusted selection; provider-default is distinct from Off.
 3. Direct and Pi calls enforce identical effective selection and trusted activity attribution, preserving existing human fallback behavior.
 
