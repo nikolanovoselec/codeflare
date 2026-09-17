@@ -77,6 +77,37 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(persisted.operatorId).toBe('codeflare-gate1-fixture');
   });
 
+  it('rejects a Gate 1 invocation that exceeds the persisted limit only after identity binding', async () => {
+    const prepareAuthorized = vi.fn(async (_intent: unknown, _context: unknown, _invocationJson: string) =>
+      ({ ok: true, phase: 'prepared' }));
+    const resolveForExecution = vi.fn(async () => ({ ok: true, value: {
+      operatorId: 'codeflare-gate1-fixture', revision: 3, artifactDigest: 'a'.repeat(64),
+      manifestJson: '{}', policyJson: '{"schemaVersion":1}',
+    } }));
+    const env = { ...encryption,
+      OPERATOR_REGISTRY: { getByName: () => ({ resolveForExecution }) },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized }) },
+    } as unknown as Env;
+    const invocation = {
+      schemaVersion: 1, interfaceVersion: 1, consumerId: 'gate1-acceptance', activityId: 'a',
+      operatorId: 'codeflare-gate1-fixture', runId: 'gate1-run',
+      source: { kind: 'direct', reference: 'gate1-session-smoke' },
+      revision: { reference: 'gate1-v1', digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
+      input: { scenario: 'session-smoke', padding: '' }, attachments: [], resources: {
+        inference: { routeId: 'Development', reasoningLevel: 'high' },
+        session: { profileId: 'gate1-pi-file-v1' }, storage: { scopeId: 'gate1-output-v1' },
+      },
+    };
+    const encoded = () => new TextEncoder().encode(JSON.stringify(invocation)).byteLength;
+    invocation.input.padding = 'x'.repeat(64 * 1024 - encoded());
+    expect(encoded()).toBe(64 * 1024);
+
+    await expect(prepareOperatorActivity({ operatorId: 'codeflare-gate1-fixture', invocation },
+      { human: claims, accessJwt: 'private.jwt' }, env)).rejects.toThrow('Invalid consumer invocation');
+    expect(resolveForExecution).not.toHaveBeenCalled();
+    expect(prepareAuthorized).not.toHaveBeenCalled();
+  });
+
   it('uses the admission-pinned distribution and direct-only deny-default bindings for one bounded drive', async () => {
     const bundle = { schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05',
       compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js', modules: { 'index.js': { js: 'export default {}' } } };

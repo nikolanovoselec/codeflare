@@ -54,7 +54,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     ? (() => {
       const gate1 = parseOperatorConsumerInvocation(bounded);
       if (gate1.operatorId !== parsed.data.operatorId) throw new ValidationError('Invalid operator invocation');
-      return { ...gate1, operatorId: parsed.data.operatorId, activityId };
+      return parseOperatorConsumerInvocation({ ...gate1, operatorId: parsed.data.operatorId, activityId });
     })()
     : bounded;
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
