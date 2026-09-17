@@ -48,6 +48,7 @@ function makeController(
     r2SseDisabled?: boolean;
     strict?: boolean;
     operatorPolicy?: OperatorPolicy;
+    operatorSync?: { activityId: string; outputPrefix: string };
     ownedMultipart?: boolean;
     jwtStamping?: JwtStampingPolicy;
     jwtAuthority?: JwtStampingAuthority;
@@ -128,6 +129,28 @@ describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credenti
     const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy });
     expect((await controller.fetch(new Request('https://allowed.example.test/path'))).status).toBe(200);
     expect(egressFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the parent activity before writing an owned sync operation and denies sealed writes before signing', async () => {
+    const authorizeSyncWrite = vi.fn(async () => ({ ok: false as const, reason: 'sealed' as const }));
+    const activityNamespace = { getByName: vi.fn(() => ({ authorizeSyncWrite })) };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    try {
+      const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
+        accountId: 'acc', operatorPolicy: { ...operatorPolicy,
+          storage: { ...operatorPolicy.storage, writePrefixes: ['outputs/activity/'] } },
+        operatorSync: { activityId: 'activity', outputPrefix: 'outputs/activity/' },
+      });
+      const response = await controller.fetch(new Request(
+        'https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/sync-1/late.txt',
+        { method: 'PUT', body: 'late' },
+      ));
+      expect(response.status).toBe(403);
+      expect((await response.json() as { code?: string }).code).toBe('OPERATOR_SYNC_SEALED');
+      expect(activityNamespace.getByName).toHaveBeenCalledWith('activity');
+      expect(authorizeSyncWrite).toHaveBeenCalledWith('sync-1', 'outputs/activity/sync-1/late.txt');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('enforces read/write and destructive operation scopes before R2 signing', async () => {
