@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { CHANGED_COVERAGE_LIMITS, evaluateChangedLineCoverage } from '../../scripts/ci/check-coverage-result.mjs';
+import { listFrontendTests, selectFrontendGroup } from '../../scripts/ci/select-weighted-frontend-tests.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
@@ -116,10 +117,14 @@ describe('PR lane selection', () => {
       { group: '3/4', slug: 'shard-3' },
       { group: '4/4', slug: 'shard-4' },
     ]);
-    assert.equal(
-      step(frontend, 'Run suite (fail-closed gate)').with['balance-group'],
-      '${{ matrix.group }}',
-    );
+    const suiteStep = step(frontend, 'Run suite (fail-closed gate)');
+    assert.equal(suiteStep.with['balance-group'], '${{ matrix.group }}');
+    assert.equal(suiteStep.with['balance-suite'], 'frontend');
+
+    const assigned = Array.from({ length: 4 }, (_, index) => selectFrontendGroup(`${index + 1}/4`)).flat();
+    assert.deepEqual([...assigned].sort(), listFrontendTests());
+    assert.equal(new Set(assigned).size, assigned.length);
+
     const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
     assert.equal(merge.with['expected-shards'], '4');
   });
