@@ -132,6 +132,17 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.sections.cloudflareConnection).toBeUndefined();
   });
 
+  it('REQ-OPERATOR-006: surfaces the managed operator webhook bypass provisioning status in Access configuration', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    await kv.put(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS, 'error');
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.sections.access.operatorWebhookBypassStatus).toBe('error');
+  });
+
   it('round-trips the canonical reasoning configuration stored by Administration', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
     const activeProfile = getBuiltInProfileRef('workers-ai-glm-thinking');

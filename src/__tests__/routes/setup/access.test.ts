@@ -216,6 +216,138 @@ describe('Setup Access', () => {
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', 'sw-bypass-app');
     });
 
+    it('REQ-OPERATOR-006: provisions a narrow operator-webhook bypass without changing host-wide or SilverBullet protection', async () => {
+      const steps: SetupStep[] = [];
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-enterprise-admins' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-enterprise-users' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'app-ent', aud: 'aud-ent' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfSuccess({ auth_domain: 'test.cloudflareaccess.com' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-bypass-app' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-policy' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'operator-bypass-app' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'operator-policy' }));
+
+      await handleCreateAccessApp(
+        'test-token', 'account-123', 'enterprise.example.com',
+        ['admin@example.com', 'user@example.com'], ['admin@example.com'],
+        steps, mockKV as unknown as KVNamespace, 'codeflare-enterprise', false, true,
+      );
+
+      const appBodies = mockFetch.mock.calls
+        .filter((call) => ['POST', 'PUT'].includes((call[1] as RequestInit | undefined)?.method ?? '')
+          && String(call[0]).endsWith('/access/apps'))
+        .map((call) => JSON.parse((call[1] as RequestInit).body as string));
+      expect(appBodies).toEqual(expect.arrayContaining([
+        expect.objectContaining({ domain: 'enterprise.example.com', destinations: [{ type: 'public', uri: 'enterprise.example.com' }] }),
+        expect.objectContaining({ domain: 'enterprise.example.com/api/vault/*/service_worker.js' }),
+        expect.objectContaining({
+          domain: 'enterprise.example.com/operator-webhook/v1/activities/*',
+          destinations: [{ type: 'public', uri: 'enterprise.example.com/operator-webhook/v1/activities/*' }],
+          precedence: 1,
+        }),
+      ]));
+      const operatorPolicyCall = mockFetch.mock.calls.find((call) =>
+        String(call[0]).includes('/access/apps/operator-bypass-app/policies')
+        && (call[1] as RequestInit | undefined)?.method === 'POST');
+      expect(operatorPolicyCall).toBeDefined();
+      expect(JSON.parse((operatorPolicyCall![1] as RequestInit).body as string)).toMatchObject({
+        decision: 'bypass',
+        include: [{ everyone: {} }],
+      });
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', 'sw-bypass-app');
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_operator_webhook_bypass_app_id', 'operator-bypass-app');
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_operator_webhook_bypass_status', 'configured');
+    });
+
+    it('REQ-OPERATOR-006: removes a newly-created incomplete operator bypass and reports policy failure', async () => {
+      const steps: SetupStep[] = [];
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-enterprise-admins' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-enterprise-users' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'app-ent', aud: 'aud-ent' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfSuccess({ auth_domain: 'test.cloudflareaccess.com' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-bypass-app' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-policy' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'operator-bypass-app' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 403 }))
+        .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      await handleCreateAccessApp(
+        'test-token', 'account-123', 'enterprise.example.com',
+        ['admin@example.com', 'user@example.com'], ['admin@example.com'],
+        steps, mockKV as unknown as KVNamespace, 'codeflare-enterprise', false, true,
+      );
+
+      expect(steps[0].status).toBe('success');
+      const rollbackCall = mockFetch.mock.calls.find((call) =>
+        String(call[0]).endsWith('/access/apps/operator-bypass-app')
+        && (call[1] as RequestInit | undefined)?.method === 'DELETE');
+      expect(rollbackCall).toBeDefined();
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_operator_webhook_bypass_app_id', expect.anything());
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_operator_webhook_bypass_status', 'error');
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', 'sw-bypass-app');
+    });
+
+    it('REQ-OPERATOR-006: idempotently updates the managed operator bypass app and policy', async () => {
+      const steps: SetupStep[] = [];
+      const existingApps = [
+        { id: 'app-ent', name: 'codeflare-enterprise', domain: 'enterprise.example.com', aud: 'aud-ent' },
+        { id: 'sw-bypass-app', name: 'codeflare-vault-sw-bypass', domain: 'enterprise.example.com/api/vault/*/service_worker.js' },
+        { id: 'operator-bypass-app', name: 'codeflare-operator-webhook-bypass', domain: 'enterprise.example.com/operator-webhook/v1/activities/*' },
+      ];
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-enterprise-admins' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-enterprise-users' }))
+        .mockResolvedValueOnce(cfSuccess(existingApps))
+        .mockResolvedValueOnce(cfSuccess({ id: 'app-ent', aud: 'aud-ent' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfSuccess({ auth_domain: 'test.cloudflareaccess.com' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-bypass-app' }))
+        .mockResolvedValueOnce(cfSuccess([{ id: 'sw-policy' }]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-policy' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'operator-bypass-app' }))
+        .mockResolvedValueOnce(cfSuccess([{ id: 'operator-policy' }]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'operator-policy' }));
+
+      await handleCreateAccessApp(
+        'test-token', 'account-123', 'enterprise.example.com',
+        ['admin@example.com', 'user@example.com'], ['admin@example.com'],
+        steps, mockKV as unknown as KVNamespace, 'codeflare-enterprise', false, true,
+      );
+
+      const operatorAppCall = mockFetch.mock.calls.find((call) =>
+        String(call[0]).endsWith('/access/apps/operator-bypass-app')
+        && (call[1] as RequestInit | undefined)?.method === 'PUT');
+      const operatorPolicyCall = mockFetch.mock.calls.find((call) =>
+        String(call[0]).endsWith('/access/apps/operator-bypass-app/policies/operator-policy')
+        && (call[1] as RequestInit | undefined)?.method === 'PUT');
+      expect(operatorAppCall).toBeDefined();
+      expect(operatorPolicyCall).toBeDefined();
+      expect(mockFetch.mock.calls.some((call) =>
+        String(call[0]).endsWith('/access/apps/operator-bypass-app')
+        && (call[1] as RequestInit | undefined)?.method === 'DELETE')).toBe(false);
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_operator_webhook_bypass_app_id', 'operator-bypass-app');
+      expect(mockKV.put).toHaveBeenCalledWith('setup:access_operator_webhook_bypass_status', 'configured');
+    });
+
     it('default (non-enterprise) mode does NOT create a SW-bypass app', async () => {
       const steps: SetupStep[] = [];
       mockFetch
