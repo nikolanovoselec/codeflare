@@ -31,6 +31,7 @@ const summary = {
 
 function fixture() {
   const activity = {
+    ownsPrepared: vi.fn(async () => true),
     start: vi.fn(async () => ({ ok: true, phase: 'queued' })),
     cancelDrive: vi.fn(async () => ({ ok: true, state: { status: 'cancel-requested' } })),
     getBrowserDetail: vi.fn(async () => ({ ...summary, checkpoint: { step: 1 }, result: null })),
@@ -104,6 +105,20 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(await response.json()).toMatchObject({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43) });
     expect(orchestration.prepare).toHaveBeenCalledWith({ operatorId: 'reviewer', invocation: { repository: 'owner/repo' } },
       { human: claims, accessJwt: 'private.access.jwt' }, expect.anything());
+  });
+
+  it('starts a just-prepared activity only through its exact durable owner binding', async () => {
+    const { request, activity, waitUntil } = fixture();
+    const prepared = await request('', 'POST', { operatorId: 'reviewer', invocation: { repository: 'owner/repo' } });
+    expect(prepared.status).toBe(201);
+    const body = await prepared.json() as { activityId: string; startCapability: string };
+
+    const started = await request(`/${body.activityId}/start`, 'POST', { capability: body.startCapability });
+    expect(started.status).toBe(200);
+    expect(activity.ownsPrepared).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/));
+    expect(activity.start).toHaveBeenCalledWith(body.startCapability);
+    expect(orchestration.run).toHaveBeenCalledWith(body.activityId, expect.anything());
+    expect(waitUntil).toHaveBeenCalledOnce();
   });
 
   it('uses CSRF-protected POST start and cancellation while composing the existing activity methods', async () => {

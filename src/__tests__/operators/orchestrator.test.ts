@@ -46,6 +46,36 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(JSON.stringify(prepareAuthorized.mock.calls[0])).not.toContain('private.jwt');
   });
 
+  it('binds a Gate 1 invocation to the server-generated activity identity before persistence', async () => {
+    const prepareAuthorized = vi.fn(async () => ({ ok: true, phase: 'prepared' }));
+    const registry = { resolveForExecution: vi.fn(async () => ({ ok: true, value: {
+      operatorId: 'codeflare-gate1-fixture', revision: 3, artifactDigest: 'a'.repeat(64),
+      manifestJson: '{}', policyJson: '{"schemaVersion":1}',
+    } })) };
+    const env = { ...encryption,
+      OPERATOR_REGISTRY: { getByName: () => registry },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized }) },
+    } as unknown as Env;
+    const invocation = {
+      schemaVersion: 1, interfaceVersion: 1, consumerId: 'gate1-acceptance',
+      activityId: 'caller-placeholder', operatorId: 'codeflare-gate1-fixture', runId: 'gate1-run',
+      source: { kind: 'direct', reference: 'gate1-session-smoke' },
+      revision: { reference: 'gate1-v1', digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
+      input: { scenario: 'session-smoke' }, attachments: [], resources: {
+        inference: { routeId: 'Development', reasoningLevel: 'high' },
+        session: { profileId: 'gate1-pi-file-v1' }, storage: { scopeId: 'gate1-output-v1' },
+      },
+    };
+
+    const result = await prepareOperatorActivity({ operatorId: 'codeflare-gate1-fixture', invocation },
+      { human: claims, accessJwt: 'private.jwt' }, env);
+
+    const persisted = JSON.parse(prepareAuthorized.mock.calls[0]![2]) as typeof invocation;
+    expect(persisted.activityId).toBe(result.activityId);
+    expect(persisted.activityId).not.toBe(invocation.activityId);
+    expect(persisted.operatorId).toBe('codeflare-gate1-fixture');
+  });
+
   it('uses the admission-pinned distribution and direct-only deny-default bindings for one bounded drive', async () => {
     const bundle = { schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05',
       compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js', modules: { 'index.js': { js: 'export default {}' } } };
