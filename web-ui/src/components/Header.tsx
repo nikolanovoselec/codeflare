@@ -18,6 +18,7 @@ import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { sessionStore } from '../stores/session';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
 import UsageInlineBadge from './UsageInlineBadge';
+import OperatorActivityButton from './OperatorActivityButton';
 
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
@@ -211,6 +212,9 @@ const Header: Component<HeaderProps> = (props) => {
             </div>
           </Show>
         </div>
+
+        {/* Enterprise operator activity is intentionally adjacent to account identity. */}
+        <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
 
         {/* Sleep timer dropdown */}
         <Show when={timerInfo()}>
