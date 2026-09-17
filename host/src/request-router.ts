@@ -213,6 +213,13 @@ async function readBoundedBody(req: http.IncomingMessage, limit: number): Promis
   });
 }
 
+function safeJsonResponseBody(body: string): string {
+  // Operator observations may contain user-controlled text. Re-encode the
+  // controller JSON and escape HTML-significant characters before reflecting it.
+  const escapes: Record<string, string> = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026' };
+  return JSON.stringify(JSON.parse(body)).replace(/[<>&]/g, character => escapes[character]);
+}
+
 export function createRequestHandler(deps: RequestRouterDeps): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> {
   const { sessionManager, log } = deps;
 
@@ -248,8 +255,12 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       const response = await deps.operatorSync.handle({ method: method ?? '', pathname, query: url.searchParams,
         body: await readBoundedBody(req, 64 * 1024) });
       if (response) {
-        res.writeHead(response.status, response.headers);
-        res.end(response.body);
+        // Controller payloads are JSON contracts, but their header object must
+        // never become response-header authority. Fixed headers also prevent
+        // browser content sniffing of reflected operation data.
+        res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(safeJsonResponseBody(response.body));
         return;
       }
     }
@@ -264,8 +275,9 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         body: await readBoundedBody(req, 64 * 1024),
       });
       if (response) {
-        res.writeHead(response.status, response.headers);
-        res.end(response.body);
+        res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(safeJsonResponseBody(response.body));
         return;
       }
     }

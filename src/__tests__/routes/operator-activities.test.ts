@@ -14,6 +14,14 @@ vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
   requireOperatorHumanContext: async () => ({ human: claims, accessJwt: 'private.access.jwt' }),
 }));
+const orchestration = vi.hoisted(() => ({
+  prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
+  run: vi.fn(async () => {}),
+}));
+vi.mock('../../operators/orchestrator', () => ({
+  prepareOperatorActivity: orchestration.prepare,
+  runOperatorActivity: orchestration.run,
+}));
 
 const summary = {
   activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'running', cleanupStatus: 'pending',
@@ -44,14 +52,16 @@ function fixture() {
     ? c.json(error.toJSON(), error.statusCode as never)
     : c.json({ error: 'Internal error' }, 500));
   app.route('/api/operator-activities', routes);
+  const waitUntil = vi.fn();
   const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env) => app.request(
     `https://enterprise.example.test/api/operator-activities${path}`,
     { method, headers: {
       'content-type': 'application/json', 'cf-access-authenticated-user-email': claims.email,
       ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}),
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
+    { waitUntil, passThroughOnException: vi.fn() },
   );
-  return { activity, registry, env, request };
+  return { activity, registry, env, request, waitUntil };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -87,14 +97,25 @@ describe('REQ-OPERATOR-008: authenticated owned activity browser surfaces', () =
     expect(activity.collectBrowserResult).toHaveBeenCalledTimes(1);
   });
 
+  it('prepares a bounded activity through the verified human request boundary', async () => {
+    const { request } = fixture();
+    const response = await request('', 'POST', { operatorId: 'reviewer', invocation: { repository: 'owner/repo' } });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43) });
+    expect(orchestration.prepare).toHaveBeenCalledWith({ operatorId: 'reviewer', invocation: { repository: 'owner/repo' } },
+      { human: claims, accessJwt: 'private.access.jwt' }, expect.anything());
+  });
+
   it('uses CSRF-protected POST start and cancellation while composing the existing activity methods', async () => {
-    const { request, activity } = fixture();
+    const { request, activity, waitUntil } = fixture();
     expect((await request('/activity-1/start', 'POST', { capability: 's'.repeat(43) }, false)).status).toBe(403);
     expect((await request('/activity-1/start', 'GET')).status).toBe(404);
 
     const started = await request('/activity-1/start', 'POST', { capability: 's'.repeat(43) });
     expect(started.status).toBe(200);
     expect(activity.start).toHaveBeenCalledWith('s'.repeat(43));
+    expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything());
+    expect(waitUntil).toHaveBeenCalledOnce();
     const cancelled = await request('/activity-1/cancel', 'POST', {});
     expect(cancelled.status).toBe(200);
     expect(activity.cancelDrive).toHaveBeenCalledOnce();

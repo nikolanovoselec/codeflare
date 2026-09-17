@@ -16,6 +16,7 @@ interface OperatorRuntimeOptions {
   deadline: number;
   loader: OperatorLoaderBinding;
   bundle: OperatorBundle;
+  invocation?: unknown;
   bind: (generation: number) => { capability: Fetcher; outbound: Fetcher | null };
 }
 
@@ -55,7 +56,7 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
       response = await worker.fetch(new Request('https://operator.internal/drive', {
         method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ schemaVersion: 1, action: generation === 1 ? 'start' : 'resume',
-          activityId: options.activityId, generation, checkpoint }),
+          activityId: options.activityId, generation, checkpoint, invocation: options.invocation ?? null }),
       }));
       if (controller.signal.aborted) {
         void response.body?.cancel().catch(() => {});

@@ -42,11 +42,17 @@ describe('REQ-OPERATOR-002: protected distribution registration', () => {
     const request = { operatorId: 'operator', activityId: 'activity', intentDigest: 'b'.repeat(64), expectedRevision: 4, deadline: Date.now() + 60_000 };
     const admitted = await registry.admit(request);
     expect(admitted.ok).toBe(true);
+    const pinned = await registry.getPinnedDistribution('activity');
+    expect(pinned).toEqual(await registry.getProtectedDistribution('operator'));
+    expect(JSON.stringify(admitted)).not.toContain(pinned!.connectionSecretCiphertext);
+    expect(JSON.stringify(await registry.getAdminDetail('operator'))).not.toContain(pinned!.connectionSecretCiphertext);
     expect(await registry.setDistribution('operator', 'https://replacement.example.test/', 'replacement-secret', 4))
       .toEqual({ ok: true, value: { operatorId: 'operator', revision: 5, enabled: false, approvedArtifactDigest: null } });
     expect(await registry.setEnabled('operator', true, 5)).toEqual({ ok: false, reason: 'artifact-unapproved' });
     expect(await registry.admit(request)).toEqual(admitted);
+    expect(await registry.getPinnedDistribution('activity')).toEqual(pinned);
     expect(await registry.admit({ ...request, activityId: 'new', expectedRevision: 5 })).toEqual({ ok: false, reason: 'disabled' });
+    expect(await registry.getPinnedDistribution('new')).toBeNull();
   }));
 
   it('rejects stale and missing configuration updates without overwriting the winner', () => withRegistry(async registry => {

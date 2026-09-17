@@ -72,6 +72,19 @@ export interface OperatorAdmissionReceipt extends OperatorAdmissionRequest {
   policyJson?: string;
 }
 
+export interface OperatorExecutionSelection {
+  operatorId: string;
+  revision: number;
+  artifactDigest: string;
+  manifestJson: string;
+  policyJson: string;
+}
+
+interface ProtectedDistribution {
+  endpoint: string;
+  connectionSecretCiphertext: string;
+}
+
 /** Serializable RPC outcomes; never rely on custom Error fields surviving RPC. */
 export type OperatorRegistryResult<T> = { ok: true; value: T } | {
   ok: false;
@@ -226,6 +239,27 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
+  /** Resolve the enabled approved identities needed to prepare a parent-owned activity. */
+  async resolveForExecution(operatorId: string): Promise<OperatorRegistryResult<OperatorExecutionSelection>> {
+    return this.ctx.storage.transaction<OperatorRegistryResult<OperatorExecutionSelection>>(async tx => {
+      const registration = await tx.get<OperatorRegistrationState>(`registration:${operatorId}`);
+      if (!registration) return { ok: false, reason: 'not-found' };
+      if (!registration.enabled) return { ok: false, reason: 'disabled' };
+      if (!registration.approvedArtifactDigest) return { ok: false, reason: 'artifact-unapproved' };
+      const manifestJson = await tx.get<string>(`approved-manifest:${operatorId}`);
+      const policyJson = await tx.get<string>(`policy:${operatorId}`);
+      const distribution = await tx.get<ProtectedDistribution>(`distribution:${operatorId}`);
+      if (!manifestJson || !policyJson || !distribution) return { ok: false, reason: 'artifact-unapproved' };
+      return { ok: true, value: { operatorId, revision: registration.revision,
+        artifactDigest: registration.approvedArtifactDigest, manifestJson, policyJson } };
+    });
+  }
+
+  /** Parent-only read of the protected distribution pinned by successful admission. */
+  async getPinnedDistribution(activityId: string): Promise<ProtectedDistribution | null> {
+    return await this.ctx.storage.get<ProtectedDistribution>(`receipt-distribution:${activityId}`) ?? null;
+  }
+
   /** Read only the current restrictive policy, never human authority. */
   async getPolicy(operatorId: string): Promise<string | null> {
     return await this.ctx.storage.get<string>(`policy:${operatorId}`) ?? null;
@@ -323,6 +357,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!current.approvedArtifactDigest) return { ok: false, reason: 'artifact-unapproved' };
       const manifestJson = await tx.get<string>(`approved-manifest:${request.operatorId}`);
       const policyJson = await tx.get<string>(`policy:${request.operatorId}`);
+      const distribution = await tx.get<ProtectedDistribution>(`distribution:${request.operatorId}`);
+      if (manifestJson && (!policyJson || !distribution)) return { ok: false, reason: 'artifact-unapproved' };
       const admittedAt = Date.now();
       if (!Number.isFinite(request.deadline) || request.deadline <= admittedAt) {
         return { ok: false, reason: 'authority-expired' };
@@ -333,6 +369,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         ...(policyJson ? { policyJson } : {}),
       };
       await tx.put(key, value);
+      if (distribution) await tx.put(`receipt-distribution:${request.activityId}`, distribution);
       return { ok: true, value };
     });
   }

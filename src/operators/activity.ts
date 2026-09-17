@@ -65,11 +65,20 @@ export type WebhookStartResult = { ok: true; phase: 'queued'; readCapability: st
 export type WebhookReadResult = { ok: true; terminal: boolean; status: string; result?: unknown } | {
   ok: false; reason: 'invalid-capability' | 'capability-expired' | 'not-ready' | 'consumed' | 'not-prepared' };
 
+export interface OperatorRuntimePlan {
+  activityId: string;
+  deadline: number;
+  invocationJson: string;
+  receipt: OperatorAdmissionReceipt;
+  executionContext: OperatorExecutionContext;
+}
+
 interface AdmissionState {
   intent: OperatorActivityPreparation;
   phase: ActivityAdmissionProjection['phase'];
   receipt: OperatorAdmissionReceipt | null;
   executionContext?: OperatorExecutionContext;
+  invocationJson?: string;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
   webhook?: { readVerifier: string; expiresAt: number; consumed: boolean };
@@ -103,9 +112,20 @@ const driveUpdateSchema = z.strictObject({
 
 type AdmissionFailure = Extract<ActivityAdmissionResult, { ok: false }>;
 
-async function capabilityVerifier(capability: string): Promise<string> {
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(capability))))
+async function sha256(value: string): Promise<string> {
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+async function capabilityVerifier(capability: string): Promise<string> {
+  return sha256(capability);
+}
+
+/** Bind the exact persisted invocation semantics to its server-generated activity identity. */
+export async function createOperatorIntentDigest(operatorId: string, activityId: string,
+  invocationJson: string): Promise<string> {
+  const invocation = JSON.parse(invocationJson) as unknown;
+  if (!z.json().safeParse(invocation).success) throw new Error('Invalid invocation');
+  return sha256(JSON.stringify({ schemaVersion: 1, operatorId, activityId, invocation }));
 }
 function randomCapability(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -137,19 +157,27 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
 export class OperatorActivity extends DurableObject<ActivityEnv> {
   /** Production preparation stores parent-created encrypted human authority. */
   async prepareAuthorized(intent: OperatorActivityPreparation,
-    executionContext: OperatorExecutionContext): Promise<ActivityAdmissionResult> {
+    executionContext: OperatorExecutionContext, invocationJson = 'null'): Promise<ActivityAdmissionResult> {
     if (intent.activityId !== executionContext.activityId || intent.operatorId !== executionContext.operatorId) {
       return { ok: false, reason: 'admission-denied' };
     }
+    try {
+      if (new TextEncoder().encode(invocationJson).byteLength > 64 * 1024
+        || intent.intentDigest !== await createOperatorIntentDigest(intent.operatorId, intent.activityId, invocationJson)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
+    } catch { return { ok: false, reason: 'admission-denied' }; }
     if (!Number.isFinite(intent.deadline) || intent.deadline > executionContext.expiresAt * 1000
       || intent.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
     const ownerKey = await operatorOwnerKey(executionContext.owner);
-    return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+    const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
       await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
-        ownerKey, updatedAt: Date.now() });
+        invocationJson, ownerKey, updatedAt: Date.now() });
       return { ok: true, phase: 'prepared' };
     });
+    if (result.ok) await this.publishBrowserSummary();
+    return result;
   }
 
   /** Replace protected authority only through same-owner reauthentication. */
@@ -175,6 +203,15 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
   async getExecutionContext(): Promise<OperatorExecutionProjection | null> {
     const context = (await this.ctx.storage.get<AdmissionState>('admission'))?.executionContext;
     return context ? projectOperatorExecution(context) : null;
+  }
+
+  /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
+  async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.executionContext || !state.receipt || state.phase !== 'queued') return null;
+    return { activityId: state.intent.activityId, deadline: state.intent.deadline,
+      invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
+      executionContext: structuredClone(state.executionContext) };
   }
 
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
@@ -448,6 +485,13 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
   /** Parent reports an interrupted drive; its uncertain effects cannot be replayed. */
   async interruptDrive(generation: number): Promise<OperatorDriveResult> {
     const result = await this.fenceDrive('unknown', generation);
+    if (result.ok) await this.publishBrowserSummary();
+    return result;
+  }
+
+  /** Fence a queued request whose one attached runtime attempt failed before loading code. */
+  async fenceRuntimeFailure(): Promise<OperatorDriveResult> {
+    const result = await this.fenceDrive('unknown');
     if (result.ok) await this.publishBrowserSummary();
     return result;
   }

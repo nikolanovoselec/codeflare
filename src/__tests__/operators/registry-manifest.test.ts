@@ -39,6 +39,26 @@ describe('REQ-OPERATOR-002: approved manifest snapshots', () => {
     expect(await registry.getApprovedManifest('missing')).toBeNull();
   }));
 
+  it('resolves only a complete enabled execution selection and pins protected distribution at admission', () => withRegistry(async registry => {
+    const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
+        reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
+    expect(await registry.resolveForExecution('operator')).toEqual({ ok: false, reason: 'disabled' });
+    await registry.setPolicy('operator', policyJson, 2);
+    await registry.approveManifest('operator', JSON.stringify(manifest()), 3);
+    await registry.setEnabled('operator', true, 4);
+    expect(await registry.resolveForExecution('operator')).toEqual({ ok: true, value: {
+      operatorId: 'operator', revision: 5, artifactDigest: 'a'.repeat(64), manifestJson: JSON.stringify(manifest()), policyJson,
+    } });
+    const request = { operatorId: 'operator', activityId: 'activity-pinned', intentDigest: 'd'.repeat(64),
+      expectedRevision: 5, deadline: Date.now() + 60_000 };
+    const admitted = await registry.admit(request);
+    expect(admitted).toMatchObject({ ok: true, value: { activityId: 'activity-pinned' } });
+    const pinned = await registry.getPinnedDistribution('activity-pinned');
+    expect(pinned).toEqual(await registry.getProtectedDistribution('operator'));
+    expect(JSON.stringify(admitted)).not.toContain(pinned!.connectionSecretCiphertext);
+  }));
+
   it('pins admitted metadata through replacement approval and distribution changes', () => withRegistry(async registry => {
     await registry.approveManifest('operator', JSON.stringify(manifest()), 2);
     await registry.setEnabled('operator', true, 3);

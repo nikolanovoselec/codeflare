@@ -11,6 +11,8 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Conventions](#conventions)
 - [Session Management](#session-management)
 - [Container Lifecycle](#container-lifecycle)
+- [Operator Activities](#operator-activities)
+- [Internal Operator Host APIs](#internal-operator-host-apis)
 - [Terminal](#terminal)
 - [Vault](#vault)
 - [Browser IDE](#browser-ide)
@@ -118,6 +120,48 @@ These are endpoint observations, not persisted lifecycle states. `details` ident
 Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later KV `running` write are not atomic. Concurrent-session admission is explicitly best effort, so simultaneous starts may exceed the nominal per-user limit; deployment `max_instances` is a separate hard platform boundary. Enterprise currently follows the non-SaaS role-based resolver, while [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit.
 
 A successful start response means asynchronous startup was accepted, not that ports are ready. If `startAndWaitForPorts()` later fails, the background task rolls KV back to `stopped`; clients observe `stopped` through startup status rather than a persisted `error` lifecycle state. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
+
+## Operator Activities
+
+These Worker routes exist only in enterprise mode and implement [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime), [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-codeflare-webhook-endpoint), and [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-administration-and-activity-surfaces).
+
+| Method | Path | Auth | Request / response |
+|---|---|---|---|
+| POST | `/api/operator-activities` | Session, verified current human Access, CSRF | `{ operatorId, invocation }` with bounded JSON. Returns `201 { activityId, startCapability, startExpiresAt }`; identity, registration revision, policy and authority are server-selected. |
+| GET | `/api/operator-activities` | Session and verified human Access | Returns at most 100 owner-scoped secret-free summaries. |
+| GET | `/api/operator-activities/:activityId` | Session and exact owner | Returns bounded execution, cleanup, collection, checkpoint and result state without credentials. |
+| POST | `/api/operator-activities/:activityId/start` | Session, exact owner, CSRF | `{ capability }`; one winning admission schedules one request-attached drive. Rejected/repeated starts return `409` and schedule nothing. |
+| POST | `/api/operator-activities/:activityId/cancel` | Session, exact owner, CSRF | Fences the owned drive; a successful response does not overstate compute cleanup. |
+| GET / POST | `/api/operator-activities/:activityId/result` | Session and exact owner; POST also requires CSRF | GET observes without consumption. POST marks a terminal browser result collected; nonterminal returns `409 RESULT_NOT_READY`. |
+| POST | `/operator-webhook/v1/activities/:activityId/start` | Activity start bearer capability | Queues one admitted activity and returns its read capability once. |
+| GET | `/operator-webhook/v1/activities/:activityId/status` | Activity read bearer capability | Non-consuming bounded status read. |
+| POST | `/operator-webhook/v1/activities/:activityId/result` | Activity read bearer capability | Returns `202` while not ready; one terminal redemption consumes before delivery. |
+
+The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Invalid enterprise, path, method or capability input fails at the Worker. The asset configuration routes `/operator-webhook/*` through Worker logic before SPA fallback. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/orchestrator.ts -->
+
+## Internal Operator Host APIs
+
+These routes are private container-host contracts for a restricted operator session; they are not public Worker endpoints. Every request first requires the container Bearer token. The routes exist only when trusted parent startup supplied the matching operator service configuration, use `Cache-Control: no-store`, accept at most 64 KiB of JSON, and are governed by [REQ-OPERATOR-005](../../sdd/spec/operators.md#req-operator-005-owned-session-structured-pi-and-explicit-persistence). Candidate input cannot choose the activity, Codeflare session, filesystem root, model, tools, bucket, R2 credentials, policy, remote prefix, or authority deadline.
+
+### Structured Pi
+
+| Method | Private host path | Request | Success response | Errors |
+|---|---|---|---|---|
+| POST | `/internal/operator/pi/ensure` | Empty JSON object | `200 { conversationId, ready: true }`; creates once or reopens only the exact persisted conversation | `400 PI_REQUEST_INVALID`; `409 PI_OPERATION_CONFLICT` if the owned conversation is lost or cannot be reconciled; `500 PI_OPERATION_FAILED` |
+| POST | `/internal/operator/pi/tasks` | `{ taskId, digest, text, mode }`; ID is 1–128 safe characters, digest is lowercase SHA-256, UTF-8 text is nonempty and at most 32 KiB, mode is `prompt`, `follow-up`, or `steer` | `202 { taskId, status }`; stable task identity reconciles an exact repeat | `400 PI_REQUEST_INVALID`; `409 PI_OPERATION_CONFLICT` for changed identity, busy state, or a full pending follow-up/steer slot; `500 PI_OPERATION_FAILED` |
+| GET | `/internal/operator/pi/events?cursor=<sequence>` | Optional nonnegative safe-integer cursor; no other query keys | `200 { events, nextCursor, gap }`; at most 100 events and 64 KiB, with `gap: true` when retained history no longer covers the cursor | `400 PI_REQUEST_INVALID`; `500 PI_OPERATION_FAILED` |
+| POST | `/internal/operator/pi/tasks/:taskId/abort` | Empty JSON object | `200 { taskId, status: "cancelled" }` after SDK abort and current prompt settlement | `400 PI_REQUEST_INVALID`; `404 PI_TASK_NOT_FOUND`; `409 PI_OPERATION_CONFLICT`; `500 PI_OPERATION_FAILED` |
+
+Unsupported methods return `405 METHOD_NOT_ALLOWED`; unknown paths under the prefix return `404 PI_ROUTE_NOT_FOUND`. Task intent is persisted before SDK submission. The service does not replace a missing conversation or automatically replay an uncertain effect. <!-- @impl: host/src/operator-pi-http.ts::OperatorPiHttpController --> <!-- @impl: host/src/operator-pi-service.ts::createOperatorPiService -->
+
+### Explicit operator output sync
+
+| Method | Private host path | Request | Success response | Errors |
+|---|---|---|---|---|
+| POST | `/internal/operator/sync/operations` | `{ operationId, requestDigest, files }`; at most 128 unique canonical relative files and 8 MiB total, each with exact `path`, `size`, and lowercase SHA-256 | `200` with the persisted version-1 receipt after every file and the final manifest upload; an uncertain remote outcome returns `202 { status: "unknown", code: "SYNC_OUTCOME_UNKNOWN" }` | `400 SYNC_REQUEST_INVALID`; `403 SYNC_AUTHORITY_EXPIRED`; `409 SYNC_CONFLICT`; `413 REQUEST_TOO_LARGE`; `500 SYNC_OPERATION_FAILED` |
+| GET | `/internal/operator/sync/operations/:operationId` | No query parameters; any request body is ignored | `200` with the current credential-free receipt | `404 SYNC_NOT_FOUND`; invalid queries return `400 SYNC_REQUEST_INVALID` |
+
+The fixed parent-selected prefix is extended only by the stable operation ID. Files are read from the fixed output root without following symlinks, checked against declared size and digest, and uploaded individually before `manifest.json`; the manifest is always last. Exact completed repeats reconcile, changed repeats conflict, and a pre-existing nonterminal receipt is fenced as unknown rather than replayed. Ordinary `/internal/bisync-trigger` and `/internal/final-sync` return `403 OPERATOR_BISYNC_DENIED` in restricted sessions. <!-- @impl: host/src/operator-sync-http.ts::OperatorSyncHttpController --> <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
 
 ## Terminal
 

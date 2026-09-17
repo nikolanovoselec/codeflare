@@ -9,8 +9,11 @@ import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/brow
 import type { OperatorRegistry } from '../operators/registry';
 import type { OperatorActivity } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
+import { prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
 
-const app = new Hono<{ Bindings: Env; Variables: { ownerKey: string;
+const preparationBody = z.strictObject({ operatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), invocation: z.json() });
+type HumanAuthority = Awaited<ReturnType<typeof requireOperatorHumanContext>>;
+const app = new Hono<{ Bindings: Env; Variables: { ownerKey: string; operatorHuman: HumanAuthority;
   registry: DurableObjectStub<OperatorRegistry> } }>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
@@ -24,6 +27,7 @@ app.use('*', async (c, next) => {
   const email = c.req.header('cf-access-authenticated-user-email')?.trim().toLowerCase();
   if (!email) throw new AppError('UNAUTHORIZED', 401, 'Authentication required');
   const human = await requireOperatorHumanContext(c.req.raw, c.env, email);
+  c.set('operatorHuman', human);
   c.set('ownerKey', await operatorOwnerKey(human.human));
   c.set('registry', c.env.OPERATOR_REGISTRY.getByName('registry'));
   if (c.req.method === 'POST' && c.req.header('x-requested-with') !== 'XMLHttpRequest') {
@@ -35,6 +39,11 @@ app.use('*', async (c, next) => {
 app.get('/', async c => {
   const items = await c.get('registry').listOwnedActivities(c.get('ownerKey'));
   return c.json({ items: items.slice(0, 100).map(jsonSummary) });
+});
+app.post('/', async c => {
+  const body = await parseJsonBody(c, preparationBody);
+  const prepared = await prepareOperatorActivity(body, c.get('operatorHuman'), c.env);
+  return c.json(prepared, 201);
 });
 
 async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: string, activityId: string) {
@@ -70,6 +79,7 @@ app.post('/:activityId/start', async c => {
   const body = await parseJsonBody(c, startBody);
   const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).start(body.capability);
   if (!outcome.ok) return c.json({ error: 'Activity start rejected', code: outcome.reason }, 409);
+  c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env).catch(() => {}));
   return c.json(outcome);
 });
 app.post('/:activityId/cancel', async c => {

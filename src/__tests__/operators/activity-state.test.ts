@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
-import { OperatorActivity } from '../../operators/activity';
+import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 
@@ -74,6 +74,11 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
   }));
 
+  it('fences a failed request-attached runtime before code loading and never replays it', () => withActivity(async ({ activity }) => {
+    expect(await activity.fenceRuntimeFailure()).toMatchObject({ ok: true, state: { generation: 1, status: 'unknown' } });
+    expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+  }));
+
   it('cancellation fences execution without claiming stopped compute', () => withActivity(async ({ activity }) => {
     await activity.beginDrive();
     expect(await activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
@@ -100,7 +105,8 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
       artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human: claims, accessJwt: 'private.jwt' }, encryption);
     const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
-    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64),
+    const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
       expectedRevision: 1, deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000,
       startVerifier: 'd'.repeat(64) }, context)).toEqual({ ok: true, phase: 'prepared' });
     expect(await secured.getExecutionContext()).toMatchObject({ activityId: 'activity', operatorId: 'operator',
@@ -130,11 +136,16 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
     const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))))
       .map(byte => byte.toString(16).padStart(2, '0')).join('');
-    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64),
+    const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
       expectedRevision: 4, deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000,
       startVerifier: verifier }, context)).toEqual({ ok: true, phase: 'prepared' });
     expect(await secured.start(token)).toEqual({ ok: true, phase: 'queued' });
     expect(await secured.getExecutionContext()).toMatchObject({ artifactDigest: 'a'.repeat(64), policyDigest });
+    expect(await secured.getRuntimePlan()).toMatchObject({ activityId: 'activity', invocationJson: 'null',
+      receipt: { operatorId: 'operator' }, executionContext: { protectedAccessCiphertext: expect.stringMatching(/^v1:/) } });
+    expect(JSON.stringify(await secured.getAdmission())).not.toContain('protectedAccessCiphertext');
+    expect(JSON.stringify(await secured.getBrowserDetail())).not.toContain('protectedAccessCiphertext');
 
     const sync = { operationId: 'sync-1', sessionId: 'session-1', requestDigest: 'd'.repeat(64), policyDigest,
       prefix: 'Remote Reviews/activity/session-1/sync-1/', deadline: Date.now() + 60_000 };
@@ -160,8 +171,11 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
       artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human: claims, accessJwt: 'private.jwt' }, encryption);
     const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
-    const base = { operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64), expectedRevision: 1,
+    const base = { operatorId: 'operator', activityId: 'activity',
+      intentDigest: await createOperatorIntentDigest('operator', 'activity', 'null'), expectedRevision: 1,
       deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000, startVerifier: 'd'.repeat(64) };
+    expect(await secured.prepareAuthorized({ ...base, intentDigest: 'c'.repeat(64) }, context))
+      .toEqual({ ok: false, reason: 'admission-denied' });
     expect(await secured.prepareAuthorized({ ...base, operatorId: 'substitute' }, context)).toEqual({ ok: false, reason: 'admission-denied' });
     expect(await secured.prepareAuthorized({ ...base, deadline: claims.expiresAt * 1000 + 1 }, context)).toEqual({ ok: false, reason: 'authority-expired' });
     expect(await secured.getExecutionContext()).toBeNull();

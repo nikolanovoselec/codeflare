@@ -9,6 +9,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { isEnterpriseMode } from '../lib/subscription';
+import { runOperatorActivity } from '../operators/orchestrator';
 
 const app = new Hono<{ Bindings: Env }>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -59,7 +60,10 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
       : action === 'status'
         ? await activity.getWebhookStatus(capability)
         : await activity.redeemWebhookResult(capability);
-    if (result.ok) return response(result, 200);
+    if (result.ok) {
+      if (action === 'start') c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env).catch(() => {}));
+      return response(result, 200);
+    }
     const status = result.reason === 'not-ready' ? 202
       : result.reason === 'capability-expired' ? 410
         : result.reason === 'consumed' || result.reason === 'already-started' ? 409

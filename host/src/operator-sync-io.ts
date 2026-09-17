@@ -54,9 +54,11 @@ function validateReceipt(value: unknown, operationId?: string): OperatorSyncRece
     files: validateFiles(receipt.files) };
 }
 
+type OpenFile = typeof open;
+
 export class OwnedOperatorSyncFiles implements OperatorSyncFiles {
   private readonly root: string;
-  constructor(root: string) {
+  constructor(root: string, private readonly openFile: OpenFile = open) {
     if (!path.isAbsolute(root)) throw new Error('Invalid owned output root');
     this.root = path.resolve(root);
   }
@@ -69,8 +71,13 @@ export class OwnedOperatorSyncFiles implements OperatorSyncFiles {
     if ((await lstat(lexical)).isSymbolicLink()) throw new Error('Owned output symlink is forbidden');
     const [canonicalRoot, canonicalFile] = await Promise.all([realpath(this.root), realpath(lexical)]);
     if (!canonicalFile.startsWith(`${canonicalRoot}${path.sep}`)) throw new Error('Invalid owned output path');
-    const handle = await open(canonicalFile, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const handle = await this.openFile(canonicalFile, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
+      // The descriptor, not the pre-open pathname, is the read authority. A
+      // parent-directory symlink swap between realpath and open can otherwise
+      // redirect a same-sized output outside the activity root.
+      const openedPath = await realpath(`/proc/self/fd/${handle.fd}`);
+      if (!openedPath.startsWith(`${canonicalRoot}${path.sep}`)) throw new Error('Invalid owned output path');
       const info = await handle.stat();
       if (!info.isFile()) throw new Error('Owned output is not a regular file');
       if (info.size !== expectedSize) throw new Error('Owned output size mismatch');

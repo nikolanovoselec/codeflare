@@ -12,7 +12,8 @@ function request(port, method, path, body, authorization) {
       headers: { ...(authorization ? { authorization } : {}), ...(encoded ? { 'content-length': encoded.length } : {}) } }, res => {
       let value = '';
       res.on('data', chunk => { value += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: value ? JSON.parse(value) : null }));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers,
+        raw: value, body: value ? JSON.parse(value) : null }));
     });
     req.on('error', reject);
     req.end(encoded);
@@ -26,8 +27,8 @@ test('REQ-OPERATOR-005: router authenticates then forwards fixed Pi request byte
   const calls = [];
   const operatorPi = { async handle(input) {
     calls.push(input);
-    return { status: 202, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-      body: JSON.stringify({ accepted: true }) };
+    return { status: 202, headers: { 'Content-Type': 'text/html', 'X-Untrusted': '<script>alert(1)</script>' },
+      body: JSON.stringify({ accepted: '<script>alert(1)</script>' }) };
   } };
   const handler = createRequestHandler({
     sessionManager: { size: 0, list: () => [] }, wsEventLog: [],
@@ -47,8 +48,11 @@ test('REQ-OPERATOR-005: router authenticates then forwards fixed Pi request byte
   assert.deepEqual(calls, []);
   const allowed = await request(port, 'POST', '/internal/operator/pi/tasks?cursor=3', { taskId: 'task-1' }, 'Bearer operator-host-token');
   assert.equal(allowed.status, 202);
-  assert.deepEqual(allowed.body, { accepted: true });
+  assert.deepEqual(allowed.body, { accepted: '<script>alert(1)</script>' });
+  assert.doesNotMatch(allowed.raw, /<script>/);
   assert.equal(allowed.headers['cache-control'], 'no-store');
+  assert.equal(allowed.headers['content-type'], 'application/json; charset=utf-8');
+  assert.equal(allowed.headers['x-untrusted'], undefined);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, 'POST');
   assert.equal(calls[0].pathname, '/internal/operator/pi/tasks');

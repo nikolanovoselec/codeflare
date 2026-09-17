@@ -7,6 +7,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import webhookRoutes from '../../routes/operator-webhook';
 
+const orchestration = vi.hoisted(() => ({ run: vi.fn(async () => {}) }));
+vi.mock('../../operators/orchestrator', () => ({ runOperatorActivity: orchestration.run }));
+
 const activityId = 'activity-1';
 const capability = 's'.repeat(43);
 function environment(overrides: Record<string, unknown> = {}) {
@@ -32,12 +35,15 @@ describe('REQ-OPERATOR-006: capability-authenticated webhook edge', () => {
       ['POST', 'start', 200], ['GET', 'status', 200], ['POST', 'result', 202],
     ] as const;
     for (const [method, action, status] of cases) {
-      const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/${action}`, method), env as never);
+      const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/${action}`, method), env as never,
+        { waitUntil: vi.fn(), passThroughOnException: vi.fn() });
       expect(response.status).toBe(status);
       expect(response.headers.get('cache-control')).toBe('no-store');
       expect(await response.text()).not.toContain(capability);
     }
     expect(activity.startWebhook).toHaveBeenCalledWith(capability);
+    expect(orchestration.run).toHaveBeenCalledTimes(1);
+    expect(orchestration.run).toHaveBeenCalledWith(activityId, env);
     expect(activity.getWebhookStatus).toHaveBeenCalledWith(capability);
     expect(activity.redeemWebhookResult).toHaveBeenCalledWith(capability);
   });

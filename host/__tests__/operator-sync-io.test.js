@@ -1,7 +1,7 @@
 /** REQ-OPERATOR-005: concrete restricted local/R2 I/O adapters. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { FileOperatorSyncStore, OwnedOperatorSyncFiles, RcloneOperatorSyncUploader } from '../dist/operator-sync-io.js';
@@ -19,6 +19,25 @@ test('REQ-OPERATOR-005: local adapter reads only exact regular non-symlink files
   await assert.rejects(files.read('reports/result.txt', 5), /size/i);
   await symlink(path.join(root, 'reports/result.txt'), path.join(root, 'reports/link'));
   await assert.rejects(files.read('reports/link', 6), /symlink|regular/i);
+});
+
+test('REQ-OPERATOR-005: opened output remains beneath the owned root after an intermediate-directory swap', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'operator-output-race-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'operator-output-outside-'));
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]));
+  await mkdir(path.join(root, 'reports'));
+  await writeFile(path.join(root, 'reports/result.txt'), 'inside');
+  await writeFile(path.join(outside, 'result.txt'), 'secret');
+  let swapped = false;
+  const files = new OwnedOperatorSyncFiles(root, async (file, flags) => {
+    if (!swapped) {
+      swapped = true;
+      await rename(path.join(root, 'reports'), path.join(root, 'reports-safe'));
+      await symlink(outside, path.join(root, 'reports'));
+    }
+    return open(file, flags);
+  });
+  await assert.rejects(files.read('reports/result.txt', 6), /owned output path/i);
 });
 
 test('REQ-OPERATOR-005: receipt store atomically persists mode-0600 bounded per-operation state', async t => {
