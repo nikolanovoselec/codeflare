@@ -17,6 +17,7 @@ async function withActivity(
   test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
     ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
   admitted = true,
+  started = true,
 ): Promise<void> {
   const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
   const stub = namespace.get(namespace.newUniqueId());
@@ -36,7 +37,7 @@ async function withActivity(
         .map(byte => byte.toString(16).padStart(2, '0')).join('');
       await activity.prepare({ operatorId: 'operator', activityId: 'activity', intentDigest: 'b'.repeat(64),
         expectedRevision: 3, deadline: Date.now() + 60_000, startExpiresAt: Date.now() + 60_000, startVerifier: verifier });
-      expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
+      if (started) expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
     }
     await test({ activity, registry, token, ctx, activityEnv });
   });
@@ -165,6 +166,26 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.prepareAuthorized({ ...base, deadline: claims.expiresAt * 1000 + 1 }, context)).toEqual({ ok: false, reason: 'authority-expired' });
     expect(await secured.getExecutionContext()).toBeNull();
   }, false));
+
+  it('issues a distinct read capability only to the single start winner and consumes one terminal redemption', () => withActivity(async ({ activity, token }) => {
+    const started = await activity.startWebhook(token);
+    expect(started).toMatchObject({ ok: true, phase: 'queued' });
+    expect(started.ok && started.readCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    if (!started.ok) throw new Error('expected webhook start');
+    expect(await activity.getWebhookStatus(started.readCapability)).toMatchObject({ ok: true, terminal: false });
+    expect(await activity.redeemWebhookResult(started.readCapability)).toEqual({ ok: false, reason: 'not-ready' });
+    const drive = await activity.beginDrive();
+    expect(drive).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    const redemptions = await Promise.all([
+      activity.redeemWebhookResult(started.readCapability),
+      activity.redeemWebhookResult(started.readCapability),
+    ]);
+    expect(redemptions.filter(result => result.ok)).toHaveLength(1);
+    expect(redemptions.filter(result => !result.ok)).toEqual([{ ok: false, reason: 'consumed' }]);
+    expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
+  }, true, false));
 
   it('denies drive operations when admission does not exist', () => withActivity(async ({ activity }) => {
     expect(await activity.getAdmission()).toBeNull();
