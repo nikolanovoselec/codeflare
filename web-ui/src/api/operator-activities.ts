@@ -14,7 +14,7 @@ export const operatorActivitySummarySchema = z.strictObject({
   attention: z.boolean(),
   sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).nullable(),
   source: z.string().max(256).nullable(),
-  updatedAt: z.string().datetime(),
+  updatedAt: z.union([z.string().datetime(), z.number().int().nonnegative()]),
 });
 export type OperatorActivitySummary = z.infer<typeof operatorActivitySummarySchema>;
 const listSchema = z.strictObject({ items: z.array(operatorActivitySummarySchema).max(100) });

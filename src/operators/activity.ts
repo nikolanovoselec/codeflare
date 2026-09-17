@@ -12,6 +12,7 @@ import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
+import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export interface OperatorActivityPreparation extends OperatorAdmissionRequest {
@@ -72,6 +73,9 @@ interface AdmissionState {
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
   webhook?: { readVerifier: string; expiresAt: number; consumed: boolean };
+  ownerKey?: string;
+  browserCollectionConsumed?: boolean;
+  updatedAt?: number;
 }
 
 const syncIdentity = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -139,9 +143,11 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     }
     if (!Number.isFinite(intent.deadline) || intent.deadline > executionContext.expiresAt * 1000
       || intent.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+    const ownerKey = await operatorOwnerKey(executionContext.owner);
     return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
-      await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext });
+      await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
+        ownerKey, updatedAt: Date.now() });
       return { ok: true, phase: 'prepared' };
     });
   }
@@ -218,7 +224,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       : null;
     const readCapability = issueRead ? randomCapability() : null;
     const readVerifier = readCapability ? await capabilityVerifier(readCapability) : null;
-    return this.ctx.storage.transaction<ActivityAdmissionResult | WebhookStartResult>(async tx => {
+    const queued = await this.ctx.storage.transaction<ActivityAdmissionResult | WebhookStartResult>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
@@ -234,10 +240,12 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       await tx.put<AdmissionState>('admission', {
         ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
         ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 7 * 24 * 60 * 60 * 1000,
-          consumed: false } } : {}),
+          consumed: false } } : {}), updatedAt: Date.now(),
       });
       return readCapability ? { ok: true, phase: 'queued', readCapability } : { ok: true, phase: 'queued' };
     });
+    if (queued.ok) await this.publishBrowserSummary();
+    return queued;
   }
 
   /** Non-consuming status validates the read capability even after execution authority expiry. */
@@ -378,7 +386,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
    * The parent binds the returned generation to its child capabilities.
    */
   async beginDrive(): Promise<OperatorDriveResult> {
-    return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+    const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
       if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
@@ -390,9 +398,11 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
         generation: (record.drive?.generation ?? 0) + 1, status: 'running',
         checkpoint: record.drive?.checkpoint ?? null, result: null,
       };
-      await tx.put<AdmissionState>('admission', { ...record, drive: state });
+      await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
       return { ok: true, state };
     });
+    if (result.ok) await this.publishBrowserSummary();
+    return result;
   }
 
   /** Validate bounded child output before committing the current generation only. */
@@ -409,7 +419,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     } catch {
       return { ok: false, reason: 'invalid-update' };
     }
-    return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+    const committed = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
       if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
@@ -421,19 +431,25 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       const state: OperatorDriveState = {
         generation, status: parsed.status, checkpoint: parsed.checkpoint, result: parsed.result ?? null,
       };
-      await tx.put<AdmissionState>('admission', { ...record, drive: state });
+      await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
       return { ok: true, state };
     });
+    if (committed.ok) await this.publishBrowserSummary();
+    return committed;
   }
 
   /** Fence future commits; this is not confirmation that owned compute has stopped. */
   async cancelDrive(): Promise<OperatorDriveResult> {
-    return this.fenceDrive('cancel-requested');
+    const result = await this.fenceDrive('cancel-requested');
+    if (result.ok) await this.publishBrowserSummary();
+    return result;
   }
 
   /** Parent reports an interrupted drive; its uncertain effects cannot be replayed. */
   async interruptDrive(generation: number): Promise<OperatorDriveResult> {
-    return this.fenceDrive('unknown', generation);
+    const result = await this.fenceDrive('unknown', generation);
+    if (result.ok) await this.publishBrowserSummary();
+    return result;
   }
 
   private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number): Promise<OperatorDriveResult> {
@@ -450,9 +466,48 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
         generation: (record.drive?.generation ?? 0) + 1, status,
         checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
       };
-      await tx.put<AdmissionState>('admission', { ...record, drive: state });
+      await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
       return { ok: true, state };
     });
+  }
+
+  private browserSummary(state: AdmissionState): OperatorBrowserSummary {
+    const executionStatus = state.drive?.status ?? 'queued';
+    const terminal = executionStatus === 'completed' || executionStatus === 'failed';
+    return { activityId: state.intent.activityId, operatorId: state.intent.operatorId, executionStatus,
+      cleanupStatus: executionStatus === 'cancel-requested' ? 'stopping' : terminal ? 'unknown' : 'pending',
+      collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
+      attention: executionStatus === 'failed' || executionStatus === 'unknown' || (terminal && !state.browserCollectionConsumed),
+      sessionId: null, source: null, updatedAt: state.updatedAt ?? Date.now() };
+  }
+
+  private async publishBrowserSummary(): Promise<void> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.ownerKey) return;
+    try { await this.env.OPERATOR_REGISTRY.getByName('registry').upsertOwnedActivity(state.ownerKey, this.browserSummary(state)); }
+    catch { /* execution state remains authoritative; the safe index can reconcile later */ }
+  }
+
+  async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown }) | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    return state ? { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null,
+      result: state.drive?.result ?? null } : null;
+  }
+
+  async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
+    | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
+    const outcome = await this.ctx.storage.transaction<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
+      | { ok: false; reason: 'not-ready' | 'not-admitted' }>(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      if (!state) return { ok: false, reason: 'not-admitted' };
+      if (state.drive?.status !== 'completed' && state.drive?.status !== 'failed') return { ok: false, reason: 'not-ready' };
+      const consumed = { ...state, browserCollectionConsumed: true, updatedAt: Date.now() };
+      await tx.put<AdmissionState>('admission', consumed);
+      return { ok: true, detail: { ...this.browserSummary(consumed), checkpoint: consumed.drive?.checkpoint ?? null,
+        result: consumed.drive?.result ?? null } };
+    });
+    if (outcome.ok) await this.publishBrowserSummary();
+    return outcome;
   }
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */

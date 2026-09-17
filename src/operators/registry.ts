@@ -11,6 +11,7 @@ import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secret
 import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
 import { parseOperatorPolicy } from './policy';
+import type { OperatorBrowserSummary } from './browser-activity';
 
 /** RPC carries bounded JSON text rather than recursively serialized schema types. */
 function normalizePolicyJson(json: string): string {
@@ -339,5 +340,30 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   /** Read-only reconciliation, including after disablement/expiry; not admission. */
   async getReceipt(activityId: string): Promise<OperatorRegistryResult<OperatorAdmissionReceipt | null>> {
     return { ok: true, value: await this.ctx.storage.get<OperatorAdmissionReceipt>(`receipt:${activityId}`) ?? null };
+  }
+
+  /** Activity-owned, credential-free index for exact browser account lookups. */
+  async upsertOwnedActivity(ownerKey: string, summary: OperatorBrowserSummary): Promise<void> {
+    if (!/^[0-9a-f]{64}$/.test(ownerKey) || !/^[A-Za-z0-9_-]{1,128}$/.test(summary.activityId)) return;
+    await this.ctx.storage.transaction(async tx => {
+      const indexKey = `owner-activities:${ownerKey}`;
+      const current = await tx.get<string[]>(indexKey) ?? [];
+      const ids = [summary.activityId, ...current.filter(id => id !== summary.activityId)].slice(0, 100);
+      await tx.put(indexKey, ids);
+      await tx.put(`owner-activity:${ownerKey}:${summary.activityId}`, structuredClone(summary));
+    });
+  }
+
+  async listOwnedActivities(ownerKey: string): Promise<OperatorBrowserSummary[]> {
+    if (!/^[0-9a-f]{64}$/.test(ownerKey)) return [];
+    const ids = await this.ctx.storage.get<string[]>(`owner-activities:${ownerKey}`) ?? [];
+    const values = await Promise.all(ids.slice(0, 100).map(id =>
+      this.ctx.storage.get<OperatorBrowserSummary>(`owner-activity:${ownerKey}:${id}`)));
+    return values.filter((value): value is OperatorBrowserSummary => value !== undefined);
+  }
+
+  async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {
+    if (!/^[0-9a-f]{64}$/.test(ownerKey) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return null;
+    return await this.ctx.storage.get<OperatorBrowserSummary>(`owner-activity:${ownerKey}:${activityId}`) ?? null;
   }
 }
