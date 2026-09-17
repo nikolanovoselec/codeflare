@@ -107,7 +107,14 @@ export class Gate1OperatorCapability {
           size: new TextEncoder().encode(resources.marker.content).byteLength, sha256: resources.marker.sha256 }],
       }),
     });
-    if (!upload.ok) throw new Error('Sync upload failed');
+    if (!upload.ok) {
+      const failure = await upload.json().catch(() => null) as { code?: unknown } | null;
+      if (failure?.code === 'SYNC_OUTPUT_NOT_FOUND' || failure?.code === 'SYNC_OUTPUT_MISMATCH') {
+        await session.stop();
+        return this.failed(`GATE1_${failure.code}`);
+      }
+      throw new Error('Sync upload failed');
+    }
     const receipt = await upload.json() as { schemaVersion?: number; operationId?: string; requestDigest?: string;
       status?: string; manifestDigest?: string | null; files?: unknown };
     const expectedFiles = [{ path: resources.marker.relativePath,

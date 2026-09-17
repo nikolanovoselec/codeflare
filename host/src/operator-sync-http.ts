@@ -66,9 +66,16 @@ export class OperatorSyncHttpController {
       return result(404, { error: 'Unknown sync operation', code: 'SYNC_ROUTE_NOT_FOUND' });
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : '';
+      const errorCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
       if (message === 'oversized') return result(413, { error: 'Request body too large', code: 'REQUEST_TOO_LARGE' });
       if (message === 'invalid' || message.includes('invalid operator sync')) {
         return result(400, { error: 'Invalid sync request', code: 'SYNC_REQUEST_INVALID' });
+      }
+      if (errorCode === 'ENOENT') {
+        return result(409, { error: 'Sync output is unavailable', code: 'SYNC_OUTPUT_NOT_FOUND' });
+      }
+      if (message.includes('owned output size mismatch') || message.includes('operator sync file mismatch')) {
+        return result(409, { error: 'Sync output does not match its declaration', code: 'SYNC_OUTPUT_MISMATCH' });
       }
       if (message.includes('conflict')) return result(409, { error: 'Sync operation conflict', code: 'SYNC_CONFLICT' });
       if (message.includes('unknown')) return result(202, { status: 'unknown', code: 'SYNC_OUTCOME_UNKNOWN' });
