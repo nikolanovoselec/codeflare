@@ -140,6 +140,7 @@ app.get('/', requireAdmin, async (c) => {
       reasoningConfigurationRaw,
       groupRouting,
       storedActiveAgents,
+      operatorWebhookBypassStatus,
     ] = await Promise.all([
       c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP),
       c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP),
@@ -158,6 +159,7 @@ app.get('/', requireAdmin, async (c) => {
       c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
       c.env.KV.get(SETUP_KEYS.GROUP_ROUTING),
       readActiveAgents(c.env.KV),
+      c.env.KV.get(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS),
     ]);
     const configurableAgents = CONFIGURABLE_ENTERPRISE_AGENTS.filter((agent) => installedAgents(c.env).includes(agent));
     const activeAgents = storedActiveAgents?.filter((agent) => configurableAgents.includes(agent)) ?? configurableAgents;
@@ -166,6 +168,7 @@ app.get('/', requireAdmin, async (c) => {
       adminUsers: allUsers.filter((user) => user.role === 'admin').map((user) => user.email),
       userAccessGroups: parseAccessGroups(enterpriseAccessGroup),
       adminAccessGroups: parseAccessGroups(enterpriseAdminAccessGroup),
+      operatorWebhookBypassStatus: operatorWebhookBypassStatus ?? 'missing',
     };
     const rawRouteSettings = routeContextWindows === null
       ? {}
