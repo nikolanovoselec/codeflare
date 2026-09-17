@@ -66,7 +66,6 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
   const outputPrefix = OUTPUT_ROOT;
   const relativePath = `${MARKER_DIRECTORY}/gate1-marker-${input.activityId}.txt`;
   const storagePath = `${outputPrefix}${relativePath}`;
-  const localMarkerPath = `/home/user/${storagePath}`;
   if (!decideOperatorStorage(policy, 'write', storagePath).allowed
     || !decideOperatorStorage(policy, 'read', storagePath).allowed) invalid();
 

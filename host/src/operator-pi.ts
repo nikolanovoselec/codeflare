@@ -139,12 +139,11 @@ export class OperatorPiConversation {
     if (input.mode === 'prompt' || input.mode === 'tool') {
       let operation: Promise<void>;
       try {
-        if (input.mode === 'prompt') operation = this.session!.prompt(input.text);
-        else {
+        if (input.mode === 'tool') {
           this.activeToolAbort = new AbortController();
           operation = this.session!.executeTool({ toolCallId: input.taskId, name: input.toolName,
             arguments: input.arguments, signal: this.activeToolAbort.signal });
-        }
+        } else operation = this.session!.prompt(input.text);
       } catch (error) {
         this.activeToolAbort = null;
         metadata.tasks[input.taskId].status = 'failed';
