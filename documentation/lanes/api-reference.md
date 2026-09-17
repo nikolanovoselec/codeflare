@@ -148,7 +148,7 @@ All browser activity routes are enterprise-only. Missing bindings return `503`; 
 - `POST /api/operator-activities/:activityId/cancel` returns current bounded detail after fencing. Rejection returns `409` with the durable reason; success does not claim that compute cleanup has completed. [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
 - `GET /api/operator-activities/:activityId/result` observes the same bounded detail without consumption. `POST` marks one terminal browser result collected; a nonterminal result returns `409 RESULT_NOT_READY`. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
 
-### Webhook activity endpoint details
+### Webhook activity endpoint details [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge) <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->
 
 The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/activity.ts --> <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp -->
 
@@ -158,7 +158,7 @@ The webhook family accepts no request body, is throttled, uses `Cache-Control: n
 | Status available | `200` | `{ "ok": true, "terminal": false, "status": "<activity status>" }`; terminal status sets `terminal` to `true` and includes `result` |
 | Result not ready | `202` | `{ "error": "Webhook capability operation rejected", "code": "WEBHOOK_NOT_READY" }` |
 
-These fixed envelopes are produced by the webhook route from the durable activity result. <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (routes fixed operations with exact response shapes, no-store and no token reflection) --> [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge)
+These fixed envelopes are produced by the webhook route from the durable activity result. <!-- @test: src/__tests__/routes/operator-webhook.test.ts (routes fixed operations with exact response shapes, no-store and no token reflection) -->
 
 Non-enterprise or unknown routes return `404`; an invalid method returns `405`; a body returns `400`; throttling returns `429`; and missing or invalid capability returns `401`. Durable capability outcomes map expiry to `410`, consumed/already-started to `409`, missing preparation to `404`, admission or authority denial to `403`, and uncertain/unavailable service to `503`. Static assets run the Worker first for every request, so `/operator-webhook/*` reaches Worker logic before SPA fallback. <!-- @impl: wrangler.toml --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/orchestrator.ts -->
 
