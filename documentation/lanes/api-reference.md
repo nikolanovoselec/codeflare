@@ -152,6 +152,14 @@ All browser activity routes are enterprise-only. Missing bindings return `503`; 
 
 The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/activity.ts --> <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp -->
 
+| Operation outcome | Status | Response envelope |
+|---|---:|---|
+| Start queued | `200` | `{ "ok": true, "phase": "queued", "readCapability": "<capability>" }` |
+| Status available | `200` | `{ "ok": true, "terminal": false, "status": "<activity status>" }`; terminal status sets `terminal` to `true` and includes `result` |
+| Result not ready | `202` | `{ "error": "Webhook capability operation rejected", "code": "WEBHOOK_NOT_READY" }` |
+
+These fixed envelopes are produced by the webhook route from the durable activity result. <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (routes fixed operations with exact response shapes, no-store and no token reflection) --> [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge)
+
 Non-enterprise or unknown routes return `404`; an invalid method returns `405`; a body returns `400`; throttling returns `429`; and missing or invalid capability returns `401`. Durable capability outcomes map expiry to `410`, consumed/already-started to `409`, missing preparation to `404`, admission or authority denial to `403`, and uncertain/unavailable service to `503`. Static assets run the Worker first for every request, so `/operator-webhook/*` reaches Worker logic before SPA fallback. <!-- @impl: wrangler.toml --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/orchestrator.ts -->
 
 ## Internal Operator Host APIs
