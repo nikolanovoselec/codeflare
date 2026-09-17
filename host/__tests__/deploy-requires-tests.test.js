@@ -214,13 +214,16 @@ describe('manual deploys cannot skip tests', () => {
     });
   }
 
-  it('deploys the Gate 1 fixture only after a successful Enterprise Integration deploy', () => {
+  it('gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy', () => {
     const fixture = deployWorkflow.jobs['operator-gate1-fixture'];
     assert.deepEqual(fixture.needs, ['prepare', 'deploy']);
     assert.equal(fixture.uses, './.github/workflows/deploy-operator-gate1.yml');
     assert.equal(fixture.secrets, 'inherit');
-    assert.ok(gate1DeployWorkflow.on.workflow_call !== undefined,
+    assert.ok(Object.hasOwn(gate1DeployWorkflow.on, 'workflow_call'),
       'the fixture workflow must remain callable from deploy.yml');
+    assert.ok(Object.hasOwn(gate1DeployWorkflow.on, 'workflow_dispatch'),
+      'operators must retain the intentional direct-dispatch recovery path');
+    assert.equal(gate1DeployWorkflow.jobs.deploy.environment, 'enterprise integration');
     const gate = condition('operator-gate1-fixture');
     const eligible = { cancelled: false, 'needs.deploy.result': 'success',
       'needs.prepare.outputs.env_name': 'enterprise integration' };
