@@ -272,7 +272,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       if (operation.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
       const uploaded: OperatorSyncState = { ...operation, phase: 'uploaded', manifestDigest };
       await tx.put<AdmissionState>('admission', { ...record,
-        syncOperations: { ...(record.syncOperations ?? {}), [operationId]: uploaded } });
+        syncOperations: { ...record.syncOperations, [operationId]: uploaded } });
       return { ok: true, phase: 'uploaded' };
     });
   }
@@ -294,7 +294,7 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       const verified: OperatorSyncState = { ...operation, phase: 'verified',
         evidence: { filesVerified: evidence.filesVerified, bytesVerified: evidence.bytesVerified } };
       await tx.put<AdmissionState>('admission', { ...record,
-        syncOperations: { ...(record.syncOperations ?? {}), [operationId]: verified } });
+        syncOperations: { ...record.syncOperations, [operationId]: verified } });
       return { ok: true, phase: 'verified' };
     });
   }
