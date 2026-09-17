@@ -169,7 +169,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception-and-jwt-stamping)
 
-**Verification:** Behavioral catalog/interceptor tests and actual provider-request acceptance.
+**Verification:** Selection RED at `98c22ccb`, CI 35172132809: typecheck, import/quality and four behavioral cases reached the absent shared resolver. Behavioral interceptor tests and actual provider-request acceptance remain required.
 
 **Status:** Planned
 
