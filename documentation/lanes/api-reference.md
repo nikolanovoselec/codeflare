@@ -139,18 +139,18 @@ These Worker routes exist only in enterprise mode and implement [REQ-OPERATOR-01
 
 ### Browser activity endpoint details
 
-All browser activity routes are enterprise-only. Missing bindings return `503`; missing or invalid current human authentication returns `401`; POST without the CSRF header returns `403`; and invalid, absent, or other-owner activity IDs return `404`.
+All browser activity routes are enterprise-only. Missing bindings return `503`; missing or invalid current human authentication returns `401`; POST without the CSRF header returns `403`; and invalid, absent, or other-owner activity IDs return `404`. <!-- @impl: src/routes/operator-activities.ts -->
 
-- `POST /api/operator-activities` accepts bounded JSON `{ operatorId, invocation }`. A `201` response is `{ activityId, startCapability, startExpiresAt }`; activity identity, registration revision, policy, artifact, and authority are server-selected.
-- `GET /api/operator-activities` returns `{ items }` with at most 100 owner-scoped secret-free summaries.
-- `GET /api/operator-activities/:activityId` returns bounded execution, cleanup, collection, checkpoint, and result state without credentials.
-- `POST /api/operator-activities/:activityId/start` accepts `{ capability }`. One winning admission returns the queued outcome and schedules one request-attached drive; rejected or repeated starts return `409` with the durable reason and schedule nothing.
-- `POST /api/operator-activities/:activityId/cancel` returns current bounded detail after fencing. Rejection returns `409` with the durable reason; success does not claim that compute cleanup has completed.
-- `GET /api/operator-activities/:activityId/result` observes the same bounded detail without consumption. `POST` marks one terminal browser result collected; a nonterminal result returns `409 RESULT_NOT_READY`.
+- `POST /api/operator-activities` accepts bounded JSON `{ operatorId, invocation }`. A `201` response is `{ activityId, startCapability, startExpiresAt }`; activity identity, registration revision, policy, artifact, and authority are server-selected. [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration)
+- `GET /api/operator-activities` returns `{ items }` with at most 100 owner-scoped secret-free summaries. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `GET /api/operator-activities/:activityId` returns bounded execution, cleanup, collection, checkpoint, and result state without credentials. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `POST /api/operator-activities/:activityId/start` accepts `{ capability }`. One winning admission returns the queued outcome and schedules one request-attached drive; rejected or repeated starts return `409` with the durable reason and schedule nothing. [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration)
+- `POST /api/operator-activities/:activityId/cancel` returns current bounded detail after fencing. Rejection returns `409` with the durable reason; success does not claim that compute cleanup has completed. [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `GET /api/operator-activities/:activityId/result` observes the same bounded detail without consumption. `POST` marks one terminal browser result collected; a nonterminal result returns `409 RESULT_NOT_READY`. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
 
 ### Webhook activity endpoint details
 
-The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery.
+The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/activity.ts -->
 
 Non-enterprise or unknown routes return `404`; an invalid method returns `405`; a body returns `400`; throttling returns `429`; and missing or invalid capability returns `401`. Durable capability outcomes map expiry to `410`, consumed/already-started to `409`, missing preparation to `404`, admission or authority denial to `403`, and uncertain/unavailable service to `503`. The asset configuration routes `/operator-webhook/*` through Worker logic before SPA fallback. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/orchestrator.ts -->
 

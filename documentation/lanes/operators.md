@@ -39,7 +39,7 @@ Implements [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verif
 
 ## Distribution validation
 
-Implements the distribution and registration boundaries in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), and [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport).
+Implements the distribution and registration boundaries in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), [REQ-OPERATOR-030](../../sdd/spec/operators.md#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport), and [REQ-OPERATOR-035](../../sdd/spec/operators.md#req-operator-035-approved-artifact-transport).
 
 `src/operators/distribution.ts` provides pure typed boundaries:
 
@@ -166,7 +166,7 @@ Each mutation is one local storage transaction. The parent must authorize and va
 
 ## Enterprise registration backend
 
-Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](../../sdd/spec/operators.md#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), and [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport).
+Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](../../sdd/spec/operators.md#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport), and [REQ-OPERATOR-035](../../sdd/spec/operators.md#req-operator-035-approved-artifact-transport).
 
 `/api/admin/operators` is mounted in the Worker, with `OPERATOR_REGISTRY` backed by the additive `v3` SQLite migration. Non-enterprise requests return 404. Existing authentication and administrator/group authorization run before a stricter human Access check using the existing configured issuer/audiences. The verified email must match the authenticated identity; service/setup/session authentication cannot substitute. Bodies are bounded to 64 KiB and mutation schemas reject unknown fields.
 

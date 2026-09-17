@@ -118,6 +118,7 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     const interruptDrive = vi.fn(async () => ({ ok: true,
       state: { generation: 2, status: 'unknown', checkpoint: null, result: null } }));
     const fenceRuntimeFailure = vi.fn();
+    let aborted = false;
     const activity = {
       getRuntimePlan: vi.fn(async () => ({ activityId: 'activity-1', deadline: Date.now() + 60_000,
         invocationJson: 'null', executionContext: context,
@@ -130,8 +131,10 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
       fenceRuntimeFailure,
     };
     const loader = { load: vi.fn(() => ({ getEntrypoint: () => ({ fetch: async (request: Request) =>
-      new Promise<Response>((_resolve, reject) => request.signal.addEventListener('abort',
-        () => reject(new Error('aborted')), { once: true })) }) })) };
+      new Promise<Response>((_resolve, reject) => request.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(new Error('aborted'));
+      }, { once: true })) }) })) };
     const registry = { getPinnedDistribution: vi.fn(async () => ({ endpoint, connectionSecretCiphertext: ciphertext })) };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(bytes, { status: 200,
       headers: { 'content-type': 'application/json', 'content-length': String(bytes.byteLength) } })));
@@ -143,6 +146,7 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     await vi.advanceTimersByTimeAsync(25_001);
     await attempt;
 
+    expect(aborted).toBe(true);
     expect(interruptDrive).toHaveBeenCalledOnce();
     expect(commitDrive).not.toHaveBeenCalled();
     expect(fenceRuntimeFailure).not.toHaveBeenCalled();
