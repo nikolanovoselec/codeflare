@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createProvisionedOperatorPiFactory } from '../dist/operator-pi-sdk.js';
 
 function fixture(options = {}) {
-  const calls = { runtime: [], create: [], managers: [], stream: [], tool: [], disposed: 0 };
+  const calls = { runtime: [], create: [], managers: [], stream: [], validation: [], tool: [], disposed: 0 };
   const sdkSession = (kind, toolNames) => ({
     sessionId: 'pi-1', sessionFile: '/owned/sessions/pi-1.jsonl', isStreaming: false,
     agent: { state: { tools: toolNames.map(name => ({ name, execute: async (toolCallId, args, signal) => {
@@ -32,15 +32,20 @@ function fixture(options = {}) {
       return { session: sdkSession(options.sessionManager.kind, options.tools) };
     },
   };
+  const piAi = { validateToolArguments: (tool, toolCall) => {
+    calls.validation.push({ tool: tool.name, toolCall });
+    if (!toolCall.arguments || typeof toolCall.arguments.path !== 'string') throw new Error('Invalid tool arguments');
+    return toolCall.arguments;
+  } };
   const approvedExtension = { path: '/trusted/extension.js' };
   const factory = createProvisionedOperatorPiFactory({
     cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
     profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'medium',
       systemPrompt: 'Approved operator context', tools: ['read'], extensions: [approvedExtension],
       skills: [{ name: 'approved-skill' }], prompts: [], themes: [], agentsFiles: [] },
-    importSdk: async () => sdk,
+    importSdk: async () => sdk, importPiAi: async () => piAi,
   });
-  return { factory, calls, approvedExtension, importSdk: async () => sdk };
+  return { factory, calls, approvedExtension, importSdk: async () => sdk, importPiAi: async () => piAi };
 }
 
 test('REQ-OPERATOR-021: creates with explicit offline model, settings and approved resources only', async () => {
@@ -64,9 +69,14 @@ test('REQ-OPERATOR-021: executes an approved active Pi tool directly and rejects
   const session = await f.factory.create();
   const signal = new AbortController().signal;
   await session.executeTool({ toolCallId: 'task-1', name: 'read', arguments: { path: '/owned/work/file.txt' }, signal });
+  assert.deepEqual(f.calls.validation, [{ tool: 'read', toolCall: { type: 'toolCall', id: 'task-1', name: 'read',
+    arguments: { path: '/owned/work/file.txt' } } }]);
   assert.deepEqual(f.calls.tool, [{ toolCallId: 'task-1', name: 'read',
     args: { path: '/owned/work/file.txt' }, signal }]);
-  await assert.rejects(session.executeTool({ toolCallId: 'task-2', name: 'write', arguments: {}, signal }),
+  await assert.rejects(session.executeTool({ toolCallId: 'task-2', name: 'read', arguments: {}, signal }),
+    /invalid tool arguments/i);
+  assert.equal(f.calls.tool.length, 1);
+  await assert.rejects(session.executeTool({ toolCallId: 'task-3', name: 'write', arguments: {}, signal }),
     /approved Pi tool.*unavailable/i);
 });
 
@@ -86,7 +96,7 @@ test('REQ-OPERATOR-021: fails closed for an unavailable approved model', async (
   const bad = createProvisionedOperatorPiFactory({
     cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
     profile: { provider: 'anthropic', model: 'missing', thinkingLevel: 'off', systemPrompt: 'x', tools: [] },
-    importSdk: f.importSdk,
+    importSdk: f.importSdk, importPiAi: f.importPiAi,
   });
   await assert.rejects(bad.create(), /approved model.*unavailable/i);
 });

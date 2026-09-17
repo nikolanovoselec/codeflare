@@ -28,7 +28,13 @@ interface PiModelRuntime {
 interface PiAgentTool {
   name: string;
   prepareArguments?: (arguments_: unknown) => unknown;
-  execute(toolCallId: string, arguments_: unknown, signal?: AbortSignal): Promise<unknown>;
+  execute(toolCallId: string, arguments_: unknown, signal?: AbortSignal,
+    onUpdate?: (result: unknown) => void): Promise<unknown>;
+}
+interface PiAi {
+  validateToolArguments(tool: PiAgentTool, toolCall: {
+    type: 'toolCall'; id: string; name: string; arguments: unknown;
+  }): unknown;
 }
 interface PiAgentSession {
   readonly sessionId: string;
@@ -73,6 +79,7 @@ export function createProvisionedOperatorPiFactory(options: {
   profile: OperatorPiSdkProfile;
   sdkRoot?: string;
   importSdk?: () => Promise<Record<string, unknown>>;
+  importPiAi?: () => Promise<Record<string, unknown>>;
 }): OperatorPiFactory {
   validateProfile(options.profile);
   const cwd = path.resolve(options.cwd);
@@ -80,13 +87,19 @@ export function createProvisionedOperatorPiFactory(options: {
   const sessionDir = path.resolve(options.sessionDir);
   const sdkRoot = path.resolve(options.sdkRoot ?? DEFAULT_SDK_ROOT);
   const loadSdk = options.importSdk ?? (async () => import(pathToFileURL(path.join(sdkRoot, 'dist/index.js')).href));
-  let contextPromise: Promise<{ sdk: PiSdk; base: Record<string, unknown> }> | undefined;
+  const loadPiAi = options.importPiAi ?? (async () => import(pathToFileURL(
+    path.join(sdkRoot, 'node_modules/@earendil-works/pi-ai/dist/index.js'),
+  ).href));
+  let contextPromise: Promise<{ sdk: PiSdk; piAi: PiAi; base: Record<string, unknown> }> | undefined;
 
-  const context = (): Promise<{ sdk: PiSdk; base: Record<string, unknown> }> => {
+  const context = (): Promise<{ sdk: PiSdk; piAi: PiAi; base: Record<string, unknown> }> => {
     contextPromise ??= (async () => {
-      const sdk = await loadSdk() as unknown as PiSdk;
+      const [sdkValue, piAiValue] = await Promise.all([loadSdk(), loadPiAi()]);
+      const sdk = sdkValue as unknown as PiSdk;
+      const piAi = piAiValue as unknown as PiAi;
       if (!sdk?.ModelRuntime?.create || !sdk?.SettingsManager?.inMemory || !sdk?.SessionManager?.create
-        || !sdk.SessionManager.open || !sdk.createExtensionRuntime || !sdk.createAgentSession) {
+        || !sdk.SessionManager.open || !sdk.createExtensionRuntime || !sdk.createAgentSession
+        || !piAi?.validateToolArguments) {
         throw new Error('Provisioned Pi SDK is incompatible');
       }
       const provisionedRuntime = await sdk.ModelRuntime.create({
@@ -110,7 +123,7 @@ export function createProvisionedOperatorPiFactory(options: {
         extendResources: () => {},
         reload: async () => {},
       };
-      return { sdk, base: {
+      return { sdk, piAi, base: {
         cwd, agentDir, model, modelRuntime: provisionedRuntime, resourceLoader,
         tools: [...options.profile.tools], thinkingLevel: options.profile.thinkingLevel,
         settingsManager: sdk.SettingsManager.inMemory({
@@ -122,7 +135,7 @@ export function createProvisionedOperatorPiFactory(options: {
   };
 
   const createWith = async (sessionManager: unknown): Promise<OperatorPiSession> => {
-    const { sdk, base } = await context();
+    const { sdk, piAi, base } = await context();
     const result = await sdk.createAgentSession({ ...base, sessionManager });
     const session = result?.session;
     if (!session?.sessionId || !session.agent?.state || !Array.isArray(session.agent.state.tools)) {
@@ -140,8 +153,13 @@ export function createProvisionedOperatorPiFactory(options: {
         if (matches.length !== 1) throw new Error('Approved Pi tool is unavailable');
         input.signal.throwIfAborted();
         const tool = matches[0];
-        const arguments_ = tool.prepareArguments ? tool.prepareArguments(structuredClone(input.arguments)) : input.arguments;
-        await tool.execute(input.toolCallId, arguments_, input.signal);
+        const toolCall: { type: 'toolCall'; id: string; name: string; arguments: unknown } = {
+          type: 'toolCall', id: input.toolCallId, name: input.name,
+          arguments: structuredClone(input.arguments),
+        };
+        if (tool.prepareArguments) toolCall.arguments = tool.prepareArguments(toolCall.arguments);
+        const arguments_ = piAi.validateToolArguments(tool, toolCall);
+        await tool.execute(input.toolCallId, arguments_, input.signal, undefined);
         input.signal.throwIfAborted();
       },
       followUp: text => session.followUp(text),
