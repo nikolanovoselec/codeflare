@@ -17,10 +17,15 @@ const authority = { human: { ...profile.human, issuedAt: 1, expiresAt: Math.floo
 
 describe('REQ-OPERATOR-005: owned container runtime', () => {
   it('uses the exact parent-owned container identity for configure, readiness and restricted stop', async () => {
+    let boundSessionId: string | null = null;
     const stub: Gate1ContainerStub = {
-      setBucketName: vi.fn(async (_name: string) => {}),
+      setBucketName: vi.fn(async (_name: string, options: { sessionId: string }) => {
+        boundSessionId = options.sessionId;
+      }),
       configureOperatorContext: vi.fn(async (_profile: unknown,
-        _authority: Parameters<Gate1ContainerStub['configureOperatorContext']>[1]) => {}),
+        _authority: Parameters<Gate1ContainerStub['configureOperatorContext']>[1]) => {
+        if (boundSessionId !== profile.sessionId) throw new Error('Operator container ownership mismatch');
+      }),
       startAndWaitForPorts: vi.fn(async () => {}),
       getState: vi.fn(async () => ({ status: 'running' })),
       fetch: vi.fn(async (_request: Request) => Response.json({ initFlagObserved: true, terminalServiceReady: true })),
@@ -37,7 +42,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     expect(await runtime.readiness(profile.sessionId)).toBe('ready');
     expect(await runtime.stop(profile.sessionId, false)).toBe('stopped');
     expect(resolve).toHaveBeenCalledWith(`owner-bucket-${profile.sessionId}`);
-    expect(stub.setBucketName).toHaveBeenCalledWith(profile.ownerBucket);
+    expect(stub.setBucketName).toHaveBeenCalledWith(profile.ownerBucket, { sessionId: profile.sessionId });
     expect(stub.configureOperatorContext).toHaveBeenCalledWith(profile, authority);
     expect(stub.fetch).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://container/health' }));
     expect(stub.stopOperatorSession).toHaveBeenCalledWith(profile.activityId, profile.sessionId);
