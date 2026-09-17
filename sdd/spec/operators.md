@@ -147,7 +147,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-durable-activity-runtime)
 
-**Verification:** Concurrent capability/edge-provisioning behavioral tests and actual public-host callback acceptance in both handoff modes.
+**Verification:** Concurrent capability RED at `0f66350c`, CI 35169790662: typecheck and native activity tests reached missing start/read/status/result methods. Concurrent capability/edge-provisioning behavioral tests and actual public-host callback acceptance in both handoff modes.
 
 **Status:** Planned
 

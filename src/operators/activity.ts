@@ -60,6 +60,9 @@ interface OperatorSyncState {
 export type OperatorSyncResult = { ok: true; phase: OperatorSyncState['phase'] } | { ok: false; reason:
   'not-admitted' | 'invalid-scope' | 'conflict' | 'operation-limit' | 'authority-expired'
     | 'not-prepared' | 'sealed' | 'evidence-mismatch' };
+export type WebhookStartResult = { ok: true; phase: 'queued'; readCapability: string } | AdmissionFailure;
+export type WebhookReadResult = { ok: true; terminal: boolean; status: string; result?: unknown } | {
+  ok: false; reason: 'invalid-capability' | 'capability-expired' | 'not-ready' | 'consumed' | 'not-prepared' };
 
 interface AdmissionState {
   intent: OperatorActivityPreparation;
@@ -68,6 +71,7 @@ interface AdmissionState {
   executionContext?: OperatorExecutionContext;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
+  webhook?: { readVerifier: string; expiresAt: number; consumed: boolean };
 }
 
 const syncIdentity = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -94,6 +98,15 @@ const driveUpdateSchema = z.strictObject({
 });
 
 type AdmissionFailure = Extract<ActivityAdmissionResult, { ok: false }>;
+
+async function capabilityVerifier(capability: string): Promise<string> {
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(capability))))
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function randomCapability(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 function checkStart(state: AdmissionState, verifier: string): AdmissionFailure | null {
   if (state.phase === 'queued') return { ok: false, reason: 'already-started' };
@@ -168,9 +181,17 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
 
   /** Validate before registry I/O; consume and queue together only after receipt. */
   async start(capability: string): Promise<ActivityAdmissionResult> {
+    return this.consumeStart(capability, false);
+  }
+
+  /** External start winner receives a distinct read capability exactly once. */
+  async startWebhook(capability: string): Promise<WebhookStartResult> {
+    return this.consumeStart(capability, true) as Promise<WebhookStartResult>;
+  }
+
+  private async consumeStart(capability: string, issueRead: boolean): Promise<ActivityAdmissionResult | WebhookStartResult> {
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
-    const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(capability))))
-      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const verifier = await capabilityVerifier(capability);
     const pending = await this.ctx.storage.transaction<AdmissionFailure | { ok: true; intent: OperatorActivityPreparation }>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
@@ -195,7 +216,9 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(receipt.policyJson))))
         .map(byte => byte.toString(16).padStart(2, '0')).join('')
       : null;
-    return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+    const readCapability = issueRead ? randomCapability() : null;
+    const readVerifier = readCapability ? await capabilityVerifier(readCapability) : null;
+    return this.ctx.storage.transaction<ActivityAdmissionResult | WebhookStartResult>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
@@ -210,9 +233,52 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       }
       await tx.put<AdmissionState>('admission', {
         ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
+        ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 7 * 24 * 60 * 60 * 1000,
+          consumed: false } } : {}),
       });
-      return { ok: true, phase: 'queued' };
+      return readCapability ? { ok: true, phase: 'queued', readCapability } : { ok: true, phase: 'queued' };
     });
+  }
+
+  /** Non-consuming status validates the read capability even after execution authority expiry. */
+  async getWebhookStatus(capability: string): Promise<WebhookReadResult> {
+    const checked = await this.readWebhook(capability);
+    if (!checked.ok) return checked;
+    return { ok: true, terminal: checked.terminal, status: checked.status,
+      ...(checked.terminal ? { result: checked.result } : {}) };
+  }
+
+  /** A not-ready read is non-consuming; one terminal transaction wins before delivery. */
+  async redeemWebhookResult(capability: string): Promise<WebhookReadResult> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
+    const verifier = await capabilityVerifier(capability);
+    return this.ctx.storage.transaction<WebhookReadResult>(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      const checked = this.checkWebhookRead(state, verifier);
+      if (!checked.ok) return checked;
+      if (!checked.terminal) return { ok: false, reason: 'not-ready' };
+      await tx.put<AdmissionState>('admission', { ...state!, webhook: { ...state!.webhook!, consumed: true } });
+      return checked;
+    });
+  }
+
+  private async readWebhook(capability: string): Promise<WebhookReadResult> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
+    return this.checkWebhookRead(await this.ctx.storage.get<AdmissionState>('admission'),
+      await capabilityVerifier(capability));
+  }
+
+  private checkWebhookRead(state: AdmissionState | undefined, verifier: string): WebhookReadResult {
+    if (!state?.webhook) return { ok: false, reason: 'not-prepared' };
+    if (state.webhook.readVerifier !== verifier) return { ok: false, reason: 'invalid-capability' };
+    if (state.webhook.consumed) return { ok: false, reason: 'consumed' };
+    if (state.webhook.expiresAt <= Date.now()) return { ok: false, reason: 'capability-expired' };
+    const driveStatus = state.drive?.status;
+    const expired = state.intent.deadline <= Date.now();
+    const terminal = expired || driveStatus === 'completed' || driveStatus === 'failed'
+      || driveStatus === 'cancel-requested' || driveStatus === 'unknown';
+    const status = expired && !driveStatus ? 'expired' : (driveStatus ?? 'queued');
+    return { ok: true, terminal, status, ...(terminal ? { result: state.drive?.result ?? null } : {}) };
   }
 
   /** Persist a stable parent-authorized upload scope before host-side effects. */
