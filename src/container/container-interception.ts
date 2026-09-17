@@ -29,6 +29,7 @@ import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
 import { getOrImportKey } from '../lib/kv-crypto';
 import type { OperatorPolicy } from '../operators/policy';
+import type { OperatorContainerProfile } from './operator-context';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 
 /** The DO surface the interception registry consumes (explicit interface, not inheritance). */
@@ -52,6 +53,8 @@ export interface InterceptionHost {
   _strictEgress?: boolean;
   /** Present only for a parent-bound operator session; never read from requests. */
   _operatorPolicy?: OperatorPolicy;
+  /** Parent-owned identities used for durable sync write sealing. */
+  _operatorContainerProfile?: OperatorContainerProfile;
   /** Parent-only automatic stamping configuration and verified authority. */
   _jwtStamping?: JwtStampingPolicy;
   _jwtAuthority?: JwtStampingAuthority;
@@ -266,6 +269,10 @@ function resolveStrictEgress(
       ...security,
       strict: true,
       ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+      ...(host._operatorContainerProfile ? { operatorSync: {
+        activityId: host._operatorContainerProfile.activityId,
+        outputPrefix: host._operatorContainerProfile.outputPrefix,
+      } } : {}),
       ...jwtProps(host),
     },
     mandatory: !!host._operatorPolicy,

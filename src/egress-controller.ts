@@ -79,6 +79,8 @@ interface EgressProps {
   strict?: boolean;
   /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
   operatorPolicy?: OperatorPolicy;
+  /** Durable owner and prefix used to seal explicit sync writes before signing. */
+  operatorSync?: { activityId: string; outputPrefix: string };
   /** True only for an upload ID already owned by this activity. */
   ownedMultipart?: boolean;
   /** Deployment policy plus current parent-verified authority; neither grants egress. */
@@ -217,6 +219,28 @@ export class EgressController extends WorkerEntrypoint<Env> {
           props.ownedMultipart === true,
         );
         if (!decision.allowed) return jsonError(403, 'OPERATOR_STORAGE_DENIED', 'Operator storage operation is not permitted');
+        if ((operation === 'write' || operation === 'multipart-write') && props.operatorSync
+          && path !== null && path.startsWith(props.operatorSync.outputPrefix)) {
+          const suffix = path.slice(props.operatorSync.outputPrefix.length);
+          const operationId = suffix.split('/')[0];
+          if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId) || !suffix.includes('/')) {
+            return jsonError(403, 'OPERATOR_SYNC_SCOPE_DENIED', 'Operator sync write scope is invalid');
+          }
+          if (!this.env.OPERATOR_ACTIVITY) {
+            return jsonError(503, 'OPERATOR_SYNC_AUTHORITY_UNAVAILABLE', 'Operator sync authority is unavailable');
+          }
+          try {
+            const authorization = await this.env.OPERATOR_ACTIVITY.getByName(props.operatorSync.activityId)
+              .authorizeSyncWrite(operationId, path);
+            if (!authorization.ok) {
+              const sealed = authorization.reason === 'sealed';
+              return jsonError(403, sealed ? 'OPERATOR_SYNC_SEALED' : 'OPERATOR_SYNC_SCOPE_DENIED',
+                sealed ? 'Operator sync operation is sealed' : 'Operator sync write is not authorized');
+            }
+          } catch {
+            return jsonError(503, 'OPERATOR_SYNC_AUTHORITY_UNAVAILABLE', 'Operator sync authority is unavailable');
+          }
+        }
       }
       if (!scopedR2Credentials) {
         return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
