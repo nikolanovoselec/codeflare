@@ -576,7 +576,7 @@ None.
 
 **Constraints:**
 
-- The `/login` rewrite only executes if `/login` is listed in the Cloudflare Assets `run_worker_first` allowlist (`wrangler.toml`).
+- The `/login` rewrite only executes because Cloudflare Assets runs the Worker before every request (`run_worker_first = true` in `wrangler.toml`).
 
 **Priority:** P1
 

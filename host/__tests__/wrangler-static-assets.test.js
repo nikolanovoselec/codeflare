@@ -10,11 +10,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const configPath = resolve(__dirname, '../../wrangler.toml');
 
 describe('REQ-AUTH-022 AC7: authenticated app asset routing', () => {
-  it('routes fingerprinted Vite assets through the Worker cache policy', () => {
+  it('runs the Worker before every asset route', () => {
     const config = unstable_readConfig({ config: configPath }, { hideWarnings: true });
 
     assert.ok(config.assets);
-    assert.ok(Array.isArray(config.assets.run_worker_first));
-    assert.ok(config.assets.run_worker_first.includes('/assets/*'));
+    assert.equal(config.assets.run_worker_first, true);
   });
 });

@@ -759,7 +759,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. The Worker rejects invalid capabilities, methods, paths and non-enterprise requests. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: capability-authenticated webhook edge) -->
+1. The edge invokes the Worker before asset fallback; the Worker rejects invalid capabilities, methods, paths and non-enterprise requests. <!-- @impl: wrangler.toml --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: host/__tests__/wrangler-run-worker-first.test.js (REQ-OPERATOR-029 AC1) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: capability-authenticated webhook edge) -->
 2. Webhook edge responses are bounded, throttled and non-cacheable. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: capability-authenticated webhook edge) -->
 
 **Constraints:** Edge access grants no identity outside the presented capability.

@@ -184,9 +184,9 @@ See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sd
 
 **Symptom:** An API request returns the SPA's HTML shell instead of JSON.
 
-**Cause:** The request path is missing from the Static Assets `run_worker_first` control-plane list, so the edge serves the SPA fallback before Worker routing.
+**Cause:** Static Assets handled the request before Worker routing, so the edge served the SPA fallback instead of the Worker-owned route.
 
-**Fix:** Ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` is present in the `[assets]` section of `wrangler.toml`. A missing `/login` breaks the onboarding rewrite, a missing `/api/*` breaks setup/auth, and a missing `/assets/*` bypasses the immutable Vite-asset policy.
+**Fix:** Ensure `run_worker_first = true` is present in the `[assets]` section of `wrangler.toml`. Authentication, control-plane routes, security headers, cache policy and SPA fallback are all Worker-owned; selective routing can leave a deployed route at the asset layer even when its source handler is correct.
 
 ### `/setup` Shows "Access Denied"
 
