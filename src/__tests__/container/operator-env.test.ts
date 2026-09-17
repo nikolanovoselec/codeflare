@@ -5,6 +5,8 @@ import type { Env } from '../../types';
 import type { OperatorContainerProfile } from '../../container/operator-context';
 
 const profile: OperatorContainerProfile = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', ownerBucket: 'owner-bucket',
+  policyDigest: 'b'.repeat(64), deadline: Date.now() + 600_000,
+  outputPrefix: 'Remote Reviews/activity-1/session-1/',
   human: { subject: 'human-1', email: 'owner@example.test', issuer: 'https://issuer.example.test/', audiences: ['aud-1'] },
   policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
     storage: { readPrefixes: ['input/'], writePrefixes: ['output/'] }, inference: { routeIds: ['route-1'],
@@ -42,6 +44,11 @@ describe('operator container environment', () => {
     expect(JSON.parse(vars.CODEFLARE_OPERATOR_PI_CONFIG)).toEqual({ schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1',
       root: '/home/user/.codeflare/operators/activity-1', profile: profile.piProfile });
     expect(vars.CODEFLARE_OPERATOR_PI_CONFIG).not.toContain('owner@example.test');
+    expect(JSON.parse(vars.CODEFLARE_OPERATOR_SYNC_CONFIG)).toEqual({ schemaVersion: 1,
+      activityId: 'activity-1', sessionId: 'session-1', policyDigest: 'b'.repeat(64),
+      root: '/home/user/.codeflare/operators/activity-1/output',
+      remotePrefix: 'Remote Reviews/activity-1/session-1/', deadline: profile.deadline });
+    expect(vars.CODEFLARE_OPERATOR_SYNC_CONFIG).not.toContain('owner@example.test');
     expect(vars).not.toHaveProperty('GIT_CLONE_REPO');
     expect(vars).not.toHaveProperty('REMOTE_CURATION_ACTIVE');
   });
@@ -59,6 +66,7 @@ describe('operator container environment', () => {
     expect(vars.SYNC_MODE).toBe('full');
     expect(vars).not.toHaveProperty('CODEFLARE_OPERATOR_SESSION');
     expect(vars).not.toHaveProperty('CODEFLARE_OPERATOR_PI_CONFIG');
+    expect(vars).not.toHaveProperty('CODEFLARE_OPERATOR_SYNC_CONFIG');
     expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
     expect(vars.REMOTE_CURATION_ACTIVE).toBe('true');
   });
