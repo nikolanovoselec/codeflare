@@ -103,7 +103,15 @@ export class Gate1OperatorCapability {
         taskId: TASK_ID, digest: taskDigest, mode: 'tool', ...toolTask,
       }),
     });
-    if (!taskResponse.ok) throw new Error('Pi task failed');
+    if (!taskResponse.ok) {
+      const failure = await taskResponse.json().catch(() => null) as { code?: unknown } | null;
+      if (failure?.code === 'PI_TASK_IDENTITY_INVALID' || failure?.code === 'PI_TOOL_TASK_INVALID'
+        || failure?.code === 'PI_REQUEST_INVALID') {
+        await session.stop();
+        return this.failed(`GATE1_${failure.code}`);
+      }
+      throw new Error('Pi task failed');
+    }
     const task = await taskResponse.json() as { status?: string };
     if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'unknown') {
       await session.stop();

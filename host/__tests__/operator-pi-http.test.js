@@ -45,8 +45,10 @@ test('REQ-OPERATOR-021: unknown routes/methods and malformed or oversized reques
   assert.equal((await f.controller.handle({ method: 'GET', pathname: '/internal/operator/pi/ensure' })).status, 405);
   assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks', body: new TextEncoder().encode('{') })).status, 400);
   assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks', body: new Uint8Array(65 * 1024) })).status, 413);
-  assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
-    body: bytes({ taskId: 'tool-1', digest: 'a'.repeat(64), mode: 'tool', toolName: 'write', arguments: [] }) })).status, 400);
+  const invalidTool = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
+    body: bytes({ taskId: 'tool-1', digest: 'a'.repeat(64), mode: 'tool', toolName: 'write', arguments: [] }) });
+  assert.equal(invalidTool.status, 400);
+  assert.deepEqual(JSON.parse(invalidTool.body), { error: 'Invalid structured Pi request', code: 'PI_TOOL_TASK_INVALID' });
   assert.deepEqual(f.calls, []);
 });
 

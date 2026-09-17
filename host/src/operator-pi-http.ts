@@ -59,7 +59,10 @@ export class OperatorPiHttpController {
           && body.mode === 'tool' && typeof body.toolName === 'string' && ID.test(body.toolName)
           && body.arguments !== null && typeof body.arguments === 'object' && !Array.isArray(body.arguments)
           && new TextEncoder().encode(JSON.stringify(body.arguments)).byteLength <= 32 * 1024;
-        if (!baseValid || (!promptValid && !toolValid)) return this.invalid();
+        if (!baseValid) return this.invalid('PI_TASK_IDENTITY_INVALID');
+        if (!promptValid && !toolValid) {
+          return this.invalid(body.mode === 'tool' ? 'PI_TOOL_TASK_INVALID' : 'PI_REQUEST_INVALID');
+        }
         const taskId = body.taskId as string;
         const task = body.mode === 'tool'
           ? await this.conversation.send({ taskId, digest: body.digest as string, mode: 'tool',
@@ -101,8 +104,8 @@ export class OperatorPiHttpController {
     }
   }
 
-  private invalid(): OperatorPiHttpResult {
-    return result(400, { error: 'Invalid structured Pi request', code: 'PI_REQUEST_INVALID' });
+  private invalid(code = 'PI_REQUEST_INVALID'): OperatorPiHttpResult {
+    return result(400, { error: 'Invalid structured Pi request', code });
   }
 
   private methodNotAllowed(): OperatorPiHttpResult {

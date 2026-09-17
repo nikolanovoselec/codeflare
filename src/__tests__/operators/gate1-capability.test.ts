@@ -199,6 +199,12 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
     expect(await (await failed.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
       result: { code: 'GATE1_PI_FAILED' } });
     expect(failed.session.stop).toHaveBeenCalledOnce();
+    const rejected = fixture({ host: { fetch: vi.fn(async (path: string) => path.endsWith('/ensure')
+      ? Response.json({ ready: true, conversationId: 'conversation-1' })
+      : Response.json({ error: 'Invalid structured Pi request', code: 'PI_TOOL_TASK_INVALID' }, { status: 400 })) } });
+    expect(await (await rejected.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
+      result: { code: 'GATE1_PI_TOOL_TASK_INVALID' } });
+    expect(rejected.session.stop).toHaveBeenCalledOnce();
 
     const missingOutput = fixture({ host: { fetch: vi.fn(async (path: string) => {
       if (path.endsWith('/ensure')) return Response.json({ ready: true, conversationId: 'conversation-1' });
