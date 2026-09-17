@@ -16,7 +16,7 @@ export interface EligibleInference {
 export interface TrustedInferenceSelection { routeId?: string; reasoningLevel?: string | null }
 export interface EffectiveOperatorInference { routeId: string; reasoningLevel: string | null }
 
-export class OperatorInferenceSelectionError extends Error {
+class OperatorInferenceSelectionError extends Error {
   constructor(public readonly code: 'ROUTE_NOT_ELIGIBLE' | 'ROUTE_SELECTION_REQUIRED' | 'REASONING_NOT_ELIGIBLE', message: string) {
     super(message);
     this.name = 'OperatorInferenceSelectionError';
