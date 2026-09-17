@@ -65,6 +65,7 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
   const sessionId = `gate1${(await sha256(input.activityId)).slice(0, 16)}`;
   const outputPrefix = `${OUTPUT_ROOT}${input.activityId}/${sessionId}/`;
   const storagePath = `${outputPrefix}${MARKER_PATH}`;
+  const localMarkerPath = `/home/user/.codeflare/operators/${input.activityId}/output/${MARKER_PATH}`;
   if (!decideOperatorStorage(policy, 'write', storagePath).allowed
     || !decideOperatorStorage(policy, 'read', storagePath).allowed) invalid();
 
@@ -87,7 +88,7 @@ export async function resolveGate1Resources(input: Gate1ResourceInput): Promise<
       provider: 'codeflare-gateway',
       model: effectiveInference.routeId,
       thinkingLevel: effectiveInference.reasoningLevel ?? 'off',
-      systemPrompt: `Call the write tool now and do not respond with text. Use exactly this JSON argument: ${JSON.stringify({ path: `../output/${MARKER_PATH}`, content: MARKER_CONTENT })}. Call no other tools, append no newline, and create no other files.`,
+      systemPrompt: `Call the write tool now and do not respond with text. Use exactly this JSON argument: ${JSON.stringify({ path: localMarkerPath, content: MARKER_CONTENT })}. Call no other tools, append no newline, and create no other files.`,
       tools: ['write'],
       initialToolChoice: 'write',
     },
