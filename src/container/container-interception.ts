@@ -149,6 +149,13 @@ const llm: InterceptorSpec = {
         gatewayUrl: aig.gatewayUrl,
         ...(aig.gatewayId ? { gatewayId: aig.gatewayId } : {}),
         token: aig.token,
+        ...(host._operatorContainerProfile ? { operatorInference: {
+          activityId: host._operatorContainerProfile.activityId,
+          operatorId: host._operatorContainerProfile.operatorId,
+          policy: host._operatorContainerProfile.policy,
+          trusted: { routeId: host._operatorContainerProfile.piProfile.model,
+            reasoningLevel: host._operatorContainerProfile.piProfile.thinkingLevel },
+        } } : {}),
         ...jwtProps(host),
       },
       hosts: INTERCEPTED_LLM_HOSTS,

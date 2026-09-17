@@ -16,6 +16,7 @@ interface OperatorPiProfile {
 export interface OperatorContainerProfile {
   schemaVersion: 1;
   activityId: string;
+  operatorId: string;
   sessionId: string;
   ownerBucket: string;
   policyDigest: string;
@@ -88,8 +89,9 @@ function parseHuman(value: unknown): OperatorContainerProfile['human'] {
 export function parseOperatorContainerProfile(value: unknown): OperatorContainerProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator container profile');
   const profile = value as Record<string, unknown>;
-  if (Object.keys(profile).length !== 11 || profile.schemaVersion !== 1
+  if (Object.keys(profile).length !== 12 || profile.schemaVersion !== 1
     || typeof profile.activityId !== 'string' || !ID.test(profile.activityId)
+    || typeof profile.operatorId !== 'string' || !ID.test(profile.operatorId)
     || typeof profile.sessionId !== 'string' || !ID.test(profile.sessionId)
     || typeof profile.ownerBucket !== 'string' || !OWNER.test(profile.ownerBucket)
     || typeof profile.policyDigest !== 'string' || !DIGEST.test(profile.policyDigest)
@@ -97,8 +99,8 @@ export function parseOperatorContainerProfile(value: unknown): OperatorContainer
     || !canonicalPrefix(profile.outputPrefix)) {
     throw new Error('Invalid operator container profile');
   }
-  return { schemaVersion: 1, activityId: profile.activityId, sessionId: profile.sessionId,
-    ownerBucket: profile.ownerBucket, policyDigest: profile.policyDigest, deadline: profile.deadline,
+  return { schemaVersion: 1, activityId: profile.activityId, operatorId: profile.operatorId,
+    sessionId: profile.sessionId, ownerBucket: profile.ownerBucket, policyDigest: profile.policyDigest, deadline: profile.deadline,
     outputPrefix: profile.outputPrefix, human: parseHuman(profile.human),
     policy: parseOperatorPolicy(profile.policy), jwtPolicy: parseJwtStampingPolicy(profile.jwtPolicy),
     piProfile: parsePiProfile(profile.piProfile) };

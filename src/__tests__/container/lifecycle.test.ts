@@ -1000,7 +1000,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
   describe('operator context composition (REQ-OPERATOR-005)', () => {
     const operatorProfile = {
-      schemaVersion: 1 as const, activityId: 'activity-1', sessionId: 'session-1', ownerBucket: 'owner-bucket',
+      schemaVersion: 1 as const, activityId: 'activity-1', operatorId: 'operator-1', sessionId: 'session-1', ownerBucket: 'owner-bucket',
       policyDigest: 'b'.repeat(64), deadline: Date.now() + 500_000,
       outputPrefix: 'Remote Reviews/activity-1/session-1/', human: { subject: 'human-1', email: 'owner@example.test', issuer: 'https://issuer.example.test/', audiences: ['aud-1'] },
       policy: { schemaVersion: 1 as const, networkHosts: ['allowed.example.test'],
