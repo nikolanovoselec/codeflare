@@ -53,7 +53,7 @@ const policySchema = z.strictObject({
 });
 
 /**
- * REQ-OPERATOR-002: Validate bounded untrusted restrictions and copy their values.
+ * REQ-OPERATOR-014: Validate bounded untrusted restrictions and copy their values.
  * Empty lists deny access. No implied defaults, identity, bucket, credentials or
  * permission lookup. Hostnames are exact/subdomain-wildcard rules; storage prefixes
  * are owner-relative directories. Actual authorization intersects this profile

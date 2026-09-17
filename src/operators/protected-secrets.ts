@@ -15,7 +15,7 @@ export interface OperatorSecretContext {
 }
 
 /**
- * REQ-OPERATOR-002: Generate an independent 256-bit handoff key for the authorized
+ * REQ-OPERATOR-012: Generate an independent 256-bit handoff key for the authorized
  * parent's operator record. Return only after authenticated encryption succeeds.
  * The caller persists ciphertext, displays plaintext once and replaces the old
  * ciphertext on rotation; this helper does not authorize, persist or log keys.

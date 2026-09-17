@@ -1,5 +1,5 @@
 /**
- * REQ-OPERATOR-005 structured Pi behavior through injected SDK sessions. These
+ * REQ-OPERATOR-021 structured Pi behavior through injected SDK sessions. These
  * tests use no model calls: they pin ownership, persistence, reconciliation,
  * queue bounds, event cursors and cancellation without replacing PTY coverage.
  */
@@ -36,7 +36,7 @@ function fixture(overrides = {}) {
   return { adapter, session, calls, run, emit: event => listener(event), saved: () => saved };
 }
 
-test('REQ-OPERATOR-005: creates once, persists exact identity and reopens only the recorded file', async () => {
+test('REQ-OPERATOR-021: creates once, persists exact identity and reopens only the recorded file', async () => {
   const first = fixture();
   assert.deepEqual(await first.adapter.ensure(), { conversationId: 'conversation-1', sessionFile: '/owned/session.jsonl' });
   assert.equal(first.saved().activityId, 'activity-1');
@@ -49,7 +49,7 @@ test('REQ-OPERATOR-005: creates once, persists exact identity and reopens only t
   assert.deepEqual(wrong.calls.prompt, []);
 });
 
-test('REQ-OPERATOR-005: persists task intent before prompt and reconciles same ID without resubmission', async () => {
+test('REQ-OPERATOR-021: persists task intent before prompt and reconciles same ID without resubmission', async () => {
   const f = fixture();
   await f.adapter.ensure();
   assert.deepEqual(await f.adapter.send({ taskId: 'task-1', digest: 'a'.repeat(64), text: 'do work', mode: 'prompt' }), { status: 'running' });
@@ -61,7 +61,7 @@ test('REQ-OPERATOR-005: persists task intent before prompt and reconciles same I
   f.run.resolve();
 });
 
-test('REQ-OPERATOR-005: permits one queued follow-up and one steering message while active', async () => {
+test('REQ-OPERATOR-021: permits one queued follow-up and one steering message while active', async () => {
   const f = fixture();
   await f.adapter.ensure();
   await f.adapter.send({ taskId: 'task-1', digest: 'a'.repeat(64), text: 'start', mode: 'prompt' });
@@ -74,7 +74,7 @@ test('REQ-OPERATOR-005: permits one queued follow-up and one steering message wh
   f.run.resolve();
 });
 
-test('REQ-OPERATOR-005: exposes bounded sequenced events with explicit cursor gaps', async () => {
+test('REQ-OPERATOR-021: exposes bounded sequenced events with explicit cursor gaps', async () => {
   const f = fixture();
   await f.adapter.ensure();
   for (let i = 0; i < 1030; i += 1) f.emit({ type: 'message_update', value: i });
@@ -86,7 +86,7 @@ test('REQ-OPERATOR-005: exposes bounded sequenced events with explicit cursor ga
   assert.equal(next.events.every((entry, index) => index === 0 || entry.sequence > next.events[index - 1].sequence), true);
 });
 
-test('REQ-OPERATOR-005: awaits SDK abort and records cancellation without claiming a fresh prompt', async () => {
+test('REQ-OPERATOR-021: awaits SDK abort and records cancellation without claiming a fresh prompt', async () => {
   const f = fixture();
   await f.adapter.ensure();
   await f.adapter.send({ taskId: 'task-1', digest: 'a'.repeat(64), text: 'start', mode: 'prompt' });

@@ -33,7 +33,7 @@ async function fixture(patch: Record<string, unknown> = {}) {
   return { expected, objects, read, reads, manifest };
 }
 
-describe('REQ-OPERATOR-005: independently verified sync bytes', () => {
+describe('REQ-OPERATOR-024: independently verified sync bytes', () => {
   it('verifies the final manifest and actual stored file bytes for the exact operation', async () => {
     const f = await fixture();
     expect(await verifyOperatorSync(f.expected, f.read)).toEqual({ manifestDigest: f.expected.manifestDigest,

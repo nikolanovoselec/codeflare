@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: authenticated production sync bridge and ordinary-bisync exclusion. */
+/** REQ-OPERATOR-023: authenticated production sync bridge and ordinary-bisync exclusion. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
@@ -23,7 +23,7 @@ function request(port, path, authorization) {
   });
 }
 
-test('REQ-OPERATOR-005: router authenticates before forwarding fixed explicit-sync requests', async t => {
+test('REQ-OPERATOR-023: router authenticates before forwarding fixed explicit-sync requests', async t => {
   const previous = process.env.CONTAINER_AUTH_TOKEN;
   process.env.CONTAINER_AUTH_TOKEN = 'host-token';
   t.after(() => { if (previous === undefined) delete process.env.CONTAINER_AUTH_TOKEN; else process.env.CONTAINER_AUTH_TOKEN = previous; });
@@ -41,7 +41,7 @@ test('REQ-OPERATOR-005: router authenticates before forwarding fixed explicit-sy
   assert.deepEqual(JSON.parse(new TextDecoder().decode(calls[0].body)), {});
 });
 
-test('REQ-OPERATOR-005: restricted host blocks ordinary bisync/final-sync routes while ordinary host is unchanged', async t => {
+test('REQ-OPERATOR-023: restricted host blocks ordinary bisync/final-sync routes while ordinary host is unchanged', async t => {
   const previous = process.env.CONTAINER_AUTH_TOKEN;
   process.env.CONTAINER_AUTH_TOKEN = 'host-token';
   t.after(() => { if (previous === undefined) delete process.env.CONTAINER_AUTH_TOKEN; else process.env.CONTAINER_AUTH_TOKEN = previous; });

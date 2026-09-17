@@ -16,9 +16,12 @@ async function sha256(bytes: Uint8Array | string): Promise<string> {
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
-describe('REQ-OPERATOR-003: request-attached production orchestration', () => {
+describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
   it('server-generates activity authority and persists bounded invocation before returning a start capability', async () => {
     const prepareAuthorized = vi.fn(async () => ({ ok: true, phase: 'prepared' }));
     const registry = { resolveForExecution: vi.fn(async () => ({ ok: true, value: {
@@ -42,7 +45,8 @@ describe('REQ-OPERATOR-003: request-attached production orchestration', () => {
     expect(JSON.stringify(prepareAuthorized.mock.calls[0])).not.toContain('private.jwt');
   });
 
-  it('uses the admission-pinned distribution and direct-only deny-default bindings for one drive', async () => {
+  it('uses the admission-pinned distribution and direct-only deny-default bindings for one bounded drive', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const bundle = { schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05',
       compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js', modules: { 'index.js': { js: 'export default {}' } } };
     const bytes = new TextEncoder().encode(JSON.stringify(bundle));
@@ -94,6 +98,7 @@ describe('REQ-OPERATOR-003: request-attached production orchestration', () => {
     expect(activity.commitDrive).toHaveBeenCalledOnce();
     expect(activity.interruptDrive).not.toHaveBeenCalled();
     expect(activity.fenceRuntimeFailure).not.toHaveBeenCalled();
+    expect(Math.max(...timeoutSpy.mock.calls.map(call => Number(call[1])))).toBeLessThanOrEqual(25_000);
   });
 
   it('fences a failed attached runtime attempt without scheduling a replay', async () => {

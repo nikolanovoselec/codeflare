@@ -89,15 +89,17 @@ function denyByDefaultCapability(activityId: string, generation: number): Fetche
   return { fetch: async () => new Response(JSON.stringify({ error: 'Capability unavailable',
     code: 'OPERATOR_CAPABILITY_DENIED', activityId, generation }), {
     status: 403, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  }) } as Fetcher;
+  }) } as unknown as Fetcher;
 }
 
 /** One request-attached direct drive. Any uncertain attempt is durably fenced and never replayed here. */
 export async function runOperatorActivity(activityId: string, env: Env): Promise<void> {
+  const requestDeadline = Date.now() + 25_000;
   if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return;
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
   const plan = await activity.getRuntimePlan();
   if (!plan) return;
+  const attemptDeadline = Math.min(plan.deadline, requestDeadline);
   try {
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
@@ -110,8 +112,9 @@ export async function runOperatorActivity(activityId: string, env: Env): Promise
     if (manifest.id !== plan.receipt.operatorId || manifest.artifact.sha256 !== plan.receipt.artifactDigest) {
       throw new Error('Pinned runtime identity mismatch');
     }
-    const bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret });
-    const driven = await driveOperatorRuntime({ activity, activityId, deadline: plan.deadline, loader: env.LOADER, bundle,
+    const bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
+      attemptDeadline);
+    const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
       invocation: JSON.parse(plan.invocationJson) as unknown,
       bind: generation => ({ capability: denyByDefaultCapability(activityId, generation), outbound: null }),
     });

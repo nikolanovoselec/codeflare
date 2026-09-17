@@ -55,7 +55,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 /**
- * REQ-OPERATOR-005: Independently verify stored manifest/file bytes, not an upload
+ * REQ-OPERATOR-024: Independently verify stored manifest/file bytes, not an upload
  * signal or timestamp. The parent authorizes the owner-scoped reader and selects
  * the exact operation prefix/digests. It must seal the operation against further
  * writes before treating these facts as durable completion. This function performs

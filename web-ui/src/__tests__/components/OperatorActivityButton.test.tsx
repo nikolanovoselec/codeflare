@@ -13,7 +13,7 @@ const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   cleanupStatus: 'pending' as const, collectionStatus: 'unavailable' as const,
   attention: false, sessionId: 'session-1', source: 'Repository dispatch', updatedAt: new Date().toISOString() };
 
-describe('REQ-OPERATOR-008: operator activity header control', () => {
+describe('REQ-OPERATOR-027: operator activity header control', () => {
   it('renders nothing and issues no request outside enterprise', () => {
     const view = render(() => <OperatorActivityButton enabled={false} />);
     expect(view.queryByRole('button', { name: /operator activity/i })).toBeNull();

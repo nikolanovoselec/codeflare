@@ -26,7 +26,7 @@ function requireCurrentAuthority(context: AdministrationContext): void {
 }
 
 /**
- * REQ-OPERATOR-002: Authenticated discovery followed by atomic disabled registration.
+ * REQ-OPERATOR-013: Authenticated discovery followed by atomic disabled registration.
  * Caller establishes enterprise/admin authorization and matching human identity.
  * Validate policy before network work; never execute discovered code or implicitly
  * approve it. Discovery failure leaves no registration. No HTTP framework dependency.

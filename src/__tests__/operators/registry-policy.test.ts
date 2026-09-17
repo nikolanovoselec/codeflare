@@ -21,7 +21,7 @@ async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>)
   });
 }
 
-describe('REQ-OPERATOR-002: restrictive policy snapshots and safe listing', () => {
+describe('REQ-OPERATOR-014: restrictive policy snapshots and safe listing', () => {
   it('persists policy and admission through the configured SQLite registry RPC binding', async () => {
     const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry> }).OPERATOR_REGISTRY;
     const id = namespace.newUniqueId();

@@ -216,7 +216,7 @@ describe('Setup Access', () => {
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', 'sw-bypass-app');
     });
 
-    it('REQ-OPERATOR-006: provisions a narrow operator-webhook bypass without changing host-wide or SilverBullet protection', async () => {
+    it('REQ-OPERATOR-026: provisions a narrow operator-webhook bypass without changing host-wide or SilverBullet protection', async () => {
       const steps: SetupStep[] = [];
       mockFetch
         .mockResolvedValueOnce(cfSuccess(mockIdpList))
@@ -267,7 +267,7 @@ describe('Setup Access', () => {
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_operator_webhook_bypass_status', 'configured');
     });
 
-    it('REQ-OPERATOR-006: removes a newly-created incomplete operator bypass and reports policy failure', async () => {
+    it('REQ-OPERATOR-026: removes a newly-created incomplete operator bypass and reports policy failure', async () => {
       const steps: SetupStep[] = [];
       mockFetch
         .mockResolvedValueOnce(cfSuccess(mockIdpList))
@@ -303,7 +303,7 @@ describe('Setup Access', () => {
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', 'sw-bypass-app');
     });
 
-    it('REQ-OPERATOR-006: idempotently updates the managed operator bypass app and policy', async () => {
+    it('REQ-OPERATOR-026: idempotently updates the managed operator bypass app and policy', async () => {
       const steps: SetupStep[] = [];
       const existingApps = [
         { id: 'app-ent', name: 'codeflare-enterprise', domain: 'enterprise.example.com', aud: 'aud-ent' },

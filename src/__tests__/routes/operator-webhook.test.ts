@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 /**
- * REQ-OPERATOR-006: the only edge-Access bypass route still authenticates fixed
+ * REQ-OPERATOR-026: the only edge-Access bypass route still authenticates fixed
  * methods and activity-scoped capabilities in Worker code. These fixtures are
  * Worker boundary evidence, not deployed public-host Access acceptance.
  */
@@ -28,7 +28,7 @@ function request(path: string, method: string, token = capability) {
   });
 }
 
-describe('REQ-OPERATOR-006: capability-authenticated webhook edge', () => {
+describe('REQ-OPERATOR-026: capability-authenticated webhook edge', () => {
   it('routes fixed start/status/result operations with no-store responses and no token reflection', async () => {
     const { env, activity } = environment();
     const cases = [
@@ -36,7 +36,7 @@ describe('REQ-OPERATOR-006: capability-authenticated webhook edge', () => {
     ] as const;
     for (const [method, action, status] of cases) {
       const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/${action}`, method), env as never,
-        { waitUntil: vi.fn(), passThroughOnException: vi.fn() });
+        { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {} });
       expect(response.status).toBe(status);
       expect(response.headers.get('cache-control')).toBe('no-store');
       expect(await response.text()).not.toContain(capability);

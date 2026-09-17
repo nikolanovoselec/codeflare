@@ -9,7 +9,7 @@ import { createOperatorWebhookKey, openOperatorSecret } from '../../operators/pr
 
 const env = { ENCRYPTION_KEY: btoa('k'.repeat(32)) };
 
-describe('REQ-OPERATOR-002: optional per-operator webhook key', () => {
+describe('REQ-OPERATOR-012: optional per-operator webhook key', () => {
   it('generates independent 256-bit handoff keys and seals each for its operator', async () => {
     const first = await createOperatorWebhookKey('operator-a', env);
     const next = await createOperatorWebhookKey('operator-a', env);

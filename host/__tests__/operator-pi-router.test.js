@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: production request-router bridge keeps container auth outermost. */
+/** REQ-OPERATOR-021: production request-router bridge keeps container auth outermost. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
@@ -20,7 +20,7 @@ function request(port, method, path, body, authorization) {
   });
 }
 
-test('REQ-OPERATOR-005: router authenticates then forwards fixed Pi request bytes/query and response', async t => {
+test('REQ-OPERATOR-021: router authenticates then forwards fixed Pi request bytes/query and response', async t => {
   const previous = process.env.CONTAINER_AUTH_TOKEN;
   process.env.CONTAINER_AUTH_TOKEN = 'operator-host-token';
   t.after(() => { if (previous === undefined) delete process.env.CONTAINER_AUTH_TOKEN; else process.env.CONTAINER_AUTH_TOKEN = previous; });
@@ -60,7 +60,7 @@ test('REQ-OPERATOR-005: router authenticates then forwards fixed Pi request byte
   assert.deepEqual(JSON.parse(new TextDecoder().decode(calls[0].body)), { taskId: 'task-1' });
 });
 
-test('REQ-OPERATOR-005: ordinary host without operator composition keeps the private route unavailable', async t => {
+test('REQ-OPERATOR-021: ordinary host without operator composition keeps the private route unavailable', async t => {
   const previous = process.env.CONTAINER_AUTH_TOKEN;
   process.env.CONTAINER_AUTH_TOKEN = 'operator-host-token';
   t.after(() => { if (previous === undefined) delete process.env.CONTAINER_AUTH_TOKEN; else process.env.CONTAINER_AUTH_TOKEN = previous; });

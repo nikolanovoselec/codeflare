@@ -23,7 +23,7 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => { await worker?.stop(); });
 
-describe('REQ-OPERATOR-003: Worker Loader runtime boundary', () => {
+describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
   it('loads fresh Workers rather than retaining isolate-local state', async () => {
     const response = await worker!.fetch('/fresh');
     expect(await response.json()).toEqual([{ counter: 1 }, { counter: 1 }]);
@@ -69,7 +69,7 @@ function admission(): OperatorAdmissionRequest {
     expectedRevision: 3, deadline: Date.now() + 60_000 };
 }
 
-describe('REQ-OPERATOR-002: SQLite registration and admission ordering', () => {
+describe('REQ-OPERATOR-011: SQLite registration and admission ordering', () => {
   it('starts disabled and requires approval before separate enablement', async () => {
     const fixture = crypto.randomUUID();
     expect(await registry(fixture, { action: 'create', operatorId: 'fixture' })).toEqual({ ok: true,
@@ -196,7 +196,7 @@ async function preparedActivity(patch: Partial<OperatorActivityPreparation> = {}
   return intent;
 }
 
-describe('REQ-OPERATOR-003: activity admission consume and queue', () => {
+describe('REQ-OPERATOR-016: activity admission consume and queue', () => {
   it('prepares without admission and cannot overwrite an existing activity', async () => {
     const intent = await preparedActivity();
     expect(await registry('registry', { action: 'receipt', activityId: intent.activityId })).toEqual({ ok: true, value: null });
@@ -262,7 +262,7 @@ const driveUpdate = (status: 'waiting' | 'completed' | 'failed' = 'waiting') => 
   schemaVersion: 1, status, checkpoint: { step: 1 },
 });
 
-describe('REQ-OPERATOR-003: durable drive generation and checkpoint', () => {
+describe('REQ-OPERATOR-017: durable drive generation and checkpoint', () => {
   it('does not drive an unadmitted activity', async () => {
     const intent = await preparedActivity();
     expect(await activity(intent.activityId, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'not-admitted' });
@@ -341,7 +341,7 @@ describe('REQ-OPERATOR-003: durable drive generation and checkpoint', () => {
   });
 });
 
-describe('REQ-OPERATOR-003: activity-driven Worker execution', () => {
+describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
   it('starts approved code and resumes a durable checkpoint in a fresh Worker after activity eviction', async () => {
     const { activityId } = await queuedActivity();
     expect(await activity(activityId, { action: 'drive-runtime' })).toMatchObject({ ok: true, state: {

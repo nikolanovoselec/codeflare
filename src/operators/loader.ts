@@ -20,7 +20,7 @@ export interface OperatorLoaderBinding {
 }
 
 /**
- * REQ-OPERATOR-003: Instantiate approved code in a fresh Worker with only the
+ * REQ-OPERATOR-015: Instantiate approved code in a fresh Worker with only the
  * parent-owned Operator Interface binding and explicit outbound interception.
  * The caller verifies artifact integrity, current authority and admission first,
  * and creates principal/activity-bound service bindings. No parent environment

@@ -146,7 +146,7 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
 }
 
 /**
- * REQ-OPERATOR-003: Activity-owned admission state. The authorized parent prepares
+ * REQ-OPERATOR-016/017: Activity-owned admission and drive state. The authorized parent prepares
  * validated intent and a SHA-256 start verifier, with deadlines bounded by the
  * actual human authority. Neither raw capabilities nor human credentials enter
  * this ordering record. This binding must never be exposed to child Workers.
@@ -176,7 +176,6 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
         invocationJson, ownerKey, updatedAt: Date.now() });
       return { ok: true, phase: 'prepared' };
     });
-    if (result.ok) await this.publishBrowserSummary();
     return result;
   }
 

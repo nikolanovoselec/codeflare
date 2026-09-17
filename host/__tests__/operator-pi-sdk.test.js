@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: real-SDK composition contract without model/network calls. */
+/** REQ-OPERATOR-021: real-SDK composition contract without model/network calls. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProvisionedOperatorPiFactory } from '../dist/operator-pi-sdk.js';
@@ -33,7 +33,7 @@ function fixture() {
   return { factory, calls, approvedExtension, importSdk: async () => sdk };
 }
 
-test('REQ-OPERATOR-005: creates with explicit offline model, settings and approved resources only', async () => {
+test('REQ-OPERATOR-021: creates with explicit offline model, settings and approved resources only', async () => {
   const f = fixture();
   const session = await f.factory.create();
   assert.equal(session.sessionId, 'pi-1');
@@ -49,7 +49,7 @@ test('REQ-OPERATOR-005: creates with explicit offline model, settings and approv
   assert.equal(options.sessionManager.kind, 'create');
 });
 
-test('REQ-OPERATOR-005: reopens only a canonical file inside the owned session directory', async () => {
+test('REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory', async () => {
   const f = fixture();
   await f.factory.open('/owned/sessions/pi-1.jsonl');
   assert.deepEqual(f.calls.managers, [['open', '/owned/sessions/pi-1.jsonl', '/owned/sessions']]);
@@ -59,7 +59,7 @@ test('REQ-OPERATOR-005: reopens only a canonical file inside the owned session d
   assert.equal(f.calls.create.length, 1);
 });
 
-test('REQ-OPERATOR-005: fails closed for an unavailable approved model', async () => {
+test('REQ-OPERATOR-021: fails closed for an unavailable approved model', async () => {
   const f = fixture();
   f.calls.runtime.length = 0;
   const bad = createProvisionedOperatorPiFactory({

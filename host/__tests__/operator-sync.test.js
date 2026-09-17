@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: stable explicit upload receipts; independent parent verification remains separate. */
+/** REQ-OPERATOR-023: stable explicit upload receipts; independent parent verification remains separate. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
@@ -27,7 +27,7 @@ function fixture(overrides = {}) {
   return { service, store, files, uploader, saves, puts, receipt: () => receipt };
 }
 
-test('REQ-OPERATOR-005: persists intent then uploads exact files and canonical manifest last', async () => {
+test('REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last', async () => {
   const f = fixture();
   const result = await f.service.upload(request);
   assert.equal(result.status, 'uploaded');
@@ -43,7 +43,7 @@ test('REQ-OPERATOR-005: persists intent then uploads exact files and canonical m
     operationId: 'sync-1', requestDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), files: request.files });
 });
 
-test('REQ-OPERATOR-005: same operation reconciles and changed reuse conflicts without another upload', async () => {
+test('REQ-OPERATOR-023: same operation reconciles and changed reuse conflicts without another upload', async () => {
   const first = fixture();
   const uploaded = await first.service.upload(request);
   const replay = fixture({ receipt: uploaded });
@@ -53,7 +53,7 @@ test('REQ-OPERATOR-005: same operation reconciles and changed reuse conflicts wi
   assert.deepEqual(replay.puts, []);
 });
 
-test('REQ-OPERATOR-005: interrupted upload becomes unknown and is never automatically replayed', async () => {
+test('REQ-OPERATOR-023: interrupted upload becomes unknown and is never automatically replayed', async () => {
   const f = fixture();
   f.uploader.put = async (key, bytes) => { f.puts.push([key, Buffer.from(bytes)]); throw new Error('transport lost'); };
   await assert.rejects(f.service.upload(request), /outcome.*unknown/i);
@@ -63,7 +63,7 @@ test('REQ-OPERATOR-005: interrupted upload becomes unknown and is never automati
   assert.equal(f.puts.length, 1);
 });
 
-test('REQ-OPERATOR-005: rejects expiry, traversal, duplicate paths and size/hash mismatch before remote writes', async () => {
+test('REQ-OPERATOR-023: rejects expiry, traversal, duplicate paths and size/hash mismatch before remote writes', async () => {
   const expired = fixture({ options: { deadline: Date.now() - 1 } });
   await assert.rejects(expired.service.upload(request), /expired/i);
   assert.deepEqual(expired.saves, []);

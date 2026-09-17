@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
+import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 
@@ -140,7 +141,10 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
       expectedRevision: 4, deadline: claims.expiresAt * 1000, startExpiresAt: Date.now() + 60_000,
       startVerifier: verifier }, context)).toEqual({ ok: true, phase: 'prepared' });
+    const ownerKey = await operatorOwnerKey(context.owner);
+    expect(await registry.listOwnedActivities(ownerKey)).toEqual([]);
     expect(await secured.start(token)).toEqual({ ok: true, phase: 'queued' });
+    expect(await registry.listOwnedActivities(ownerKey)).toHaveLength(1);
     expect(await secured.getExecutionContext()).toMatchObject({ artifactDigest: 'a'.repeat(64), policyDigest });
     expect(await secured.getRuntimePlan()).toMatchObject({ activityId: 'activity', invocationJson: 'null',
       receipt: { operatorId: 'operator' }, executionContext: { protectedAccessCiphertext: expect.stringMatching(/^v1:/) } });

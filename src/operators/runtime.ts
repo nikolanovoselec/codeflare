@@ -21,7 +21,7 @@ interface OperatorRuntimeOptions {
 }
 
 /**
- * REQ-OPERATOR-003: Compose durable drive reservation with a fresh approved Worker.
+ * REQ-OPERATOR-018: Compose durable drive reservation with a fresh approved Worker.
  * The authorized parent supplies the pinned artifact and creates capabilities
  * bound to the returned generation. No credentials enter the versioned request.
  * Bounded child output is committed only through the activity's generation check.

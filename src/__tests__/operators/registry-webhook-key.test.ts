@@ -18,7 +18,7 @@ async function withRegistry(test: (registry: OperatorRegistry, ctx: DurableObjec
   });
 }
 
-describe('REQ-OPERATOR-002: encrypted registry webhook key rotation', () => {
+describe('REQ-OPERATOR-012: encrypted registry webhook key rotation', () => {
   it('persists ciphertext only and keeps ordinary registration responses secret-free', () => withRegistry(async (registry, ctx) => {
     await registry.create('operator');
     expect(await registry.getEncryptedWebhookKey('operator')).toBeNull();

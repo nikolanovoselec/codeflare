@@ -15,7 +15,7 @@ const restricted = (): OperatorPolicy => ({ schemaVersion: 1,
     reasoningLevels: ['off', 'high'], defaultReasoningLevel: 'high', inheritUserDefaults: false },
 });
 
-describe('REQ-OPERATOR-002: bounded restrictive registration policy', () => {
+describe('REQ-OPERATOR-014: bounded restrictive registration policy', () => {
   it('preserves explicit restrictions without adding authority or fallback', () => {
     expect(parseOperatorPolicy(restricted())).toEqual(restricted());
     const denied = { ...restricted(), networkHosts: [], storage: { readPrefixes: [], writePrefixes: [] },

@@ -8,7 +8,7 @@ A source/CI entry means the primitive is implemented and regression-tested. It i
 
 | Case | Source / CI evidence before deployment | `enterprise-integration` | `integration` |
 |---|---|---|---|
-| G1-01 Registration | REQ-OPERATOR-002 registry, distribution and admin route tests | Pending | Pending |
+| G1-01 Registration | REQ-OPERATOR-002/011/013/014 distribution, admission, policy and admin-route tests | Pending | Pending |
 | G1-02 Access eligibility | REQ-OPERATOR-001 signed-human and admin authorization tests | Pending | Pending |
 | G1-03 Execution identity | Protected context, durable container-context and ownership tests | Pending | Pending |
 | G1-04 Disable race | Registry admission ordering and capability tests | Pending | Pending |

@@ -270,7 +270,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.ok(log.includes('bisync_with_r2'), 'the final bisync still runs after the capped wait');
   });
 
-  it('REQ-OPERATOR-005: restricted shutdown drains only accepted explicit upload and never starts bisync', () => {
+  it('REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync', () => {
     const { log, out } = runShutdown({ operator: true, bisyncInitialized: true, terminalPid: '12345' });
     assert.ok(log.includes('drain_operator_sync_shutdown'));
     assert.ok(!log.includes('bisync_with_r2'));

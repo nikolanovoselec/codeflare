@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: restricted startup cannot enter whole-home restore/baseline paths. */
+/** REQ-OPERATOR-022: restricted startup cannot enter whole-home restore/baseline paths. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -31,13 +31,13 @@ function run(operator) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 }
 
-test('REQ-OPERATOR-005: operator startup selects only restricted initialization', () => {
+test('REQ-OPERATOR-022: operator startup selects only restricted initialization', () => {
   const result = run(true);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'operator,');
 });
 
-test('REQ-OPERATOR-005: ordinary startup retains restore, post-restore and completion flow', () => {
+test('REQ-OPERATOR-022: ordinary startup retains restore, post-restore and completion flow', () => {
   const result = run(false);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'restore,post,complete,');

@@ -132,7 +132,7 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.sections.cloudflareConnection).toBeUndefined();
   });
 
-  it('REQ-OPERATOR-006: surfaces the managed operator webhook bypass provisioning status in Access configuration', async () => {
+  it('REQ-OPERATOR-026: surfaces the managed operator webhook bypass provisioning status in Access configuration', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
     await kv.put(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS, 'error');
 

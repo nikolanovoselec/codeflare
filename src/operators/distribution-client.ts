@@ -27,12 +27,13 @@ export async function fetchOperatorBundle(
   endpoint: string,
   approved: OperatorManifest,
   credentials: OperatorDistributionCredentials,
+  deadline = Number.POSITIVE_INFINITY,
 ): Promise<OperatorBundle> {
   const { url, ...artifact } = approved.artifact;
   const manifest = parseOperatorManifest(JSON.stringify({ ...approved, artifact }), endpoint);
   if (manifest.artifact.url !== url) throw new ValidationError('Operator artifact URL does not match approval');
   return await fetchValidatedJson(new URL(url), credentials, 8 * 1024 * 1024,
-    bytes => parseOperatorBundle(bytes, manifest.artifact.sha256));
+    bytes => parseOperatorBundle(bytes, manifest.artifact.sha256), deadline);
 }
 
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -63,8 +64,9 @@ async function fetchValidatedJson<T>(
   credentials: OperatorDistributionCredentials,
   maxBytes: number,
   validate: (bytes: Uint8Array) => T | Promise<T>,
+  deadline = Number.POSITIVE_INFINITY,
 ): Promise<T> {
-  const expiresAt = credentials.human.expiresAt * 1000;
+  const expiresAt = Math.min(credentials.human.expiresAt * 1000, deadline);
   const remaining = expiresAt - Date.now();
   if (!Number.isFinite(remaining) || remaining <= 0
     || !credentials.accessJwt.trim() || !credentials.connectionSecret.trim()) {

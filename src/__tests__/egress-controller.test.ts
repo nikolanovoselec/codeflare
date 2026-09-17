@@ -91,7 +91,7 @@ beforeEach(() => {
   policyLogs.error.mockClear();
 });
 
-describe('REQ-OPERATOR-004: verified Access stamping in generic egress', () => {
+describe('REQ-OPERATOR-019: verified Access stamping in generic egress', () => {
   it('stamps an eligible request after network authorization while preserving Authorization', async () => {
     const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy,
       jwtStamping: { mode: 'list', destinations: ['allowed.example.test'] }, jwtAuthority });

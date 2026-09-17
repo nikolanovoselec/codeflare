@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: trusted startup composition of exact local/scope/rclone sync adapters. */
+/** REQ-OPERATOR-023: trusted startup composition of exact local/scope/rclone sync adapters. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { createOperatorSyncService } from '../dist/operator-sync-service.js';
 
 const sha = value => createHash('sha256').update(value).digest('hex');
 
-test('REQ-OPERATOR-005: trusted config composes an exact upload with durable receipt', async t => {
+test('REQ-OPERATOR-023: trusted config composes an exact upload with durable receipt', async t => {
   const allowedRoot = await mkdtemp(path.join(tmpdir(), 'operator-sync-service-'));
   t.after(() => rm(allowedRoot, { recursive: true, force: true }));
   const root = path.join(allowedRoot, 'activity-1/output');
@@ -35,7 +35,7 @@ test('REQ-OPERATOR-005: trusted config composes an exact upload with durable rec
   assert.equal(persisted.status, 'uploaded');
 });
 
-test('REQ-OPERATOR-005: absent config preserves ordinary host and malformed/escaping config fails closed', () => {
+test('REQ-OPERATOR-023: absent config preserves ordinary host and malformed/escaping config fails closed', () => {
   assert.equal(createOperatorSyncService({ allowedRoot: '/owned', rcloneConfig: '/run/rclone.conf' }), undefined);
   assert.throws(() => createOperatorSyncService({ serializedConfig: '{', allowedRoot: '/owned', bucket: 'owner',
     rcloneConfig: '/run/rclone.conf' }), /configuration/i);

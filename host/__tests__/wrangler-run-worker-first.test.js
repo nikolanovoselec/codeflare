@@ -39,7 +39,7 @@ describe('wrangler run_worker_first control-plane routes (REQ-AUTH-020 AC1)', ()
     // No '/health': the unauthenticated route was removed, so requiring it in
     // run_worker_first would pin config to a route that no longer exists.
     // '/api/*' still covers /api/health.
-    for (const r of ['/', '/auth/*', '/api/*', '/operator-webhook/*', '/landing/*']) {
+    for (const r of ['/', '/auth/*', '/api/*', '/landing/*']) {
       assert.ok(routes.includes(r), `run_worker_first must include ${r}; got ${JSON.stringify(routes)}`);
     }
   });

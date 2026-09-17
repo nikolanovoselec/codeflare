@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
-/** REQ-OPERATOR-006: optional dispatch encryption is independent of edge capability verification. */
+/** REQ-OPERATOR-025: optional dispatch encryption is independent of edge capability verification. */
 import { describe, expect, it } from 'vitest';
 import { createWebhookHandoff, openWebhookHandoff } from '../../operators/webhook-handoff';
 
@@ -9,7 +9,7 @@ const token = 's'.repeat(43);
 const key = btoa('a'.repeat(32)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const wrongKey = btoa('b'.repeat(32)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-describe('REQ-OPERATOR-006: optional encrypted webhook handoff', () => {
+describe('REQ-OPERATOR-025: optional encrypted webhook handoff', () => {
   it('encrypts with fresh AES-GCM nonces and exact bound context when a key is configured', async () => {
     const first = await createWebhookHandoff({ startCapability: token, webhookKey: key, context });
     const second = await createWebhookHandoff({ startCapability: token, webhookKey: key, context });

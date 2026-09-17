@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: parent-only host service configuration and durable metadata. */
+/** REQ-OPERATOR-021: parent-only host service configuration and durable metadata. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { createOperatorPiService, FileOperatorPiStore } from '../dist/operator-p
 const metadata = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', conversationId: 'pi-1',
   sessionFile: '/owned/sessions/pi-1.jsonl', tasks: {} };
 
-test('REQ-OPERATOR-005: file store atomically persists bounded private conversation metadata', async t => {
+test('REQ-OPERATOR-021: file store atomically persists bounded private conversation metadata', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'operator-pi-store-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const file = path.join(root, 'state', 'conversation.json');
@@ -23,7 +23,7 @@ test('REQ-OPERATOR-005: file store atomically persists bounded private conversat
   await assert.rejects(store.load(), /metadata.*large/i);
 });
 
-test('REQ-OPERATOR-005: trusted config binds identity/root/profile and produces a ready service', async t => {
+test('REQ-OPERATOR-021: trusted config binds identity/root/profile and produces a ready service', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'operator-pi-service-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const sdkSession = { sessionId: 'pi-1', sessionFile: path.join(root, 'sessions/pi-1.jsonl'), isStreaming: false,
@@ -47,7 +47,7 @@ test('REQ-OPERATOR-005: trusted config binds identity/root/profile and produces 
   assert.equal((await readFile(path.join(root, '.codeflare/operator-pi.json'), 'utf8')).includes('pi-1'), true);
 });
 
-test('REQ-OPERATOR-005: absent config preserves ordinary host and malformed or escaping config fails closed', () => {
+test('REQ-OPERATOR-021: absent config preserves ordinary host and malformed or escaping config fails closed', () => {
   assert.equal(createOperatorPiService({ allowedRoot: '/owned' }), undefined);
   assert.throws(() => createOperatorPiService({ serializedConfig: '{', allowedRoot: '/owned' }), /configuration/i);
   assert.throws(() => createOperatorPiService({ serializedConfig: JSON.stringify({ schemaVersion: 1, activityId: 'a',

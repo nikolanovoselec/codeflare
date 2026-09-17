@@ -12,7 +12,7 @@ const human = (expiresAt = Math.floor(Date.now() / 1000) + 300): VerifiedHumanAc
   issuedAt: Math.floor(Date.now() / 1000) - 10, expiresAt,
 });
 
-describe('REQ-OPERATOR-004: automatic human Access JWT stamping', () => {
+describe('REQ-OPERATOR-019: automatic human Access JWT stamping', () => {
   it('validates Off, exact/wildcard destination list and All without accepting URLs or IPs', () => {
     expect(parseJwtStampingPolicy({ mode: 'off', destinations: [] })).toEqual({ mode: 'off', destinations: [] });
     expect(parseJwtStampingPolicy({ mode: 'list', destinations: ['api.example.test', '*.services.example.test'] }))

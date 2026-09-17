@@ -93,7 +93,7 @@ export type OperatorRegistryResult<T> = { ok: true; value: T } | {
 };
 
 /**
- * REQ-OPERATOR-002: Deployment-local registration/admission ordering on SQLite DO
+ * REQ-OPERATOR-011: Deployment-local registration/admission ordering on SQLite DO
  * storage. Each mutation is one local transaction; no network/discovery or other
  * DO call belongs inside it. The authenticated parent must validate inputs,
  * authorize administration and bind admission intent/deadline to current human

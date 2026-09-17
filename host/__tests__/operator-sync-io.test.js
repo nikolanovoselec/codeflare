@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: concrete restricted local/R2 I/O adapters. */
+/** REQ-OPERATOR-023: concrete restricted local/R2 I/O adapters. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
@@ -8,7 +8,7 @@ import { FileOperatorSyncStore, OwnedOperatorSyncFiles, RcloneOperatorSyncUpload
 
 const receipt = { schemaVersion: 1, operationId: 'sync-1', requestDigest: 'a'.repeat(64), status: 'accepted', manifestDigest: null, files: [] };
 
-test('REQ-OPERATOR-005: local adapter reads only exact regular non-symlink files beneath the owned root', async t => {
+test('REQ-OPERATOR-023: local adapter reads only exact regular non-symlink files beneath the owned root', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'operator-output-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'reports'));
@@ -21,7 +21,7 @@ test('REQ-OPERATOR-005: local adapter reads only exact regular non-symlink files
   await assert.rejects(files.read('reports/link', 6), /symlink|regular/i);
 });
 
-test('REQ-OPERATOR-005: opened output remains beneath the owned root after an intermediate-directory swap', async t => {
+test('REQ-OPERATOR-023: opened output remains beneath the owned root after an intermediate-directory swap', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'operator-output-race-'));
   const outside = await mkdtemp(path.join(tmpdir(), 'operator-output-outside-'));
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]));
@@ -40,7 +40,7 @@ test('REQ-OPERATOR-005: opened output remains beneath the owned root after an in
   await assert.rejects(files.read('reports/result.txt', 6), /owned output path/i);
 });
 
-test('REQ-OPERATOR-005: receipt store atomically persists mode-0600 bounded per-operation state', async t => {
+test('REQ-OPERATOR-023: receipt store atomically persists mode-0600 bounded per-operation state', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'operator-receipts-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new FileOperatorSyncStore(root);
@@ -55,7 +55,7 @@ test('REQ-OPERATOR-005: receipt store atomically persists mode-0600 bounded per-
   await assert.rejects(store.load('../escape'), /operation/i);
 });
 
-test('REQ-OPERATOR-005: rclone adapter uses fixed rcat destination and stdin without a shell', async () => {
+test('REQ-OPERATOR-023: rclone adapter uses fixed rcat destination and stdin without a shell', async () => {
   const calls = [];
   const uploader = new RcloneOperatorSyncUploader({ bucket: 'owner-bucket', prefix: 'Remote Reviews/activity/session/sync-1/',
     configFile: '/run/codeflare/rclone.conf', run: async (command, args, bytes) => { calls.push({ command, args, bytes: Buffer.from(bytes) }); return 0; } });

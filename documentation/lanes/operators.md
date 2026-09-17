@@ -39,7 +39,7 @@ Implements [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verif
 
 ## Distribution validation
 
-Implements the distribution and registration boundaries in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-registration-and-serialized-admission) and [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-discovery-and-immutable-bundle-validation).
+Implements the distribution and registration boundaries in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration) and [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-discovery-and-immutable-bundle-validation).
 
 `src/operators/distribution.ts` provides pure typed boundaries:
 
@@ -98,7 +98,7 @@ This is a format example, not a functioning operator. At most 128 canonical rela
 
 ## Worker Loader boundary
 
-Implements the isolate boundary in [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime).
+Implements the isolate boundary in [REQ-OPERATOR-015](../../sdd/spec/operators.md#req-operator-015-isolated-approved-worker-loading).
 
 `src/operators/loader.ts::loadOperatorWorker(loader, approvedBundle, capability, outbound)` creates a fresh Worker with `LOADER.load()` and returns its default entrypoint. The child receives only `env.OPERATOR`; the parent provides this service binding with bound principal/activity context. An explicit outbound service intercepts child networking, or `null` denies it. There is no inherited environment, cached `get()` path, automatic retry or fallback.
 
@@ -108,7 +108,7 @@ The isolated fixture at `src/__tests__/operators/fixtures/wrangler.toml` uses th
 
 ## Shared interception restrictions
 
-Implements [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-shared-restrictive-interception-and-jwt-stamping).
+Implements [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-shared-restrictive-interception) and [REQ-OPERATOR-019](../../sdd/spec/operators.md#req-operator-019-automatic-human-access-jwt-stamping).
 
 `src/operators/interception-policy.ts` is the credential-free decision boundary shared by direct Worker capabilities and container interceptors. The parent supplies a previously validated `OperatorPolicy`; request identity cannot select or widen it. Exact network names and `*.example.test` subdomain rules are matched canonically (the wildcard excludes its apex). Standard and configured GitHub destinations never fall through a general-host allow rule. An operator marker also denies the enterprise Browser administrator-token interceptor outright; listing `api.cloudflare.com` as general egress cannot acquire that specialized credential.
 
@@ -126,7 +126,7 @@ Parent-only props carry policy/current authority between the container DO and in
 
 ## Protected execution context
 
-Implements finite parent authority for [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime) and [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-shared-restrictive-interception-and-jwt-stamping).
+Implements finite parent authority for [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-activity-context) and [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-shared-restrictive-interception).
 
 `src/operators/execution-context.ts` captures a currently verified human Access assertion under exact activity/operator, approved artifact and policy identities. It validates bounded identifiers/digests and actual signed expiry, then uses the existing fail-closed operator AES-GCM envelope with the activity ID as authenticated context. Durable state contains owner provenance and ciphertext, never a raw JWT. `projectOperatorExecution` removes ciphertext before parent-safe readback; nothing from this projection grants child authority.
 
@@ -134,9 +134,9 @@ Protected reopening verifies the ciphertext payload still matches every public p
 
 ## Activity-to-Worker driver
 
-Implements the generation-fenced runtime in [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime).
+Implements the generation-fenced runtime in [REQ-OPERATOR-017](../../sdd/spec/operators.md#req-operator-017-durable-drive-generations) and [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration).
 
-`src/operators/runtime.ts::driveOperatorRuntime(options)` reserves an admitted activity's next drive generation and creates fresh approved code with parent-built, generation-bound capabilities. The child receives a version-1 JSON request containing `action` (`start` or `resume`), `activityId`, `generation` and the last durable `checkpoint`. Credentials remain in the parent. Only a 200 JSON response, streamed within 64 KiB and a 30-second child deadline capped by human expiry, reaches the activity's checkpoint validator and generation comparison.
+`src/operators/runtime.ts::driveOperatorRuntime(options)` reserves an admitted activity's next drive generation and creates fresh approved code with parent-built, generation-bound capabilities. The child receives a version-1 JSON request containing `action` (`start` or `resume`), `activityId`, `generation` and the last durable `checkpoint`. Credentials remain in the parent. Only a 200 JSON response, streamed within 64 KiB and the remainder of the request-attached 25-second attempt deadline capped by human expiry, reaches the activity's checkpoint validator and generation comparison.
 
 Thrown, oversized, malformed or expired execution is fenced as unknown rather than automatically replayed. Already-settled or active drives do not start another Worker. A waiting checkpoint can resume after activity eviction in a fresh isolate. This composes existing primitives; it adds no scheduler.
 
@@ -144,15 +144,15 @@ The production Loader/activity bindings and owner-scoped dispatch/cancel surface
 
 ## Request-attached orchestration
 
-Implements the production direct path in [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime).
+Implements the production direct path in [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration).
 
-`POST /api/operator-activities` requires enterprise authentication, CSRF protection and verified current human Access authority. The server selects the registration revision and creates the activity identity, verifier-backed start capability, invocation digest and encrypted execution context. The bounded invocation cannot select principal, policy, artifact, bucket or credential. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity -->
+`POST /api/operator-activities` requires enterprise authentication, CSRF protection and verified current human Access authority. The server selects the registration revision and creates the activity identity, verifier-backed start capability, invocation digest and encrypted execution context. The bounded invocation cannot select principal, policy, artifact, bucket or credential. Prepared state remains private until successful admission publishes a queued owner summary, so an unstartable prepared record is never presented as queued work. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity -->
 
-A winning browser or webhook start attaches one `runOperatorActivity` attempt to the current request. Admission atomically pins protected distribution configuration beside its immutable receipt. The parent reopens current authority, downloads the receipt-pinned artifact and drives a fresh Worker with null outbound access and a generation-bound deny-by-default capability. Preparation or transport failure becomes durable `unknown`; duplicate/rejected starts schedule nothing and no scheduler or automatic replay is introduced. Direct-only work creates no container. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity -->
+A winning browser or webhook start attaches one `runOperatorActivity` attempt to the current request. Admission atomically pins protected distribution configuration beside its immutable receipt. The parent reopens current authority, downloads the receipt-pinned artifact and drives a fresh Worker with null outbound access and a generation-bound deny-by-default capability. Bundle transport and Worker execution share one 25-second absolute deadline below the request-extension budget. Preparation or transport failure becomes durable `unknown`; duplicate/rejected starts schedule nothing and no scheduler or automatic replay is introduced. Direct-only work creates no container. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity -->
 
 ## Registration/admission ordering
 
-Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-registration-and-serialized-admission).
+Implements [REQ-OPERATOR-011](../../sdd/spec/operators.md#req-operator-011-serialized-operator-admission).
 
 `src/operators/registry.ts::OperatorRegistry` owns deployment-local ordering state on SQLite-backed DO storage. `create` starts disabled and unapproved. `approve` and `setEnabled` require the current revision and increment it; replacement approval disables the registration until separately enabled.
 
@@ -166,7 +166,7 @@ Each mutation is one local storage transaction. The parent must authorize and va
 
 ## Enterprise registration backend
 
-Implements the administration portions of [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-registration-and-serialized-admission), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-administration-and-activity-surfaces), and [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-discovery-and-immutable-bundle-validation).
+Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](../../sdd/spec/operators.md#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface), and [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-discovery-and-immutable-bundle-validation).
 
 `/api/admin/operators` is mounted in the Worker, with `OPERATOR_REGISTRY` backed by the additive `v3` SQLite migration. Non-enterprise requests return 404. Existing authentication and administrator/group authorization run before a stricter human Access check using the existing configured issuer/audiences. The verified email must match the authenticated identity; service/setup/session authentication cannot substitute. Bodies are bounded to 64 KiB and mutation schemas reject unknown fields.
 
@@ -194,7 +194,7 @@ Route fixtures use simulated identity/distribution boundaries plus native durabl
 
 ## Activity admission
 
-Implements the durable admission owner in [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-registration-and-serialized-admission) and [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime).
+Implements the durable admission owner in [REQ-OPERATOR-011](../../sdd/spec/operators.md#req-operator-011-serialized-operator-admission) and [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup).
 
 `src/operators/activity.ts::OperatorActivity` owns `prepare`, `start` and a verifier-free `getAdmission` projection. The authenticated parent supplies validated intent, the start capability's SHA-256 verifier and bounded human/capability deadlines. Preparing an activity does not admit it. Raw start tokens are never stored.
 
@@ -204,7 +204,7 @@ Queued intent does not mean execution has started or completed. Protected contex
 
 ## Durable drive checkpoints
 
-Implements durable recovery and cancellation for [REQ-OPERATOR-003](../../sdd/spec/operators.md#req-operator-003-principal-bound-durable-activity-runtime).
+Implements durable recovery and cancellation for [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup) and [REQ-OPERATOR-017](../../sdd/spec/operators.md#req-operator-017-durable-drive-generations).
 
 `OperatorActivity.beginDrive()` reserves one running generation inside the activity's existing durable record. A waiting drive resumes with its persisted checkpoint and a new generation; active or settled work cannot restart automatically. `commitDrive(generation, update)` accepts only the current running generation while human authority remains valid.
 
@@ -214,7 +214,7 @@ Updates have `{ schemaVersion: 1, status, checkpoint, result? }`, with status `w
 
 ## Protected secrets
 
-Implements secret protection used by [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-registration-and-serialized-admission) and [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-codeflare-webhook-endpoint).
+Implements secret protection used by [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-012](../../sdd/spec/operators.md#req-operator-012-protected-operator-webhook-keys), and [REQ-OPERATOR-025](../../sdd/spec/operators.md#req-operator-025-optional-encrypted-webhook-handoff).
 
 `src/operators/protected-secrets.ts` supplies `sealOperatorSecret` and `openOperatorSecret` for parent-owned connection secrets, human Access credentials and webhook keys. Both reuse the existing AES-256-GCM primitives and `v1:` envelope. Authenticated context is the JSON tuple `["operator-secret-v1", purpose, recordId]`; the parent chooses the record and purpose, never the child.
 
@@ -226,7 +226,7 @@ An absent/invalid encryption key, plaintext value, wrong context or tampered cip
 
 ## Webhook capability handoff
 
-Implements [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-codeflare-webhook-endpoint).
+Implements [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-025](../../sdd/spec/operators.md#req-operator-025-optional-encrypted-webhook-handoff), and [REQ-OPERATOR-026](../../sdd/spec/operators.md#req-operator-026-managed-webhook-edge-bypass).
 
 The fixed enterprise `/operator-webhook/v1/activities/:activityId/{start,status,result}` family accepts no body and authorizes only a bearer capability for the exact activity/action. Start is single-use; status is bounded read authority; result is non-consuming while not ready and consuming when available. Responses are `no-store`, rate limited, and never reflect capabilities. Managed Access bypass is provisioned only for this route family; it does not bypass the handler's enterprise, path, method, capability, expiry, or activity checks. <!-- @impl: src/routes/operator-webhook.ts -->
 
@@ -240,13 +240,13 @@ Implements [REQ-OPERATOR-007](../../sdd/spec/operators.md#req-operator-007-opera
 
 ## Owner-scoped activity surface
 
-Implements the browser-facing portion of [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-administration-and-activity-surfaces).
+Implements the browser-facing portion of [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface).
 
 Enterprise activity list/detail/start/cancel/result routes derive the current signed human owner key and never accept owner identity from request data. Mutations require the existing CSRF boundary; projections remain bounded and secret-free. The responsive header control and activity detail states distinguish loading, empty, attention, terminal, and unknown outcomes without treating queued work as complete. Backend and UI tests are complete; actual desktop/mobile and deployed owner-isolation acceptance remain pending. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx -->
 
 ## Owned session and structured Pi
 
-Implements [REQ-OPERATOR-005](../../sdd/spec/operators.md#req-operator-005-owned-session-structured-pi-and-explicit-persistence).
+Implements [REQ-OPERATOR-005](../../sdd/spec/operators.md#req-operator-005-owned-operator-session-lifecycle) and [REQ-OPERATOR-021](../../sdd/spec/operators.md#req-operator-021-structured-owned-pi-conversation).
 
 `src/operators/owned-session.ts` persists parent-owned orchestration under distinct activity, Codeflare session, Pi conversation, and task identities. Creation, configuration, task submission, explicit sync, and stopping are ordered durably. Exact repeats reconcile, changed stable identities conflict, and a lost response is observed rather than converted into a second effect. Stopping fences new work before draining and ending the owned session.
 
@@ -256,7 +256,7 @@ Restricted PID1 startup validates the paired Pi/sync identities, creates only th
 
 ## Explicit scoped persistence
 
-Also implements the persistence portion of [REQ-OPERATOR-005](../../sdd/spec/operators.md#req-operator-005-owned-session-structured-pi-and-explicit-persistence).
+Also implements [REQ-OPERATOR-022](../../sdd/spec/operators.md#req-operator-022-restricted-operator-container-lifecycle) and [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization).
 
 The parent fixes the owner bucket, output root, policy digest, operation prefix, and authority deadline. The host stores a credential-free receipt before effects, validates regular non-symlink files against declared size and SHA-256, uploads each bounded file, and writes `manifest.json` last. Stable completed operations reconcile; a changed repeat conflicts; a nonterminal or lost outcome is fenced as unknown and is not replayed automatically. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/operator-sync-io.ts::OwnedOperatorSyncFiles -->
 
@@ -264,7 +264,7 @@ The parent fixes the owner bucket, output root, policy digest, operation prefix,
 
 ## Independent sync evidence
 
-Implements independent readback for [REQ-OPERATOR-005](../../sdd/spec/operators.md#req-operator-005-owned-session-structured-pi-and-explicit-persistence).
+Implements independent readback for [REQ-OPERATOR-024](../../sdd/spec/operators.md#req-operator-024-independent-synchronization-verification).
 
 `src/operators/sync-verification.ts::verifyOperatorSync(expected, read)` reads the final `manifest.json` and declared objects from the parent-selected operation prefix. The owner-scoped reader must enforce the supplied byte bound before buffering. Version-1 manifests bind activity, session, operation, request digest and policy digest, with unique canonical relative file paths, sizes and SHA-256 hashes. Limits are 64 KiB for the manifest, 128 files and 8 MiB total declared output.
 

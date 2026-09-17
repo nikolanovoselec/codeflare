@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: bounded explicit-sync host API, distinct from ordinary bisync routes. */
+/** REQ-OPERATOR-023: bounded explicit-sync host API, distinct from ordinary bisync routes. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OperatorSyncHttpController } from '../dist/operator-sync-http.js';
@@ -15,7 +15,7 @@ function fixture() {
   return { controller: new OperatorSyncHttpController(coordinator), calls, coordinator };
 }
 
-test('REQ-OPERATOR-005: fixed POST upload and GET receipt expose uploaded but not verified state', async () => {
+test('REQ-OPERATOR-023: fixed POST upload and GET receipt expose uploaded but not verified state', async () => {
   const f = fixture();
   const upload = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });
   assert.equal(upload.status, 200);
@@ -27,7 +27,7 @@ test('REQ-OPERATOR-005: fixed POST upload and GET receipt expose uploaded but no
   assert.deepEqual(f.calls, [['upload', request], ['status', 'sync-1']]);
 });
 
-test('REQ-OPERATOR-005: malformed/oversized/method/unknown requests fail before coordinator effects', async () => {
+test('REQ-OPERATOR-023: malformed/oversized/method/unknown requests fail before coordinator effects', async () => {
   const f = fixture();
   assert.equal(await f.controller.handle({ method: 'GET', pathname: '/health' }), null);
   assert.equal((await f.controller.handle({ method: 'GET', pathname: '/internal/operator/sync/operations' })).status, 405);
@@ -37,7 +37,7 @@ test('REQ-OPERATOR-005: malformed/oversized/method/unknown requests fail before 
   assert.deepEqual(f.calls, [['status', 'missing']]);
 });
 
-test('REQ-OPERATOR-005: conflict, unknown and internal errors are explicit and redacted', async () => {
+test('REQ-OPERATOR-023: conflict, unknown and internal errors are explicit and redacted', async () => {
   const f = fixture();
   f.coordinator.upload = async () => { throw new Error('Operator sync operation conflict /secret'); };
   let response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });

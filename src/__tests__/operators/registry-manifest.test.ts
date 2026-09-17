@@ -12,6 +12,9 @@ import { ValidationError } from '../../lib/error-types';
 
 const endpoint = 'https://operator.example.test/discovery';
 const protectedEnv = { ENCRYPTION_KEY: btoa('k'.repeat(32)) };
+const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+  storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
+    reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
 function manifest(version = '1') {
   return parseOperatorManifest(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'operator',
     name: 'Example', description: 'Approved intent', coreVersion: version, intentVersion: version,
@@ -29,7 +32,7 @@ async function withRegistry(test: (registry: OperatorRegistry, ctx: DurableObjec
   });
 }
 
-describe('REQ-OPERATOR-002: approved manifest snapshots', () => {
+describe('REQ-OPERATOR-011: approved manifest snapshots', () => {
   it('persists full compatible metadata without enabling the registration', () => withRegistry(async (registry, ctx) => {
     expect(await registry.getApprovedManifest('operator')).toBeNull();
     expect(await registry.approveManifest('operator', JSON.stringify(manifest()), 2)).toEqual({ ok: true, value: {
@@ -40,9 +43,6 @@ describe('REQ-OPERATOR-002: approved manifest snapshots', () => {
   }));
 
   it('resolves only a complete enabled execution selection and pins protected distribution at admission', () => withRegistry(async registry => {
-    const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
-      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
-        reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
     expect(await registry.resolveForExecution('operator')).toEqual({ ok: false, reason: 'disabled' });
     await registry.setPolicy('operator', policyJson, 2);
     await registry.approveManifest('operator', JSON.stringify(manifest()), 3);
@@ -60,15 +60,16 @@ describe('REQ-OPERATOR-002: approved manifest snapshots', () => {
   }));
 
   it('pins admitted metadata through replacement approval and distribution changes', () => withRegistry(async registry => {
-    await registry.approveManifest('operator', JSON.stringify(manifest()), 2);
-    await registry.setEnabled('operator', true, 3);
-    const request = { operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64), expectedRevision: 4, deadline: Date.now() + 60_000 };
+    await registry.setPolicy('operator', policyJson, 2);
+    await registry.approveManifest('operator', JSON.stringify(manifest()), 3);
+    await registry.setEnabled('operator', true, 4);
+    const request = { operatorId: 'operator', activityId: 'activity', intentDigest: 'c'.repeat(64), expectedRevision: 5, deadline: Date.now() + 60_000 };
     const admitted = await registry.admit(request);
     expect(admitted).toMatchObject({ ok: true, value: { manifestJson: JSON.stringify(manifest()), artifactDigest: 'a'.repeat(64) } });
-    expect(await registry.approveManifest('operator', JSON.stringify(manifest('2')), 4)).toMatchObject({ ok: true, value: { revision: 5, enabled: false } });
+    expect(await registry.approveManifest('operator', JSON.stringify(manifest('2')), 5)).toMatchObject({ ok: true, value: { revision: 6, enabled: false } });
     expect(await registry.getApprovedManifest('operator')).toEqual(JSON.stringify(manifest('2')));
     expect(await registry.admit(request)).toEqual(admitted);
-    await registry.setDistribution('operator', 'https://replacement.example.test/', 'replacement', 5);
+    await registry.setDistribution('operator', 'https://replacement.example.test/', 'replacement', 6);
     expect(await registry.getApprovedManifest('operator')).toBeNull();
     expect(await registry.getReceipt('activity')).toEqual(admitted);
   }));

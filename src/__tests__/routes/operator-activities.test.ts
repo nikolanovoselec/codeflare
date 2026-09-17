@@ -59,14 +59,14 @@ function fixture() {
       'content-type': 'application/json', 'cf-access-authenticated-user-email': claims.email,
       ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}),
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
-    { waitUntil, passThroughOnException: vi.fn() },
+    { waitUntil, passThroughOnException: vi.fn(), props: {} },
   );
   return { activity, registry, env, request, waitUntil };
 }
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('REQ-OPERATOR-008: authenticated owned activity browser surfaces', () => {
+describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
   it('returns a side-effect-free safe summary collection for the exact human account', async () => {
     const { request, registry, activity } = fixture();
     const response = await request();

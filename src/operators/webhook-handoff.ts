@@ -1,5 +1,5 @@
 /**
- * Optional external dispatch protection for REQ-OPERATOR-006.
+ * Optional external dispatch protection for REQ-OPERATOR-025.
  *
  * This envelope protects the one-time start capability while it crosses a
  * workflow input boundary. It does not authenticate Worker requests itself and

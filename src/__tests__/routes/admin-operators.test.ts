@@ -73,7 +73,7 @@ async function withApi(test: (request: (path: string, method?: string, body?: un
   });
 }
 
-describe('REQ-OPERATOR-002: enterprise human-admin operator routes', () => {
+describe('REQ-OPERATOR-013: enterprise human-admin operator routes', () => {
   it.each(['/', '/operator/webhook-key', '/operator/enable', '/operator/policy'])('is unavailable outside enterprise: %s', path => withApi(async request => {
     expect((await request(path, path === '/' ? 'GET' : 'POST', undefined, false)).status).toBe(404);
   }));

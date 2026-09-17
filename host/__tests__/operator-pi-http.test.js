@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-005: authenticated host Pi API projections and bounds. */
+/** REQ-OPERATOR-021: authenticated host Pi API projections and bounds. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OperatorPiHttpController } from '../dist/operator-pi-http.js';
@@ -15,7 +15,7 @@ function fixture() {
   return { controller: new OperatorPiHttpController(conversation), calls, conversation };
 }
 
-test('REQ-OPERATOR-005: fixed ensure/send/observe/abort API omits the private session file', async () => {
+test('REQ-OPERATOR-021: fixed ensure/send/observe/abort API omits the private session file', async () => {
   const f = fixture();
   const ensure = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/ensure', body: bytes({}) });
   assert.equal(ensure.status, 200);
@@ -32,7 +32,7 @@ test('REQ-OPERATOR-005: fixed ensure/send/observe/abort API omits the private se
   assert.equal([ensure, send, observe, abort].every(result => result.headers['Cache-Control'] === 'no-store'), true);
 });
 
-test('REQ-OPERATOR-005: unknown routes/methods and malformed or oversized requests fail before SDK calls', async () => {
+test('REQ-OPERATOR-021: unknown routes/methods and malformed or oversized requests fail before SDK calls', async () => {
   const f = fixture();
   assert.equal(await f.controller.handle({ method: 'GET', pathname: '/health' }), null);
   assert.equal((await f.controller.handle({ method: 'GET', pathname: '/internal/operator/pi/ensure' })).status, 405);
@@ -41,7 +41,7 @@ test('REQ-OPERATOR-005: unknown routes/methods and malformed or oversized reques
   assert.deepEqual(f.calls, []);
 });
 
-test('REQ-OPERATOR-005: conflicts are explicit and internal failures are redacted', async () => {
+test('REQ-OPERATOR-021: conflicts are explicit and internal failures are redacted', async () => {
   const f = fixture();
   f.conversation.send = async () => { throw new Error('Pi task conflict /secret/token'); };
   const conflict = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
