@@ -25,11 +25,18 @@ test('REQ-OPERATOR-021: fixed ensure/send/observe/abort API omits the private se
     body: bytes({ taskId: 'task-1', digest: 'a'.repeat(64), text: 'work', mode: 'prompt' }) });
   assert.equal(send.status, 202);
   assert.deepEqual(JSON.parse(send.body), { taskId: 'task-1', status: 'running' });
+  const tool = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
+    body: bytes({ taskId: 'tool-1', digest: 'b'.repeat(64), mode: 'tool', toolName: 'write',
+      arguments: { path: '/owned/output.txt', content: 'expected' } }) });
+  assert.equal(tool.status, 202);
+  assert.deepEqual(JSON.parse(tool.body), { taskId: 'tool-1', status: 'running' });
   const observe = await f.controller.handle({ method: 'GET', pathname: '/internal/operator/pi/events', query: new URLSearchParams('cursor=4') });
   assert.deepEqual(JSON.parse(observe.body), { events: [{ sequence: 5, event: { type: 'ready' } }], nextCursor: 5, gap: false });
   const abort = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks/task-1/abort', body: bytes({}) });
   assert.deepEqual(JSON.parse(abort.body), { taskId: 'task-1', status: 'cancelled' });
-  assert.equal([ensure, send, observe, abort].every(result => result.headers['Cache-Control'] === 'no-store'), true);
+  assert.equal([ensure, send, tool, observe, abort].every(result => result.headers['Cache-Control'] === 'no-store'), true);
+  assert.deepEqual(f.calls[2], ['send', { taskId: 'tool-1', digest: 'b'.repeat(64), mode: 'tool',
+    toolName: 'write', arguments: { path: '/owned/output.txt', content: 'expected' } }]);
 });
 
 test('REQ-OPERATOR-021: unknown routes/methods and malformed or oversized requests fail before SDK calls', async () => {
@@ -38,6 +45,8 @@ test('REQ-OPERATOR-021: unknown routes/methods and malformed or oversized reques
   assert.equal((await f.controller.handle({ method: 'GET', pathname: '/internal/operator/pi/ensure' })).status, 405);
   assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks', body: new TextEncoder().encode('{') })).status, 400);
   assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks', body: new Uint8Array(65 * 1024) })).status, 413);
+  assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
+    body: bytes({ taskId: 'tool-1', digest: 'a'.repeat(64), mode: 'tool', toolName: 'write', arguments: [] }) })).status, 400);
   assert.deepEqual(f.calls, []);
 });
 

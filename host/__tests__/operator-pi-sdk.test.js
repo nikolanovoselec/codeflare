@@ -4,10 +4,13 @@ import test from 'node:test';
 import { createProvisionedOperatorPiFactory } from '../dist/operator-pi-sdk.js';
 
 function fixture(options = {}) {
-  const calls = { runtime: [], create: [], managers: [], stream: [], disposed: 0 };
-  const sdkSession = kind => ({
+  const calls = { runtime: [], create: [], managers: [], stream: [], tool: [], disposed: 0 };
+  const sdkSession = (kind, toolNames) => ({
     sessionId: 'pi-1', sessionFile: '/owned/sessions/pi-1.jsonl', isStreaming: false,
-    messages: options.messages?.[kind] ?? [],
+    agent: { state: { tools: toolNames.map(name => ({ name, execute: async (toolCallId, args, signal) => {
+      calls.tool.push({ toolCallId, name, args, signal });
+      return { content: [{ type: 'text', text: 'done' }], details: undefined };
+    } })) } },
     prompt: async () => {}, followUp: async () => {}, steer: async () => {}, abort: async () => {},
     subscribe: () => () => {}, dispose: () => { calls.disposed += 1; },
   });
@@ -26,7 +29,7 @@ function fixture(options = {}) {
     createExtensionRuntime: () => ({ approved: true }),
     createAgentSession: async options => {
       calls.create.push(options);
-      return { session: sdkSession(options.sessionManager.kind) };
+      return { session: sdkSession(options.sessionManager.kind, options.tools) };
     },
   };
   const approvedExtension = { path: '/trusted/extension.js' };
@@ -56,42 +59,15 @@ test('REQ-OPERATOR-021: creates with explicit offline model, settings and approv
   assert.equal(options.sessionManager.kind, 'create');
 });
 
-test('REQ-OPERATOR-021: each conversation owns its approved initial tool choice', async () => {
+test('REQ-OPERATOR-021: executes an approved active Pi tool directly and rejects unavailable tools', async () => {
   const f = fixture();
-  const forced = createProvisionedOperatorPiFactory({
-    cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
-    profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'medium',
-      systemPrompt: 'Approved operator context', tools: ['write'], initialToolChoice: 'write' },
-    importSdk: f.importSdk,
-  });
-  await forced.create();
-  await forced.create();
-  const first = f.calls.create[0].modelRuntime;
-  const second = f.calls.create[1].modelRuntime;
-  assert.equal(first.streamSimple('model', 'first-a', { signal: 'one' }), 'stream');
-  assert.equal(second.streamSimple('model', 'first-b', { signal: 'two' }), 'stream');
-  assert.equal(first.streamSimple('model', 'second-a', { signal: 'three' }), 'stream');
-  assert.equal(second.streamSimple('model', 'second-b', { signal: 'four' }), 'stream');
-  assert.deepEqual(f.calls.stream, [
-    ['model', 'first-a', { signal: 'one', toolChoice: { type: 'function', function: { name: 'write' } } }],
-    ['model', 'first-b', { signal: 'two', toolChoice: { type: 'function', function: { name: 'write' } } }],
-    ['model', 'second-a', { signal: 'three' }],
-    ['model', 'second-b', { signal: 'four' }],
-  ]);
-});
-
-test('REQ-OPERATOR-021: reopening a conversation with a model turn does not reapply its initial tool choice', async () => {
-  const f = fixture({ messages: { open: [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }] } });
-  const forced = createProvisionedOperatorPiFactory({
-    cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
-    profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'medium',
-      systemPrompt: 'Approved operator context', tools: ['write'], initialToolChoice: 'write' },
-    importSdk: f.importSdk,
-  });
-  await forced.open('/owned/sessions/pi-1.jsonl');
-  const runtime = f.calls.create[0].modelRuntime;
-  assert.equal(runtime.streamSimple('model', 'continued', { signal: 'one' }), 'stream');
-  assert.deepEqual(f.calls.stream, [['model', 'continued', { signal: 'one' }]]);
+  const session = await f.factory.create();
+  const signal = new AbortController().signal;
+  await session.executeTool({ toolCallId: 'task-1', name: 'read', arguments: { path: '/owned/work/file.txt' }, signal });
+  assert.deepEqual(f.calls.tool, [{ toolCallId: 'task-1', name: 'read',
+    args: { path: '/owned/work/file.txt' }, signal }]);
+  await assert.rejects(session.executeTool({ toolCallId: 'task-2', name: 'write', arguments: {}, signal }),
+    /approved Pi tool.*unavailable/i);
 });
 
 test('REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory', async () => {

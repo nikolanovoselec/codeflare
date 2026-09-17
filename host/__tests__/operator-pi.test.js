@@ -17,11 +17,12 @@ function fixture(overrides = {}) {
   let listener = () => {};
   let streaming = false;
   const run = deferred();
-  const calls = { prompt: [], followUp: [], steer: [], abort: 0, opened: [] };
+  const calls = { prompt: [], tool: [], followUp: [], steer: [], abort: 0, opened: [] };
   const session = {
     sessionId: 'conversation-1', sessionFile: '/owned/session.jsonl',
     get isStreaming() { return streaming; },
     async prompt(text) { calls.prompt.push(text); streaming = true; await run.promise; streaming = false; },
+    async executeTool(input) { calls.tool.push(input); },
     async followUp(text) { calls.followUp.push(text); },
     async steer(text) { calls.steer.push(text); },
     async abort() { calls.abort += 1; run.resolve(); },
@@ -59,6 +60,22 @@ test('REQ-OPERATOR-021: persists task intent before prompt and reconciles same I
   assert.deepEqual(f.calls.prompt, ['do work']);
   await assert.rejects(f.adapter.send({ taskId: 'task-1', digest: 'b'.repeat(64), text: 'different', mode: 'prompt' }), /conflict/i);
   f.run.resolve();
+});
+
+test('REQ-OPERATOR-021: persists and executes an approved native Pi tool task without prompting the model', async () => {
+  const f = fixture();
+  await f.adapter.ensure();
+  assert.deepEqual(await f.adapter.send({ taskId: 'tool-1', digest: 'f'.repeat(64), mode: 'tool',
+    toolName: 'write', arguments: { path: '/owned/output.txt', content: 'expected' } }), { status: 'running' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(f.calls.tool.map(call => ({ ...call, signal: Boolean(call.signal) })), [{
+    toolCallId: 'tool-1', name: 'write', arguments: { path: '/owned/output.txt', content: 'expected' }, signal: true,
+  }]);
+  assert.deepEqual(f.calls.prompt, []);
+  assert.equal(f.saved().tasks['tool-1'].status, 'completed');
+  assert.deepEqual(await f.adapter.send({ taskId: 'tool-1', digest: 'f'.repeat(64), mode: 'tool',
+    toolName: 'write', arguments: { path: '/owned/output.txt', content: 'expected' } }), { status: 'completed' });
+  assert.equal(f.calls.tool.length, 1);
 });
 
 test('REQ-OPERATOR-021: permits one queued follow-up and one steering message while active', async () => {

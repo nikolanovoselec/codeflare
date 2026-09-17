@@ -90,9 +90,8 @@ describe('REQ-OPERATOR-005: parent-owned Gate 1 resource mapping', () => {
         provider: 'codeflare-gateway',
         model: 'route-approved',
         thinkingLevel: 'high',
-        systemPrompt: 'Call the write tool now and do not respond with text. Use exactly this JSON argument: {"path":"/home/user/Operators/Gate 1/gate1-marker-activity-gate1.txt","content":"codeflare-gate1-marker-v1"}. Call no other tools, append no newline, and create no other files.',
+        systemPrompt: 'Gate 1 uses the approved native Pi write tool through the structured operator interface.',
         tools: ['write'],
-        initialToolChoice: 'write',
       },
     });
     expect(result.profile).not.toHaveProperty('accessJwt');
