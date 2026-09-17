@@ -1,3 +1,3 @@
 import { registerAiRoutingFieldsTests } from './ai-routing-fields-suite';
 
-registerAiRoutingFieldsTests(1);
+registerAiRoutingFieldsTests(2);

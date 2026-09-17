@@ -172,9 +172,9 @@ async function expectDevelopmentInactive(view: View) {
   expect(within(view.getByRole('group', { name: 'developers allowed routes' })).queryByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeNull();
 }
 
-// Register two independently schedulable halves without duplicating the shared
-// component fixtures or changing the behavioral assertions.
-export function registerAiRoutingFieldsTests(partition: 'first' | 'second') {
+// Register four independently schedulable measured partitions without
+// duplicating the shared component fixtures or changing the assertions.
+export function registerAiRoutingFieldsTests(partition: 1 | 2 | 3 | 4) {
 beforeEach(() => {
   api.catalog.mockReset().mockResolvedValue(catalog);
   api.inventory.mockReset().mockImplementation(async (route: string) => routeInventory(route));
@@ -186,7 +186,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Synthetic component fixtures; CI reruns the locally verified behavior.
 describe('Structured AI routing', () => {
-  if (partition === 'first') {
+  if (partition === 1) {
   it('REQ-ENTERPRISE-034: shows only live Gateway routes and drops deleted route settings after a successful inventory', async () => {
     const deleted = ['bedrock_opus', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'development', 'documentation', 'freestyler', 'general_usage'];
     const live = ['Planning', 'Operations', 'Development', 'Review'];
@@ -695,7 +695,9 @@ describe('Structured AI routing', () => {
     expect(view.queryByLabelText('Enable Claude custom native target')).toBeNull();
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile', enabled: true });
   });
+  }
 
+  if (partition === 2) {
   it('REQ-ENTERPRISE-054: removes a native target from the editable draft', async () => {
     const saved = checkedCurrent();
     const view = mount({ ...saved, nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Saved target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
@@ -995,7 +997,7 @@ describe('Structured AI routing', () => {
   });
   }
 
-  if (partition === 'second') {
+  if (partition === 3) {
   it.each([
     ['missing check ID', { checkId: undefined }], ['missing receipt', { verification: undefined }],
     ['not assignable', { assignable: false }], ['missing assignability', { assignable: undefined }],
@@ -1066,7 +1068,9 @@ describe('Structured AI routing', () => {
       await expectDevelopmentInactive(view);
     }
   });
+  }
 
+  if (partition === 4) {
   it('REQ-ENTERPRISE-038: saved exact receipts enable access only after fresh server-approved inventory arrives', async () => {
     let release!: (value: ReasoningRouteInventory) => void;
     api.inventory.mockImplementation((route: string) => route === 'development' ? new Promise((resolve) => { release = resolve; }) : Promise.resolve(singleInventory(route)));
