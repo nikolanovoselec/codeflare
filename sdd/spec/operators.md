@@ -147,7 +147,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-durable-activity-runtime)
 
-**Verification:** Concurrent capability RED at `0f66350c`, CI 35169790662: typecheck and native activity tests reached missing start/read/status/result methods; implementation `ab04c4b4`, full CI 35170400746 GREEN. Managed Access bypass RED at `ced0bf9a`, CI 35169925235: typecheck reached the missing status authority; implementation `d122182a`, independent-reconciliation correction `bb9500b4`, full CI 35170400746 GREEN. Webhook edge RED at `df949df3`, CI 35170613779: typecheck, import/quality and boundary tests reached the absent route module; implementation `8a552536`, full CI 35170733082 GREEN. Actual public-host callback acceptance in both handoff modes remains required.
+**Verification:** Concurrent capability RED at `0f66350c`, CI 35169790662: typecheck and native activity tests reached missing start/read/status/result methods; implementation `ab04c4b4`, full CI 35170400746 GREEN. Managed Access bypass RED at `ced0bf9a`, CI 35169925235: typecheck reached the missing status authority; implementation `d122182a`, independent-reconciliation correction `bb9500b4`, full CI 35170400746 GREEN. Webhook edge RED at `df949df3`, CI 35170613779: typecheck, import/quality and boundary tests reached the absent route module; implementation `8a552536`, full CI 35170733082 GREEN. Encrypted handoff RED at `c192b8f6`, CI 35170981127: typecheck, import/quality and behavioral tests reached the absent handoff module. Actual public-host callback acceptance in both handoff modes remains required.
 
 **Status:** Planned
 
