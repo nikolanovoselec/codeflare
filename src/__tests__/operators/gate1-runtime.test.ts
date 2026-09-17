@@ -59,12 +59,13 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
       setBucketName: vi.fn(async () => { throw new Error('secret configuration detail'); }),
       configureOperatorContext: vi.fn(), startAndWaitForPorts: vi.fn(async () => { throw new Error('secret startup detail'); }),
       getState: vi.fn(async () => ({ status: 'running' })),
+      fetch: vi.fn(async () => Response.json({ initFlagObserved: false, terminalServiceReady: false })),
     };
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
       ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes,
       resolve: () => stub as never });
     await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow('Gate 1 session configuration failed');
-    await expect(runtime.start(profile.sessionId)).rejects.toThrow('Gate 1 session startup failed:host-unready');
+    await expect(runtime.start(profile.sessionId)).rejects.toThrow('Gate 1 session startup failed:init-not-ready');
   });
 
   it('fails closed for mismatched ownership and maps uncertain observations without starting replacement compute', async () => {

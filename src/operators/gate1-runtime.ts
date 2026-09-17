@@ -57,8 +57,20 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
       let category = 'unknown';
       try {
         const status = (await container.getState()).status;
-        category = status === 'running' || status === 'healthy' ? 'host-unready'
-          : status === 'starting' ? 'starting' : status === 'stopped' || status === 'stopping' ? 'stopped' : 'unknown';
+        category = status === 'starting' ? 'starting'
+          : status === 'stopped' || status === 'stopping' ? 'stopped' : status === 'running' || status === 'healthy'
+            ? 'host-unavailable' : 'unknown';
+        if (status === 'running' || status === 'healthy') {
+          try {
+            const response = await container.fetch(new Request('http://container/health'));
+            if (!response.ok) category = 'host-error';
+            else {
+              const health = await response.json() as { initFlagObserved?: boolean; terminalServiceReady?: boolean };
+              category = !health.initFlagObserved ? 'init-not-ready'
+                : !health.terminalServiceReady ? 'terminal-not-ready' : 'ports-timeout';
+            }
+          } catch { category = 'host-unavailable'; }
+        }
       } catch { /* keep the bounded unknown category */ }
       throw new Error(`Gate 1 session startup failed:${category}`);
     }

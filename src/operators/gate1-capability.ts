@@ -81,7 +81,8 @@ export class Gate1OperatorCapability {
       if (message === 'Gate 1 session configuration failed') return this.failed('GATE1_SESSION_CONFIG_FAILED');
       const category = message.startsWith('Gate 1 session startup failed:')
         ? message.slice('Gate 1 session startup failed:'.length).replace('-', '_').toUpperCase() : '';
-      if (['HOST_UNREADY', 'STARTING', 'STOPPED', 'UNKNOWN'].includes(category)) {
+      if (['HOST_UNAVAILABLE', 'HOST_ERROR', 'INIT_NOT_READY', 'TERMINAL_NOT_READY', 'PORTS_TIMEOUT',
+        'STARTING', 'STOPPED', 'UNKNOWN'].includes(category)) {
         return this.failed(`GATE1_SESSION_START_${category}`);
       }
       throw error;
