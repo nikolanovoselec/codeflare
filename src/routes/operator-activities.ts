@@ -8,6 +8,7 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
 import type { OperatorRegistry } from '../operators/registry';
+import type { OperatorActivity } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables & { ownerKey: string;
@@ -38,23 +39,27 @@ async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: st
   if (!ID.test(activityId)) return null;
   return registry.getOwnedActivity(ownerKey, activityId);
 }
+async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise<Awaited<ReturnType<OperatorActivity['getBrowserDetail']>>> {
+  return await stub.getBrowserDetail() as never;
+}
 
 app.get('/:activityId', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const detail = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getBrowserDetail();
+  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 });
 app.get('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const detail = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getBrowserDetail();
+  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 });
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).collectBrowserResult();
+  const outcome: Awaited<ReturnType<OperatorActivity['collectBrowserResult']>> =
+    await c.env.OPERATOR_ACTIVITY!.getByName(activityId).collectBrowserResult() as never;
   if (!outcome.ok) return c.json({ error: 'Result is not ready', code: 'RESULT_NOT_READY' }, 409);
   return c.json({ ...outcome.detail, updatedAt: new Date(outcome.detail.updatedAt).toISOString() });
 });
@@ -71,7 +76,7 @@ app.post('/:activityId/cancel', async c => {
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
   const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).cancelDrive();
   if (!outcome.ok) return c.json({ error: 'Activity cancel rejected', code: outcome.reason }, 409);
-  const detail = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getBrowserDetail();
+  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
   return c.json(detail ? { ...detail, updatedAt: new Date(detail.updatedAt).toISOString() } : outcome);
 });
 

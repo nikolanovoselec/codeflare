@@ -506,7 +506,7 @@
 .operator-activity-trigger { position: relative; }
 .operator-activity-badge {
   position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px;
-  padding: 0 4px; border-radius: 999px; background: var(--color-primary); color: white; font-size: 10px; font-weight: 700;
+  padding: 0 4px; border-radius: 999px; background: var(--color-accent); color: white; font-size: 10px; font-weight: 700;
 }
 .operator-activity-panel {
   position: absolute; z-index: 210; top: calc(100% + 8px); right: 0; width: min(420px, calc(100vw - 24px));
@@ -523,7 +523,7 @@
 .operator-activity-item dt { font-size: 11px; color: var(--color-text-secondary); }
 .operator-activity-item dd { margin: 2px 0 0; font-size: 12px; }
 .operator-activity-attention { color: var(--color-warning); font-weight: 600; }
-.operator-activity-state { display: grid; gap: var(--space-2); padding: var(--space-5) var(--space-2); text-align: center; }
+.operator-activity-state { display: grid; gap: var(--space-2); padding: var(--space-4) var(--space-2); text-align: center; }
 @media (max-width: 640px) {
   .operator-activity-panel { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75vh;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0; }

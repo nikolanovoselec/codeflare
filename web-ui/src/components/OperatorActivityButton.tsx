@@ -10,8 +10,12 @@ const workingStates = new Set(['queued', 'running', 'waiting', 'cancel-requested
 const OperatorActivityButton: Component<Props> = (props) => {
   const [open, setOpen] = createSignal(false);
   const [cancelling, setCancelling] = createSignal<string>();
-  const [activities, { refetch }] = createResource(() => props.enabled, async enabled => enabled
-    ? listOperatorActivities() : { items: [] });
+  const [loadError, setLoadError] = createSignal(false);
+  const [activities, { refetch }] = createResource(() => props.enabled, async enabled => {
+    if (!enabled) return { items: [] };
+    try { const value = await listOperatorActivities(); setLoadError(false); return value; }
+    catch { setLoadError(true); return null; }
+  });
   const working = createMemo(() => (activities()?.items ?? []).filter(item => workingStates.has(item.executionStatus)).length);
   let closeButton: HTMLButtonElement | undefined;
   const close = () => setOpen(false);
@@ -40,7 +44,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
             <button ref={closeButton} type="button" class="header-icon-button" aria-label="Close operator activity" onClick={close}><Icon path={mdiClose} size={18} /></button>
           </header>
           <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
-            <Show when={!activities.error} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>
+            <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>
               <Show when={(activities()?.items.length ?? 0) > 0} fallback={<div class="operator-activity-state">No operator activity</div>}>
                 <div class="operator-activity-list"><For each={activities()?.items}>{item => (
                   <article class={`operator-activity-item ${item.attention || stale(item.updatedAt) ? 'needs-attention' : ''}`}>
