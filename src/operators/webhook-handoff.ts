@@ -26,7 +26,7 @@ export type WebhookHandoff = { mode: 'encrypted'; envelope: WebhookHandoffEnvelo
 };
 
 const TOKEN = /^[A-Za-z0-9_-]{43,128}$/;
-const ID = /^[A-Za-z0-9_.\/-]{1,256}$/;
+const ID = /^[A-Za-z0-9_./-]{1,256}$/;
 const encoder = new TextEncoder();
 function invalid(): Error { return new Error('Invalid webhook handoff'); }
 function encode(bytes: Uint8Array): string {
@@ -94,7 +94,7 @@ export async function openWebhookHandoff(envelope: WebhookHandoffEnvelope, webho
     const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce,
       additionalData: authenticatedContext(envelope.context), tagLength: 128 }, await importKey(webhookKey),
     decode(envelope.ciphertext));
-    const capability = new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
+    const capability = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(plaintext);
     if (!TOKEN.test(capability)) throw invalid();
     return capability;
   } catch { throw invalid(); }

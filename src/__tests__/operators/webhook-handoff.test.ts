@@ -6,7 +6,8 @@ import { createWebhookHandoff, openWebhookHandoff } from '../../operators/webhoo
 const context = { deployment: 'enterprise', operatorId: 'operator', activityId: 'activity',
   workflow: 'consumer.yml', revision: 3, expiresAt: Date.now() + 60_000 };
 const token = 's'.repeat(43);
-const key = 'a'.repeat(43);
+const key = btoa('a'.repeat(32)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const wrongKey = btoa('b'.repeat(32)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 describe('REQ-OPERATOR-006: optional encrypted webhook handoff', () => {
   it('encrypts with fresh AES-GCM nonces and exact bound context when a key is configured', async () => {
@@ -17,8 +18,8 @@ describe('REQ-OPERATOR-006: optional encrypted webhook handoff', () => {
     expect(first).not.toEqual(second);
     if (first.mode !== 'encrypted') throw new Error('expected encrypted handoff');
     expect(await openWebhookHandoff(first.envelope, key, context)).toBe(token);
-    await expect(openWebhookHandoff(first.envelope, 'b'.repeat(43), context)).rejects.toThrow('invalid');
-    await expect(openWebhookHandoff(first.envelope, key, { ...context, activityId: 'other' })).rejects.toThrow('invalid');
+    await expect(openWebhookHandoff(first.envelope, wrongKey, context)).rejects.toThrow(/invalid/i);
+    await expect(openWebhookHandoff(first.envelope, key, { ...context, activityId: 'other' })).rejects.toThrow(/invalid/i);
   });
 
   it('uses the one-time token with a visibility warning only when no key is configured', async () => {
@@ -27,6 +28,6 @@ describe('REQ-OPERATOR-006: optional encrypted webhook handoff', () => {
       warning: 'Webhook dispatch input is visible to people who can access workflow inputs.',
     });
     await expect(createWebhookHandoff({ startCapability: token, webhookKey: 'configured-but-invalid', context }))
-      .rejects.toThrow('invalid');
+      .rejects.toThrow(/invalid/i);
   });
 });
