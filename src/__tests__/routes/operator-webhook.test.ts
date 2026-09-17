@@ -64,4 +64,22 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
     }
     expect(activity.startWebhook).not.toHaveBeenCalled();
   });
+
+  it('throttles repeated webhook requests before activity RPC', async () => {
+    const { env, activity } = environment();
+    const path = '/operator-webhook/v1/activities/throttled-activity/status';
+    const input = () => new Request(`https://enterprise.example.test${path}`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${capability}`, 'cf-connecting-ip': '203.0.113.29' },
+    });
+
+    for (let count = 0; count < 30; count += 1) {
+      expect((await webhookRoutes.fetch(input(), env as never)).status).toBe(200);
+    }
+    const throttled = await webhookRoutes.fetch(input(), env as never);
+    expect(throttled.status).toBe(429);
+    expect(throttled.headers.get('cache-control')).toBe('no-store');
+    await expect(throttled.json()).resolves.toEqual({ error: 'Too many requests', code: 'WEBHOOK_THROTTLED' });
+    expect(activity.getWebhookStatus).toHaveBeenCalledTimes(30);
+  });
 });
