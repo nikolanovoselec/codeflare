@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProvisionedOperatorPiFactory } from '../dist/operator-pi-sdk.js';
 
-function fixture() {
+function fixture(options = {}) {
   const calls = { runtime: [], create: [], managers: [], stream: [], disposed: 0 };
-  const sdkSession = {
+  const sdkSession = kind => ({
     sessionId: 'pi-1', sessionFile: '/owned/sessions/pi-1.jsonl', isStreaming: false,
+    messages: options.messages?.[kind] ?? [],
     prompt: async () => {}, followUp: async () => {}, steer: async () => {}, abort: async () => {},
     subscribe: () => () => {}, dispose: () => { calls.disposed += 1; },
-  };
+  });
   const manager = kind => ({ kind });
   const runtime = {
     getModel: (provider, model) => provider === 'anthropic' && model === 'approved-model' ? { provider, id: model } : undefined,
@@ -23,7 +24,10 @@ function fixture() {
       open: (file, dir) => { calls.managers.push(['open', file, dir]); return manager('open'); },
     },
     createExtensionRuntime: () => ({ approved: true }),
-    createAgentSession: async options => { calls.create.push(options); return { session: sdkSession }; },
+    createAgentSession: async options => {
+      calls.create.push(options);
+      return { session: sdkSession(options.sessionManager.kind) };
+    },
   };
   const approvedExtension = { path: '/trusted/extension.js' };
   const factory = createProvisionedOperatorPiFactory({
@@ -52,7 +56,7 @@ test('REQ-OPERATOR-021: creates with explicit offline model, settings and approv
   assert.equal(options.sessionManager.kind, 'create');
 });
 
-test('REQ-OPERATOR-021: an approved initial tool choice applies only to the first model turn', async () => {
+test('REQ-OPERATOR-021: each conversation owns its approved initial tool choice', async () => {
   const f = fixture();
   const forced = createProvisionedOperatorPiFactory({
     cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
@@ -61,13 +65,33 @@ test('REQ-OPERATOR-021: an approved initial tool choice applies only to the firs
     importSdk: f.importSdk,
   });
   await forced.create();
-  const runtime = f.calls.create[0].modelRuntime;
-  assert.equal(runtime.streamSimple('model', 'first', { signal: 'one' }), 'stream');
-  assert.equal(runtime.streamSimple('model', 'second', { signal: 'two' }), 'stream');
+  await forced.create();
+  const first = f.calls.create[0].modelRuntime;
+  const second = f.calls.create[1].modelRuntime;
+  assert.equal(first.streamSimple('model', 'first-a', { signal: 'one' }), 'stream');
+  assert.equal(second.streamSimple('model', 'first-b', { signal: 'two' }), 'stream');
+  assert.equal(first.streamSimple('model', 'second-a', { signal: 'three' }), 'stream');
+  assert.equal(second.streamSimple('model', 'second-b', { signal: 'four' }), 'stream');
   assert.deepEqual(f.calls.stream, [
-    ['model', 'first', { signal: 'one', toolChoice: 'required' }],
-    ['model', 'second', { signal: 'two' }],
+    ['model', 'first-a', { signal: 'one', toolChoice: 'required' }],
+    ['model', 'first-b', { signal: 'two', toolChoice: 'required' }],
+    ['model', 'second-a', { signal: 'three' }],
+    ['model', 'second-b', { signal: 'four' }],
   ]);
+});
+
+test('REQ-OPERATOR-021: reopening a conversation with a model turn does not reapply its initial tool choice', async () => {
+  const f = fixture({ messages: { open: [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }] } });
+  const forced = createProvisionedOperatorPiFactory({
+    cwd: '/owned/work', agentDir: '/owned/agent', sessionDir: '/owned/sessions',
+    profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'medium',
+      systemPrompt: 'Approved operator context', tools: ['write'], initialToolChoice: 'write' },
+    importSdk: f.importSdk,
+  });
+  await forced.open('/owned/sessions/pi-1.jsonl');
+  const runtime = f.calls.create[0].modelRuntime;
+  assert.equal(runtime.streamSimple('model', 'continued', { signal: 'one' }), 'stream');
+  assert.deepEqual(f.calls.stream, [['model', 'continued', { signal: 'one' }]]);
 });
 
 test('REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory', async () => {
