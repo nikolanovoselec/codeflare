@@ -13,8 +13,10 @@ const env = { GATE1_OPERATOR_CONNECTION_SECRET: secret };
 
 function request(path: string, init: RequestInit = {}): Request {
   const headers = new Headers(init.headers);
-  headers.set('cf-access-jwt-assertion', 'verified-human-access-jwt');
-  headers.set('authorization', `Bearer ${secret}`);
+  if (init.headers === undefined) {
+    headers.set('cf-access-jwt-assertion', 'verified-human-access-jwt');
+    headers.set('authorization', `Bearer ${secret}`);
+  }
   return new Request(`${origin}${path}`, { ...init, headers });
 }
 
