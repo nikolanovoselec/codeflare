@@ -39,7 +39,8 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
     <Match when={props.section === 'access'}>
       {textarea('adminUsers', 'Administrator emails, one per line', lines(current().adminUsers))}
       {props.mode === 'enterprise'
-        ? <>{textarea('userAccessGroups', 'User Access groups, one per line', lines(current().userAccessGroups))}{textarea('adminAccessGroups', 'Administrator Access groups, one per line', lines(current().adminAccessGroups))}</>
+        ? <>{textarea('userAccessGroups', 'User Access groups, one per line', lines(current().userAccessGroups))}{textarea('adminAccessGroups', 'Administrator Access groups, one per line', lines(current().adminAccessGroups))}
+          <p class="admin-status-text admin-form-wide" role="status">Webhook Endpoint Access bypass: {text(current().operatorWebhookBypassStatus) === 'configured' ? 'Configured' : text(current().operatorWebhookBypassStatus) === 'error' ? 'Failed' : 'Missing'}</p></>
         : textarea('allowedUsers', 'Allowed user emails, one per line', lines(current().allowedUsers))}
     </Match>
     <Match when={props.section === 'domain'}>{field('customDomain', 'Custom domain')}</Match>
