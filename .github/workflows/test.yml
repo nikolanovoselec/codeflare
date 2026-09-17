@@ -704,7 +704,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 4
-      # Measured file groups from run 35193230649 isolate the long-running
+      # Measured file groups from run 35197159794 isolate the long-running
       # frontend files and balance the remaining work across four runners so
       # the full matrix completes in about one minute.
       matrix:
@@ -734,7 +734,7 @@ jobs:
       - name: Build frontend
         # Not a test dependency — it is here so a broken production build fails
         # a PR. Only one shard needs to pay for it.
-        if: matrix.slug == 'shard-3'
+        if: matrix.slug == 'shard-1'
         run: npm run build
         working-directory: web-ui
 
