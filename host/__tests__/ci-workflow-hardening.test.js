@@ -106,6 +106,23 @@ describe('PR lane selection', () => {
     assert.ok(filters.backend.flat(Infinity).some(matchesSource));
     assert.ok(filters.landing.flat(Infinity).some(matchesSource));
   });
+
+  it('balances frontend coverage across four parallel measured groups', () => {
+    const frontend = prChecks.jobs['frontend-tests'];
+    assert.equal(frontend.strategy['max-parallel'], 4);
+    assert.deepEqual(frontend.strategy.matrix.include, [
+      { group: '1/4', slug: 'shard-1' },
+      { group: '2/4', slug: 'shard-2' },
+      { group: '3/4', slug: 'shard-3' },
+      { group: '4/4', slug: 'shard-4' },
+    ]);
+    assert.equal(
+      step(frontend, 'Run suite (fail-closed gate)').with['balance-group'],
+      '${{ matrix.group }}',
+    );
+    const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
+    assert.equal(merge.with['expected-shards'], '4');
+  });
 });
 
 describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
