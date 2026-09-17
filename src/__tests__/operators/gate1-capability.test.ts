@@ -188,6 +188,15 @@ describe('REQ-OPERATOR-005: finite Gate 1 session capability', () => {
     expect(await (await failed.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
       result: { code: 'GATE1_PI_FAILED' } });
     expect(failed.session.stop).toHaveBeenCalledOnce();
+
+    const missingOutput = fixture({ host: { fetch: vi.fn(async (path: string) => {
+      if (path.endsWith('/ensure')) return Response.json({ ready: true, conversationId: 'conversation-1' });
+      if (path.endsWith('/tasks')) return Response.json({ taskId: 'gate1-pi-file-v1', status: 'completed' }, { status: 202 });
+      return Response.json({ error: 'Sync output is unavailable', code: 'SYNC_OUTPUT_NOT_FOUND' }, { status: 409 });
+    }) } });
+    expect(await (await missingOutput.capability.fetch(request())).json()).toMatchObject({ status: 'failed',
+      result: { code: 'GATE1_SYNC_OUTPUT_NOT_FOUND' } });
+    expect(missingOutput.session.stop).toHaveBeenCalledOnce();
   });
 
   it('rejects every route, method, query, oversized body and stale generation outside the fixed contract', async () => {

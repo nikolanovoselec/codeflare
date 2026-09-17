@@ -37,6 +37,22 @@ test('REQ-OPERATOR-023: malformed/oversized/method/unknown requests fail before 
   assert.deepEqual(f.calls, [['status', 'missing']]);
 });
 
+test('REQ-OPERATOR-023: bounded output failures return stable redacted codes', async () => {
+  const f = fixture();
+  const missing = Object.assign(new Error('ENOENT /secret'), { code: 'ENOENT' });
+  f.coordinator.upload = async () => { throw missing; };
+  let response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });
+  assert.equal(response.status, 409);
+  assert.deepEqual(JSON.parse(response.body), { error: 'Sync output is unavailable', code: 'SYNC_OUTPUT_NOT_FOUND' });
+  assert.equal(response.body.includes('/secret'), false);
+
+  f.coordinator.upload = async () => { throw new Error('Owned output size mismatch /secret'); };
+  response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/operations', body: bytes(request) });
+  assert.equal(response.status, 409);
+  assert.deepEqual(JSON.parse(response.body), { error: 'Sync output does not match its declaration', code: 'SYNC_OUTPUT_MISMATCH' });
+  assert.equal(response.body.includes('/secret'), false);
+});
+
 test('REQ-OPERATOR-023: conflict, unknown and internal errors are explicit and redacted', async () => {
   const f = fixture();
   f.coordinator.upload = async () => { throw new Error('Operator sync operation conflict /secret'); };
