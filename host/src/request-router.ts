@@ -32,6 +32,7 @@ import {
 } from './vscode-proxy.js';
 import type { SessionManager } from './session-manager.js';
 import type { OperatorPiHttpController } from './operator-pi-http.js';
+import type { OperatorSyncHttpController } from './operator-sync-http.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
 import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE, SYNC_RUNTIME_DIR } from './runtime-paths.js';
 
@@ -86,6 +87,8 @@ export interface RequestRouterDeps {
   openvscode: ProxyTarget;
   /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
   operatorPi?: OperatorPiHttpController;
+  /** Fixed explicit-upload service; presence also disables ordinary bisync endpoints. */
+  operatorSync?: OperatorSyncHttpController;
   /** Production composition and focused router tests can provide the queue owner directly. */
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
@@ -228,6 +231,27 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
       return;
+    }
+
+    // Restricted sessions never enter the ordinary whole-home bisync/final-sync
+    // machinery. Authentication still runs first and ordinary sessions retain
+    // their existing routes because operatorSync is absent there.
+    if (deps.operatorSync && (pathname === '/internal/bisync-trigger' || pathname === '/internal/final-sync')) {
+      req.resume();
+      res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Ordinary bisync is unavailable to operator sessions', code: 'OPERATOR_BISYNC_DENIED' }));
+      return;
+    }
+
+    if (deps.operatorSync && pathname?.startsWith('/internal/operator/sync/')) {
+      const url = new URL(req.url ?? '/', 'http://container');
+      const response = await deps.operatorSync.handle({ method: method ?? '', pathname, query: url.searchParams,
+        body: await readBoundedBody(req, 64 * 1024) });
+      if (response) {
+        res.writeHead(response.status, response.headers);
+        res.end(response.body);
+        return;
+      }
     }
 
     // The structured adapter exists only when trusted parent startup supplied an

@@ -33,6 +33,7 @@ import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { createOperatorPiService } from './operator-pi-service.js';
+import { createOperatorSyncService } from './operator-sync-service.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
@@ -265,10 +266,19 @@ const operatorPi = createOperatorPiService({
     ? { serializedConfig: process.env.CODEFLARE_OPERATOR_PI_CONFIG }
     : {}),
 });
+const operatorSync = createOperatorSyncService({
+  allowedRoot: '/home/user/.codeflare/operators',
+  rcloneConfig: '/home/user/.config/rclone/rclone.conf',
+  ...(process.env.CODEFLARE_OPERATOR_SYNC_CONFIG
+    ? { serializedConfig: process.env.CODEFLARE_OPERATOR_SYNC_CONFIG }
+    : {}),
+  ...(process.env.R2_BUCKET_NAME ? { bucket: process.env.R2_BUCKET_NAME } : {}),
+});
 
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
   ...(operatorPi ? { operatorPi } : {}),
+  ...(operatorSync ? { operatorSync } : {}),
   sessionManager,
   wsEventLog: state.wsEventLog,
   activityTracker: state.activityTracker,
