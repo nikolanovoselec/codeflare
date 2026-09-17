@@ -15,7 +15,7 @@ export interface OwnedOperatorSessionState {
   ownerBucket: string;
   sessionId: string;
   profile: OperatorContainerProfile;
-  status: 'reserved' | 'configured' | 'starting' | 'ready' | 'stopping' | 'stopped' | 'unknown';
+  status: 'reserved' | 'configuring' | 'configured' | 'starting' | 'ready' | 'stopping' | 'stopped' | 'unknown';
 }
 export interface OwnedOperatorSessionStore {
   load(): Promise<OwnedOperatorSessionState | null>;
@@ -70,6 +70,11 @@ export class OwnedOperatorSessionService {
         throw new Error('Owned session request conflict');
       }
       if (state.status === 'ready' || state.status === 'stopped' || state.status === 'unknown') return state;
+      if (state.status === 'configuring') {
+        state = { ...state, status: 'unknown' };
+        await this.store.save(state);
+        return state;
+      }
       if (state.status === 'starting' || state.status === 'stopping') return this.reconcile(state);
     } else {
       const reserved = await this.runtime.reserve({ requestId: input.requestId, requestDigest: input.requestDigest,
@@ -82,7 +87,15 @@ export class OwnedOperatorSessionService {
     }
 
     if (state.status === 'reserved') {
-      await this.runtime.configure(state.sessionId, state.profile, input.authority);
+      state = { ...state, status: 'configuring' };
+      await this.store.save(state);
+      try {
+        await this.runtime.configure(state.sessionId, state.profile, input.authority);
+      } catch (error) {
+        state = { ...state, status: 'unknown' };
+        await this.store.save(state).catch(() => {});
+        throw error;
+      }
       state = { ...state, status: 'configured' };
       await this.store.save(state);
     }
