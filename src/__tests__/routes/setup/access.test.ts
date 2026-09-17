@@ -430,9 +430,10 @@ describe('Setup Access', () => {
 
       // Best-effort: a rejected bypass-app upsert warns and returns without aborting setup.
       expect(steps[0].status).toBe('success');
-      // No policy list/create and no rollback DELETE — exactly the 9 base fetches plus the
-      // single failed bypass-app upsert (nothing was created, so nothing is torn down).
-      expect(mockFetch.mock.calls).toHaveLength(10);
+      // No SilverBullet policy list/create and no rollback DELETE. The independent
+      // operator-webhook bypass still attempts reconciliation rather than being
+      // suppressed by the SilverBullet exception failure.
+      expect(mockFetch.mock.calls).toHaveLength(11);
       expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_sw_bypass_app_id', expect.anything());
     });
   });
