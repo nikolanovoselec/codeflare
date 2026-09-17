@@ -350,10 +350,11 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(writes._sessionId).toBe('gate1a1b2c3d4e5f6a7b8');
   });
 
-  it('applyBucketName persists trusted operator routes before restricted container startup', async () => {
+  it('applyBucketName persists trusted operator identity and routes for environment serialization', async () => {
     const state = baseState();
     const { writes, storage } = makeStorage();
     const routes = {
+      userEmail: 'owner@example.test', userGroups: ['engineering'],
       routeCatalog: ['Development'], defaultRoute: 'Development', defaultReasoning: 'high',
       routeContextWindows: { Development: 256_000 }, routeReasoningLevels: { Development: ['off', 'high'] },
       modelDisplayNames: { Development: 'Development' }, promptCacheTargets: [],

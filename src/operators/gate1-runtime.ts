@@ -14,7 +14,8 @@ export interface Gate1RouteConfig {
 }
 
 export interface Gate1ContainerStub {
-  setBucketName(name: string, options: { sessionId: string } & Gate1RouteConfig): Promise<void>;
+  setBucketName(name: string, options: { sessionId: string; userEmail: string; userGroups: string[] }
+    & Gate1RouteConfig): Promise<void>;
   configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void>;
   startAndWaitForPorts(): Promise<void>;
   getState(): Promise<{ status: string }>;
@@ -24,7 +25,8 @@ export interface Gate1ContainerStub {
 
 export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime {
   constructor(private readonly options: { activityId: string; ownerBucket: string; sessionId: string;
-    routes: Gate1RouteConfig; resolve: (containerId: string) => Gate1ContainerStub }) {}
+    userEmail: string; userGroups: string[]; routes: Gate1RouteConfig;
+    resolve: (containerId: string) => Gate1ContainerStub }) {}
 
   private container(sessionId: string): Gate1ContainerStub {
     return this.options.resolve(getContainerId(this.options.ownerBucket, sessionId));
@@ -41,7 +43,8 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
     if (profile.activityId !== this.options.activityId || profile.ownerBucket !== this.options.ownerBucket
       || profile.sessionId !== sessionId) throw new Error('Gate 1 session ownership mismatch');
     const container = this.container(sessionId);
-    await container.setBucketName(this.options.ownerBucket, { sessionId, ...this.options.routes });
+    await container.setBucketName(this.options.ownerBucket, { sessionId,
+      userEmail: this.options.userEmail, userGroups: this.options.userGroups, ...this.options.routes });
     await container.configureOperatorContext(profile, authority);
   }
 

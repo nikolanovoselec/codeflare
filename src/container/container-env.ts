@@ -119,6 +119,8 @@ interface RestartPrefsInput {
 
 export interface SetBucketNameCreds {
   sessionId?: string;
+  userEmail?: string;
+  userGroups?: string[];
   routeCatalog?: string[];
   defaultRoute?: string;
   defaultReasoning?: string;
@@ -493,6 +495,14 @@ export async function applyBucketName(
   if (sessionId) {
     await storage.put('_sessionId', sessionId);
     state._sessionId = sessionId;
+  }
+  if (r2Creds?.userEmail !== undefined) {
+    state._userEmail = r2Creds.userEmail;
+    await storage.put('userEmail', r2Creds.userEmail);
+  }
+  if (r2Creds?.userGroups !== undefined) {
+    state._userGroups = [...r2Creds.userGroups];
+    await storage.put('userGroups', state._userGroups);
   }
   if (r2Creds?.routeCatalog !== undefined) {
     state._routeCatalog = [...r2Creds.routeCatalog];

@@ -17,6 +17,8 @@ const authority = { human: { ...profile.human, issuedAt: 1, expiresAt: Math.floo
 const routes = { routeCatalog: ['route'], defaultRoute: 'route', defaultReasoning: 'off',
   routeContextWindows: { route: 256_000 }, routeReasoningLevels: { route: ['off'] },
   modelDisplayNames: { route: 'Route' }, promptCacheTargets: [] };
+const userEmail = 'owner@example.test';
+const userGroups = ['engineering'];
 
 describe('REQ-OPERATOR-005: owned container runtime', () => {
   it('uses the exact parent-owned container identity for configure, readiness and restricted stop', async () => {
@@ -36,7 +38,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     };
     const resolve = vi.fn(() => stub);
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
-      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, routes, resolve });
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, resolve });
     expect(await runtime.reserve({ requestId: 'request', requestDigest: 'b'.repeat(64),
       activityId: profile.activityId, ownerBucket: profile.ownerBucket, sessionId: profile.sessionId }))
       .toEqual({ sessionId: profile.sessionId });
@@ -45,7 +47,8 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     expect(await runtime.readiness(profile.sessionId)).toBe('ready');
     expect(await runtime.stop(profile.sessionId, false)).toBe('stopped');
     expect(resolve).toHaveBeenCalledWith(`owner-bucket-${profile.sessionId}`);
-    expect(stub.setBucketName).toHaveBeenCalledWith(profile.ownerBucket, { sessionId: profile.sessionId, ...routes });
+    expect(stub.setBucketName).toHaveBeenCalledWith(profile.ownerBucket,
+      { sessionId: profile.sessionId, userEmail, userGroups, ...routes });
     expect(stub.configureOperatorContext).toHaveBeenCalledWith(profile, authority);
     expect(stub.fetch).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://container/health' }));
     expect(stub.stopOperatorSession).toHaveBeenCalledWith(profile.activityId, profile.sessionId);
@@ -54,7 +57,8 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
   it('fails closed for mismatched ownership and maps uncertain observations without starting replacement compute', async () => {
     const stub = { getState: vi.fn(async () => { throw new Error('uncertain'); }) };
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
-      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, routes, resolve: () => stub as never });
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes,
+      resolve: () => stub as never });
     await expect(runtime.reserve({ requestId: 'request', requestDigest: 'b'.repeat(64),
       activityId: 'other', ownerBucket: profile.ownerBucket, sessionId: profile.sessionId })).rejects.toThrow(/ownership/i);
     expect(await runtime.readiness(profile.sessionId)).toBe('unknown');
