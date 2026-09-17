@@ -1956,6 +1956,33 @@ start_openvscode_supervisor() {
 # ============================================================================
 # Shutdown handler - final bisync on SIGTERM/SIGINT/EXIT
 # ============================================================================
+# Restricted sessions never initiate persistence from PID1. If the authenticated
+# host already accepted an explicit upload, let its receipt leave `uploading`
+# while the host process is still alive; expiry/object errors turn it unknown.
+# No accepted/idle operation is started here and no ordinary bisync is reachable.
+drain_operator_sync_shutdown() {
+    local receipt_root="/home/user/.codeflare/operators"
+    local started now receipt uploading
+    started=$(date +%s)
+    while true; do
+        uploading=0
+        shopt -s nullglob
+        for receipt in "$receipt_root"/*/.codeflare/sync-receipts/*.json; do
+            if grep -q '"status":"uploading"' "$receipt" 2>/dev/null; then
+                uploading=1
+                break
+            fi
+        done
+        shopt -u nullglob
+        [ "$uploading" -eq 0 ] && return 0
+        now=$(date +%s)
+        if [ $((now - started)) -ge 120 ]; then
+            return 1
+        fi
+        sleep 0.2
+    done
+}
+
 shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
@@ -1985,6 +2012,18 @@ shutdown_handler() {
     kill_pidfile_subtree $CODEFLARE_RUNTIME_ROOT/services/silverbullet.pid
     kill_pidfile_subtree "${OPENVSCODE_GENERATION_PIDFILE:-$CODEFLARE_RUNTIME_ROOT/openvscode/generation.pid}"
     kill_pidfile_subtree $CODEFLARE_RUNTIME_ROOT/openvscode/supervisor.pid
+
+    if [ "${CODEFLARE_OPERATOR_SESSION:-}" = "true" ]; then
+        echo "[entrypoint] Restricted operator shutdown: draining accepted explicit upload only (no bisync)..."
+        drain_operator_sync_shutdown \
+            || echo "[entrypoint] WARNING: restricted explicit upload did not settle before shutdown"
+        if [ -n "$TERMINAL_PID" ]; then
+            kill "$TERMINAL_PID" 2>/dev/null || true
+        fi
+        SHUTDOWN_ELAPSED=$(( $(date +%s) - SHUTDOWN_STARTED_AT ))
+        echo "[entrypoint] Shutdown complete (elapsed: ${SHUTDOWN_ELAPSED}s)"
+        exit 0
+    fi
 
     # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
     # is still alive when the final bisync starts, bisync_with_r2's stale-lock
@@ -4429,7 +4468,51 @@ complete_managed_curation_startup() {
     fi
 }
 
+run_operator_startup() {
+    # No initial_sync_from_r2, managed-policy restore, bisync baseline, sync
+    # daemon, Vault restore or clone runs in this lane. Image/provisioned setup
+    # may prepare trusted model routing, after which only the parent-bound Pi
+    # config is copied into the isolated activity root.
+    validate_coding_agent_selection
+    update_sync_status "skipped" "null"
+    run_post_restore_startup
+
+    local operator_root
+    operator_root=$(node --input-type=commonjs <<'NODE'
+const path = require('node:path');
+const fail = () => { throw new Error('invalid operator startup configuration'); };
+let pi, sync;
+try {
+  pi = JSON.parse(process.env.CODEFLARE_OPERATOR_PI_CONFIG || '');
+  sync = JSON.parse(process.env.CODEFLARE_OPERATOR_SYNC_CONFIG || '');
+} catch { fail(); }
+const id = /^[A-Za-z0-9_-]{1,128}$/;
+if (!pi || !sync || pi.schemaVersion !== 1 || sync.schemaVersion !== 1
+  || !id.test(pi.activityId) || pi.activityId !== sync.activityId
+  || !id.test(pi.sessionId) || pi.sessionId !== sync.sessionId) fail();
+const root = path.resolve('/home/user/.codeflare/operators', pi.activityId);
+if (path.resolve(pi.root) !== root || path.resolve(sync.root) !== path.join(root, 'output')) fail();
+process.stdout.write(root);
+NODE
+    )
+    install -d -m 0700 "$operator_root" "$operator_root/work" "$operator_root/agent" \
+        "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare"
+    for trusted_file in models.json settings.json auth.json; do
+        if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
+            install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"
+        fi
+    done
+    [ -f "$operator_root/agent/auth.json" ] || printf '{}\n' > "$operator_root/agent/auth.json"
+    chmod 0600 "$operator_root/agent/auth.json"
+    touch "$CODEFLARE_INIT_FLAG_FILE"
+    echo "[entrypoint] Restricted operator startup ready (no whole-home restore or bisync baseline)"
+}
+
 run_managed_curation_startup() {
+    if [ "${CODEFLARE_OPERATOR_SESSION:-}" = "true" ]; then
+        run_operator_startup
+        return
+    fi
     run_initial_r2_restore
     run_post_restore_startup
     complete_managed_curation_startup
