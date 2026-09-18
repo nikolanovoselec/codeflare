@@ -211,6 +211,8 @@ export interface Session {
   tabConfig?: TabConfig[];
   /** REQ-GITHUB-004: GitHub repo to clone into the workspace at container start. */
   clone?: { repo: string; ref?: string };
+  /** REQ-GITHUB-015: repositories present in the session workspace, restored on resume. */
+  clones?: { repo: string; ref?: string }[];
   metrics?: {
     cpu?: string;
     mem?: string;
@@ -485,6 +487,8 @@ export interface ContainerConfigPayload {
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */
   gitCloneRepo?: string;
   gitCloneRef?: string;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list restored at container start. */
+  gitCloneTargets?: string;
 }
 
 interface StorageObject {

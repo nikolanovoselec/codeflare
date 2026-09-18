@@ -16,6 +16,7 @@ import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { installedAgents } from '../../lib/agent-allowlist';
 import { containerLogger } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -435,6 +436,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       // entrypoint.sh clones on each fresh workspace start and skips collisions.
       gitCloneRepo: sessionData.clone?.repo,
       gitCloneRef: sessionData.clone?.ref,
+      // REQ-GITHUB-015 AC4: restore every repository tracked for this session,
+      // the session's own repository first.
+      gitCloneTargets: buildCloneTargets(sessionData.clones, sessionData.clone) || undefined,
       logger: reqLogger,
     });
 

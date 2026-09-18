@@ -12,7 +12,7 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
-import { getSyncStatus, getSystemMetrics } from './metrics.js';
+import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
 import type { HealthResponse } from './types.js';
@@ -215,6 +215,9 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (pathname === '/health' && method === 'GET') {
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
+      // REQ-GITHUB-015 AC1: report the workspace repository inventory so the
+      // Worker can restore all of them when the session resumes.
+      const workspaceRepos = await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log);
       const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -234,6 +237,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,
+          workspaceRepos,
           timestamp: new Date().toISOString(),
         } satisfies HealthResponse)
       );

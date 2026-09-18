@@ -153,5 +153,7 @@ export interface HealthResponse {
   readonly cpu: string;
   readonly mem: string;
   readonly hdd: string;
+  /** REQ-GITHUB-015 AC1: GitHub repositories present at the top of the workspace. */
+  readonly workspaceRepos: readonly { readonly repo: string; readonly ref?: string }[];
   readonly timestamp: string;
 }

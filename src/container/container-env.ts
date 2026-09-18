@@ -70,6 +70,8 @@ export interface ContainerEnvState {
   _gitCloneRepo: string | null;
   /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
   _gitCloneRef: string | null;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
+  _gitCloneTargets: string | null;
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
@@ -111,6 +113,8 @@ interface RestartPrefsInput {
   gitCloneRepo?: string;
   /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
   gitCloneRef?: string;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
+  gitCloneTargets?: string;
 }
 
 export interface SetBucketNameCreds {
@@ -144,6 +148,8 @@ export interface SetBucketNameCreds {
   gitCloneRepo?: string;
   /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
   gitCloneRef?: string;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
+  gitCloneTargets?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +403,10 @@ export function buildEnvVars(
     // Only emit when set so a session with no clone request gets neither var.
     ...(state._gitCloneRepo && { GIT_CLONE_REPO: state._gitCloneRepo }),
     ...(state._gitCloneRef && { GIT_CLONE_REF: state._gitCloneRef }),
+    // REQ-GITHUB-015 AC4: every tracked repository, restored within a bounded
+    // budget before agent autostart. GIT_CLONE_REPO above stays for a container
+    // image that predates this list.
+    ...(state._gitCloneTargets && { GIT_CLONE_TARGETS: state._gitCloneTargets }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
     CODEFLARE_SESSION_WORKSPACE: state._sessionWorkspace,
@@ -535,6 +545,7 @@ export async function applyBucketName(
   // warm restart preserves the workspace and a fresh ephemeral workspace re-clones.
   if (r2Creds?.gitCloneRepo) state._gitCloneRepo = r2Creds.gitCloneRepo;
   if (r2Creds?.gitCloneRef) state._gitCloneRef = r2Creds.gitCloneRef;
+  if (r2Creds?.gitCloneTargets) state._gitCloneTargets = r2Creds.gitCloneTargets;
 
   // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
   if (r2Creds?.r2AccessKeyId) state._r2AccessKeyId = r2Creds.r2AccessKeyId;
@@ -714,6 +725,12 @@ export async function applyPrefsOnRestart(
   )) {
     state._gitCloneRepo = input.gitCloneRepo;
     state._gitCloneRef = input.gitCloneRef ?? null;
+    changed = true;
+  }
+  // REQ-GITHUB-015 AC4: the tracked-repository list grows and shrinks over a
+  // session's life, so the latest Worker-provided list always wins.
+  if (input.gitCloneTargets && input.gitCloneTargets !== state._gitCloneTargets) {
+    state._gitCloneTargets = input.gitCloneTargets;
     changed = true;
   }
 

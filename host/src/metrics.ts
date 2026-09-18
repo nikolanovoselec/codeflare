@@ -12,8 +12,59 @@ import { promisify } from 'node:util';
 
 import type { Logger, SyncStatus, SystemMetrics, CachedDiskMetrics } from './types.js';
 import { SYNC_STATUS_FILE } from './runtime-paths.js';
+import { parseWorkspaceRepo, type WorkspaceRepo } from './git-clone.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * REQ-GITHUB-015 AC1: report the GitHub repositories checked out at the top of
+ * the workspace, whichever way they arrived (session clone, repository panel, or
+ * the agent running git itself). The Worker persists this on the session record
+ * each metrics tick, so a repository the user deletes stops being reported and
+ * therefore stops being restored.
+ *
+ * Only direct children are inspected (a nested repository is restored by its
+ * parent, not on its own), one entry per repository, ordered by repository name
+ * so the reported inventory is stable. Any failure yields no entry rather than
+ * an error: this feeds a best-effort restore.
+ */
+export async function collectWorkspaceRepos(
+  workspaceRoot: string,
+  log: Logger,
+): Promise<WorkspaceRepo[]> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(workspaceRoot, { withFileTypes: true });
+  } catch (e: unknown) {
+    log('debug', 'Workspace repo inventory skipped', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+  const githubHost = process.env.GITHUB_HOST || 'github.com';
+  const byRepo = new Map<string, WorkspaceRepo>();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = `${workspaceRoot}/${entry.name}`;
+    let origin: string;
+    try {
+      const { stdout } = await execFileAsync('git', ['-C', dir, 'remote', 'get-url', 'origin']);
+      origin = stdout.trim();
+    } catch {
+      continue;
+    }
+    let branch: string | undefined;
+    try {
+      const { stdout } = await execFileAsync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
+      branch = stdout.trim();
+    } catch {
+      branch = undefined;
+    }
+    const repo = parseWorkspaceRepo(origin, branch, githubHost);
+    if (repo && !byRepo.has(repo.repo)) byRepo.set(repo.repo, repo);
+  }
+  return [...byRepo.values()].sort((a, b) => (a.repo < b.repo ? -1 : a.repo > b.repo ? 1 : 0));
+}
 
 /**
  * Read sync status from the file written by the rclone daemon.

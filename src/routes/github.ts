@@ -13,10 +13,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
-import type { Env } from '../types';
+import type { Env, Session } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { getBaseUrl } from '../lib/kv-keys';
+import { getBaseUrl, getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
+import { normalizeTrackedClones } from '../lib/clone-targets';
 import { signOauthState } from '../lib/oauth-state';
 import { githubScopeForTier } from '../lib/oauth-scopes';
 import { createLogger } from '../lib/logger';
@@ -215,6 +216,22 @@ app.post('/clone', cloneRateLimiter, async (c) => {
   } catch {
     return c.json({ error: 'Container not running', code: 'NOT_RUNNING' }, 503);
   }
+
+  // REQ-GITHUB-015 AC3: track a successful panel clone immediately, so a stop
+  // in the ~1 metrics tick before the container reports its workspace still
+  // restores the repository. A failed clone tracks nothing.
+  if (upstream.status === 200) {
+    const key = getSessionKey(c.get('bucketName'), sessionId);
+    const session = await c.env.KV.get<Session>(key, 'json');
+    if (session) {
+      const clones = normalizeTrackedClones([
+        ...(session.clones ?? []),
+        { repo, ...(ref ? { ref } : {}) },
+      ]);
+      await putSessionWithMetadata(c.env.KV, key, { ...session, clones });
+    }
+  }
+
   return c.json(payload as Record<string, unknown>, upstream.status as never);
 });
 

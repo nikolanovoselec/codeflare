@@ -181,13 +181,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. While a session runs, the repositories present at the top level of its workspace are tracked on the session record, whichever way they arrived; a repository the user removes stops being tracked.
-2. Tracking accepts only well-formed GitHub repository and branch identities, drops the rest, and retains at most 20 repositories in a stable order.
-3. A repository cloned through the repository panel is tracked as soon as the clone succeeds, so a stop immediately afterwards still restores it.
-4. Resume attempts every tracked repository whose workspace folder is absent, and leaves an existing folder untouched.
-5. A single restore attempt cannot exceed 120 seconds and the whole restore cannot exceed 180 seconds; attempts beyond the budget are abandoned.
-6. Restore never waits for interactive credentials.
-7. Every abandoned or failed attempt is logged and the session still reaches a usable state.
+1. While a session runs, the repositories present at the top level of its workspace are tracked on the session record, whichever way they arrived; a repository the user removes stops being tracked. <!-- @impl: host/src/metrics.ts::collectWorkspaceRepos --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/workspace-repos.test.js (REQ-GITHUB-015 AC1: workspace repository inventory) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-GITHUB-015 AC1: tracks the repositories the container reports in its workspace) -->
+2. Tracking accepts only well-formed GitHub repository and branch identities, drops the rest, and retains at most 20 repositories in a stable order. <!-- @impl: src/lib/clone-targets.ts::normalizeTrackedClones --> <!-- @test: src/__tests__/lib/clone-targets.test.ts (REQ-GITHUB-015 AC2: normalizeTrackedClones) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-GITHUB-015 AC2: refuses malformed reported repositories and leaves tracking untouched) -->
+3. A repository cloned through the repository panel is tracked as soon as the clone succeeds, so a stop immediately afterwards still restores it. <!-- @impl: src/routes/github.ts::app.post('/clone') --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
+4. Resume attempts every tracked repository whose workspace folder is absent, and leaves an existing folder untouched. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-015 AC4: restores every tracked repository when a stopped session resumes) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first) -->
+5. A single restore attempt cannot exceed 120 seconds and the whole restore cannot exceed 180 seconds; attempts beyond the budget are abandoned. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
+6. Restore never waits for interactive credentials. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
+7. Every abandoned or failed attempt is logged and the session still reaches a usable state. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
 
 **Constraints:**
 
@@ -200,9 +200,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](#req-github-014-clone-created-session-resume), [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/clone-targets.test.ts))
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

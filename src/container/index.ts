@@ -192,6 +192,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * it from session KV before each container start. */
   _gitCloneRepo: string | null = null;
   _gitCloneRef: string | null = null;
+  _gitCloneTargets: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s

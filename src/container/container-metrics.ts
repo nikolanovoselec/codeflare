@@ -9,6 +9,7 @@ import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { toError } from '../lib/error-types';
 import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
+import { normalizeTrackedClones } from '../lib/clone-targets';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
@@ -1534,7 +1535,7 @@ export async function collectMetrics(
       // Don't parse — just log and re-arm below.
       logger.info('collectMetrics: health non-OK', { status: res.status });
     } else {
-      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; editorReady?: boolean };
+      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; editorReady?: boolean; workspaceRepos?: unknown };
 
       if (health.syncStatus === 'failed' || health.syncStatus === 'timeout') {
         // Surface in-container bisync failures in Workers logs: the integration
@@ -1568,6 +1569,13 @@ export async function collectMetrics(
             ? new Date(state.lastSeenInputAt).toISOString()
             : session.lastActiveAt;
           let nextSession: Session = { ...session, metrics, lastActiveAt };
+          // REQ-GITHUB-015 AC1+AC2: the container's workspace inventory is the
+          // authority on what a resume must restore, so a repository the user
+          // removed disappears from tracking. A malformed report (no array)
+          // leaves the stored inventory untouched rather than clearing it.
+          if (Array.isArray(health.workspaceRepos)) {
+            nextSession = { ...nextSession, clones: normalizeTrackedClones(health.workspaceRepos) };
+          }
           if (session.workspace === 'vscode' && health.editorReady === true) {
             const { editorReadyError: _staleEditorError, ...withoutEditorError } = nextSession;
             nextSession = { ...withoutEditorError, editorReady: true };

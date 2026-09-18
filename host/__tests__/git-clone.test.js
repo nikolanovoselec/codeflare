@@ -36,7 +36,7 @@ function createFakeGit(root) {
 
 function extractStartupCloneBlock() {
   const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
-  const start = entrypoint.indexOf('# REQ-GITHUB-014: one-shot repo clone at container start.');
+  const start = entrypoint.indexOf('# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start.');
   const end = entrypoint.indexOf('\n# Configure tab auto-start\n', start);
   assert.ok(start >= 0 && end > start, 'entrypoint startup clone block is missing');
   return entrypoint.slice(start, end);
