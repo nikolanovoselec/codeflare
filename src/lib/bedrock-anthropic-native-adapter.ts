@@ -337,7 +337,16 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
     else throw new Error('Unsupported native Bedrock message role');
   }
 
-  const maxTokens = Number.isInteger(payload.max_tokens) && payload.max_tokens > 0 && payload.max_tokens <= 131_072 ? payload.max_tokens : 4096;
+  // Pi speaks the current OpenAI Chat Completions field
+  // `max_completion_tokens`; Bedrock Messages requires `max_tokens`. Discovery
+  // used to bridge that name explicitly while normal intercepted traffic did
+  // not, silently reducing every Native request to this adapter's 4096-token
+  // safety default. Resolve the public OpenAI field here at the shared protocol
+  // boundary so discovery and production cannot diverge again. Keep max_tokens
+  // as a compatibility input for the existing internal/native callers.
+  const requestedMaxTokens = payload.max_completion_tokens ?? payload.max_tokens;
+  const maxTokens = Number.isInteger(requestedMaxTokens) && requestedMaxTokens > 0 && requestedMaxTokens <= 131_072
+    ? requestedMaxTokens : 4096;
   const result: JsonObject = { anthropic_version: 'bedrock-2023-05-31', max_tokens: maxTokens };
   if (system.length === 1 && typeof system[0] === 'string') result.system = system[0];
   else if (system.length) result.system = system.flatMap((part) => typeof part === 'string' ? [{ type: 'text', text: part }] : [part]);

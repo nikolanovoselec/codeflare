@@ -14,6 +14,12 @@ const state = (entries: Record<string, unknown[]> = {}): BedrockReplayState => (
 });
 
 describe('Bedrock Anthropic native adapter', () => {
+  it('REQ-ENTERPRISE-083: translates the OpenAI completion ceiling into the native Bedrock field', async () => {
+    const native = await buildBedrockAnthropicRequest({ max_completion_tokens: 16_384,
+      messages: [{ role: 'user', content: 'Synthetic request' }] }, state());
+    expect(native.max_tokens).toBe(16_384);
+  });
+
   it('REQ-ENTERPRISE-083: preserves Pi checkpoints at native prefix boundaries without mutating input', async () => {
     const cache = { type: 'ephemeral', ttl: '5m' };
     const payload = { messages: [

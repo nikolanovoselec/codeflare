@@ -1017,7 +1017,8 @@ describe('native provider authorization and compat dispatch', () => {
     });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
-        model: fixture.handle, reasoning_effort: level, stream: true, messages: [{ role: 'user', content: 'Use a tool' }],
+        model: fixture.handle, reasoning_effort: level, stream: true, max_completion_tokens: 16_384,
+        messages: [{ role: 'user', content: 'Use a tool' }],
         tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }],
       }) }),
     );
@@ -1027,7 +1028,7 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
     expect(lastFetch?.headers.get('accept')).toBe('application/vnd.amazon.eventstream');
     expect(JSON.parse(lastFetch!.body)).toEqual({
-      anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096,
+      anthropic_version: 'bedrock-2023-05-31', max_tokens: 16_384,
       thinking: { type: 'adaptive' }, output_config: { effort: 'high' },
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Use a tool' }] }],
       tools: [{ name: 'lookup', input_schema: { type: 'object' } }],
