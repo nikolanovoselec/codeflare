@@ -10,6 +10,7 @@ describe('SessionContextMenu', () => {
     sessionName: 'Test Session',
     onStop: vi.fn(),
     onDelete: vi.fn(),
+    onRename: vi.fn(),
     onClose: vi.fn(),
   };
 
@@ -46,6 +47,39 @@ describe('SessionContextMenu', () => {
       fireEvent.click(screen.getByTestId('context-menu-stop'));
       expect(onStop).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('REQ-SESSION-006 AC7: Rename action', () => {
+    it('offers Rename for a session whatever its state', () => {
+      render(() => <SessionContextMenu {...defaultProps} canStop={false} />);
+      expect(screen.getByTestId('context-menu-rename')).toBeInTheDocument();
+    });
+
+    it('submits the edited name and closes', () => {
+      const onRename = vi.fn();
+      const onClose = vi.fn();
+      render(() => <SessionContextMenu {...defaultProps} onRename={onRename} onClose={onClose} />);
+
+      fireEvent.click(screen.getByTestId('context-menu-rename'));
+      const input = screen.getByTestId('context-menu-rename-input') as HTMLInputElement;
+      expect(input.value).toBe('Test Session');
+      fireEvent.input(input, { target: { value: 'Renamed session' } });
+      fireEvent.submit(screen.getByTestId('context-menu-rename-form'));
+
+      expect(onRename).toHaveBeenCalledWith('Renamed session');
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('does not rename when the field is blank', () => {
+      const onRename = vi.fn();
+      render(() => <SessionContextMenu {...defaultProps} onRename={onRename} />);
+
+      fireEvent.click(screen.getByTestId('context-menu-rename'));
+      fireEvent.input(screen.getByTestId('context-menu-rename-input'), { target: { value: '   ' } });
+      fireEvent.submit(screen.getByTestId('context-menu-rename-form'));
+
+      expect(onRename).not.toHaveBeenCalled();
     });
   });
 

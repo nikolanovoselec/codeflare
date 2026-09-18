@@ -14,13 +14,21 @@ vi.mock('../../components/SessionStatCard', () => ({
       onClick={props.onSelect}
     >
       {props.session.name}
+      <button
+        data-testid={`card-menu-${props.session.id}`}
+        onClick={(e: MouseEvent) => props.onMenuClick?.(e, props.session)}
+      >
+        menu
+      </button>
     </div>
   ),
 }));
 
 vi.mock('../../components/SessionContextMenu', () => ({
   default: (props: any) => (
-    <div data-testid="session-context-menu" data-open={String(props.isOpen)} />
+    <div data-testid="session-context-menu" data-open={String(props.isOpen)}>
+      <button data-testid="scm-rename" onClick={() => props.onRename('Renamed session')}>rename</button>
+    </div>
   ),
 }));
 
@@ -42,6 +50,7 @@ vi.mock('../../stores/session', () => {
     sessionStore: {
       getMetricsForSession: vi.fn(() => null),
       getInitProgressForSession: vi.fn(() => null),
+      renameSession: vi.fn(),
       sessions: [],
       get preseedUpgrading() { return _preseedUpgrading; },
       get preseedUpgradeFailed() { return _preseedUpgradeFailed; },
@@ -180,6 +189,17 @@ describe('SessionDropdown', () => {
       render(() => <SessionDropdown {...defaultProps} isMobileView={false} />);
       const dropdown = screen.getByTestId('session-dropdown');
       expect(dropdown).toHaveClass('session-dropdown--popover');
+    });
+  });
+
+  describe('REQ-SESSION-006 AC7: rename', () => {
+    it('renames the session the menu was opened for', () => {
+      render(() => <SessionDropdown {...defaultProps} />);
+
+      fireEvent.click(screen.getByTestId('card-menu-s2'));
+      fireEvent.click(screen.getByTestId('scm-rename'));
+
+      expect(vi.mocked(sessionStore.renameSession)).toHaveBeenCalledWith('s2', 'Renamed session');
     });
   });
 

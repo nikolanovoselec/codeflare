@@ -21,7 +21,7 @@ const testState = vi.hoisted(() => ({
     mem: '1024MB',
     hdd: '2.5GB',
     syncStatus: 'success',
-  } as Record<string, string | boolean>,
+  } as Record<string, unknown>,
   beforeHealthResponse: undefined as (() => void) | undefined,
   tcpFetchShouldFail: false,
   hostProbeCalls: 0,
@@ -577,6 +577,59 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(mockKV.put.mock.calls.some(
         ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
       )).toBe(false);
+    });
+
+    it('REQ-GITHUB-015 AC1: tracks the repositories the container reports in its workspace', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.workspaceRepos = [
+        { repo: 'octo/web' },
+        { repo: 'octo/api', ref: 'develop' },
+      ];
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        clone: { repo: 'octo/api', ref: 'develop' },
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([
+        { repo: 'octo/api', ref: 'develop' },
+        { repo: 'octo/web' },
+      ]);
+    });
+
+    it('REQ-GITHUB-015 AC1: stops tracking a repository the user removed from the workspace', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.workspaceRepos = [{ repo: 'octo/api', ref: 'develop' }];
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        clones: [{ repo: 'octo/api', ref: 'develop' }, { repo: 'octo/gone' }],
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([{ repo: 'octo/api', ref: 'develop' }]);
+    });
+
+    it('REQ-GITHUB-015 AC2: refuses malformed reported repositories and leaves tracking untouched', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.workspaceRepos = 'octo/api';
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        clones: [{ repo: 'octo/api' }],
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([{ repo: 'octo/api' }]);
+
+      testState.healthResult.workspaceRepos = [{ repo: 'no-slash' }, { repo: 'octo/kept' }];
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([{ repo: 'octo/kept' }]);
     });
 
     it('should fetch health data from TCP port and write metrics to KV', async () => {

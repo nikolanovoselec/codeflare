@@ -140,6 +140,33 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(host.envVars.GIT_CLONE_REF).toBe('develop');
   });
 
+  it('REQ-GITHUB-015 AC4: restores every tracked repository when a stopped session resumes', async () => {
+    const host = makeHost({
+      _bucketName: 'b',
+      _gitCloneRepo: null,
+      _gitCloneRef: null,
+      _gitCloneTargets: null,
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        gitCloneRepo: 'octo/api',
+        gitCloneRef: 'develop',
+        gitCloneTargets: 'octo/api#develop octo/web',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(host.envVars.GIT_CLONE_TARGETS).toBe('octo/api#develop octo/web');
+    // The single-repo vars stay for a container image that predates the list.
+    expect(host.envVars.GIT_CLONE_REPO).toBe('octo/api');
+  });
+
   it('restores scoped R2 credentials from the validated restart payload after a Durable Object wake', async () => {
     const host = makeHost({
       _bucketName: 'b',

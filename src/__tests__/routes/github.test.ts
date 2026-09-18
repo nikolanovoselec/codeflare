@@ -243,6 +243,42 @@ describe('POST /api/github/clone', () => {
     expect(vi.mocked(getContainer).mock.calls[0][1]).toBe('test-bucket-sid12345678');
   });
 
+  it('REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds', async () => {
+    const key = 'session:test-bucket:sid12345678';
+    mockKV._set(key, {
+      id: SID, name: 'Test', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    });
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', ref: 'develop', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await mockKV.get(key, 'json') as { clones?: unknown }).clones)
+      .toEqual([{ repo: 'octo/repo', ref: 'develop' }]);
+  });
+
+  it('REQ-GITHUB-015 AC3: does not track a repository when the clone did not succeed', async () => {
+    const key = 'session:test-bucket:sid12345678';
+    mockKV._set(key, {
+      id: SID, name: 'Test', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    });
+    containerFetch.mockResolvedValueOnce(containerJson(502, { error: 'failed', code: 'CLONE_FAILED' }));
+
+    await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect((await mockKV.get(key, 'json') as { clones?: unknown }).clones).toBeUndefined();
+  });
+
   it('relays a 409 collision verbatim', async () => {
     containerFetch.mockResolvedValueOnce(containerJson(409, { error: 'exists', code: 'CLONE_TARGET_EXISTS' }));
 
