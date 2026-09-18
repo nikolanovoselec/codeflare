@@ -187,12 +187,14 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. Restarting a session reconnects to the same workspace and applies any updated preferences without recreating the container. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/container/index.test.ts (setBucketName updates USER_TIMEZONE on restart (bucket already set, prefs change path)) -->
 5. Deleting a session runs the same graceful shutdown as Stop (so the final sync runs), then removes the session record permanently; an unconfirmed destruction returns failure and retains the record for retry. <!-- @impl: src/container/index.ts::destroy --> <!-- @impl: src/routes/session/crud.ts::container.destroy --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (REQ-SESSION-006 AC5: delete calls container.destroy then removes KV record) -->
 6. Frontend transitions are visible: stopped to initializing to running on start, and running to stopping on stop. It reaches stopped only after batch status confirms stopped or missing; polling timeout or errors preserve `stopping` and terminal state for refresh or retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (stopSession) -->
+7. A user can rename any of their sessions, whatever its name came from and whether it is running or stopped, and sees the accepted name; a name the user cannot keep is rejected without changing the session.
 
 **Constraints:**
 
 - Clearing session-side identifiers before teardown is critical to prevent asynchronous writebacks from re-creating a stale session record.
 - The shutdown sync runs against credentials baked into the container at start, independent of the session-side identifier cleanup.
 - The final shutdown sync is bounded so a deletion storm cannot wipe persistent storage.
+- Renaming changes only what the user sees; it never restarts a session or alters its workspace, repositories, or terminals.
 
 **Priority:** P0
 
@@ -200,7 +202,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-stop-delete.test.ts))
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 

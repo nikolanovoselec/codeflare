@@ -153,9 +153,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Resume re-applies the session's validated repository and optional ref before agent startup. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
+1. Resume re-applies every repository tracked for the session ([REQ-GITHUB-015](#req-github-015-tracked-workspace-repositories-restore-on-resume)), starting with the repository the session was created from, before agent startup. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
 2. Startup is blocked if the session's clone configuration cannot be restored. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration returns an unexpected status) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration cannot reach the container) -->
-3. When the target is missing, startup makes one clone attempt before agent autostart. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated) -->
+3. When a target is missing, startup makes one clone attempt per tracked repository before agent autostart, within the restore budget of [REQ-GITHUB-015](#req-github-015-tracked-workspace-repositories-restore-on-resume). <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated) -->
 4. A failed clone attempt is logged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
 5. A failed clone attempt does not block startup. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
 6. An existing target remains unchanged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git) -->
@@ -170,6 +170,39 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Verification:** Automated container configuration and entrypoint tests
 
 **Status:** Implemented
+
+---
+
+### REQ-GITHUB-015: Tracked workspace repositories restore on resume
+
+**Intent:** A session restores every repository present in its workspace when it resumes, not only the repository it was created from, and a repository that cannot be restored never keeps the session from becoming usable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. While a session runs, the repositories present at the top level of its workspace are tracked on the session record, whichever way they arrived; a repository the user removes stops being tracked.
+2. Tracking accepts only well-formed GitHub repository and branch identities, drops the rest, and retains at most 20 repositories in a stable order.
+3. A repository cloned through the repository panel is tracked as soon as the clone succeeds, so a stop immediately afterwards still restores it.
+4. Resume attempts every tracked repository whose workspace folder is absent, and leaves an existing folder untouched.
+5. A single restore attempt cannot exceed 120 seconds and the whole restore cannot exceed 180 seconds; attempts beyond the budget are abandoned.
+6. Restore never waits for interactive credentials.
+7. Every abandoned or failed attempt is logged and the session still reaches a usable state.
+
+**Constraints:**
+
+- Repository identities reported from a container are untrusted input and are revalidated before reaching a clone.
+- Restore authentication continues to use the per-mode credential path defined by [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session).
+- Two tracked repositories sharing one folder name collide on the workspace layout of [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session) AC3; the second is skipped rather than merged.
+- Uncommitted work and local-only branches are restored by workspace sync ([REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)), not by this restore.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](#req-github-014-clone-created-session-resume), [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions)
+
+**Verification:** Automated test
+
+**Status:** Planned
 
 ---
 

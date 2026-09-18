@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-18
+
+- **Sessions restore every workspace repository on resume, and renaming is a user action** ([REQ-GITHUB-015](github.md#req-github-015-tracked-workspace-repositories-restore-on-resume) new; [REQ-GITHUB-014](github.md#req-github-014-clone-created-session-resume) AC1/AC3 generalized; [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC7 added). Resume previously re-applied only the single repository a session was created from, so a session started without a clone resumed empty and any repository added later — from the repository panel or by the agent itself — was lost. Sessions now track the repositories present at the top of their workspace and restore the absent ones on resume, oldest intent first, dropping repositories the user removed. The restore is bounded for the first time: 120 seconds per repository, 180 seconds overall, no interactive credential prompt, and every failed or abandoned attempt is logged while the session still becomes usable. The previous startup clone had no bound at all, so one stalled clone could hold a resume open indefinitely; that exposure grows with the number of repositories and is closed here. Renaming a session was already possible through the API but had no user surface and no owning acceptance criterion; both are added, and renaming stays display-only — it never restarts a session or touches its workspace, repositories, or terminals. Repository identities reported by a container are untrusted and are revalidated before reaching a clone.
+
 ## 2026-09-14
 
 - **Node 26 terminal host/runtime** (REQ-OPS-011). Advance the glibc-based host/build/runtime image and host CI to Node 26 while preserving all three Node 22 Browser IDE build stages; no permissions or platform privileges change.
