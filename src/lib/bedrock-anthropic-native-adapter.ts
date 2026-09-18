@@ -137,6 +137,60 @@ function reconstructToolCalls(message: JsonObject): JsonObject[] {
   });
 }
 
+function textOnlyUserMessage(message: JsonObject): boolean {
+  if (message.role !== 'user') return false;
+  const content = message.content;
+  if (typeof content === 'string') return content.trim().length > 0;
+  return Array.isArray(content) && content.length > 0
+    && content.every((part) => plain(part) && part.type === 'text' && typeof part.text === 'string')
+    && content.some((part) => part.text.trim().length > 0);
+}
+
+/**
+ * Omit a tool proposal that received no result before the user deliberately
+ * started a new text turn. Pi can retain a partial tool call after a provider
+ * ends on max_tokens; replaying that fragment as a completed transaction either
+ * fails forever against the authentic blocks or makes incomplete input appear
+ * executable. Safe visible text from the assistant turn is retained.
+ *
+ * This is deliberately based on transaction structure, never on `{}` or another
+ * argument value: empty input is valid for many tools. Any matching tool result,
+ * orphan/duplicate result, intervening assistant message, or non-text user block
+ * keeps the existing exact fail-closed replay boundary. Omitting an unexecuted
+ * proposal grants no ability to forge or alter a completed tool transaction.
+ */
+function omitAbandonedToolTurns(messages: unknown[]): unknown[] {
+  const omitted = new Set<number>();
+  for (const [index, raw] of messages.entries()) {
+    if (!plain(raw) || raw.role !== 'assistant' || !Array.isArray(raw.tool_calls) || raw.tool_calls.length === 0) continue;
+    const ids = raw.tool_calls.map((call: unknown) => plain(call) ? safeToolId(call.id) : null);
+    if (ids.some((id) => !id) || new Set(ids).size !== ids.length) continue;
+    const expected = new Set(ids as string[]);
+    const matchingResults = new Set<string>();
+    let ambiguous = false;
+    let abandoned = false;
+    for (let cursor = index + 1; cursor < messages.length; cursor += 1) {
+      const candidate = messages[cursor];
+      if (!plain(candidate)) { ambiguous = true; break; }
+      if (candidate.role === 'tool') {
+        const id = safeToolId(candidate.tool_call_id);
+        if (!id || !expected.has(id) || matchingResults.has(id)) { ambiguous = true; break; }
+        matchingResults.add(id);
+        continue;
+      }
+      if (textOnlyUserMessage(candidate)) abandoned = matchingResults.size === 0;
+      break;
+    }
+    if (abandoned && !ambiguous) omitted.add(index);
+  }
+  if (!omitted.size) return messages;
+  return messages.flatMap((raw, index) => {
+    if (!omitted.has(index)) return [raw];
+    const message = raw as JsonObject;
+    return textBlocks(message.content).length ? [{ role: 'assistant', content: message.content }] : [];
+  });
+}
+
 // Classify original OpenAI messages, before tool results become native user blocks.
 // Pi's synthetic image-result user messages cannot establish a new text turn.
 function classifyBedrockToolTurn(messages: unknown[]): { start: number; replay: boolean } {
@@ -159,14 +213,7 @@ function classifyBedrockToolTurn(messages: unknown[]): { start: number; replay: 
       lastTool = index;
       const id = safeToolId(message.tool_call_id);
       if (!id || !pending.delete(id)) ambiguous = true;
-    } else if (message.role === 'user' && !ambiguous && pending.size === 0) {
-      const content = message.content;
-      const textOnly = typeof content === 'string' ? content.trim().length > 0
-        : Array.isArray(content) && content.length > 0
-          && content.every((part) => plain(part) && part.type === 'text' && typeof part.text === 'string')
-          && content.some((part) => part.text.trim().length > 0);
-      if (textOnly) start = index;
-    }
+    } else if (message.role === 'user' && !ambiguous && pending.size === 0 && textOnlyUserMessage(message)) start = index;
   }
   return { start, replay: lastTool >= start };
 }
@@ -249,10 +296,11 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
   const nativeMessages: JsonObject[] = [];
   const system: unknown[] = [];
   const thinkingEnabled = thinking?.type === 'adaptive';
-  const turn = classifyBedrockToolTurn(payload.messages);
-  const toolAliases = await historicalToolAliases(payload.messages, turn.start);
+  const messages = omitAbandonedToolTurns(payload.messages);
+  const turn = classifyBedrockToolTurn(messages);
+  const toolAliases = await historicalToolAliases(messages, turn.start);
 
-  for (const [index, raw] of payload.messages.entries()) {
+  for (const [index, raw] of messages.entries()) {
     if (!plain(raw)) throw new Error('Invalid native Bedrock message');
     if (raw.role === 'system' || raw.role === 'developer') {
       if (typeof raw.content === 'string') system.push(raw.content);
@@ -364,12 +412,16 @@ async function adaptInvoke(response: Response, state: BedrockReplayState, stream
   const native = await response.json() as JsonObject;
   if (!plain(native) || !Array.isArray(native.content)) throw new Error('Invalid native Bedrock response');
   const finishReason = openAiStopReason(native.stop_reason);
-  await persistReplay(native.content, state);
+  // A native `tool_use` terminal reason is the provider's completion boundary
+  // for structured input. max_tokens can still carry a tool_use block whose
+  // input is only the valid prefix of a larger command. Keep any safe text and
+  // usage, but never publish or persist that incomplete block as executable.
+  if (finishReason === 'tool_calls') await persistReplay(native.content, state);
   observe?.({ completed: true, thinkingPresent: native.content.some((block: JsonObject) => block.type === 'thinking' || block.type === 'redacted_thinking') });
   const text = native.content.filter((block: unknown) => plain(block) && block.type === 'text' && typeof block.text === 'string').map((block: any) => block.text).join('');
-  const calls = native.content.filter((block: unknown) => plain(block) && block.type === 'tool_use').map((block: any) => ({
+  const calls = finishReason === 'tool_calls' ? native.content.filter((block: unknown) => plain(block) && block.type === 'tool_use').map((block: any) => ({
     id: block.id, type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
-  }));
+  })) : [];
   const message: JsonObject = { role: 'assistant', content: text || null };
   if (calls.length) message.tool_calls = calls;
   const body: JsonObject = {
@@ -479,7 +531,6 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
   if (!response.ok || !response.body) return response;
   let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   const blocks = new Map<number, JsonObject>();
-  const toolIndexes = new Map<number, number>();
   let replayBytes = 0; let sawStop = false; let sawStart = false;
   const reserveReplay = (value: unknown) => {
     replayBytes += encoder.encode(typeof value === 'string' ? value : JSON.stringify(value)).byteLength;
@@ -512,10 +563,6 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
         } else if (event.type === 'content_block_start' && Number.isInteger(event.index) && plain(event.content_block)) {
           const block = JSON.parse(JSON.stringify(event.content_block)); reserveReplay(block); blocks.set(event.index, block);
           if (block.type === 'text' && typeof block.text === 'string' && block.text) controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { content: block.text }, finish_reason: null }] }));
-          if (block.type === 'tool_use') {
-            const toolIndex = toolIndexes.size; toolIndexes.set(event.index, toolIndex);
-            controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { tool_calls: [{ index: toolIndex, id: block.id, type: 'function', function: { name: block.name, arguments: '' } }] }, finish_reason: null }] }));
-          }
         } else if (event.type === 'content_block_delta' && Number.isInteger(event.index) && plain(event.delta)) {
           const block = blocks.get(event.index); if (!block) throw new Error('Bedrock eventstream delta precedes its block');
           if (event.delta.type === 'text_delta' && typeof event.delta.text === 'string') {
@@ -523,15 +570,15 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
             controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }] }));
           } else if (event.delta.type === 'input_json_delta' && typeof event.delta.partial_json === 'string') {
             reserveReplay(event.delta.partial_json); block.__arguments = `${block.__arguments ?? ''}${event.delta.partial_json}`;
-            const toolIndex = toolIndexes.get(event.index); if (toolIndex === undefined) throw new Error('Bedrock tool delta precedes its tool block');
-            controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { tool_calls: [{ index: toolIndex, function: { arguments: event.delta.partial_json } }] }, finish_reason: null }] }));
           } else if (event.delta.type === 'thinking_delta' && typeof event.delta.thinking === 'string') { reserveReplay(event.delta.thinking); block.thinking = `${block.thinking ?? ''}${event.delta.thinking}`; }
           else if (event.delta.type === 'signature_delta' && typeof event.delta.signature === 'string') { reserveReplay(event.delta.signature); block.signature = `${block.signature ?? ''}${event.delta.signature}`; }
         } else if (event.type === 'content_block_stop' && Number.isInteger(event.index)) {
           const block = blocks.get(event.index);
           if (block?.type === 'tool_use' && typeof block.__arguments === 'string') {
-            try { block.input = JSON.parse(block.__arguments || '{}'); } catch { throw new Error('Invalid Bedrock streamed tool arguments'); }
-            delete block.__arguments;
+            // A syntactically incomplete JSON prefix is expected when Bedrock
+            // reaches max_tokens during tool input. Keep it private until the
+            // terminal reason tells us whether this is a completed tool call.
+            try { block.input = JSON.parse(block.__arguments || '{}'); delete block.__arguments; } catch { /* validated at the terminal boundary */ }
           }
         } else if (event.type === 'message_delta' && plain(event.delta)) {
           if (typeof event.delta.stop_reason === 'string') stopReason = event.delta.stop_reason;
@@ -550,8 +597,22 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
         if (frameBuffer.length) throw new Error('Truncated Bedrock eventstream frame');
         if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
         const finishReason = openAiStopReason(stopReason);
-        await persistReplay([...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block), state);
-        observe?.({ completed: true, thinkingPresent: [...blocks.values()].some((block) => block.type === 'thinking' || block.type === 'redacted_thinking') });
+        const orderedBlocks = [...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block);
+        if (finishReason === 'tool_calls') {
+          const toolBlocks = orderedBlocks.filter((block) => block.type === 'tool_use');
+          if (!toolBlocks.length || toolBlocks.some((block) => typeof block.__arguments === 'string')) {
+            throw new Error('Invalid Bedrock streamed tool arguments');
+          }
+          await persistReplay(orderedBlocks, state);
+          // Unlike public text, a tool call cannot be safe to execute before
+          // Bedrock certifies `tool_use`. Buffering only structured tool input
+          // prevents a max_tokens fragment from poisoning Pi history while
+          // leaving ordinary text delivery fully incremental.
+          controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { tool_calls: toolBlocks.map((block, index) => ({
+            index, id: block.id, type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
+          })) }, finish_reason: null }] }));
+        }
+        observe?.({ completed: true, thinkingPresent: orderedBlocks.some((block) => block.type === 'thinking' || block.type === 'redacted_thinking') });
         controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: finishReason }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
         controller.enqueue(sse('[DONE]'));
       } catch {

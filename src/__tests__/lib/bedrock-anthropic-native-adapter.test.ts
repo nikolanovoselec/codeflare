@@ -135,6 +135,70 @@ describe('Bedrock Anthropic native adapter', () => {
     });
   });
 
+  it('REQ-ENTERPRISE-073/076: does not publish or persist an Invoke tool call truncated by max_tokens', async () => {
+    const replay = state();
+    const response = await adaptBedrockAnthropicResponse(Response.json({
+      id: 'msg_truncated', model: 'claude', stop_reason: 'max_tokens',
+      content: [
+        { type: 'text', text: 'I started preparing the command.' },
+        { type: 'tool_use', id: 'call_truncated', name: 'bash', input: { cmd: "cat <<'EOF'\npartial" } },
+      ],
+      usage: { input_tokens: 10, output_tokens: 128 },
+    }), 'invoke', replay, false);
+
+    const body = await response.json() as any;
+    expect(body.choices[0].finish_reason).toBe('length');
+    expect(body.choices[0].message.content).toBe('I started preparing the command.');
+    expect(body.choices[0].message).not.toHaveProperty('tool_calls');
+    expect(replay.save).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-073/076: terminates Eventstream as length without publishing partial tool JSON', async () => {
+    const replay = state();
+    const events = [
+      { type: 'message_start', message: { id: 'msg_truncated', model: 'claude', usage: { input_tokens: 10 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Safe prefix.' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_truncated', name: 'bash', input: {} } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"cmd":"unterminated' } },
+      { type: 'content_block_stop', index: 1 },
+      { type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 128 } },
+      { type: 'message_stop' },
+    ];
+    const upstream = new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      for (const event of events) controller.enqueue(eventstreamFrame(event));
+      controller.close();
+    } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
+
+    const wire = await (await adaptBedrockAnthropicResponse(upstream, 'eventstream', replay, true)).text();
+    expect(wire).toContain('Safe prefix.');
+    expect(wire).toContain('"finish_reason":"length"');
+    expect(wire).not.toContain('tool_calls');
+    expect(wire).not.toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(replay.save).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-073/076: omits an unexecuted poisoned tool turn after a new user turn', async () => {
+    const authenticPartial = [
+      { type: 'thinking', thinking: '', signature: 'synthetic-signature' },
+      { type: 'tool_use', id: 'call_truncated', name: 'bash', input: { cmd: "cat <<'EOF'\npartial" } },
+    ];
+    const result = await buildBedrockAnthropicRequest({ messages: [
+      { role: 'user', content: 'Create the file.' },
+      { role: 'assistant', content: null, tool_calls: [
+        { id: 'call_truncated', type: 'function', function: { name: 'bash', arguments: '{}' } },
+      ] },
+      { role: 'user', content: 'Continue without that interrupted command.' },
+    ] }, state({ call_truncated: authenticPartial }));
+
+    expect(result.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Create the file.' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Continue without that interrupted command.' }] },
+    ]);
+  });
+
   it('REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path', () => {
     expect(bedrockAnthropicGatewayPath('eu-central-1', 'eu.anthropic.claude-sonnet-5', 'eventstream')).toBe(
       '/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-sonnet-5/invoke-with-response-stream',

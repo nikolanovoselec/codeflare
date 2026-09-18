@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-19
+
+- **Native Bedrock tool completion is terminally certified and old unexecuted fragments are recoverable** ([REQ-ENTERPRISE-073](enterprise-mode.md#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-076](enterprise-mode.md#req-enterprise-076-provider-native-bedrock-protocol-translation)). Invoke and Eventstream publish and persist structured tools only after Bedrock terminates with `tool_use`; `max_tokens` preserves safe text, usage, and `length` without creating executable replay state. Existing proposals with zero tool results may be omitted after a later text-only user turn proves abandonment, retaining safe prose and preserving exact fail-closed validation for completed, partial, ambiguous, and non-text histories. This repairs ordinary continuation and compaction over already-poisoned transcripts without weakening authentic signed replay or changing profiles, transport authority, retry policy, or adapter identity.
+
 ## 2026-09-17
 
 - **Operator final-review corrections** ([Operators](operators.md), REQ-OPERATOR-005/009/020/022/023/027/036–039). Non-Governed operator R2 writes and independent reads use trusted parent-owned SSE-C headers so ordinary `Operators/**` restore remains readable without exposing the encryption key. Headless bootstrap settles bucket encryption migration before managed configuration reconciliation. Scoped Sync documentation distinguishes visible output from private manifests and its classified failures. Acceptance criteria separate lifecycle, consumer and owner-scoped mutation outcomes while preserving the existing implementation boundary.
