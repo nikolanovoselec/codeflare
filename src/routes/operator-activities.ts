@@ -61,7 +61,7 @@ async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise
 
 async function handleBrowserDetail(c: Context<ActivityRouteEnv>) {
   const activityId = c.req.param('activityId');
-  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
   const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 }
