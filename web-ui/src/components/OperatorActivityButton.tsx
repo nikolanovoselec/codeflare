@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from 'solid-js';
-import { mdiRobotOutline, mdiClose, mdiRefresh } from '@mdi/js';
+import { mdiDeveloperBoard, mdiClose, mdiRefresh } from '@mdi/js';
 import Icon from './Icon';
 import { cancelOperatorActivity, listOperatorActivities } from '../api/operator-activities';
 
@@ -37,7 +37,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
     <div class="operator-activity-control">
       <button type="button" class="header-icon-button operator-activity-trigger" aria-label="Operator activity"
         aria-expanded={open()} onClick={() => setOpen(value => !value)}>
-        <Icon path={mdiRobotOutline} size={22} />
+        <Icon path={mdiDeveloperBoard} size={22} />
         <Show when={working() > 0}><span class="operator-activity-badge">{working()}</span></Show>
       </button>
       <Show when={open()}>
