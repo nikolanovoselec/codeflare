@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listOperators, getOperator, registerOperator, discoverOperator, approveOperator, setOperatorEnabled,
   setOperatorDistribution, setOperatorPolicy, rotateOperatorWebhookKey, type OperatorPolicyInput } from '../../api/operators';
+import { cancelOperatorActivity } from '../../api/operator-activities';
 
 const fetchMock = vi.fn();
 const registration = { operatorId: 'operator', revision: 2, enabled: false, approvedArtifactDigest: null };
@@ -41,5 +42,18 @@ describe('REQ-OPERATOR-008: operator administration client', () => {
   it('rejects malformed response shapes rather than treating them as an empty registry', async () => {
     fetchMock.mockResolvedValue(Response.json({ operators: 'unavailable' }));
     await expect(listOperators()).rejects.toThrow();
+  });
+});
+
+describe('REQ-OPERATOR-036: activity client mutations are not replayed automatically', () => {
+  it('submits cancellation once when the server rejects it', async () => {
+    fetchMock.mockResolvedValue(Response.json({ error: 'Cancellation conflict', code: 'CONFLICT' }, { status: 409 }));
+
+    await expect(cancelOperatorActivity('activity-1')).rejects.toThrow('Cancellation conflict');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/operator-activities/activity-1/cancel', expect.objectContaining({
+      method: 'POST', body: '{}', credentials: 'same-origin', redirect: 'manual',
+    }));
   });
 });

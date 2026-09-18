@@ -682,9 +682,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 2. Desktop and tablet render the activity control as a popover; mobile renders it as a bottom sheet. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 3. Progress, source and session links, result, and execution, cleanup, collection and attention states remain distinct. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 4. Unknown activity values are never displayed as zero. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-5. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.listOwnedActivities --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-6. Authenticated result requests expose only account-owned activity results. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-7. Activity GET requests are non-effectful; browser closure neither loses valid activity progress nor extends authority. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+5. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.listOwnedActivities --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+6. Authenticated result requests expose only account-owned activity results. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+7. Activity GET requests are non-effectful; browser closure neither loses valid activity progress nor extends authority. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
 **Constraints:**
 
@@ -709,9 +709,10 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Authenticated cancellation requests affect only account-owned activities. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-2. Browser activity-start requests require CSRF protection and preserve account ownership. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-3. Activity mutations are never replayed automatically. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+1. Authenticated cancellation requests affect only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+2. Browser activity-start requests require CSRF protection. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+3. Browser activity-start requests affect only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+4. Activity mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operator-activities.ts::cancelOperatorActivity --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-036: activity client mutations are not replayed automatically) -->
 
 **Constraints:**
 
@@ -722,7 +723,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Owner-scoped cancellation, CSRF-protected browser start and replay behavior are covered by the adjacent route tests.
+**Verification:** Owner-scoped cancellation and CSRF-protected browser start are covered by the adjacent route tests. The browser client test proves rejected mutations are attempted once.
 
 **Status:** Implemented
 
@@ -736,12 +737,13 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Version-1 direct, session and webhook invocation shapes are accepted without business-specific fields. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+1. Version-1 direct, session and webhook invocation shapes are accepted without business-specific fields. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation = schemaVersion: z.literal(1), interfaceVersion: z.literal(1) --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 2. A changed source reference conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 3. A changed revision digest conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 4. A changed input digest conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 5. Operator-origin sessions cannot enter human admission recursively. <!-- @impl: src/operators/consumer-contracts.ts::validateOperatorSessionOrigin --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 6. Operator session origin must match the parent activity. <!-- @impl: src/operators/consumer-contracts.ts::validateOperatorSessionOrigin --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+7. A changed run identity conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 
 **Constraints:**
 
@@ -766,8 +768,8 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Consumer invocations accept at most 16 attachments. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
-2. Declared attachment bytes stay within the 8 MiB total limit. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+1. Consumer invocations accept at most 16 attachments. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation = .max(16) --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+2. Declared attachment bytes stay within the 8 MiB total limit. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation = <= 8 * 1024 * 1024 --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 3. Attachment names are canonical non-path identifiers. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 4. Credential-bearing consumer fields are rejected. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 5. Nested authority payloads are rejected. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
@@ -795,10 +797,10 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. A distribution fixture proves approved artifact loading. <!-- @impl: fixtures/operator-gate1/src/index.ts::handleGate1FixtureRequest --> <!-- @test: src/__tests__/operators/gate1-fixture-distribution.test.ts (REQ-OPERATOR-009: live Gate 1 fixture distribution) -->
-2. A direct fixture proves bounded execution without a session. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
-3. A session fixture proves bounded owned-session execution. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
-4. A webhook fixture proves capability-authenticated handoff. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
-5. Fixture execution leaves local-review resources unchanged. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs --> <!-- @test: src/__tests__/operators/legacy-review-unchanged.test.ts (REQ-OPERATOR-009: unchanged canonical local-review resource) -->
+2. A direct fixture proves bounded execution without a session. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runDirectFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
+3. A session fixture proves bounded owned-session execution. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runSessionFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
+4. A webhook fixture proves capability-authenticated handoff. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runWebhookCallerFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
+5. Fixture execution leaves local-review resources unchanged. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: src/__tests__/operators/legacy-review-unchanged.test.ts (REQ-OPERATOR-009: unchanged canonical local-review resource) -->
 
 **Constraints:**
 

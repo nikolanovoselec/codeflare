@@ -179,7 +179,7 @@ These routes are private container-host contracts for a restricted operator sess
 
 Unsupported methods return `405 METHOD_NOT_ALLOWED`; unknown paths under the prefix return `404 PI_ROUTE_NOT_FOUND`. Task intent is persisted before SDK submission. The service does not replace a missing conversation or automatically replay an uncertain effect. <!-- @impl: host/src/operator-pi-http.ts::OperatorPiHttpController --> <!-- @impl: host/src/operator-pi-service.ts::createOperatorPiService -->
 
-### Explicit operator output sync
+### Explicit operator output sync <!-- @impl: host/src/operator-sync-http.ts::OperatorSyncHttpController -->
 
 | Method | Private host path | Request | Success response | Errors |
 |---|---|---|---|---|

@@ -33,6 +33,7 @@ describe('REQ-OPERATOR-009: reusable bounded consumer contracts', () => {
     for (const changed of [
       { ...original, revision: { ...original.revision, digest: 'f'.repeat(64) } },
       { ...original, source: { ...original.source, reference: 'other' } },
+      { ...original, runId: 'other-run' },
       { ...original, inputDigest: 'e'.repeat(64) },
     ]) expect(() => reconcileOperatorConsumerInvocation(original, changed)).toThrow(/conflict/i);
   });

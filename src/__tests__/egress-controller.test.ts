@@ -367,16 +367,19 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
-  it('re-signs the bound bucket with its user-scoped key, never the deployment-wide key, while preserving streaming and SSE-C', async () => {
+  it('re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
-    const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
+    const encryptionKey = btoa('a'.repeat(32));
+    const { controller, egressFetch } = makeController({ ENCRYPTION_KEY: encryptionKey }, { accountId: 'acc' });
     await controller.fetch(
       new Request('https://acc.r2.cloudflarestorage.com/bucket/key', {
         method: 'PUT',
         headers: {
           authorization: 'AWS4-HMAC-SHA256 Credential=PLACEHOLDER-KEY/20260101/auto/s3/aws4_request, Signature=deadbeef',
           'x-amz-content-sha256': 'fixedhash123',
-          'x-amz-server-side-encryption-customer-algorithm': 'AES256',
+          'x-amz-server-side-encryption-customer-algorithm': 'spoof',
+          'x-amz-server-side-encryption-customer-key': 'spoof',
+          'x-amz-server-side-encryption-customer-key-md5': 'spoof',
           'content-type': 'application/octet-stream',
         },
         body: 'payload-bytes',
@@ -392,9 +395,13 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     expect(auth).not.toContain('admin-r2-key');
     // rclone's precomputed payload hash is REUSED (not recomputed / UNSIGNED) — body streams unbuffered.
     expect(signed.headers.get('x-amz-content-sha256')).toBe('fixedhash123');
-    // SSE-C header preserved AND covered by the new signature (present in SignedHeaders).
+    // Parent-owned SSE-C headers replace caller values and are covered by the new signature.
     expect(signed.headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe('AES256');
+    expect(signed.headers.get('x-amz-server-side-encryption-customer-key')).toBe(encryptionKey);
+    expect(signed.headers.get('x-amz-server-side-encryption-customer-key-md5')).not.toBe('spoof');
     expect(auth).toContain('x-amz-server-side-encryption-customer-algorithm');
+    expect(auth).toContain('x-amz-server-side-encryption-customer-key');
+    expect(auth).toContain('x-amz-server-side-encryption-customer-key-md5');
     fetchSpy.mockRestore();
   });
 
