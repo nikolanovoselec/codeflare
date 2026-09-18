@@ -31,11 +31,15 @@ app.use('*', async (c, next) => {
   c.set('operatorHuman', human);
   c.set('ownerKey', await operatorOwnerKey(human.human));
   c.set('registry', c.env.OPERATOR_REGISTRY.getByName('registry'));
+  return next();
+});
+async function requireMutationCsrf(c: Context<ActivityRouteEnv>, next: () => Promise<void>) {
   if (c.req.method === 'POST' && c.req.header('x-requested-with') !== 'XMLHttpRequest') {
     throw new AppError('FORBIDDEN', 403, 'CSRF validation failed');
   }
   return next();
-});
+}
+app.use('*', requireMutationCsrf);
 
 app.get('/', async c => {
   const items = await c.get('registry').listOwnedActivities(c.get('ownerKey'));
@@ -55,18 +59,14 @@ async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise
   return await stub.getBrowserDetail() as BrowserDetail | null;
 }
 
-app.get('/:activityId', async c => {
+async function handleBrowserDetail(c: Context<ActivityRouteEnv>) {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
   const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
-});
-app.get('/:activityId/result', async c => {
-  const activityId = c.req.param('activityId');
-  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
-  return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
-});
+}
+app.get('/:activityId', handleBrowserDetail);
+app.get('/:activityId/result', handleBrowserDetail);
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();

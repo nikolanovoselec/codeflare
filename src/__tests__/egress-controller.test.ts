@@ -10,6 +10,7 @@
  * WebSocket upgrades are BRIDGED (a fresh WebSocketPair accepted on both ends), not returned
  * as-is. `strict` comes from props (no per-request KV read).
  */
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
@@ -370,6 +371,7 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
   it('re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const encryptionKey = btoa('a'.repeat(32));
+    const encryptionKeyMd5 = createHash('md5').update(new TextEncoder().encode('a'.repeat(32))).digest('base64');
     const { controller, egressFetch } = makeController({ ENCRYPTION_KEY: encryptionKey }, { accountId: 'acc' });
     await controller.fetch(
       new Request('https://acc.r2.cloudflarestorage.com/bucket/key', {
@@ -398,7 +400,7 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     // Parent-owned SSE-C headers replace caller values and are covered by the new signature.
     expect(signed.headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe('AES256');
     expect(signed.headers.get('x-amz-server-side-encryption-customer-key')).toBe(encryptionKey);
-    expect(signed.headers.get('x-amz-server-side-encryption-customer-key-md5')).not.toBe('spoof');
+    expect(signed.headers.get('x-amz-server-side-encryption-customer-key-md5')).toBe(encryptionKeyMd5);
     expect(auth).toContain('x-amz-server-side-encryption-customer-algorithm');
     expect(auth).toContain('x-amz-server-side-encryption-customer-key');
     expect(auth).toContain('x-amz-server-side-encryption-customer-key-md5');

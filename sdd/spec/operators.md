@@ -684,7 +684,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 4. Unknown activity values are never displayed as zero. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 5. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.listOwnedActivities --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 6. Authenticated result requests expose only account-owned activity results. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-7. Activity GET requests are non-effectful; browser closure neither loses valid activity progress nor extends authority. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+7. Activity GET requests are non-effectful; browser closure neither loses valid activity progress nor extends authority. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
 **Constraints:**
 
@@ -710,7 +710,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. Authenticated cancellation requests affect only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-2. Browser activity-start requests require CSRF protection. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+2. Browser activity-start requests require CSRF protection. <!-- @impl: src/routes/operator-activities.ts::requireMutationCsrf --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 3. Browser activity-start requests affect only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 4. Activity mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operator-activities.ts::cancelOperatorActivity --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-036: activity client mutations are not replayed automatically) -->
 
@@ -737,7 +737,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Version-1 direct, session and webhook invocation shapes are accepted without business-specific fields. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation = schemaVersion: z.literal(1), interfaceVersion: z.literal(1) --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+1. Version-1 direct, session and webhook invocation shapes are accepted without business-specific fields. <!-- @impl: src/operators/consumer-contracts.ts::invocationSchema = schemaVersion: z.literal(1), interfaceVersion: z.literal(1) --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 2. A changed source reference conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 3. A changed revision digest conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 4. A changed input digest conflicts with the admitted invocation. <!-- @impl: src/operators/consumer-contracts.ts::reconcileOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
@@ -768,8 +768,8 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Consumer invocations accept at most 16 attachments. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation = .max(16) --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
-2. Declared attachment bytes stay within the 8 MiB total limit. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation = <= 8 * 1024 * 1024 --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+1. Consumer invocations accept at most 16 attachments. <!-- @impl: src/operators/consumer-contracts.ts::invocationSchema = .max(16) --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
+2. Declared attachment bytes stay within the 8 MiB total limit. <!-- @impl: src/operators/consumer-contracts.ts::invocationSchema = <= 8 * 1024 * 1024 --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 3. Attachment names are canonical non-path identifiers. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 4. Credential-bearing consumer fields are rejected. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
 5. Nested authority payloads are rejected. <!-- @impl: src/operators/consumer-contracts.ts::parseOperatorConsumerInvocation --> <!-- @test: src/__tests__/operators/consumer-contracts.test.ts (REQ-OPERATOR-009: reusable bounded consumer contracts) -->
