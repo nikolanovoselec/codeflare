@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BEDROCK_NATIVE_ADAPTER_VERSION, createNativeTarget, nativeTargetDraftSchema, nativeVerificationMatches, nativePromptCacheSupported } from '../../lib/native-ai-targets';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
-import { getBuiltInProfile, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
+import { getBuiltInProfile, normalizeCustomProfile, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
 import { buildBedrockAnthropicRequest } from '../../lib/bedrock-anthropic-native-adapter';
 
 const profileId = 'bedrock-anthropic-native-provider-default';
@@ -36,6 +36,25 @@ describe('reusable Bedrock Messages contract', () => {
   it.each(models)('REQ-ENTERPRISE-074: selects %s without a model-specific profile entry', (model) => {
     expect(nativeTargetDraftSchema.safeParse(draft(model)).success).toBe(true);
     expect(createNativeTarget({ ...draft(model), providerConfigId: 'synthetic-binding' }).model).toBe(model);
+  });
+
+  it('REQ-ENTERPRISE-074: one positive Runtime prefix-read mapping enables checkpoints for the exact Native target', () => {
+    const audited = getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
+    const profile = normalizeCustomProfile({
+      id: 'bedrock-anthropic-native-discovered-a1b2c3d4e5f60718293a4b5c', name: 'Synthetic mixed cache evidence', family: 'Synthetic',
+      schemaVersion: 1, revision: 1, enabled: true, supportedLevels: ['off', 'max'], removePaths: audited.removePaths,
+      levels: { off: audited.levels.off, max: audited.levels.max }, aliases: {}, offSemantics: audited.offSemantics,
+    });
+    const target = createNativeTarget({ ...draft('eu.anthropic.claude-opus-5'), profileRef: {
+      id: profile.id, revision: profile.revision, hash: profile.hash,
+    }, providerConfigId: 'synthetic-binding' });
+    const discovery = { schemaVersion: 2 as const, mappings: [
+      { levels: ['off'] as const, transport: 'bedrock-eventstream' as const, tools: true, replay: true,
+        reasoning: 'verified-disabled' as const, streaming: 'incremental' as const, cache: 'inconclusive' as const },
+      { levels: ['max'] as const, transport: 'bedrock-invoke' as const, tools: true, replay: true,
+        reasoning: 'observed-enabled' as const, streaming: 'not-observed' as const, cache: 'provider-prefix' as const },
+    ] };
+    expect(nativePromptCacheSupported({ ...target, verification: { discovery } } as any, profile)).toBe(true);
   });
 
   it('REQ-ENTERPRISE-074: provider default normalizes all seven preferences without claiming Off', () => {
