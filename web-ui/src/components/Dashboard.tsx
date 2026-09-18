@@ -536,6 +536,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}
+                    onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
                     onClose={handleMenuClose}
                   />
                 </Portal>
