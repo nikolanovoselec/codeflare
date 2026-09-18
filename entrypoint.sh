@@ -3678,7 +3678,12 @@ COPILOT_BYOK_EOF
                 id: $route, name: display_name($route), reasoning: true,
                 thinkingLevelMap: (canonical_levels | map(. as $level | {key: $level,
                     value: (if ($levels | index($level)) != null then $level else null end)}) | from_entries),
-                input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
+                # Pi otherwise falls back to its 4096-token default. Reviewer
+                # agents commonly need a longer final report after many tool
+                # turns, and a truncated tool proposal cannot be replayed as a
+                # valid call. Keep the explicit output ceiling identical for
+                # discovered-level and Provider-default Native publications.
+                input: ["text", "image"], contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
               } + (if (prompt_cache($route) | length) > 0 then {compat: prompt_cache($route)} else {} end))
               end))' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
