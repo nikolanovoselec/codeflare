@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { createSignal } from 'solid-js';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import SessionContextMenu from '../../components/SessionContextMenu';
 
@@ -80,6 +81,43 @@ describe('SessionContextMenu', () => {
       fireEvent.submit(screen.getByTestId('context-menu-rename-form'));
 
       expect(onRename).not.toHaveBeenCalled();
+    });
+
+    it('cancels editing on Escape without calling onRename', () => {
+      const onRename = vi.fn();
+      render(() => <SessionContextMenu {...defaultProps} onRename={onRename} />);
+
+      fireEvent.click(screen.getByTestId('context-menu-rename'));
+      const input = screen.getByTestId('context-menu-rename-input') as HTMLInputElement;
+      fireEvent.input(input, { target: { value: 'Discarded edit' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+
+      expect(screen.queryByTestId('context-menu-rename-input')).not.toBeInTheDocument();
+      expect(screen.getByTestId('context-menu-rename')).toBeInTheDocument();
+      expect(onRename).not.toHaveBeenCalled();
+    });
+
+    it('does not carry a stale draft into the next session this menu is opened for', () => {
+      // Regression: Dashboard renders one SessionContextMenu instance shared
+      // across every session (only isOpen/position/sessionName change), so a
+      // rename draft left open when Stop closes the menu must not reappear
+      // pre-filled when the same instance reopens for a different session.
+      const onStop = vi.fn();
+      const [sessionName, setSessionName] = createSignal('First Session');
+      render(() => (
+        <SessionContextMenu {...defaultProps} sessionName={sessionName()} onStop={onStop} />
+      ));
+
+      fireEvent.click(screen.getByTestId('context-menu-rename'));
+      fireEvent.input(screen.getByTestId('context-menu-rename-input'), { target: { value: 'Half-typed' } });
+      fireEvent.click(screen.getByTestId('context-menu-stop'));
+      expect(onStop).toHaveBeenCalled();
+
+      setSessionName('Second Session');
+      fireEvent.click(screen.getByTestId('context-menu-rename'));
+      const input = screen.getByTestId('context-menu-rename-input') as HTMLInputElement;
+
+      expect(input.value).toBe('Second Session');
     });
   });
 

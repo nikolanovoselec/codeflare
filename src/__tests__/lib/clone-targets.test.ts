@@ -92,4 +92,21 @@ describe('REQ-GITHUB-015 AC4: buildCloneTargets', () => {
       { repo: 'also bad' } as never,
     )).toBe('octo/web');
   });
+
+  it('reserves the primary repository ahead of the cap instead of losing it to the tracked-list sort', () => {
+    // Regression: normalizing repo+primary together sorts alphabetically then
+    // slices to MAX_TRACKED_CLONES, so a full tracked list that alphabetically
+    // precedes the primary repo must not silently drop the session's own
+    // repository off the end of the cap.
+    const tracked = Array.from({ length: MAX_TRACKED_CLONES }, (_, i) => ({
+      repo: `aaa/repo-${String(i).padStart(2, '0')}`,
+    }));
+
+    const targets = buildCloneTargets(tracked, { repo: 'zzz/primary', ref: 'main' });
+
+    expect(targets.startsWith('zzz/primary#main ')).toBe(true);
+    // The primary survives the cap; the overall directive still holds at most
+    // MAX_TRACKED_CLONES entries, so exactly one tracked repo is dropped.
+    expect(targets.split(' ')).toHaveLength(MAX_TRACKED_CLONES);
+  });
 });

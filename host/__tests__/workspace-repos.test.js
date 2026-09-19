@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, closeSync, openSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { collectWorkspaceRepos } from '../dist/metrics.js';
+import { collectWorkspaceRepos, isWorkspaceInventoryReady } from '../dist/metrics.js';
 import { createRequestHandler } from '../dist/request-router.js';
 
 const noop = () => {};
@@ -95,6 +95,49 @@ describe('REQ-GITHUB-015 AC1: workspace repository inventory', () => {
     const repos = await collectWorkspaceRepos(join(makeWorkspace(), 'absent'), noop);
     assert.deepEqual(repos, []);
   });
+
+  it('inspects at most 20 repositories, keeping the alphabetically first ones', async () => {
+    const workspace = makeWorkspace();
+    for (let i = 0; i < 25; i++) {
+      makeRepo(workspace, `repo-${String(i).padStart(2, '0')}`, {
+        origin: `https://github.com/octo/repo-${String(i).padStart(2, '0')}.git`,
+      });
+    }
+
+    const repos = await collectWorkspaceRepos(workspace, noop);
+
+    assert.equal(repos.length, 20);
+    assert.equal(repos[0].repo, 'octo/repo-00');
+    assert.equal(repos[19].repo, 'octo/repo-19');
+  });
+});
+
+describe('REQ-GITHUB-015 AC1: isWorkspaceInventoryReady', () => {
+  const savedFlag = process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+
+  after(() => {
+    if (savedFlag === undefined) delete process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+    else process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = savedFlag;
+  });
+
+  it('is ready when the flag variable is unset (no-op in tests and dev mode)', () => {
+    delete process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+    assert.equal(isWorkspaceInventoryReady(), true);
+  });
+
+  it('is not ready while the flag file is absent', () => {
+    const workspace = makeWorkspace();
+    process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = join(workspace, 'clone-restore-complete');
+    assert.equal(isWorkspaceInventoryReady(), false);
+  });
+
+  it('is ready once the flag file has been written', () => {
+    const workspace = makeWorkspace();
+    const flagPath = join(workspace, 'clone-restore-complete');
+    process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = flagPath;
+    closeSync(openSync(flagPath, 'w'));
+    assert.equal(isWorkspaceInventoryReady(), true);
+  });
 });
 
 describe('REQ-GITHUB-015 AC1: /health carries the inventory', () => {
@@ -147,5 +190,62 @@ describe('REQ-GITHUB-015 AC1: /health carries the inventory', () => {
     });
 
     assert.deepEqual(body.workspaceRepos, [{ repo: 'octo/api', ref: 'develop' }]);
+  });
+});
+
+describe('REQ-GITHUB-015 AC1: /health withholds the inventory during restore', () => {
+  let server;
+  let port;
+  const savedWorkspace = process.env.USER_WORKSPACE;
+  const savedFlag = process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+
+  before(async () => {
+    const workspace = makeWorkspace();
+    makeRepo(workspace, 'api', { origin: 'https://github.com/octo/api.git', branch: 'develop' });
+    process.env.USER_WORKSPACE = workspace;
+    // Flag file deliberately never written: the restore is still "in progress".
+    process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = join(workspace, 'clone-restore-complete');
+    server = http.createServer(createRequestHandler({
+      sessionManager: { size: 1, list: () => [], getOrCreate: () => null, delete: () => false },
+      wsEventLog: [],
+      activityTracker: { recordHeartbeat: noop, recordInput: noop, getActivityInfo: () => ({ ok: true }) },
+      log: noop,
+      serverStartTime: Date.now(),
+      readiness: () => ({
+        prewarmReady: true,
+        initFlagObserved: true,
+        terminalServiceReady: true,
+        editorReady: false,
+        editorReadyTimedOut: false,
+      }),
+      silverbullet: { host: '127.0.0.1', port: 1 },
+      openvscode: { host: '127.0.0.1', port: 1 },
+    }));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    port = server.address().port;
+  });
+
+  after(async () => {
+    if (savedWorkspace === undefined) delete process.env.USER_WORKSPACE;
+    else process.env.USER_WORKSPACE = savedWorkspace;
+    if (savedFlag === undefined) delete process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+    else process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = savedFlag;
+    server.close();
+    await once(server, 'close');
+  });
+
+  it('omits workspaceRepos rather than reporting a partial workspace as the whole inventory', async () => {
+    const body = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path: '/health' }, (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => resolve(JSON.parse(data)));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal('workspaceRepos' in body, false);
   });
 });

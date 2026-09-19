@@ -483,4 +483,18 @@ describe('REQ-GITHUB-015: bounded multi-repository restore (real shell behavior)
     assert.deepEqual(clonedDirs(fake, workspace), ['good']);
     assert.match(result.stdout, /Skipping clone: invalid repo\/ref/);
   });
+
+  it('REQ-GITHUB-015 AC5: falls back to the default overall budget instead of aborting on a malformed override', () => {
+    // Regression: `$(( ... ${GIT_CLONE_TOTAL_BUDGET_SECONDS:-180} ))` with a
+    // non-numeric override used to abort the whole entrypoint under
+    // `set -euo pipefail`, in a block documented as never aborting start.
+    const { workspace, fake, result } = runStartupClones({
+      targets: 'octo/api',
+      totalBudget: 'not-a-number',
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /integer expression expected/);
+    assert.deepEqual(clonedDirs(fake, workspace), ['api']);
+  });
 });
