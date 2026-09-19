@@ -38,7 +38,7 @@ describe('reusable Bedrock Messages contract', () => {
     expect(createNativeTarget({ ...draft(model), providerConfigId: 'synthetic-binding' }).model).toBe(model);
   });
 
-  it('REQ-ENTERPRISE-074: one positive Runtime prefix-read mapping enables checkpoints for the exact Native target', () => {
+  it('REQ-ENTERPRISE-083: one positive Runtime prefix-read mapping enables checkpoints for the exact Native target', () => {
     const audited = getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
     const profile = normalizeCustomProfile({
       id: 'bedrock-anthropic-native-discovered-a1b2c3d4e5f60718293a4b5c', name: 'Synthetic mixed cache evidence', family: 'Synthetic',

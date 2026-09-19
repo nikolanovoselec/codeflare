@@ -515,7 +515,8 @@
 }
 .operator-activity-panel > header, .operator-activity-item > div,
 .operator-activity-item nav { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.operator-activity-panel > header small { display: block; margin-top: 2px; color: var(--color-text-secondary); }
+.operator-activity-panel > header small, .operator-activity-panel > header small span { display: block; }
+.operator-activity-panel > header small { margin-top: 2px; color: var(--color-text-secondary); }
 .operator-activity-list { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
 .operator-activity-item { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 .operator-activity-item.needs-attention { border-color: var(--color-warning); }

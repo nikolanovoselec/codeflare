@@ -141,7 +141,7 @@ describe('Bedrock Anthropic native adapter', () => {
     });
   });
 
-  it('REQ-ENTERPRISE-073/076: does not publish or persist an Invoke tool call truncated by max_tokens', async () => {
+  it('REQ-ENTERPRISE-073/076/085: does not publish or persist an Invoke tool call truncated by max_tokens', async () => {
     const replay = state();
     const response = await adaptBedrockAnthropicResponse(Response.json({
       id: 'msg_truncated', model: 'claude', stop_reason: 'max_tokens',
@@ -159,7 +159,7 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(replay.save).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-073/076: terminates Eventstream as length without publishing partial tool JSON', async () => {
+  it('REQ-ENTERPRISE-073/076/085: terminates Eventstream as length without publishing partial tool JSON', async () => {
     const replay = state();
     const events = [
       { type: 'message_start', message: { id: 'msg_truncated', model: 'claude', usage: { input_tokens: 10 } } },
@@ -186,7 +186,7 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(replay.save).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-073/076: omits an unexecuted poisoned tool turn after a new user turn', async () => {
+  it('REQ-ENTERPRISE-073/076/085: omits an unexecuted poisoned tool turn after a new user turn', async () => {
     const authenticPartial = [
       { type: 'thinking', thinking: '', signature: 'synthetic-signature' },
       { type: 'tool_use', id: 'call_truncated', name: 'bash', input: { cmd: "cat <<'EOF'\npartial" } },
@@ -458,7 +458,7 @@ describe('Bedrock Anthropic native adapter', () => {
     }, state())).rejects.toThrow('signed thinking state');
   });
 
-  it('REQ-ENTERPRISE-076/079: converts Invoke responses and stores signed thinking without exposing it downstream', async () => {
+  it('REQ-ENTERPRISE-076/079/085: converts Invoke responses and stores signed thinking without exposing it downstream', async () => {
     const replay = state();
     const upstream = new Response(JSON.stringify({
       id: 'msg_1', model: 'claude', role: 'assistant',
