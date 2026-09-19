@@ -51,7 +51,6 @@ import { getAllUsers, syncAccessPolicy } from '../../lib/access-policy';
 import { AppError } from '../../lib/error-types';
 
 import { createMockKV } from '../helpers/mock-kv';
-import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 const mockGetAllUsers = getAllUsers as ReturnType<typeof vi.fn>;
 const mockSyncAccessPolicy = syncAccessPolicy as ReturnType<typeof vi.fn>;

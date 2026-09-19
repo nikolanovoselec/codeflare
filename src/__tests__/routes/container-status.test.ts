@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import statusRoutes from '../../routes/container/status';
 import { createMockKV } from '../helpers/mock-kv';
-import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { createTestApp } from '../helpers/test-app';
 
 // ---------------------------------------------------------------------------

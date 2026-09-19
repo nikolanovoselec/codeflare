@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
-import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // Mock dependencies before imports
 const mockResolveBucketName = vi.hoisted(() => vi.fn());
@@ -61,7 +60,6 @@ describe('cleanupUserData', () => {
   function createEnv(overrides?: Partial<Env>): Env {
     return {
       KV: mockKV as unknown as KVNamespace,
-      USAGE_DB: createMockSessionD1(mockKV),
       CONTAINER: {} as unknown as Env['CONTAINER'],
       CLOUDFLARE_API_TOKEN: 'test-api-token',
       CLOUDFLARE_WORKER_NAME: undefined,
