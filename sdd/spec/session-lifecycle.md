@@ -714,12 +714,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A normal metrics tick performs one bounded authenticated host observation containing classified input, CPU, memory, disk, sync and editor readiness.
-2. After local policy decisions, a normal tick performs one conditional D1 projection update and no normal-path D1 pre-read or readback.
-3. Every awaited external operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed.
-4. Host transport reachability, snapshot validity, readiness and confirmed process exit remain distinct evidence.
-5. D1 projection failure enters bounded persistence reconciliation and cannot authorize reconstruction, termination, `unreachable`, or `stopped`.
-6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget.
+1. A normal metrics tick performs one bounded authenticated host observation containing classified input, CPU, memory, disk, sync and editor readiness. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (authenticates the private runtime observation probe) -->
+2. After local policy decisions, a normal tick performs one conditional D1 projection update and no normal-path D1 pre-read or readback. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (should fetch health data from TCP port and write metrics to KV) -->
+3. Every awaited external operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) -->
+4. Host transport reachability, snapshot validity, readiness and confirmed process exit remain distinct evidence. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
+5. D1 projection failure enters bounded persistence reconciliation and cannot authorize reconstruction, termination, `unreachable`, or `stopped`. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-unreachable-policy.test.ts (deadline is eligibility: it claims stopping once but does not itself report stopped) -->
+6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: notification polling never mutates activity or usage inputs) -->
 
 **Constraints:** Existing idle-input policy, usage authority and final-sync deadlines remain unchanged.
 
@@ -727,9 +727,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Planned host-observation and metrics operation-budget tests.
+**Verification:** Automated test ([runtime-observation authentication](../../src/__tests__/container-metrics.test.ts), [bounded poll re-arm](../../src/__tests__/container-metrics.test.ts), [transport evidence](../../src/__tests__/container-metrics.test.ts), [unreachable policy](../../src/__tests__/lib/session-unreachable-policy.test.ts)).
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
