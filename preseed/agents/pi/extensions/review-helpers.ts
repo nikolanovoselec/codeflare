@@ -916,7 +916,7 @@ export function reviewTranscriptFacts(input: {
 
         const nativeResults = later.slice(entryIndex + 1)
           .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
-          .filter((candidate) => candidate.value?.toolUseId === call.id && candidate.value.succeeded);
+          .filter((candidate) => candidate.value?.toolUseId === call.id && candidate.value?.succeeded === true);
         const nativeTerminal = nativeResults.find((candidate) => {
           const notification = candidate.value!;
           return ciTerminalResult(notification.text, ci) !== undefined
@@ -953,9 +953,9 @@ export function reviewTranscriptFacts(input: {
             : publicTerminal
               ? { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
               : nativeResults[0]
-                ? { index: nativeResults[0].index, result: "timeout" }
+                ? { index: nativeResults[0].index, result: "timeout" as CiTerminalResult }
                 : publicCompletion
-                  ? { index: publicCompletion.index, result: "timeout" }
+                  ? { index: publicCompletion.index, result: "timeout" as CiTerminalResult }
                   : undefined;
         if (terminal && (ciTerminalIndex === undefined || terminal.index < ciTerminalIndex)) {
           ciTerminalIndex = terminal.index;

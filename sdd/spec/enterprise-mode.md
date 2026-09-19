@@ -2339,13 +2339,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Strict egress with Governed Mode exposes only the DO-issued container credential; all service credentials remain placeholders or absent ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (container secret hygiene: no AWS_* anywhere, CF token placeholder-only in enterprise) -->
-2. While a bucket migrates, write attempts are blocked before user R2 I/O. <!-- @impl: src/routes/storage/upload.ts::handleUpload --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
+2. While a bucket migrates, write attempts are blocked before user R2 I/O. <!-- @impl: src/routes/storage/upload.ts --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
 3. While a bucket migrates, sync fan-out performs no container work. <!-- @impl: src/lib/r2-regime-state.ts::isBucketMigrating --> <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/routes/sessions-sync.test.ts (skips the entire fan-out while the bucket is migrating (no container is contacted)) -->
-4. Migration start drains running containers once. <!-- @impl: src/lib/migration-containers.ts::drainContainers --> <!-- @test: src/__tests__/lib/migration-containers.test.ts (REQ-ENTERPRISE-021 AC3: governed migration container drain) -->
-5. Migration start aborts every in-flight multipart upload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (aborts every in-flight multipart upload before the first migration chunk) -->
-6. The dashboard reuses the REQ-AGENT-049 "Upgrading" affordance: `batch-status` returns `bucketMigrating` plus a 0–99 `bucketMigrationPercent` (omitted while `halted`), and the New Session button disables and labels "Migrating N%". Both the full session load and the 5s background poll mirror these flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::bucketMigrationPercent --> <!-- @manual -->
-7. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) -->
-8. A fallback on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) -->
+4. Migration start drains running containers once. <!-- @impl: src/lib/migration-containers.ts::drainContainers --> <!-- @test: src/__tests__/lib/migration-containers.test.ts (REQ-ENTERPRISE-021 AC4: governed migration container drain) -->
+5. The dashboard reuses the REQ-AGENT-049 "Upgrading" affordance: `batch-status` returns `bucketMigrating` plus a 0–99 `bucketMigrationPercent` (omitted while `halted`), and the New Session button disables and labels "Migrating N%". Both the full session load and the 5s background poll mirror these flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::bucketMigrationPercent --> <!-- @manual -->
+6. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) -->
+7. A fallback on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) -->
 
 **Constraints:**
 
@@ -2355,6 +2354,26 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-086: Governed Mode Migration Multipart Safety
+
+**Intent:** Migration start removes incomplete pre-regime multipart uploads so a later completion cannot assemble an object in the wrong encryption regime.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Migration start aborts every in-flight multipart upload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (aborts every in-flight multipart upload before the first migration chunk) -->
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)
 
 **Verification:** Automated test
 
