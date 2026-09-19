@@ -6,7 +6,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### Key Concepts
 
-- **Session** -- A named, user-owned workspace backed by a unique KV record and a single container.
+- **Session** -- A named, user-owned workspace whose complete non-secret record and shared lifecycle truth are stored in D1 and whose isolated runtime is controlled by one Container Durable Object.
+- **Lifecycle generation** -- A D1-assigned start epoch. Delayed work from an older generation cannot mutate or terminate a replacement generation.
+- **Observation sequence** -- A strictly increasing, generation-local Durable Object sequence used to reject delayed runtime projections.
+- **Unreachable incident** -- A D1-owned transport-failure episode with one identity, first-observed time, and absolute 120-second termination-eligibility deadline.
+- **ACTIVE / IDLE** -- Device-local terminal presentation derived from the local WebSocket; neither is a persisted backend state.
 - **Container** -- A Cloudflare Durable Object instance providing an isolated runtime (PTY, filesystem, network) for one session.
 - **sleepAfter** -- The configurable idle timeout after which a container is automatically stopped.
 - **Durable Object** -- Cloudflare's stateful compute primitive used to host each container; provides storage, alarms, and WebSocket hibernation.
@@ -25,33 +29,30 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-### REQ-SESSION-001: Session creation with name and agent type
+### REQ-SESSION-001: Session creation with complete D1 record
 
-**Intent:** A user can create a named session associated with a specific AI agent and immutable workspace snapshot, producing a unique session record stored in KV.
+**Intent:** A user can create a named session with an immutable workspace configuration as a complete D1-owned record.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, antigravity, opencode, copilot, bash, pi). <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
-2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
-3. The session record, including its immutable workspace snapshot, is persisted durably and retrievable across restarts. <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC3 / REQ-IDE-048 AC1: persists and retrieves the immutable workspace snapshot) -->
-4. A session record without a workspace snapshot resolves to Terminal. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC4: historical sessions resolve to Terminal) -->
-5. The response returns the new session object with status 201. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC5: response returns session object with status 201) -->
-6. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = maxRequests: 10 --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC6: session creation is rate-limited) -->
+1. Creation accepts a trimmed name and optional supported AI agent type.
+2. Each session receives a unique valid lowercase alphanumeric ID.
+3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields.
+4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients.
+5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity.
+6. Creation remains rate-limited and storage quota is checked in SaaS mode.
 
-**Constraints:**
-
-- Session name is sanitized to prevent injection.
-- Storage quota is checked before creation in SaaS mode; over-quota users receive a descriptive validation error and session creation is blocked.
+**Constraints:** Secrets remain in their established stores. Session records are never written to KV.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware) (requireActiveUser middleware)
+**Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated tests ([Creation integration](../../src/__tests__/routes/session-creation.test.ts); [workspace snapshot](../../src/__tests__/routes/session-workspace.test.ts))
+**Verification:** Planned D1 creation, validation and workspace tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -173,66 +174,58 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-### REQ-SESSION-006: User can stop, restart, and delete sessions
+### REQ-SESSION-006: User can start, stop, restart and delete sessions
 
-**Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
+**Intent:** Explicit lifecycle mutations are ordered by D1 authority and preserve graceful process control.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Stopping a session marks the session record as stopped and tears down the container. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/routes/session-lifecycle.test.ts (POST /:id/stop) -->
-2. Stopping clears all session-side identifiers before initiating teardown to prevent background writebacks from resurrecting the session, then performs a graceful shutdown so the final sync runs before the container is terminated; an unconfirmed destruction returns failure and preserves retryable session state. <!-- @impl: src/container/index.ts::destroy --> <!-- @impl: src/routes/session/lifecycle.ts::container.destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (returns failure and preserves retryable state when destruction is unconfirmed) -->
-3. If the graceful shutdown does not exit within the deadline, the platform forces termination so the user-initiated stop always returns. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-4. Restarting a session reconnects to the same workspace and applies any updated preferences without recreating the container. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/container/index.test.ts (setBucketName updates USER_TIMEZONE on restart (bucket already set, prefs change path)) -->
-5. Deleting a session runs the same graceful shutdown as Stop (so the final sync runs), then removes the session record permanently; an unconfirmed destruction returns failure and retains the record for retry. <!-- @impl: src/container/index.ts::destroy --> <!-- @impl: src/routes/session/crud.ts::container.destroy --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (REQ-SESSION-006 AC5: delete calls container.destroy then removes KV record) -->
-6. Frontend transitions are visible: stopped to initializing to running on start, and running to stopping on stop. It reaches stopped only after batch status confirms stopped or missing; polling timeout or errors preserve `stopping` and terminal state for refresh or retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (stopSession) -->
+1. An accepted Start advances generation once, writes `starting`, and assigns that generation to the Durable Object before process work begins.
+2. Start fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it.
+3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after confirmed exit.
+4. Restart preserves the same D1 session row, workspace and storage identity while applying current preferences in a new generation.
+5. Delete uses the same confirmed graceful destruction path and hard-deletes the D1 row only after exit; delayed writers cannot recreate it.
+6. Failed or ambiguous destruction retains retryable authoritative state and does not report stopped or deleted.
+7. The frontend retains mounted workspace state through uncertainty and disposes it only after newer authoritative stopping/stopped or successful deletion evidence.
 
-**Constraints:**
-
-- Clearing session-side identifiers before teardown is critical to prevent asynchronous writebacks from re-creating a stale session record.
-- The shutdown sync runs against credentials baked into the container at start, independent of the session-side identifier cleanup.
-- The final shutdown sync is bounded so a deletion storm cannot wipe persistent storage.
+**Constraints:** Existing final agent-event drain, final sync, teardown ceilings and storage durability remain unchanged.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-stop-delete.test.ts))
+**Verification:** Planned start/stop/delete, ambiguous-result and frontend lifecycle tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-SESSION-007: Running session count limited per tier
+### REQ-SESSION-007: Workload-owning session count is limited per tier
 
-**Intent:** Each start request is checked against the configured concurrent-session limit to discourage resource overuse and preserve plan differentiation without treating eventually consistent KV as an atomic reservation.
+**Intent:** Each Start performs best-effort capacity enforcement from the consistent D1 lifecycle projection without introducing an atomic reservation protocol.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Before starting a container, running sessions are counted from one storage list operation's metadata fast path. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-2. If the running count (excluding the session being started) meets or exceeds the tier's concurrent-session cap, the start is rejected with a quota-exceeded error. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-3. Default tier limits: free=1, trial=2, standard=1, advanced=2, max=3, unlimited=5, blocked=0, pending=0. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-4. Outside SaaS mode, including Enterprise, stored-role defaults apply: 3 sessions for regular users and 10 for admins. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC4: enterprise uses the non-SaaS stored-user role limit) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC4: enterprise stored admin gets the role-based admin limit) -->
-5. Stress-test deployment mode bypasses session and quota limits. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-6. Enforcement is best effort: the KV list/count and later `running` write are not atomic, so simultaneous starts may both pass and exceed the nominal limit until a session stops. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC6 / REQ-SUB-013 AC5: simultaneous starts can exceed the best-effort limit) -->
-7. Outside SaaS mode, deployment environment values override the role defaults. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC7: respects MAX_SESSIONS_USER env var override) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC7: respects MAX_SESSIONS_ADMIN env var override) -->
+1. Before Start, one owner-indexed D1 query counts other sessions in `starting`, `running`, `unreachable`, or `stopping`.
+2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it.
+3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged.
+4. Create in `stopped` does not consume capacity.
+5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data.
+6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap.
 
-**Constraints:**
-
-- Tier limits are configurable per deployment via the admin Subscription Management panel.
-- The session-cap lookup respects an explicit zero value (a zero cap blocks starts observed after that value, not a fallthrough to default).
-- Best-effort enforcement follows [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity); atomic reservation is out of scope and [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks an Enterprise limit.
+**Constraints:** Do not add stronger reservation guarantees. Session KV LIST/get operations are prohibited.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Automated test ([container-lifecycle-helpers](../../src/__tests__/routes/container-lifecycle-helpers.test.ts))
+**Verification:** Planned D1 capacity and concurrent-start tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -292,34 +285,31 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-### REQ-SESSION-010: Session status observable from dashboard
+### REQ-SESSION-010: Session lifecycle is observable from one D1 projection
 
-**Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.
+**Intent:** Devices share one strongly ordered backend lifecycle while terminal ACTIVE/IDLE remains local presentation.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The batch-status endpoint returns status for all user sessions from one storage list call without container wake; metadata-bearing records use the list result directly. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) -->
-2. Persistent storage holds two statuses (running and stopped); the frontend adds ephemeral states (initializing, stopping, error) that are never persisted. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC2: only running/stopped persisted to KV) -->
-3. The frontend polls batch status every five seconds during transitions and every 60 seconds while stable and visible; hidden pages stop polling, visible pages refresh immediately, and recursive scheduling prevents overlap. <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
-4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
-5. Session cards surface CPU, memory, and disk metrics with up to ~60s staleness; selectable cards omit the internal agent/process and sync-status diagnostic line. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC5: metrics included in list metadata) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) --> <!-- @test: web-ui/src/__tests__/components/SelectableSessionCard.test.tsx (REQ-SESSION-010 AC5: retains CPU, memory, and storage metrics without an internal agent/sync diagnostic line) -->
-6. Last-active and last-started timestamps are available for sleep-timer countdown display. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC6: lastActiveAt and lastStartedAt in batch-status response) -->
+1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics.
+2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps.
+3. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state.
+4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted.
+5. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray, while D1 read failure retains the last ordered state and shows a separate status-unavailable warning.
+6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests.
+7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure.
 
-**Constraints:**
+**Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use.
 
-- Storage eventual consistency can expose stale point values, stale LIST metadata, and temporary LIST omissions.
-- Dashboard polling remains a pure storage read and never wakes a container.
-- Negative-observation handling is defined by [REQ-SESSION-030](#req-session-030-negative-kv-evidence-preserves-lifecycle-owned-sessions).
+**Priority:** P0
 
-**Priority:** P1
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
+**Verification:** Planned backend query-budget, frontend ordering and cross-device tests.
 
-**Verification:** Automated test
-
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -388,106 +378,111 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-### REQ-SESSION-028: Session metadata projection compatibility
+### REQ-SESSION-028: Session authority has no KV compatibility path
 
-**Intent:** Metadata-first session projections preserve legacy records without fallback reads for metadata-bearing comparison or batch entries.
+**Intent:** After clean-slate cutover, all session catalog and lifecycle behavior uses D1 without migration or shadow state.
 
 **Applies To:** System (session lifecycle)
 
 **Acceptance Criteria:**
 
-1. Concurrent-session counting reads a non-target listed session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-SESSION-028 AC1: reads only metadata-less non-target sessions when enforcing the limit) -->
-2. Batch status reads an individual session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-028 AC2: resolves a mix of fast-path metadata and fallback legacy keys) -->
+1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write.
+2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration.
+3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact.
+4. A stopped session remains an ordinary D1 row until Delete hard-deletes it.
+5. Post-cutover rollback uses a reviewed D1-compatible build or forward fix and never a KV-only Worker.
 
-**Constraints:** Compatibility reads remain bounded to metadata-less entries; current writers keep the primary `session:*` record and its list metadata synchronized without overlays or prefix scans.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-SESSION-007](#req-session-007-running-session-count-limited-per-tier), [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
-
-**Verification:** Automated lifecycle-limit and batch-status tests
-
-**Status:** Implemented
-
----
-
-### REQ-SESSION-029: Latest session load owns batch-derived state
-
-**Intent:** Concurrent dashboard session loads cannot replace newer status context with stale data or errors.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Only the latest in-flight session-list load may update batch-derived frontend state; a stale success has no observable effect. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state) -->
-2. A stale session-list failure cannot replace the latest load's error state. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: stale session-list failure cannot overwrite latest error state) -->
-3. A stale batch-status failure cannot replace the latest load's error state. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC3: stale batch-status failure cannot overwrite latest error state) -->
-
-**Constraints:** Background status polling remains independently serialized by its existing one-request-in-flight guard.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
-
-**Verification:** Automated concurrent-load tests
-
-**Status:** Implemented
-
----
-
-### REQ-SESSION-030: Negative KV evidence preserves lifecycle-owned sessions
-
-**Intent:** Eventually-consistent KV observations cannot evict a live dashboard session while local startup or terminal transport still owns its lifecycle.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Incremental polling ignores stale `stopped` while a session is initializing, inside its three-minute startup guard, or owned by a terminal connection, attempt, or retry loop. <!-- @impl: web-ui/src/stores/session.ts::shouldRetainNegativeKv --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (keeps a transport-owned session after startup guard expiry when polling sees stopped) -->
-2. Incremental polling does not remove a transport-owned session after repeated missing batch entries. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (keeps a transport-owned session through repeated missing entries after guard expiry) -->
-3. Full session hydration ignores stale `stopped` under the same ownership gate. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (applies the same protection to full-load stopped metadata) -->
-4. Full session hydration retains a transport-owned local record during a successful KV LIST omission. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (preserves a transport-owned local record through a full-list omission) -->
-5. A persisted-container-state 4503 bypasses negative-KV protection and immediately marks the session stopped. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/session.ts::registerSessionStoppedCallback --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (applies authoritative 4503 immediately despite guard and transport ownership) -->
-6. Handling 4503 releases transport ownership and disposes every terminal connection for that session. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/session.ts::registerSessionStoppedCallback --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (stops retrying on 4503, releases ownership, and reports the authoritative stop) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (applies authoritative 4503 immediately despite guard and transport ownership) -->
-
-**Constraints:** Manual stop and persisted-container-state 4503 remain authoritative. The three-minute startup guard is unchanged.
+**Constraints:** Credentials, preferences, configuration, entitlements, managed releases, storage caches and unrelated records remain in existing stores.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-012](#req-session-012-wake-loop-prevention), [REQ-SEC-020](security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits)
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Automated store tests
+**Verification:** Planned negative-path and repository-wide session-KV audit tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-SESSION-012: Wake-loop prevention
+### REQ-SESSION-029: Ordered client state retains last good authority
 
-**Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
+**Intent:** Concurrent loads and D1 outages cannot replace newer lifecycle context or mounted workspaces with stale data or errors.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When the container is not running, all non-internal HTTP requests receive 503 without waking the container. <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/container/index.test.ts (fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: HTTP remains gated while volatile WS state stays retryable)) -->
-2. WebSocket upgrades receive authoritative 4503 only when the session is confirmed stopping or stopped. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns 4503 without rate-limit use for Container state %s) -->
-3. The frontend detects running-to-stopped transitions and kills all WebSocket retry loops. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (calls disposeSession when session transitions from running to stopped) -->
-4. When a session remains active but its terminal cannot be forwarded without waking the container, the WebSocket receives retryable 1013. <!-- @impl: src/container/index.ts::fetch --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-012 AC4: returns retryable 1013 when volatile runtime state reads not-running) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without rate-limit use when %s state fails health) -->
-5. The client treats close code 4503 as authoritative and does not retry. Transient codes 1001, 1006, 1011, 1012, and 1013 retry automatically; intentional/normal and otherwise unclassified closes remain disconnected while persistent polling resolves session status. <!-- @impl: web-ui/src/lib/constants.ts::WS_RETRYABLE_CLOSE_CODES --> <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
+1. Session responses are applied only when their generation/revision pair is newer than or equal to the client's accepted pair under the defined monotonic ordering.
+2. A stale list or status success has no observable effect.
+3. A stale failure cannot replace the latest request's availability state.
+4. D1 read failure retains last good session records, metrics and ancillary values and presents a distinct status-unavailable warning.
+5. Read failure does not remove sessions, dispose terminal/editor state, or synthesize lifecycle transitions.
+6. Background polling remains serialized by a one-request-in-flight guard.
 
-**Constraints:**
+**Constraints:** Transport unreachability and D1 status unavailability are separate notices and state machines.
 
-- Fresh terminal connections are only opened when the user explicitly starts the session again.
-- An anti-flapping guard prevents stale running status from auto-initializing terminals for non-active sessions.
+**Priority:** P0
 
-**Priority:** P1
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
-**Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
+**Verification:** Planned concurrent-load, delayed-response and outage tests.
 
-**Verification:** Automated test ([session](../../web-ui/src/__tests__/stores/session.test.ts))
+**Status:** Planned
 
-**Status:** Implemented
+---
+
+### REQ-SESSION-030: One-time clean-slate cutover is guarded and exact
+
+**Intent:** The D1 authority begins without importing stale KV sessions and without deleting unrelated data.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The additive D1 migration applies and reruns safely before the reviewed D1-only Worker and matching image are admitted.
+2. A one-time D1 marker closes Create and Start admission until cleanup completes.
+3. Cleanup requires operator-confirmed quiescence and aborts if legacy metadata reports running or initializing; metadata absence is not accepted as liveness proof.
+4. The idempotent purge enumerates and deletes exactly each authenticated owner's `session:${bucketName}:` namespace and no unrelated KV or R2 data.
+5. Old Worker writers cannot recreate legacy keys during cleanup, the D1 session dashboard is verified empty, then the marker records completion and admission reopens.
+6. Ordinary deployments never rerun the purge.
+7. If the environment is not quiescent, cutover stops without automatically draining or killing sessions.
+
+**Constraints:** Production execution is separately authorized; this requirement defines the reviewed integration-safe mechanism.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
+
+**Verification:** Planned migration, admission-gate, prefix-purge and unrelated-data preservation tests.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-012: Transport retry never invents lifecycle state
+
+**Intent:** Browser reconnect and container forwarding preserve recoverable transport uncertainty without waking or disposing a surviving runtime.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Non-internal requests cannot auto-start a non-running container, and forwarding uses a path that does not treat SDK `running` as definitive live-process evidence.
+2. WebSocket upgrades receive authoritative 4503 only from current D1 `stopping` or `stopped` evidence; transient forwarding failures remain retryable.
+3. During `unreachable`, terminal/editor objects, buffers, tabs, selection, tiling and scrollback stay mounted while retries use bounded jitter.
+4. Recovery reconnects to the existing process without invoking Start or allocating a new generation.
+5. Client countdown expiry changes messaging only and cannot declare stopped or dispose the workspace.
+6. D1 read failure retains transport state and shows status unavailable; it never synthesizes `unreachable` or `stopped`.
+
+**Constraints:** Disposal requires newer authoritative stopping/stopped evidence or explicit successful deletion.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
+
+**Verification:** Planned WebSocket, D1 outage and mounted-workspace tests.
+
+**Status:** Planned
 
 ---
 
@@ -638,35 +633,31 @@ None.
 
 ---
 
-### REQ-SESSION-018: Persisted status is authoritative on container exit
+### REQ-SESSION-018: D1 lifecycle evidence is generation-fenced
 
-**Intent:** Durable container lifecycle evidence owns running/stopped transitions; KV is its eventually-consistent dashboard projection. A container that exits for any reason writes `stopped` only after the not-running confirmation window, while a running metrics tick repairs stale KV only when no durable shutdown request owns the transition.
+**Intent:** D1 is the shared lifecycle authority, while the Durable Object owns process control and may project only observations belonging to its assigned execution generation.
 
-**Applies To:** User
+**Applies To:** System (session lifecycle)
 
 **Acceptance Criteria:**
 
-1. A container that exits for any reason (graceful stop, crash, or an SDK-surfaced error) transitions its KV status to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (writes status=stopped to KV only after the not-running confirmation window (catch-all)) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-018 AC1: recovery cleanup failure cannot block the authoritative stopped write) -->
-2. Stopped is written only after the container reads not-running across a confirmation window spanning more than one alarm tick, so a single transient not-running reading never flips a live session to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
-3. A non-transport not-running error does not write stopped; the confirmation window opens and re-arms a metrics tick, deferring the stopped decision to that window. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation --> <!-- @test: src/__tests__/container/lifecycle.test.ts (onError opens the not-running confirmation window and re-arms instead of writing stopped) -->
-4. A start request that finds an already-running container does not rewrite KV because that route cannot inspect the durable shutdown-requested marker; marker-aware metrics owns convergence. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (returns already_running without an unowned KV lifecycle repair) -->
-5. A running metrics tick re-asserts running when KV status is stopped or missing only when no persisted shutdown-requested marker shows a deliberate stop is in flight. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (re-asserts running when a stale KV read has no status and the container is alive) --> <!-- @test: src/__tests__/container-metrics.test.ts (skips the metrics write when stopped AND the persisted shutdown marker is set (clobber-race guard)) -->
-6. Container start publishes `running`, `lastStartedAt`, and `lastActiveAt` from one KV read/write snapshot, preventing a second eventually-consistent read from restoring pre-start status. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @impl: src/container/container-metrics.ts::updateKvStatus --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-018 AC6: publishes running and both startup timestamps from one KV read) -->
+1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted.
+2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`.
+3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence.
+4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row.
+5. Every accepted mutation advances a response revision used with generation to order API responses.
+6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed.
+7. Only confirmed process-exit evidence writes `stopped`; transport failure, D1 failure, signal acceptance, or a transient SDK state does not.
 
-**Constraints:**
+**Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
 
-- The not-running confirmation window and the deliberate-stop marker are persisted in DO storage (not in-memory), so a hibernation or mid-shutdown eviction cannot discard them; `destroy()` sets the marker before clearing identifiers and `onStart` clears it.
-- Newly started sessions have a 3-minute startup guard; active terminal transport ownership extends rejection of negative KV evidence after that window. Manual stop and persisted-state 4503 remain authoritative.
-- A genuine crash converges to stopped after the confirmation window (one to a few alarm ticks).
-- Accepted residual: a tick landing in the sub-millisecond gap between the user-stop KV write and `destroy()` persisting the marker can self-heal the just-stopped session for a single tick before `destroy()` settles it back to stopped; the idle-stop path is immune.
+**Priority:** P0
 
-**Priority:** P1
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
+**Verification:** Planned behavioral D1 repository, lifecycle and delayed-callback tests.
 
-**Verification:** Automated test ([collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/lifecycle.test.ts))
-
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -692,184 +683,247 @@ None.
 
 ---
 
-### REQ-SESSION-020: The metrics alarm outlives a container that stops answering
+### REQ-SESSION-020: Runtime observation is bounded and projected once
 
-**Intent:** The metrics alarm is the only detector of a container that has stopped serving, so it must not be killable by that same condition. Its re-arm is the last statement of the tick and the schedule is one-shot, which means a poll that never returns takes the loop with it, and no other path restores it: a start hook only runs on a fresh container start, and an error hook only fires when the platform monitor sees the container exit, neither of which happens to a container that is wedged but still reported running.
+**Intent:** Metrics monitoring survives failed peers while normal projection uses one bounded host observation and one conditional D1 mutation.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. A normal metrics tick performs one bounded authenticated host observation containing classified input, CPU, memory, disk, sync and editor readiness.
+2. After local policy decisions, a normal tick performs one conditional D1 projection update and no normal-path D1 pre-read or readback.
+3. Every awaited external operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed.
+4. Host transport reachability, snapshot validity, readiness and confirmed process exit remain distinct evidence.
+5. D1 projection failure enters bounded persistence reconciliation and cannot authorize reconstruction, termination, `unreachable`, or `stopped`.
+6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget.
+
+**Constraints:** Existing idle-input policy, usage authority and final-sync deadlines remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+
+**Verification:** Planned host-observation and metrics operation-budget tests.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-021: Complete transport failure opens one unreachable incident
+
+**Intent:** Host transport uncertainty becomes recoverable shared state without stopping or replacing the workload.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Every request the metrics alarm awaits on an external party is bounded, so a peer that accepts the connection and never answers ends that request rather than the tick. <!-- @impl: src/container/container-metrics.ts::pollContainer --> <!-- @impl: src/container/container-metrics.ts::raceBudget --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1: re-arms the alarm when the Timekeeper ping never answers) -->
-2. A single poll failure leaves the alarm armed, so idle detection and health reporting continue on the next tick. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) -->
-3. Teardown records the session stopped while the identifiers that write requires are still in hand, so a teardown that does not run to completion still leaves the session recorded as stopped rather than running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (records the session stopped BEFORE clearing the identifiers that write needs) -->
-4. The deliberate-stop marker is durable before that write, so a concurrent metrics tick reading a stopped record with no marker present cannot mistake it for a false stop and re-assert running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (records the session stopped BEFORE clearing the identifiers that write needs) -->
-5. A restart path that tears the container down goes on to start it, so the marker that teardown persisted is always cleared by a fresh start rather than left to hold the session stopped. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy) -->
-6. A restart path that tears the container down records the session running again, so the authoritative stopped gate does not end the client's reconnects while the container is coming back up. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy) -->
+1. A complete bounded host-transport failure conditionally opens one incident for the current generation and persists `unreachable`, incident identity, first-observed time and an absolute deadline 120 seconds later.
+2. Opening an incident occurs before Durable Object reset or reconstruction and leaves the container and PTY untouched.
+3. Repeated failures join the existing incident and never move its first-observed time or deadline.
+4. D1 failure is treated as persistence uncertainty and never opens a transport incident.
+5. `unreachable` retains workload ownership, counts toward best-effort capacity and blocks destructive managed reconciliation.
+6. Accelerated recovery work remains non-billable and does not create another quota or usage source.
 
-**Constraints:** Bounds apply to awaited polls; confirmed lifecycle exits must still end the alarm loop.
+**Constraints:** The deadline is earliest termination eligibility, not guaranteed exit time.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit)
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-020](#req-session-020-runtime-observation-is-bounded-and-projected-once)
 
-**Verification:** Automated test ([metrics alarm survives an unanswered poll](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Planned bounded failure, D1 outage and ownership tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-SESSION-021: Unreachable container transport initiates coordinator reconstruction
+### REQ-SESSION-022: Unreachable recovery preserves process identity
 
-**Intent:** A running session with persistently unreachable host transport must enter recovery without stopping its workload or changing its authoritative status.
+**Intent:** Coordinator reconstruction reattaches to the existing process and confirms recovery only from current-generation host evidence.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A running session whose host transport remains unreachable throughout the confirmation window enters recovery. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
-2. The running workload remains available to the recovery process rather than being stopped or destroyed. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
-3. The session remains authoritatively recorded as running throughout that recovery attempt. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
-4. A fresh lifecycle arms monitoring only after prior transport-failure and recovery state has been cleared together. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear prior transport state) -->
-5. Any response from either host route ends the unreachable-transport failure sequence, regardless of HTTP status. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak) -->
-6. When its monitor loses container transport, a session enters bounded recovery before it is treated as unavailable. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::beginMonitorTransportRecovery --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC6: reconstructs immediately when the SDK monitor loses container services after running becomes false) -->
-7. If recovery setup fails before durable recovery ownership is retained, a session that remains unavailable converges to stopped through ordinary exit confirmation. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::beginMonitorTransportRecovery --> <!-- @test: src/__tests__/container-metrics.test.ts (failed monitor-recovery scheduling still converges a persistently unavailable session to stopped) -->
+1. A reconstructed Durable Object performs one bounded primary-consistent D1 recovery read and adopts only its previously assigned generation, incident and absolute deadline.
+2. Reconstruction probes the existing container through retained SDK/process identity and never invokes Start or allocates another generation.
+3. A qualifying host response proves transport reachability; a valid snapshot separately determines whether metrics and activity may be projected.
+4. Recovery conditionally clears the same incident and returns `unreachable` to `running` without replacing the container or PTY.
+5. Reconstruction failure or another transport failure retains the same incident and deadline.
+6. Old callbacks, alarms and reconstruction work cannot adopt a newer generation.
 
-**Constraints:** None.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering)
-
-**Verification:** Automated test ([transport reconstruction preserves the running workload](../../src/__tests__/container-metrics.test.ts)); successful SDK reattachment remains a deployed smoke check outside AC1
-
-**Status:** Implemented
-
----
-
-### REQ-SESSION-022: Transport recovery is confirmed and bounded
-
-**Intent:** Operators must see recovery confirm only after restored host reachability and stop restarting after a bounded number of unsuccessful attempts.
-
-**Applies To:** Operator
-
-**Acceptance Criteria:**
-
-1. Recovery returns to normal monitoring only after a reconstructed coordinator receives a host response and confirms the incident complete. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2: does not confirm recovery or restore normal cadence until recovery evidence is cleared) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1: a responding probe clears exhausted recovery without stopping the session) -->
-2. One transport incident initiates at most two coordinator restart attempts. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2-AC3 + REQ-SESSION-025 AC1: bounds reconstruction and converges an exhausted unreachable session to stopped) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2: repeated monitor loss joins the existing incident without another reconstruction) -->
-3. After two coordinator reconstructions, another complete probe failure converges the session to stopped even if the SDK still reports the container as running. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2-AC3 + REQ-SESSION-025 AC1: bounds reconstruction and converges an exhausted unreachable session to stopped) -->
-4. When deliberate-stop ownership cannot be established, recovery performs no restart and arms no further alarm. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @impl: src/container/container-metrics.ts::beginMonitorTransportRecovery --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC5: suppresses reconstruction and re-arming when deliberate-stop ownership cannot be read) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC4: monitor loss cannot reconstruct when deliberate-stop ownership is unreadable) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC4: deliberate shutdown suppresses monitor-loss reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC4: recovery-state read failure suppresses monitor-loss reconstruction) -->
-5. If the runtime remains not-running through both reconstruction attempts, recovery returns ownership to persisted exit confirmation rather than resetting indefinitely or leaving the session running forever. <!-- @impl: src/container/container-metrics.ts::reconcileNotRunningTransportRecovery --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC5: bounds monitor-loss recovery while running remains false, then resumes exit confirmation) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC5: exhausted monitor loss returns to ordinary exit confirmation) -->
-6. A failed authoritative stopped-status write retains exhausted recovery ownership and re-arms a non-billable retry. <!-- @impl: src/container/container-metrics.ts::updateKvStatus --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC6: retains exhausted recovery and retries a failed authoritative stopped write without billing) -->
-7. Terminal recovery ownership ends only after the platform accepts the container stop. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7 + REQ-SESSION-024 AC4: retains exhausted recovery and retries when terminal container stop fails) -->
-
-**Constraints:** Confirmed recovery resumes normal metrics cadence; failed reconstruction confirmation retains five-second monitoring, while failed terminal status or stop operations attempt a retry after 60 seconds.
+**Constraints:** Existing Durable Object reconstruction and PTY reattachment behavior is preserved.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-021](#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](#req-session-024-transport-recovery-ownership-is-durable)
+**Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Automated test ([bounded transport recovery](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Planned reconstruction, process-identity and deadline-survival tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-SESSION-023: Accelerated recovery preserves usage and quota
+### REQ-SESSION-023: Recovery and persistence uncertainty do not bill usage
 
-**Intent:** A user's accelerated recovery confirmations must not consume usage or change quota while transport recovery remains unresolved.
+**Intent:** Recovery probes and D1 reconciliation do not alter the user's usage or quota.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Accelerated confirmation ticks add no billable usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper) -->
-2. Accelerated confirmation ticks leave the user's quota unchanged. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper) -->
-3. An exhausted recovery that remains unreachable converges to stopped without adding usage or pinging Timekeeper. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-023 AC3: exhausted unreachable transport converges without usage accounting) -->
+1. Accelerated transport-recovery probes add no billable usage and do not ping Timekeeper.
+2. D1 persistence-reconciliation work adds no billable usage and does not change quota.
+3. Unreachable time and stopping retries do not create a second accounting source.
+4. Ordinary classified-input idle policy and Timekeeper authority remain unchanged.
 
-**Constraints:** Accounting changes only with the monitoring cadence; recovery does not create a second usage source.
+**Constraints:** Accounting remains owned by the existing usage subsystem.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-021](#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-022](#req-session-022-transport-recovery-is-confirmed-and-bounded)
+**Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Automated test ([transport recovery usage accounting](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Planned metrics accounting tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
 <a id="req-session-024-transport-recovery-evidence-is-durable-and-observable"></a>
 
-### REQ-SESSION-024: Transport recovery ownership is durable
+### REQ-SESSION-024: Recovery deadline and termination intent are durable
 
-**Intent:** Operators must retain trustworthy recovery ownership through coordinator replacement and terminal convergence.
+**Intent:** Recovery ownership survives coordinator replacement, and deadline expiry cannot target a replacement process.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. D1 retains incident identity, first-observed time, absolute deadline, lifecycle generation and termination intent until recovery or confirmed exit resolves them.
+2. At the first available execution at or after the deadline, the current owner conditionally claims `stopping` for the same generation and incident.
+3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it.
+4. Immediately before signalling, execution rechecks generation ownership and cannot signal a replacement generation.
+5. Stop signalling uses the low-level SIGTERM path even when the SDK `running` flag is transiently false; retries are bounded and duplicate-safe.
+6. Signal acceptance retains `stopping`; only confirmed exit transitions to `stopped`.
+
+**Constraints:** Exactly-once external signalling is not promised. Established final-event, final-sync and teardown deadlines are unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-022](#req-session-022-unreachable-recovery-preserves-process-identity)
+
+**Verification:** Planned deadline, duplicate-signal, replacement-generation and confirmed-exit tests.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-025: Lifecycle recovery is observably correlated
+
+**Intent:** Operators receive bounded, privacy-safe evidence for lifecycle transitions without high-volume normal-path logging.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. An incident remains identifiable across coordinator replacement until recovery is confirmed or the container lifecycle ends. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-022 AC1: clears transport recovery independently when later teardown cleanup fails) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC1: schedule and cleanup failure retain recovery ownership with a confirmation tick) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC1: re-arms without probing when pre-upgrade terminal KV ownership cannot be read) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC1: retains exhausted ownership when pre-upgrade terminal migration cannot persist) -->
-2. Invalid incident state cannot authorize another coordinator restart. <!-- @impl: src/container/container-metrics.ts::isTransportRecoveryRecord --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC2: malformed recovery state cannot authorize reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC2: invalid monitor recovery state cannot authorize reconstruction) -->
-3. A failed recovery-ownership read attempts to arm the next metrics tick. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC3: attempts to re-arm when the early recovery ownership read fails) -->
-4. A failed terminal container stop remains durably owned for a non-billable retry attempt. <!-- @impl: src/container/container-metrics.ts::continueTerminalConvergence --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7 + REQ-SESSION-024 AC4: retains exhausted recovery and retries when terminal container stop fails) -->
-5. Retained pre-upgrade terminal evidence migrates before probes when KV is stopped, or when KV is absent while the SDK reports the container running. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC5: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC5: migrates pre-upgrade exhausted ownership when the KV record is already absent) -->
+1. Structured transition events identify lifecycle generation and unreachable incident when an incident opens, reconstruction begins, recovery succeeds, termination is claimed, SIGTERM fails or is accepted, final sync completes or fails, and exit is confirmed.
+2. Reason classification distinguishes supported evidence for user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown paths without inventing an initiator.
+3. Normal metrics ticks, individual WebSocket retries and unchanged state are not logged per occurrence.
+4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths.
+5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream.
 
-**Constraints:** Lifecycle cleanup attempts incident removal independently from unrelated operational cleanup.
+**Constraints:** Use the existing structured logger; no new telemetry framework.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-021](#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction)
+**Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Automated test ([durable and correlated transport recovery evidence](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Planned structured-event and negative-volume tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-SESSION-025: Transport recovery failures are observable
+### REQ-SESSION-026: Lifecycle scheduling and persistence failures remain actionable
 
-**Intent:** Operators must receive explicit evidence when transport recovery or terminal-convergence scheduling fails.
+**Intent:** Recovery work never reports success when required scheduling or authoritative persistence did not complete.
 
-**Applies To:** Operator
+**Applies To:** System (session lifecycle)
 
 **Acceptance Criteria:**
 
-1. Recovery events expose coordinator and attempt identities, counts, elapsed time, container state, and classified route observations. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2-AC3 + REQ-SESSION-025 AC1: bounds reconstruction and converges an exhausted unreachable session to stopped) -->
-2. Recovery-ownership retry-scheduling failure is logged. <!-- @impl: src/container/container-metrics.ts::scheduleRecoveryOwnershipReadRetry --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-025 AC2 + REQ-SESSION-026 AC1: logs and propagates scheduling failure after the early recovery ownership read fails) -->
-3. Terminal-convergence retry-scheduling failure is logged. <!-- @impl: src/container/container-metrics.ts::scheduleTerminalConvergenceRetry --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-025 AC3 + REQ-SESSION-026 AC2: logs and propagates terminal retry scheduling failure) -->
+1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and incident identity and propagates to its lifecycle caller.
+2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery.
+3. Retry work is bounded, duplicate-safe and non-billable.
+4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed.
 
-**Constraints:** None.
+**Constraints:** A D1 failure and a host-transport failure remain distinct conditions.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-024](#req-session-024-transport-recovery-ownership-is-durable)
+**Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Automated test ([transport recovery failure observability](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Planned scheduling, ambiguous-write and fail-closed tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-SESSION-026: Transport recovery scheduling failures reach lifecycle callers
+---
 
-**Intent:** Container lifecycle callers must receive retry-scheduling failures instead of silent completion.
+### REQ-SESSION-031: D1 session schema stores complete ordered authority
 
-**Applies To:** System (container lifecycle)
+**Intent:** One minimal owner-indexed D1 table stores complete non-secret session records and the fields needed for fenced lifecycle projection.
+
+**Applies To:** System (session lifecycle)
 
 **Acceptance Criteria:**
 
-1. Recovery-ownership retry-scheduling failure is propagated to its caller. <!-- @impl: src/container/container-metrics.ts::scheduleRecoveryOwnershipReadRetry --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-025 AC2 + REQ-SESSION-026 AC1: logs and propagates scheduling failure after the early recovery ownership read fails) -->
-2. Terminal-convergence retry-scheduling failure is propagated to its caller. <!-- @impl: src/container/container-metrics.ts::scheduleTerminalConvergenceRetry --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-025 AC3 + REQ-SESSION-026 AC2: logs and propagates terminal retry scheduling failure) -->
+1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent.
+2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks.
+3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history.
+4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps.
+5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed.
+6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`.
+7. The additive migration is idempotently managed by the existing `USAGE_DB` migration path and does not alter analytics tables.
 
-**Constraints:** None.
+**Constraints:** Times are UTC ISO-8601 text except explicit millisecond deadlines where arithmetic is required. JSON configuration columns are validated at the typed repository boundary. Secrets are excluded.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-024](#req-session-024-transport-recovery-ownership-is-durable)
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-030](#req-session-030-one-time-clean-slate-cutover-is-guarded-and-exact)
 
-**Verification:** Automated test ([transport recovery scheduling propagation](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Planned migration-shape, constraint, index and rerun tests.
 
-**Status:** Implemented
+**Status:** Planned
 
----
+#### Normative schema design
+
+`runtime_sessions` columns:
+
+| Group | Columns |
+| --- | --- |
+| Identity | `owner_key TEXT`, `session_id TEXT`, composite primary key |
+| Complete record | `name TEXT`, `created_at TEXT`, `last_accessed_at TEXT`, nullable `agent_type TEXT`, `workspace TEXT`, `terminal_mode TEXT`, nullable `tab_config_json TEXT`, nullable `clone_json TEXT` |
+| Ordering | `lifecycle_state TEXT`, `lifecycle_generation INTEGER`, `response_revision INTEGER`, `observation_sequence INTEGER` |
+| Lifecycle | nullable `last_started_at TEXT`, `last_active_at TEXT`, `transitioned_at TEXT`, nullable `lifecycle_reason TEXT` |
+| Readiness | `editor_ready INTEGER`, `editor_ready_error INTEGER`, nullable `readiness_observed_at TEXT` |
+| Latest projection | nullable `cpu TEXT`, `memory TEXT`, `disk TEXT`, `sync_status TEXT`, `metrics_observed_at TEXT`, `last_input_at TEXT` |
+| Incident | nullable `unreachable_incident_id TEXT`, `unreachable_first_observed_at TEXT`, `unreachable_deadline_ms INTEGER` |
+| Termination | nullable `termination_intent_id TEXT`, `termination_generation INTEGER`, `termination_claimed_at TEXT`, `termination_signal_accepted_at TEXT` |
+
+The schema checks the lifecycle vocabulary, non-negative counters, boolean integers, paired incident fields and generation-bound termination fields. `response_revision` and `lifecycle_generation` start at zero; `observation_sequence` starts at `-1` so sequence zero may be accepted. The owner query orders by `last_accessed_at DESC, session_id ASC`; one index on that tuple is sufficient.
+
+`session_cutover` is a singleton row (`id = 1`) with `state`, `updated_at`, and nullable `completed_at`. Migration inserts `pending`; the reviewed one-time cleanup changes it to `complete` only after exact-prefix purge and empty-dashboard verification.
+
+#### Normative mutation predicates
+
+- Create is an ordinary `INSERT` in `stopped`, generation/revision zero, and fails while cutover is not complete.
+- Start is one conditional `UPDATE`: cutover complete, current state `stopped`, and no termination intent; it increments generation and revision, resets observation sequence to `-1`, and writes `starting`.
+- Runtime projection is one conditional `UPDATE` by owner/session/generation where incoming sequence is greater; accepted mutation stores the sequence and increments revision.
+- Incident open uses deterministic incident identity and only the matching generation; retry of an already committed open reconciles as idempotent, while a conflicting incident fails closed.
+- Recovery clears only the matching generation and incident.
+- Termination claim changes the matching `unreachable` generation/incident to `stopping` and records intent atomically.
+- Confirmed exit changes only the matching terminating generation to `stopped` and clears incident/intent fields.
+- Delete uses `DELETE` only after confirmed graceful destruction. Delayed runtime writers use `UPDATE`, never `UPSERT` or `INSERT OR REPLACE`.
+- `meta.changes === 0` triggers a bounded primary read only on exceptional ownership/idempotency reconciliation paths; the normal projection path performs no readback.

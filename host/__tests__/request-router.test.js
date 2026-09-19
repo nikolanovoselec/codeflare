@@ -156,6 +156,31 @@ describe('request router seam (server.ts decomposition)', () => {
     assert.equal(recovered.body.editorReadyTimedOut, false);
   });
 
+  it('REQ-SESSION-020: returns one authenticated consolidated runtime observation', async () => {
+    const unauthenticated = await getJson(port, '/internal/runtime-observation');
+    assert.equal(unauthenticated.status, 401);
+
+    const observed = await getJson(port, '/internal/runtime-observation', {
+      authorization: 'Bearer seam-test-token',
+    });
+    assert.equal(observed.status, 200);
+    assert.deepEqual(Object.keys(observed.body).sort(), [
+      'cpu',
+      'disk',
+      'editorReady',
+      'editorReadyError',
+      'lastInputAt',
+      'memory',
+      'observedAt',
+      'syncStatus',
+      'terminalReady',
+    ]);
+    assert.equal(observed.body.editorReady, readinessState.editorReady);
+    assert.equal(observed.body.editorReadyError, readinessState.editorReadyTimedOut);
+    assert.equal(observed.body.terminalReady, readinessState.terminalServiceReady);
+    assert.equal(typeof observed.body.observedAt, 'string');
+  });
+
   it('falls through to 404 for unknown paths (with a valid bearer token)', async () => {
     const { status, body } = await getJson(port, '/no-such-route', { authorization: 'Bearer seam-test-token' });
     assert.equal(status, 404);
