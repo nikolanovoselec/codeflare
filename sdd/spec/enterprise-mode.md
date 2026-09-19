@@ -2582,12 +2582,17 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - Cache experiments add no retry, delay, fallback, parser change, or all-branch probing. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache -->
-- A successful Native experiment uses two requests with identical prefix and controls but different nonempty questions; Dynamic whole-response pairs remain identical. <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: changes only the user question in each Native Eventstream cache pair while preserving independent %s evidence) -->
-- Gateway hits, synthetic counters, refused fills, and inconclusive observations grant no prefix permission. Targets without permission remain usable, and unauthorized checkpoints fail before inference. <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported -->
-- Only final tool-result text may lift to `tool_result`; unknown controls, unsupported TTLs, top-level automatic controls, and more than four checkpoints fail before I/O.
+- Native experiment pairs retain identical prefix and controls but different questions; Dynamic pairs remain identical. <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: changes only the user question in each Native Eventstream cache pair while preserving independent %s evidence) -->
+- Gateway hits, synthetic counters, refused fills, and inconclusive observations grant no prefix permission. <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported -->
+- Targets without permission remain usable; unauthorized checkpoints fail before inference.
+- Refused cache fills do not submit paired reads. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache -->
+- Invalid or duplicate capability handles are rejected.
+- Reasoning length or token evidence may prove enabled reasoning without exposing content. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
+- Enabled reasoning does not prove graduated fidelity.
+- Only final tool-result text may lift to `tool_result`; invalid controls or excess checkpoints fail before I/O.
 - Malformed cache responses stop discovery with sanitized diagnostics. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
-- Replay isolation, metadata privacy, usage accounting, and continuation follow [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-079](#req-enterprise-079-provider-native-bedrock-replay-confidentiality), [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation), and [REQ-ENTERPRISE-077](#req-enterprise-077-provider-native-bedrock-transport-dispatch).
-- Five-minute retention is the only advertised TTL; transport, campaign, fatal-stop, historical-authority, and Dynamic-routing rules remain unchanged.
+- Replay, privacy, usage, and continuation follow [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-079](#req-enterprise-079-provider-native-bedrock-replay-confidentiality), [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation), and [REQ-ENTERPRISE-077](#req-enterprise-077-provider-native-bedrock-transport-dispatch).
+- Five-minute retention is the only advertised TTL; transport, campaign, authority, and Dynamic routing remain unchanged.
 
 **Priority:** P1
 
