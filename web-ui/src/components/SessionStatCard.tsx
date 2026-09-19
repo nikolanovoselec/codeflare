@@ -119,7 +119,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           role="status"
           aria-label={props.session.workspace === 'vscode'
             ? `Session ${props.session.status}`
-            : ('label' in lifecyclePresentation() ? lifecyclePresentation().label : `Session ${props.session.status}`)}
+            : lifecyclePresentation().label)
         />
         <Show when={timerInfo()}>
           {(info) => (

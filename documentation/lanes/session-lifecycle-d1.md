@@ -12,7 +12,7 @@
 - [Runtime recovery and status](#runtime-recovery-and-status)
 - [Cutover boundary](#cutover-boundary)
 - [Requirement and Source Map](#requirement-and-source-map)
-- [Related documentation](#related-documentation)
+- [Related Documentation](#related-documentation)
 
 ## Lifecycle authority
 

@@ -1880,7 +1880,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
+    it('REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
       // The quota-eviction path must drain through /internal/final-sync before
       // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
       // setup and assert the order via callOrder rather than just that stop ran.
@@ -2414,7 +2414,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
   });
 
   describe('idle-stop drains before stop', () => {
-    it('REQ-SESSION-027 AC1: calls final agent-event drain, then final sync, then stop', async () => {
+    it('REQ-SESSION-032 AC1: calls final agent-event drain, then final sync, then stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: true,
@@ -2438,7 +2438,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
-    it('REQ-SESSION-027 AC6: an event-drain failure still runs final sync and stop', async () => {
+    it('REQ-SESSION-032 AC6: an event-drain failure still runs final sync and stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: false,
@@ -2459,7 +2459,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
-    it('REQ-SESSION-027 AC7: final-sync failure preserves the event attempt and still stops', async () => {
+    it('REQ-SESSION-032 AC7: final-sync failure preserves the event attempt and still stops', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: false,

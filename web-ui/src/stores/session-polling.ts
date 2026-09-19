@@ -253,7 +253,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.
       const currentProjection = {
-        lifecycle: (session.lifecycle ?? (session.status === 'initializing' || session.status === 'error' ? 'running' : session.status)) as BackendLifecycle,
+        lifecycle: (session.lifecycle ?? (session.status === 'error' ? 'running' : session.status)) as BackendLifecycle,
         generation: session.generation,
         revision: session.revision,
       };
@@ -263,13 +263,14 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
         revision: remote.revision,
       };
       const ordered = applyOrderedProjection(currentProjection, incomingProjection);
+      const statusChanged = remote.status !== session.status;
       if (ordered === incomingProjection) {
-        if (remote.status !== session.status) updateSessionStatusFn(session.id, remote.status);
+        if (statusChanged) updateSessionStatusFn(session.id, remote.status);
         setStateRaw('sessions', idx, 'lifecycle', remote.lifecycle ?? remote.status);
         if (remote.generation !== undefined) setStateRaw('sessions', idx, 'generation', remote.generation);
         if (remote.revision !== undefined) setStateRaw('sessions', idx, 'revision', remote.revision);
         if (remote.unreachableDeadlineMs !== undefined) setStateRaw('sessions', idx, 'unreachableDeadlineMs', remote.unreachableDeadlineMs);
-        if (remote.status === 'stopped' && remote.status !== session.status) terminalStore.disposeSession(session.id);
+        if (remote.status === 'stopped' && statusChanged) terminalStore.disposeSession(session.id);
       }
     }
   } catch (err) {

@@ -407,43 +407,39 @@ async function loadSessions(): Promise<void> {
       if (currentStatus === 'initializing' || currentStatus === 'stopping') continue;
       if (batchStatus.status === 'stopped' && shouldRetainNegativeKv(session.id)) continue;
 
+      const current = state.sessions.find((candidate) => candidate.id === session.id);
+      const incomingProjection = {
+        lifecycle: batchStatus.status as BackendLifecycle,
+        generation: batchStatus.generation,
+        revision: batchStatus.revision,
+      };
+      const ordered = applyOrderedProjection(
+        {
+          lifecycle: (current?.lifecycle ?? (current?.status === 'initializing' || current?.status === 'error' ? 'running' : current?.status ?? 'stopped')) as BackendLifecycle,
+          generation: current?.generation,
+          revision: current?.revision,
+        },
+        incomingProjection,
+      );
+      if (ordered !== incomingProjection) continue;
+      const wasRunning = existingStatuses.get(session.id) === 'running';
+      updateSessionStatus(session.id, batchStatus.status);
+      const latestIndex = state.sessions.findIndex((candidate) => candidate.id === session.id);
+      if (latestIndex !== -1) {
+        setState('sessions', latestIndex, 'lifecycle', batchStatus.lifecycle ?? batchStatus.status);
+        if (batchStatus.generation !== undefined) setState('sessions', latestIndex, 'generation', batchStatus.generation);
+        if (batchStatus.revision !== undefined) setState('sessions', latestIndex, 'revision', batchStatus.revision);
+        if (batchStatus.unreachableDeadlineMs !== undefined) setState('sessions', latestIndex, 'unreachableDeadlineMs', batchStatus.unreachableDeadlineMs);
+      }
       if (batchStatus.status === 'running') {
-        const wasRunning = existingStatuses.get(session.id) === 'running';
-        updateSessionStatus(session.id, 'running');
         if (!wasRunning && session.workspace !== 'vscode') {
           initializeTerminalsForSession(session.id);
         }
-      } else {
-        const current = state.sessions.find((candidate) => candidate.id === session.id);
-        const incomingProjection = {
-          lifecycle: batchStatus.status as BackendLifecycle,
-          generation: batchStatus.generation,
-          revision: batchStatus.revision,
-        };
-        const ordered = applyOrderedProjection(
-          {
-            lifecycle: (current?.lifecycle ?? (current?.status === 'initializing' || current?.status === 'error' ? 'running' : current?.status ?? 'stopped')) as BackendLifecycle,
-            generation: current?.generation,
-            revision: current?.revision,
-          },
-          incomingProjection,
-        );
-        if (ordered !== incomingProjection) continue;
-        const wasRunning = existingStatuses.get(session.id) === 'running';
-        updateSessionStatus(session.id, batchStatus.status);
-        const latestIndex = state.sessions.findIndex((candidate) => candidate.id === session.id);
-        if (latestIndex !== -1) {
-          setState('sessions', latestIndex, 'lifecycle', batchStatus.lifecycle ?? batchStatus.status);
-          if (batchStatus.generation !== undefined) setState('sessions', latestIndex, 'generation', batchStatus.generation);
-          if (batchStatus.revision !== undefined) setState('sessions', latestIndex, 'revision', batchStatus.revision);
-          if (batchStatus.unreachableDeadlineMs !== undefined) setState('sessions', latestIndex, 'unreachableDeadlineMs', batchStatus.unreachableDeadlineMs);
-        }
+      } else if (wasRunning && batchStatus.status === 'stopped') {
         // Container stopped externally (hibernation/crash) — kill WS retry loops
         // so reconnect attempts don't keep waking the DO. Fresh connect() calls
         // are made when the user starts the session again.
-        if (wasRunning && batchStatus.status === 'stopped') {
-          terminalStore.disposeSession(session.id);
-        }
+        terminalStore.disposeSession(session.id);
       }
     }
   } catch (err) {

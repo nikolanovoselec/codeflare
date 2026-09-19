@@ -496,7 +496,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('2h');
     });
 
-    it('REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage', async () => {
+    it('REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
