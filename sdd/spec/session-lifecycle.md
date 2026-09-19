@@ -905,13 +905,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent.
-2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks.
-3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history.
-4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps.
-5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed.
-6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`.
-7. The additive migration is idempotently managed by the existing `USAGE_DB` migration path and does not alter analytics tables.
+1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent. <!-- @impl: migrations/usage/0002_runtime_sessions.sql -->
+2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks. <!-- @impl: migrations/usage/0002_runtime_sessions.sql -->
+3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history. <!-- @impl: migrations/usage/0002_runtime_sessions.sql -->
+4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @impl: migrations/usage/0002_runtime_sessions.sql -->
+5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql -->
+6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.create -->
+7. The additive migration is idempotently managed by the existing `USAGE_DB` migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql -->
 
 **Constraints:** Times are UTC ISO-8601 text except explicit millisecond deadlines where arithmetic is required. JSON configuration columns are validated at the typed repository boundary. Secrets are excluded.
 
