@@ -159,7 +159,12 @@ export function executableShellSegments(command: string): ExecutableShellSegment
       quote = "";
       continue;
     }
-    if (!quote && ";&|\n\r".includes(char)) {
+    // In descriptor duplication (`2>&1`, `0<&3`) the ampersand belongs to the
+    // redirection operator. Treating it as a background-job separator truncates
+    // the executable segment and can make a valid push look as though it targets
+    // an unrelated refspec.
+    const redirectionAmpersand = char === "&" && (source[index - 1] === ">" || source[index - 1] === "<");
+    if (!quote && !redirectionAmpersand && ";&|\n\r".includes(char)) {
       let separator: ShellSeparator;
       if ((char === "&" || char === "|") && source[index + 1] === char) {
         separator = char === "&" ? "&&" : "||";
@@ -289,6 +294,9 @@ export function exposureTargetsCheckedOutBranch(
   const positional: string[] = [];
   for (let index = 1; index < relevant.args.length; index += 1) {
     const value = relevant.args[index] ?? "";
+    // executableShellCommands preserves compact descriptor redirections as a
+    // single argv-shaped token. They are shell syntax, never push refspecs.
+    if (/^\d*[<>]&\d+$/.test(value)) continue;
     if (value === "--") {
       positional.push(...relevant.args.slice(index + 1));
       break;
