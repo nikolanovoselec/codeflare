@@ -1476,8 +1476,23 @@ export async function collectMetrics(
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
         syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
       };
-      state.lastSeenInputAt = snapshot.lastInputAt;
-      const referenceTime = snapshot.lastInputAt ?? state.containerStartedAt;
+      // The host uses zero as its uninitialized sentinel. It is not a valid
+      // input timestamp and must not become the idle reference or D1 activity.
+      const observedInputAt = typeof snapshot.lastInputAt === 'number' && snapshot.lastInputAt > 0
+        ? snapshot.lastInputAt
+        : null;
+      state.lastSeenInputAt = observedInputAt;
+      let containerStartedAt = state.containerStartedAt;
+      if (containerStartedAt <= 0) {
+        const persistedStartedAt = await ctx.storage.get<number>('containerStartedAt');
+        // A missing legacy marker must fail open for idle policy: treating it as
+        // epoch zero stops a healthy newly-started container on its first tick.
+        containerStartedAt = typeof persistedStartedAt === 'number' && persistedStartedAt > 0
+          ? persistedStartedAt
+          : Date.now();
+        state.containerStartedAt = containerStartedAt;
+      }
+      const referenceTime = observedInputAt ?? containerStartedAt;
       const idleMs = Date.now() - referenceTime;
       if (idleMs > sleepMs) {
         logger.info('collectMetrics: idle exceeded threshold, stopping', { idleMs, sleepMs, idleTimeoutPref, referenceTime });
@@ -1504,7 +1519,7 @@ export async function collectMetrics(
         }
         const accepted = await repository.project(bucketName, sessionId, generation, sequence, {
           lifecycleState: 'running',
-          lastInputAt: snapshot.lastInputAt === null ? undefined : new Date(snapshot.lastInputAt).toISOString(),
+          lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
           cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
           editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
         });

@@ -53,6 +53,10 @@ export interface LifecycleHost extends ContainerHost {
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
   host.containerStartedAt = Date.now();
+  // Alarms can wake a fresh Durable Object instance after the container starts.
+  // Persist the fallback idle reference so a runtime observation with no input
+  // timestamp cannot interpret the zero-valued class field as the Unix epoch.
+  await host.ctx.storage.put('containerStartedAt', host.containerStartedAt);
   // A fresh start means no deliberate stop is in flight: clear any stale
   // shutdown marker a prior destroy() left in storage, so a later transient
   // false-stopped on this run can self-heal (REQ-SESSION-018 AC5).
@@ -65,13 +69,21 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
   const repository = new D1SessionRepository(host.env.USAGE_DB);
   const session = await repository.getSession(host._bucketName, host._sessionId);
-  if (!session || session.lifecycleState !== 'starting') throw new Error('D1 start generation unavailable');
+  if (!session || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running')) {
+    throw new Error('D1 start generation unavailable');
+  }
   await host.ctx.storage.put('lifecycleGeneration', session.lifecycleGeneration);
-  await host.ctx.storage.put('observationSequence', 0);
-  const observedAt = new Date().toISOString();
-  if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
-    lifecycleState: 'running', observedAt,
-  })) throw new Error('D1 running projection rejected');
+  if (session.lifecycleState === 'starting') {
+    await host.ctx.storage.put('observationSequence', 0);
+    const observedAt = new Date().toISOString();
+    if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
+      lifecycleState: 'running', observedAt,
+    })) throw new Error('D1 running projection rejected');
+  } else {
+    // The Containers SDK can deliver a duplicate onStart after the first hook
+    // has projected this generation. It is a readiness replay, not a new start.
+    await host.ctx.storage.put('observationSequence', session.observationSequence);
+  }
   host.logger.info('Container started');
   // Clear any stale schedule rows from previous runs before arming fresh
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }

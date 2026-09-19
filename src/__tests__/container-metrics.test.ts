@@ -359,6 +359,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       // Check that schedule was called with correct args
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      expect(await storage().get<number>('containerStartedAt')).toBeGreaterThan(0);
+    });
+
+    it('accepts a duplicate onStart after its generation is already running', async () => {
+      await containerInstance.onStart();
+
+      await expect(containerInstance.onStart()).resolves.toBeUndefined();
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
     it('REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start', async () => {
@@ -612,6 +620,24 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
 
       expect(testState.runtimeObservationAuthorizations).toEqual(['Bearer agent-event-token']);
+    });
+
+    it('does not stop a hibernated coordinator when startup has no input timestamp', async () => {
+      const startedAt = Date.now() - 120_000;
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      testState.storageStore.set('containerStartedAt', startedAt);
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+      expect((containerInstance as unknown as { containerStartedAt: number }).containerStartedAt).toBe(startedAt);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
     it('projects one lifecycle observation when no separate clone inventory is reported', async () => {
