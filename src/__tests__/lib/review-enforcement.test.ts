@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { completionPath, readCompletion, writeCompletion, type ReviewIdentity } from '../../../preseed/agents/pi/extensions/review-completion-state';
@@ -198,6 +198,22 @@ function boundary(command: string, id = `boundary-${sequence += 1}`) {
     args: { command },
     result: { isError: false, content: [{ type: 'text', text: 'ok' }] },
   };
+}
+
+function originalVariablePathPush(input: ReturnType<typeof fixture>): string {
+  return [
+    'set -euo pipefail',
+    `repo=${input.repo}`,
+    `[ "$(grep -Rhc '^### REQ-SESSION-034:' "$repo/sdd/spec" | awk '{s+=$1} END {print s}')" = 1 ]`,
+    `grep -Fq 'persists one fallback baseline across a second coordinator reconstruction' "$repo/src/__tests__/container-metrics.test.ts"`,
+    `grep -Fq 'keeps host transport healthy when startup-reference storage cannot be read' "$repo/src/__tests__/container-metrics.test.ts"`,
+    `sed -n '150,175p' "$repo/sdd/spec/session-lifecycle.md"`,
+    `git -C "$repo" diff --check`,
+    `git -C "$repo" diff -- sdd/spec/session-lifecycle.md sdd/spec/changes.md`,
+    `git -C "$repo" add sdd/spec/session-lifecycle.md sdd/spec/changes.md`,
+    `git -C "$repo" commit -m "docs: isolate durable idle baseline"`,
+    `git -C "$repo" push origin feature`,
+  ].join('\n');
 }
 
 async function harness(
@@ -442,6 +458,68 @@ describe('Pi marker-or-dialog review ingress', () => {
     await expectAutomaticDeliveryPlan('git push origin feature');
   });
 
+  it('resolves one preceding literal git -C variable assignment for a push boundary', async () => {
+    const input = fixture();
+    const app = await harness(input);
+    app.ctx.cwd = dirname(input.repo);
+    const id = 'literal-variable-push';
+
+    await app.emit('tool_result', boundary(originalVariablePathPush(input), id));
+
+    expect(app.sent).toHaveLength(1);
+    expect(app.sent[0]).toMatchObject({
+      customType: 'pr-boundary-launch-plan',
+      details: { repo: input.repo, head: input.head, boundaryToolUseId: id, ciEvent: 'push' },
+    });
+  });
+
+  it('preserves complete literal relative and quoted-space git -C paths', async () => {
+    const input = fixture();
+    const app = await harness(input);
+    app.ctx.cwd = dirname(input.repo);
+    const relative = `./${basename(input.repo)}`;
+
+    await app.emit('tool_result', boundary(`git -C ${relative} push origin feature`, 'relative-path'));
+    expect(app.sent[0]?.details).toMatchObject({ repo: input.repo, ciEvent: 'push' });
+
+    const workspace = tempRoot('review-spaced-');
+    const spaced = join(workspace, 'repo with spaces');
+    symlinkSync(input.repo, spaced, 'dir');
+    const spacedApp = await harness(input);
+    spacedApp.ctx.cwd = workspace;
+    await spacedApp.emit('tool_result', boundary('git -C "./repo with spaces" push origin feature', 'spaced-path'));
+    expect(spacedApp.sent[0]?.details).toMatchObject({ repo: spaced, ciEvent: 'push' });
+  });
+
+  it.each([
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && repo=$(pwd) && git -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && unset -v repo && git -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `. /tmp/untrusted && git -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && printf -v repo %s ${input.repo} && git -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `(repo=${input.repo}; git -C "$repo" push origin feature)`,
+    (input: ReturnType<typeof fixture>) => `if true; then repo=${input.repo}; fi\ngit -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C '$repo' push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C "${'${repo}'}" push origin feature`,
+    (_input: ReturnType<typeof fixture>) => `git -C "$(pwd)" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && command git -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -c x=y -C "$repo" push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C "$repo"/other push origin feature`,
+    (input: ReturnType<typeof fixture>) => `git -C "${input.repo}"/other push origin feature`,
+    (_input: ReturnType<typeof fixture>) => `git -C/another/repo push origin feature`,
+    (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C $repo push origin feature`,
+  ])('does not resolve an ambiguous or unsupported git -C variable push boundary', async (command) => {
+    const input = fixture();
+    const other = fixture();
+    const queryPr = vi.fn(async () => input.pr);
+    const app = await harness(input, [], { queryPr });
+    app.ctx.cwd = other.repo;
+
+    await app.emit('tool_result', boundary(command(input)));
+
+    expect(queryPr).not.toHaveBeenCalled();
+    expect(app.sent).toHaveLength(0);
+  });
+
   it('activates subagent and emits independent launch waves before ending the boundary turn', async () => {
     const input = fixture();
     const app = await harness(input, []);
@@ -609,10 +687,15 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent[0]?.content).not.toContain('FIX');
   });
 
-  it('stamps completion only after terminal evidence and canonical triage, then emits FIX', async () => {
+  it.each([
+    (input: ReturnType<typeof fixture>) => 'git push origin feature',
+    (input: ReturnType<typeof fixture>) => originalVariablePathPush(input),
+  ])('stamps completion only after terminal evidence and canonical triage, then emits FIX', async (command) => {
     const input = fixture();
     const app = await harness(input, []);
-    await app.emit('tool_result', boundary('git push origin feature', 'push-1'));
+    const commandText = command(input);
+    if (commandText.includes('git -C')) app.ctx.cwd = dirname(input.repo);
+    await app.emit('tool_result', boundary(commandText, 'push-1'));
     await app.emit('agent_end');
 
     const plan = app.sent[0]!;
