@@ -202,6 +202,32 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+### REQ-SESSION-027: User can rename sessions
+
+**Intent:** A user can change a session's display name without affecting its runtime or workspace.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Rename is available for running and stopped sessions regardless of how the existing name was assigned. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-027 AC1: Rename action) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-027 AC1: rename) -->
+2. After rename succeeds, the user sees the server-accepted name. <!-- @impl: web-ui/src/stores/session.ts::renameSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-027 AC2: shows the name the server accepted, not the one typed) -->
+3. A rejected rename leaves the session unchanged and presents the failure. <!-- @impl: web-ui/src/stores/session.ts::renameSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-027 AC3: should set error on API failure) -->
+
+**Constraints:**
+
+- Renaming never restarts a session or alters its workspace, repositories, or terminals.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
+
+**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/stores/session.test.ts))
+
+**Status:** Implemented
+
+---
+
 ### REQ-SESSION-007: Workload-owning session count is limited per tier
 
 **Intent:** Each Start performs best-effort capacity enforcement from the consistent D1 lifecycle projection without introducing an atomic reservation protocol.

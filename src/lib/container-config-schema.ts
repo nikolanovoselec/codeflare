@@ -58,6 +58,7 @@ export const SetBucketNameBodySchema = z.object({
   /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */
   gitCloneRepo: z.string().optional(),
   gitCloneRef: z.string().optional(),
+  gitCloneTargets: z.string().optional(),
 }).passthrough().superRefine((value, context) => {
   if (value.remoteCurationActive === true && !value.remoteCurationReleaseDigest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'active remote curation requires its applied release digest' });

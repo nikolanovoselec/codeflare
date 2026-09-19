@@ -17,6 +17,8 @@ import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getBaseUrl } from '../lib/kv-keys';
+import { D1SessionRepository } from '../lib/session-repository';
+import { normalizeTrackedClones } from '../lib/clone-targets';
 import { signOauthState } from '../lib/oauth-state';
 import { githubScopeForTier } from '../lib/oauth-scopes';
 import { createLogger } from '../lib/logger';
@@ -190,6 +192,12 @@ app.post('/clone', cloneRateLimiter, async (c) => {
 
   const { repo, ref, sessionId } = await parseJsonBody(c, CloneBody);
 
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  const session = await repository.getSession(c.get('bucketName'), sessionId);
+  if (!session) {
+    return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+  }
+
   const containerId = getContainerId(c.get('bucketName'), sessionId);
   const container = getContainer(c.env.CONTAINER, containerId);
 
@@ -215,6 +223,19 @@ app.post('/clone', cloneRateLimiter, async (c) => {
   } catch {
     return c.json({ error: 'Container not running', code: 'NOT_RUNNING' }, 503);
   }
+
+  // REQ-GITHUB-015 AC3: track a successful panel clone immediately, so a stop
+  // in the ~1 metrics tick before the container reports its workspace still
+  // restores the repository. A failed clone tracks nothing.
+  if (upstream.status === 200) {
+    const latestSession = await repository.getSession(c.get('bucketName'), sessionId);
+    if (!latestSession) return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    const clones = normalizeTrackedClones([...(latestSession.clones ?? []), { repo, ...(ref ? { ref } : {}) }]);
+    if (!await repository.updateTrackedClones(c.get('bucketName'), sessionId, clones)) {
+      return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    }
+  }
+
   return c.json(payload as Record<string, unknown>, upstream.status as never);
 });
 

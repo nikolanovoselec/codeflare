@@ -201,11 +201,12 @@ export class container extends Container<Env> implements ContainerEnvState {
    * it from session KV before each container start. */
   _gitCloneRepo: string | null = null;
   _gitCloneRef: string | null = null;
-  /** Durable non-secret origin/profile. Raw Access authority remains memory-only. */
+/** Durable non-secret origin/profile. Raw Access authority remains memory-only. */
   _operatorContainerProfile?: OperatorContainerProfile;
   _operatorPolicy?: OperatorPolicy;
   _jwtStamping?: JwtStampingPolicy;
   _jwtAuthority?: JwtStampingAuthority;
+  _gitCloneTargets: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s

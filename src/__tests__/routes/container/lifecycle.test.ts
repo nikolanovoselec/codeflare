@@ -432,6 +432,11 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     const body = await startSessionAndGetBody();
     expect(body.encryptionKey).toBeUndefined();
   });
+
+  it('REQ-GITHUB-015: sends an authoritative empty clone inventory', async () => {
+    const body = await startSessionAndGetBody();
+    expect(body.gitCloneTargets).toBe('');
+  });
 });
 
 // REQ-SESSION-020 AC3: destroy() records the session stopped and persists the

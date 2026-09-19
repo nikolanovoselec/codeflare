@@ -2714,10 +2714,18 @@ init_sync_log
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 rm -f "$CODEFLARE_INIT_FLAG_FILE"
 
+# REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
+# repository the restore below has not yet recreated is never reported as
+# absent-and-therefore-untracked. Touched once run_post_restore_startup's
+# clone loop finishes (success, failure, or budget exhaustion all count).
+export CODEFLARE_CLONE_RESTORE_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/clone-restore-complete
+rm -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
+
 echo "[entrypoint] Starting terminal server on port 8080..."
 # Subshell-scope the cd so the rest of the entrypoint's cwd is unchanged.
 (cd /app/host && HOME="$USER_HOME" TERMINAL_PORT=8080 \
     CODEFLARE_INIT_FLAG_FILE="$CODEFLARE_INIT_FLAG_FILE" \
+    CODEFLARE_CLONE_RESTORE_FLAG_FILE="$CODEFLARE_CLONE_RESTORE_FLAG_FILE" \
     node dist/server.js) &
 TERMINAL_PID=$!
 echo "$TERMINAL_PID" > $CODEFLARE_RUNTIME_ROOT/services/terminal.pid
@@ -4357,38 +4365,84 @@ configure_fast_start_tool_settings() {
 }
 configure_fast_start_tool_settings
 
-# REQ-GITHUB-014: one-shot repo clone at container start. Runs AFTER the git
-# credential helper above (so private repos authenticate via $GH_TOKEN, or the
-# enterprise egress GitHubInterceptor injects the real token) and BEFORE
-# configure_tab_autostart launches the agent, so the workspace is populated when
-# the user lands. Best-effort: a clone failure is logged but never aborts start.
-if [ -n "${GIT_CLONE_REPO:-}" ]; then
-    clone_repo="$GIT_CLONE_REPO"
-    clone_remote="${GIT_CLONE_REPO%.git}"
-    # Defense-in-depth: re-validate repo/ref shape here (mirrors
-    # host/src/git-clone.ts) so the new-session path fails closed like the
-    # running-session path; rejects an option-leading dash in the ref and a
-    # . / .. repo name that would escape the workspace dir.
-    if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
-       || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
-       || { [ -n "${GIT_CLONE_REF:-}" ] && ! printf '%s' "$GIT_CLONE_REF" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
-        echo "[entrypoint] Skipping clone: invalid repo/ref"
+# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start. Runs
+# AFTER the git credential helper above (so private repos authenticate via
+# $GH_TOKEN, or the enterprise egress GitHubInterceptor injects the real token)
+# and BEFORE configure_tab_autostart launches the agent, so the workspace is
+# populated when the user lands.
+#
+# GIT_CLONE_TARGETS carries every repository tracked for the session as
+# space-separated `owner/name[#ref]` entries, the session's own repository
+# first. GIT_CLONE_REPO/GIT_CLONE_REF remain the single-repository fallback for
+# a Worker that predates the list.
+#
+# Bounded and fail-open (REQ-GITHUB-015 AC5-AC7): each attempt gets its own
+# timeout, the loop stops once the overall budget is spent, credentials are
+# never prompted for interactively, and every failure is logged without
+# aborting start.
+clone_targets="${GIT_CLONE_TARGETS:-}"
+if [ -z "$clone_targets" ] && [ -n "${GIT_CLONE_REPO:-}" ]; then
+    if [ -n "${GIT_CLONE_REF:-}" ]; then
+        clone_targets="${GIT_CLONE_REPO}#${GIT_CLONE_REF}"
     else
+        clone_targets="$GIT_CLONE_REPO"
+    fi
+fi
+if [ -n "$clone_targets" ]; then
+    clone_per_repo_timeout="${GIT_CLONE_PER_REPO_TIMEOUT_SECONDS:-120}"
+    # A malformed override must not abort startup under `set -euo pipefail`
+    # (this block is documented as fail-open); fall back to the default.
+    clone_total_budget="${GIT_CLONE_TOTAL_BUDGET_SECONDS:-180}"
+    case "$clone_total_budget" in
+        ''|*[!0-9]*) clone_total_budget=180 ;;
+    esac
+    clone_deadline=$(( $(date +%s) + clone_total_budget ))
+    for clone_target in $clone_targets; do
+        if [ "$(date +%s)" -ge "$clone_deadline" ]; then
+            echo "[entrypoint] clone budget exhausted; skipping remaining repositories"
+            break
+        fi
+        clone_repo="${clone_target%%#*}"
+        clone_ref=""
+        case "$clone_target" in
+            *#*) clone_ref="${clone_target#*#}" ;;
+        esac
+        clone_remote="${clone_repo%.git}"
+        # Defense-in-depth: re-validate repo/ref shape here (mirrors
+        # host/src/git-clone.ts and src/lib/clone-targets.ts) so the restore
+        # path fails closed like the running-session path; rejects an
+        # option-leading dash in the ref and a . / .. repo name that would
+        # escape the workspace dir.
+        if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
+           || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
+           || { [ -n "$clone_ref" ] && ! printf '%s' "$clone_ref" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
+            echo "[entrypoint] Skipping clone: invalid repo/ref"
+            continue
+        fi
         repo_name="${clone_repo##*/}"
         CLONE_DIR="$USER_WORKSPACE/$repo_name"
         if [ -e "$CLONE_DIR" ]; then
             echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
-        else
-            echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
-            if [ -n "${GIT_CLONE_REF:-}" ]; then
-                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
-                    || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
-            else
-                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
-                    || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
-            fi
+            continue
         fi
-    fi
+        echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
+        if [ -n "$clone_ref" ]; then
+            GIT_TERMINAL_PROMPT=0 timeout "$clone_per_repo_timeout" \
+                git clone --branch "$clone_ref" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
+                || echo "[entrypoint] clone failed for $clone_repo (ref $clone_ref); continuing startup"
+        else
+            GIT_TERMINAL_PROMPT=0 timeout "$clone_per_repo_timeout" \
+                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
+                || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+        fi
+    done
+fi
+# REQ-GITHUB-015 AC1: mark the restore complete (attempted or skipped) so
+# /health can safely report the workspace inventory; touched unconditionally,
+# including when there were no targets at all. No-op if unset (e.g. a Worker
+# that predates this variable, or this block run standalone in tests).
+if [ -n "${CODEFLARE_CLONE_RESTORE_FLAG_FILE:-}" ]; then
+    touch "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
 fi
 
 # Configure tab auto-start

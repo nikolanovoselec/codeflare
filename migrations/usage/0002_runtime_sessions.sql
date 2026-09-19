@@ -9,6 +9,7 @@ CREATE TABLE runtime_sessions (
   terminal_mode TEXT NOT NULL CHECK (terminal_mode IN ('classic', 'herdr')),
   tab_config_json TEXT,
   clone_json TEXT,
+  clones_json TEXT,
   lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('stopped', 'starting', 'running', 'unreachable', 'stopping')),
   lifecycle_generation INTEGER NOT NULL DEFAULT 0 CHECK (lifecycle_generation >= 0),
   response_revision INTEGER NOT NULL DEFAULT 0 CHECK (response_revision >= 0),

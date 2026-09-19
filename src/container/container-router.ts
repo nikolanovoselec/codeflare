@@ -81,6 +81,7 @@ interface SetBucketNameBody {
   // buildEnvVars surfaces it to the container as GIT_CLONE_REPO/GIT_CLONE_REF.
   gitCloneRepo?: string;
   gitCloneRef?: string;
+  gitCloneTargets?: string;
   sleepAfter?: string;
 }
 
@@ -168,7 +169,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     const resourceIdentityError = managedResourcePolicy === undefined && managedResourcePathsDigest !== undefined
@@ -233,7 +234,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest,
         managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone,
-        gitCloneRepo, gitCloneRef,
+        gitCloneRepo, gitCloneRef, gitCloneTargets,
       });
 
       // Update idle timeout on restart. Storage key is 'sleepAfter' for
@@ -344,6 +345,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // The restart path also re-applies it so an ephemeral workspace can be rebuilt.
       gitCloneRepo,
       gitCloneRef,
+      gitCloneTargets,
     });
 
     // Apply user-configurable idle timeout (settable values: 15m, 30m, 1h, 2h, 4h; legacy 5m still tolerated).

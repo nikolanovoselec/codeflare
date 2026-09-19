@@ -12,6 +12,7 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     terminal_mode: session.terminalMode ?? 'classic',
     tab_config_json: session.tabConfig ? JSON.stringify(session.tabConfig) : null,
     clone_json: session.clone ? JSON.stringify(session.clone) : null,
+    clones_json: session.clones ? JSON.stringify(session.clones) : null,
     lifecycle_state: session.status === 'initializing' ? 'starting' : (session.status ?? 'stopped'),
     lifecycle_generation: session.lifecycleGeneration ?? 0,
     response_revision: session.responseRevision ?? 0,
@@ -71,7 +72,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
         },
         async run() {
           if (sql.includes('INSERT INTO runtime_sessions')) {
-            const session = { id: args[1], userId: args[0], name: args[2], createdAt: args[3], lastAccessedAt: args[4], agentType: args[5] ?? undefined, workspace: args[6], terminalMode: args[7], tabConfig: args[8] ? JSON.parse(String(args[8])) : undefined, clone: args[9] ? JSON.parse(String(args[9])) : undefined, status: 'stopped' };
+            const session = { id: args[1], userId: args[0], name: args[2], createdAt: args[3], lastAccessedAt: args[4], agentType: args[5] ?? undefined, workspace: args[6], terminalMode: args[7], tabConfig: args[8] ? JSON.parse(String(args[8])) : undefined, clone: args[9] ? JSON.parse(String(args[9])) : undefined, clones: args[10] ? JSON.parse(String(args[10])) : undefined, status: 'stopped' };
             await put(args[0], session); return { success: true, meta: { changes: 1 } };
           }
           if (sql.includes('DELETE FROM runtime_sessions')) {
@@ -108,6 +109,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             if (args[4] === 'lastActiveAt' || (args[3] === 'running' && args[4] === 'lastStartedAt')) session.lastActiveAt = args[5];
           }
           if (sql.includes('editor_ready=?4')) { session.editorReady = args[3] === 1; session.editorReadyError = args[4] === 1; }
+          if (sql.includes('clones_json=?3')) session.clones = JSON.parse(String(args[2]));
           if (sql.includes('name=COALESCE')) { if (args[2] != null) session.name = args[2]; if (args[3] != null) session.tabConfig = JSON.parse(String(args[3])); session.lastAccessedAt = args[4]; }
           if (sql.includes('last_accessed_at=?3')) session.lastAccessedAt = args[2];
           // Model UPDATE semantics: deleting the row while this fake statement

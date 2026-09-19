@@ -9,6 +9,7 @@ import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { D1SessionRepository } from '../lib/session-repository';
+import { normalizeTrackedClones } from '../lib/clone-targets';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
   AGENT_EVENT_PUSH_BUDGET_MS,
@@ -1465,7 +1466,7 @@ export async function collectMetrics(
     } else {
       const snapshot = await response.json() as {
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
-        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; observedAt: string;
+        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
       };
       state.lastSeenInputAt = snapshot.lastInputAt;
       const referenceTime = snapshot.lastInputAt ?? state.containerStartedAt;
@@ -1488,13 +1489,22 @@ export async function collectMetrics(
       const previousSequence = await ctx.storage.get<number>('observationSequence') ?? -1;
       if (typeof generation !== 'number') throw new Error('lifecycle generation unavailable');
       const sequence = previousSequence + 1;
-      const accepted = await new D1SessionRepository(env.USAGE_DB).project(bucketName, sessionId, generation, sequence, {
-        lifecycleState: 'running',
-        lastInputAt: snapshot.lastInputAt === null ? undefined : new Date(snapshot.lastInputAt).toISOString(),
-        cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
-        editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
-      });
-      if (accepted) await ctx.storage.put('observationSequence', sequence);
+      const repository = new D1SessionRepository(env.USAGE_DB);
+      try {
+        if (Array.isArray(snapshot.workspaceRepos)) {
+          await repository.updateTrackedClones(bucketName, sessionId, normalizeTrackedClones(snapshot.workspaceRepos));
+        }
+        const accepted = await repository.project(bucketName, sessionId, generation, sequence, {
+          lifecycleState: 'running',
+          lastInputAt: snapshot.lastInputAt === null ? undefined : new Date(snapshot.lastInputAt).toISOString(),
+          cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
+          editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
+        });
+        if (accepted) await ctx.storage.put('observationSequence', sequence);
+      } catch (error) {
+        // A D1 outage must not be misclassified as a dead container transport.
+        logger.warn('collectMetrics: D1 projection failed', { error: error instanceof Error ? error.message : String(error) });
+      }
     }
   } catch (err) {
     const failed = failedProbeObservation(err, observationStartedAt);

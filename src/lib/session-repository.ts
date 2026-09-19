@@ -1,4 +1,5 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { TrackedClone } from './clone-targets';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
 type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
@@ -11,6 +12,7 @@ export interface D1Session extends AuthoritySession {
   terminalMode: TerminalMode;
   tabConfig?: TabConfig[];
   clone?: { repo: string; ref?: string };
+  clones?: TrackedClone[];
   lifecycleGeneration: number;
   responseRevision: number;
   observationSequence: number;
@@ -43,6 +45,7 @@ function fromRow(row: SessionRow): D1Session {
     workspace: row.workspace as SessionWorkspace, terminalMode: row.terminal_mode as TerminalMode,
     tabConfig: json<TabConfig[]>(row.tab_config_json as string | null),
     clone: json<{ repo: string; ref?: string }>(row.clone_json as string | null),
+    clones: json<TrackedClone[]>(row.clones_json as string | null),
     lifecycleState: row.lifecycle_state as SessionLifecycleState,
     lifecycleGeneration: Number(row.lifecycle_generation), responseRevision: Number(row.response_revision), observationSequence: Number(row.observation_sequence),
     lastStartedAt: optional(row.last_started_at as string | null), lastActiveAt: optional(row.last_active_at as string | null),
@@ -66,13 +69,13 @@ export class D1SessionRepository implements SessionAuthority {
     const now = session.createdAt;
     const result = await this.db.prepare(`INSERT INTO runtime_sessions
       (owner_key, session_id, name, created_at, last_accessed_at, agent_type, workspace, terminal_mode,
-       tab_config_json, clone_json, lifecycle_state, lifecycle_generation, response_revision,
+       tab_config_json, clone_json, clones_json, lifecycle_state, lifecycle_generation, response_revision,
        observation_sequence, editor_ready, editor_ready_error, transitioned_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'stopped', 0, 0, -1, 0, 0, ?4
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'stopped', 0, 0, -1, 0, 0, ?4
       WHERE EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')`)
       .bind(session.ownerKey, session.sessionId, session.name, now, session.lastAccessedAt, session.agentType ?? null,
         session.workspace, session.terminalMode, session.tabConfig ? JSON.stringify(session.tabConfig) : null,
-        session.clone ? JSON.stringify(session.clone) : null).run();
+        session.clone ? JSON.stringify(session.clone) : null, session.clones ? JSON.stringify(session.clones) : null).run();
     if (result.meta.changes !== 1) throw new Error('Session admission is closed');
     return {
       ...session,
@@ -155,6 +158,12 @@ export class D1SessionRepository implements SessionAuthority {
         AND lifecycle_state IN ('starting','running','unreachable')
         AND termination_intent_id IS NULL`)
       .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0).run();
+    return result.meta.changes === 1;
+  }
+
+  async updateTrackedClones(ownerKey: string, sessionId: string, clones: TrackedClone[]): Promise<boolean> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET clones_json=?3, response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2`).bind(ownerKey, sessionId, JSON.stringify(clones)).run();
     return result.meta.changes === 1;
   }
 

@@ -71,7 +71,7 @@ export async function validateSessionAndCheckLimits(params: {
     createdAt: d1Session.createdAt, lastAccessedAt: d1Session.lastAccessedAt,
     status: d1Session.lifecycleState === 'running' ? 'running' : 'stopped',
     agentType: d1Session.agentType, workspace: d1Session.workspace,
-    terminalMode: d1Session.terminalMode, tabConfig: d1Session.tabConfig, clone: d1Session.clone,
+    terminalMode: d1Session.terminalMode, tabConfig: d1Session.tabConfig, clone: d1Session.clone, clones: d1Session.clones,
   };
 
   // Session limit + quota checks. Bypass when stress testing.

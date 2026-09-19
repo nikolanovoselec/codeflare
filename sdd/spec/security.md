@@ -341,6 +341,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 5. Vulnerabilities with no available upstream fix are excluded from the deployment gate automatically. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
 6. Every unexpected-finding diagnostic includes Trivy's package path and package URL when the scanner supplies them. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (reports every unexpected and missing finding together) -->
 7. A successful gate emits the scanner-provided package path and package URL for every accepted occurrence so reviewed identities can be audited and path-bound without weakening the exception. <!-- @impl: scripts/ci/validate-trivy-result.mjs::main --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (emits scanner identities for every accepted occurrence) -->
+8. The built runtime image contains `libevent-core-2.1-7` at or above Debian's fixed `2.1.12-stable-8+deb12u1` version. <!-- @impl: Dockerfile::RUN apt-get update --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> <!-- @impl: .github/workflows/container-image.yml::Verify packaged native Pi Chat and official Claude --> <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-SEC-011 AC8: Dockerfile requests the fixed Debian libevent package) -->
 
 **Constraints:**
 

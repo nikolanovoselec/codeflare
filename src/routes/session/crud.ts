@@ -68,6 +68,7 @@ function toWorkspaceApiSession(session: Session | D1Session) {
     terminalMode: session.terminalMode,
     tabConfig: session.tabConfig,
     clone: session.clone,
+    clones: session.clones,
     lastStartedAt: session.lastStartedAt,
     lastActiveAt: session.lastActiveAt,
     editorReady: session.editorReady,

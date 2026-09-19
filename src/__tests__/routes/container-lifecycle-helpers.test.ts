@@ -463,6 +463,22 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       })).rejects.toThrow();
     });
 
+    it('REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+
+      await configureContainerDO({
+        ...baseParams,
+        gitCloneRepo: 'octo/api',
+        gitCloneRef: 'develop',
+        gitCloneTargets: 'octo/api#develop octo/web',
+      });
+
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      const body = await fetchCall.json() as Record<string, unknown>;
+      expect(body.gitCloneTargets).toBe('octo/api#develop octo/web');
+      expect(body.gitCloneRepo).toBe('octo/api');
+    });
+
     it('includes LLM keys in setBucketName body when provided', async () => {
       mockGetStoredBucketName.mockResolvedValue('old-bucket');
 
