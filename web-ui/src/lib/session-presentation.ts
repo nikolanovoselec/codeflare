@@ -8,7 +8,17 @@ export interface OrderedProjection {
   [key: string]: unknown;
 }
 
-export function terminalPresentation(projection: OrderedProjection, local: { terminalConnected: boolean; nowMs?: number }) {
+export interface TerminalPresentation {
+  lifecycle: BackendLifecycle;
+  label: string;
+  color: string;
+  mounted: boolean;
+  dispose: boolean;
+  deadlineExpired?: boolean;
+  persistedState?: never;
+}
+
+export function terminalPresentation(projection: OrderedProjection, local: { terminalConnected: boolean; nowMs?: number }): TerminalPresentation {
   if (projection.lifecycle === 'running') {
     return { lifecycle: projection.lifecycle, label: local.terminalConnected ? 'ACTIVE' : 'IDLE', color: local.terminalConnected ? 'green' : 'blue', mounted: true, dispose: false };
   }
@@ -32,7 +42,7 @@ export function vscodePresentation(projection: OrderedProjection, local: { trans
   };
 }
 
-export function applyOrderedProjection<T extends OrderedProjection>(current: T, incoming: T): T {
+export function applyOrderedProjection(current: OrderedProjection, incoming: OrderedProjection): OrderedProjection {
   if (incoming.generation < current.generation) return current;
   if (incoming.generation === current.generation && incoming.revision < current.revision) return current;
   return incoming;

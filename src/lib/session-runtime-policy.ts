@@ -1,4 +1,4 @@
-export type RuntimeLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+type RuntimeLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
 
 export interface RuntimePolicyState {
   lifecycleState: RuntimeLifecycleState;

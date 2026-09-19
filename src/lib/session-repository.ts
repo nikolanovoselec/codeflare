@@ -1,7 +1,7 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
-export type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
 export interface D1Session extends AuthoritySession {
   name: string;
   createdAt: string;

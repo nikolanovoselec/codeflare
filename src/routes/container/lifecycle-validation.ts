@@ -15,7 +15,8 @@ import { D1SessionRepository } from '../../lib/session-repository';
 
 /** Running and in-flight starts both consume a concurrent-session slot. */
 export function countsTowardSessionLimit(status: string | undefined): boolean {
-  return status === 'starting' || status === 'running' || status === 'unreachable' || status === 'stopping';
+  return status === 'starting' || status === 'running' || status === 'unreachable' || status === 'stopping'
+    || status === 'initializing' || status === 'r' || status === 'i';
 }
 
 /**

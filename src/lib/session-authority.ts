@@ -1,6 +1,6 @@
 import { NotFoundError } from './error-types';
 
-export type WorkloadLifecycleState = 'starting' | 'running' | 'unreachable' | 'stopping';
+type WorkloadLifecycleState = 'starting' | 'running' | 'unreachable' | 'stopping';
 export interface AuthoritySession {
   ownerKey: string;
   sessionId: string;

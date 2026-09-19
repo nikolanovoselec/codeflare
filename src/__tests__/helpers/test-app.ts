@@ -55,10 +55,19 @@ export function createTestApp(options: TestAppOptions) {
     return c.json({ error: err.message }, 500);
   });
 
-  // Set up mock env and auth variables
+  // Set up mock env and auth variables. Route tests that do not exercise D1
+  // receive an empty authority; D1-specific tests override this binding.
+  const emptyStatement = {
+    bind() { return this; },
+    async all() { return { results: [] }; },
+    async first() { return null; },
+    async run() { return { success: true, meta: { changes: 1 } }; },
+  };
+  const emptyD1 = { prepare: () => ({ ...emptyStatement }) } as unknown as D1Database;
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: emptyD1,
       CONTAINER: {} as DurableObjectNamespace,
       ...envOverrides,
     } as unknown as Env;

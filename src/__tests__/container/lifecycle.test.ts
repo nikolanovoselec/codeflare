@@ -268,35 +268,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   });
 
   describe('onStop lifecycle', () => {
-    it('onStop updates KV with lastActiveAt and sets status to stopped', async () => {
+    it('onStop never projects lifecycle state to session KV', async () => {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
-      const mockKvGet = vi.fn().mockResolvedValue({
-        id: 'sess123',
-        status: 'running',
-        name: 'Test',
-      });
-      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
-
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
+      mockEnv.KV = { get: vi.fn(), put: mockKvPut };
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
       instance.onStop();
-
-      await vi.waitFor(() => {
-        expect(mockKvPut).toHaveBeenCalled();
-      });
-      const putArgs = mockKvPut.mock.calls[0];
-      const writtenSession = JSON.parse(putArgs[1]);
-      expect(writtenSession.lastActiveAt).toBeDefined();
-      expect(writtenSession.status).toBe('stopped');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mockKvPut).not.toHaveBeenCalled();
     });
 
     // REQ-SESSION-018 AC3: onError defers the stopped decision to the

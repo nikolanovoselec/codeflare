@@ -36,7 +36,7 @@ export async function hasHealthyContainer(
  * then best-effort destroys — mirrors POST /api/sessions/:id/stop. Per-session failures are
  * isolated; a container that is already gone is a no-op.
  */
-export async function drainContainers(
+async function drainContainers(
   env: Pick<Env, 'USAGE_DB' | 'CONTAINER'>,
   bucketName: string,
 ): Promise<void> {
