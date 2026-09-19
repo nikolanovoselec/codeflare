@@ -71,10 +71,15 @@ function supportedStraightLineSegment(command: string): boolean {
   if (/`|\$\{|\$\(\(/.test(command)) return false;
   const allowed = new Set(["set", "git", "grep", "sed", "test", "[", "awk"]);
   const commands = executableShellCommands(command);
-  return commands.length > 0 && commands.every((words) => {
+  const supported = commands.length > 0 && commands.every((words) => {
     const executable = shellCommandExecutable(words);
     return executable !== undefined && allowed.has(executable);
   });
+  // A bracket assertion runs substitutions in a child shell and cannot rebind
+  // the preceding literal path. Keep that binding only when every parsed
+  // command is already in the read-only straight-line allowlist.
+  if (/\$\(/.test(command) && !/^\[\s+"\$\(.+\)"\s+=\s+[^\s]+\s+\]$/.test(command)) return false;
+  return supported;
 }
 
 function hasUnsupportedScope(command: string): boolean {

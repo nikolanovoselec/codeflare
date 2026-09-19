@@ -500,7 +500,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     (input: ReturnType<typeof fixture>) => `if true; then repo=${input.repo}; fi\ngit -C "$repo" push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C '$repo' push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C "${'${repo}'}" push origin feature`,
-    (_input: ReturnType<typeof fixture>) => `git -C "$(pwd)" push origin feature`,
+    () => `git -C "$(pwd)" push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && command git -C "$repo" push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -c x=y -C "$repo" push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && git -C "$repo"/other push origin feature`,
@@ -688,7 +688,7 @@ describe('Pi marker-or-dialog review ingress', () => {
   });
 
   it.each([
-    (input: ReturnType<typeof fixture>) => 'git push origin feature',
+    () => 'git push origin feature',
     (input: ReturnType<typeof fixture>) => originalVariablePathPush(input),
   ])('stamps completion only after terminal evidence and canonical triage, then emits FIX', async (command) => {
     const input = fixture();
