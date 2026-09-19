@@ -34,7 +34,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 | Terminal runtime | Herdr v0.9.0, checksum-pinned official Linux x86-64 binary with image-owned config and Apache-2.0 attribution |
 
-Copilot 1.0.86 sandbox prerequisites include `slirp4netns`, `iptables`/`ip6tables` and util-linux. <!-- @impl: preseed/npm-tools/package.json::@github/copilot --> Installing them does not grant TUN access, privileged containers or local-network permission; platform restrictions and explicit sandbox policy still apply.
+Copilot 1.0.86 <!-- @impl: preseed/npm-tools/package.json::@github/copilot --> sandbox prerequisites include `slirp4netns`, `iptables`/`ip6tables` and util-linux. <!-- @impl: Dockerfile::RUN apt-get update --> Installing them does not grant TUN access, privileged containers or local-network permission; platform restrictions and explicit sandbox policy still apply.
 
 ### Bundled image tooling
 
