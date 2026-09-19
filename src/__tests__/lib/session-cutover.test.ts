@@ -5,6 +5,7 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import completionMigration from '../../../migrations/usage/0003_complete_session_cutover.sql?raw';
 import { runSessionCutover } from '../../lib/session-cutover';
+import { D1SessionRepository } from '../../lib/session-repository';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
@@ -20,12 +21,20 @@ beforeEach(async () => {
 });
 
 describe('REQ-SESSION-030: guarded exact clean-slate cutover', () => {
-  it('opens D1 admission when the deployment completion migration runs', async () => {
+  it('opens Create and Start admission when the deployment completion migration runs', async () => {
     await db.prepare("UPDATE session_cutover SET state='pending', completed_at=NULL WHERE id=1").run();
     for (const statement of completionMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
       await db.prepare(statement).run();
     }
-    await expect(db.prepare('SELECT state FROM session_cutover WHERE id=1').first()).resolves.toEqual({ state: 'complete' });
+
+    const repository = new D1SessionRepository(db);
+    await expect(repository.create({
+      ownerKey: 'owner-a', sessionId: 'session01', name: 'Terminal',
+      createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z',
+      workspace: 'terminal', terminalMode: 'classic',
+    })).resolves.toMatchObject({ lifecycleState: 'stopped' });
+    await expect(repository.start('owner-a', 'session01', '2027-01-01T00:01:00.000Z'))
+      .resolves.toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
   });
 
   it('refuses cleanup without operator-confirmed quiescence', async () => {
