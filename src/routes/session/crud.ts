@@ -13,7 +13,7 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
 import { getContainerId } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
-import { ValidationError } from '../../lib/error-types';
+import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { allowedAgents } from '../../lib/agent-allowlist';
 import { isSaasModeActive } from '../../lib/onboarding';
@@ -201,7 +201,7 @@ app.get('/:id', async (c) => {
   const sessionId = c.req.param('id');
   validateSessionId(sessionId);
   const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
-  if (!session) throw new ValidationError('Session not found');
+  if (!session) throw new NotFoundError('Session not found');
   return c.json({ session: toWorkspaceApiSession(session) });
 });
 
@@ -215,7 +215,7 @@ app.patch('/:id', async (c) => {
   validateSessionId(sessionId);
   const repository = new D1SessionRepository(c.env.USAGE_DB);
   const session = await repository.getSession(bucketName, sessionId);
-  if (!session) throw new ValidationError('Session not found');
+  if (!session) throw new NotFoundError('Session not found');
 
   const body = await parseJsonBody(c, UpdateSessionBody);
   validateTabConfigForMode(body.tabConfig, resolveTerminalMode(session.terminalMode));
@@ -224,7 +224,7 @@ app.patch('/:id', async (c) => {
     ...(body.tabConfig ? { tabConfig: body.tabConfig } : {}),
     lastAccessedAt: new Date().toISOString(),
   });
-  if (!updated) throw new ValidationError('Session not found');
+  if (!updated) throw new NotFoundError('Session not found');
 
   // Omit userId from API response
   return c.json({ session: toWorkspaceApiSession(updated) });
@@ -241,7 +241,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   validateSessionId(sessionId);
   const repository = new D1SessionRepository(c.env.USAGE_DB);
   const session = await repository.getSession(bucketName, sessionId);
-  if (!session) throw new ValidationError('Session not found');
+  if (!session) throw new NotFoundError('Session not found');
 
   const intentId = crypto.randomUUID();
   const claimed = session.lifecycleState === 'stopped'
@@ -284,7 +284,7 @@ app.post('/:id/touch', async (c) => {
   validateSessionId(sessionId);
   const repository = new D1SessionRepository(c.env.USAGE_DB);
   const updated = await repository.updateMutable(bucketName, sessionId, { lastAccessedAt: new Date().toISOString() });
-  if (!updated) throw new ValidationError('Session not found');
+  if (!updated) throw new NotFoundError('Session not found');
 
   return c.json({ session: toWorkspaceApiSession(updated) });
 });

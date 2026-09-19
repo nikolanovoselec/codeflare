@@ -9,7 +9,7 @@ import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { getContainerId } from '../../lib/container-helpers';
-import { ValidationError } from '../../lib/error-types';
+import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
 
@@ -41,13 +41,9 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 /**
  * GET /api/sessions/batch-status
  * Get status for all sessions in a single call (eliminates N+1 on page load)
- * Returns a map of sessionId -> { status, ptyActive } plus storageStats from KV cache
- *
- * Session status remains a KV-only dashboard projection. When an explicit
- * managed-release check finds a mismatch, admission additionally reads persisted
- * Container SDK state without calling container.fetch() or waking a container.
- * This prevents phantom auto-starts while keeping mutation ownership independent
- * from stale KV status or LIST metadata.
+ * Returns the owner-scoped D1 lifecycle projection in one primary-consistent query.
+ * Ancillary usage, storage, entitlement, release, and migration polling is owned
+ * separately and is intentionally absent from this frequent endpoint.
  */
 app.get('/batch-status', async (c) => {
   const ownerKey = c.get('bucketName');
@@ -93,7 +89,7 @@ app.post('/sync', sessionsSyncRateLimiter, async (c) => {
 /**
  * POST /api/sessions/:id/stop
  * Stop a session and destroy its container.
- * Use DELETE to fully remove the session from KV.
+ * Use DELETE to remove a confirmed-stopped session from D1.
  */
 app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
@@ -103,7 +99,7 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   }
   const repository = new D1SessionRepository(c.env.USAGE_DB);
   const existing = await repository.getSession(bucketName, sessionId);
-  if (!existing) throw new ValidationError('Session not found');
+  if (!existing) throw new NotFoundError('Session not found');
   if (existing.lifecycleState === 'stopped') return c.json({ success: true, stopped: true, id: sessionId });
   const intentId = crypto.randomUUID();
   const claimed = await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
@@ -128,7 +124,7 @@ app.get('/:id/status', async (c) => {
     throw new ValidationError('Invalid sessionId format');
   }
   const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
-  if (!session) throw new ValidationError('Session not found');
+  if (!session) throw new NotFoundError('Session not found');
   return c.json({
     session,
     containerStatus: session.lifecycleState,

@@ -805,49 +805,21 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
     });
 
-    // REQ-TERM-022 / REQ-SESSION-020: the ordering is the contract, not the write.
-    // onStop() runs AFTER the clear below and its updateKvStatus reads
-    // host._bucketName, which the clear has nulled - so it hits the
-    // missing-identifiers guard and records nothing, leaving a torn-down session
-    // as 'running'. The terminal upgrade's authoritative 4503 gate reads exactly
-    // that field, so 'running' is what sends reconnects to the forward path
-    // instead of telling the client to stop. Recording the stop before the clear
-    // is what survives a teardown that is killed partway, which is the case that
-    // produced a 20-minute reconnect storm in prod.
-    it('records the session stopped BEFORE clearing the identifiers that write needs', async () => {
-      // Snapshot what a concurrent collectMetrics tick would observe at the exact
-      // moment the 'stopped' record lands: it reads the persisted marker to tell a
-      // deliberate stop from a false one, so the marker must already be durable.
-      let markerDurableAtKvWrite = false;
-      const mockKvPut = vi.fn().mockImplementation(async () => {
-        markerDurableAtKvWrite = mockStorage.put.mock.calls
-          .some((c: unknown[]) => c[0] === 'shutdownRequested');
-      });
-      const mockKvGet = vi.fn().mockResolvedValue({ id: 'sess123', status: 'running', name: 'Test' });
-      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
-
+    it('persists the shutdown marker before clearing process identifiers', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
         return null;
       });
-
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await instance.destroy();
-
-      expect(mockKvPut).toHaveBeenCalled();
-      const written = mockKvPut.mock.calls[0][1];
-      const record = typeof written === 'string' ? JSON.parse(written) : written;
-      expect(record.status).toBe('stopped');
-
-      // Ordering: if the write moved after the clear it would silently no-op, and
-      // an assertion on the value alone would still pass.
-      expect(mockKvPut.mock.invocationCallOrder[0])
-        .toBeLessThan(mockStorage.delete.mock.invocationCallOrder[0]);
-
-      // ...and not so early that the window between it and the marker lets a
-      // concurrent tick self-heal the record back to 'running'.
-      expect(markerDurableAtKvWrite).toBe(true);
+      const markerOrder = mockStorage.put.mock.invocationCallOrder[
+        mockStorage.put.mock.calls.findIndex((call: unknown[]) => call[0] === 'shutdownRequested')
+      ];
+      const identifierClearOrder = mockStorage.delete.mock.invocationCallOrder[
+        mockStorage.delete.mock.calls.findIndex((call: unknown[]) => call[0] === '_sessionId')
+      ];
+      expect(markerOrder).toBeLessThan(identifierClearOrder);
     });
 
     // REQ-SESSION-018 AC5: destroy() persists the deliberate-stop marker (and
@@ -928,42 +900,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(mockKvPut).not.toHaveBeenCalled();
     });
 
-    // CF-050
-    // Positive counterpart to the cleared-identifiers test above. That test is a
-    // pure negative (no KV write after destroy clears the identifiers), which on
-    // its own could pass even if onStop never wrote under ANY condition. This
-    // test pins the intended behaviour: with identifiers present, onStop writes
-    // status='stopped' to KV. Together the two prove the negative above is the
-    // result of the cleared identifiers, not of onStop being inert.
-    // REQ-SESSION-018: persisted status is authoritative on container exit.
-    it('onStop writes status=stopped to KV when bucketName + sessionId are present', async () => {
+    it('onStop does not resurrect the retired KV session projection', async () => {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
-      const mockKvGet = vi.fn().mockResolvedValue({
-        id: 'sess123',
-        status: 'running',
-        name: 'Test',
-      });
-      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
-
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
+      mockEnv.KV = { get: vi.fn(), put: mockKvPut };
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
       await instance.onStop();
-
-      await vi.waitFor(() => {
-        expect(mockKvPut).toHaveBeenCalled();
-      });
-      const writtenSession = JSON.parse(mockKvPut.mock.calls[0][1]);
-      expect(writtenSession.status).toBe('stopped');
-      expect(writtenSession.lastActiveAt).toBeDefined();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mockKvPut).not.toHaveBeenCalled();
     });
 
     // REQ-VAULT-006: shutdown bisync completes vault writes before SIGKILL (graceful SIGTERM drain)

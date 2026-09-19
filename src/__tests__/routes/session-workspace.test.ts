@@ -80,7 +80,7 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     ['missing workspace preference', { sessionMode: 'advanced' }],
     ['default mode', { sessionMode: 'default', defaultWorkspace: 'vscode' }],
     ['Terminal preference', { sessionMode: 'advanced', defaultWorkspace: 'terminal' }],
-  ])('resolves %s to Terminal without persisting a terminal marker', async (_label, preferences) => {
+  ])('resolves %s to a complete Terminal snapshot', async (_label, preferences) => {
     if (preferences) mockKV._set('user-prefs:test-bucket', preferences);
 
     const { response, session } = await createSession();
@@ -88,7 +88,7 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     expect(response.status).toBe(201);
     expect(session.workspace).toBe('terminal');
     const stored = await mockKV.get(`session:test-bucket:${session.id}`, 'json') as Session;
-    expect(stored.workspace).toBeUndefined();
+    expect(stored.workspace).toBe('terminal');
   });
 
   it('resolves a stale Advanced preference to Terminal after entitlement loss', async () => {
@@ -115,7 +115,7 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
 
     expect(response.status).toBe(201);
     expect(session.workspace).toBe('terminal');
-    expect((await mockKV.get(`session:test-bucket:${session.id}`, 'json') as Session).workspace).toBeUndefined();
+    expect((await mockKV.get(`session:test-bucket:${session.id}`, 'json') as Session).workspace).toBe('terminal');
   });
 
   it('REQ-SESSION-001 AC4: historical sessions resolve to Terminal', async () => {

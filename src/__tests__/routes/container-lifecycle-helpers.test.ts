@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -141,7 +142,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       } satisfies Partial<Session>);
 
       const result = await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
         bucketName: 'bucket',
         sessionId: 'session1',
         maxSessions: 3,
@@ -166,7 +167,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ]);
 
       await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
         bucketName: 'bucket',
         sessionId: 'session1',
         maxSessions: 3,
@@ -181,7 +182,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
     it('throws NotFoundError when session does not exist', async () => {
       await expect(
         validateSessionAndCheckLimits({
-          env: { KV: mockKV as unknown as KVNamespace } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
           bucketName: 'bucket',
           sessionId: 'nonexistent',
           maxSessions: 3,
@@ -218,7 +219,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       await expect(
         validateSessionAndCheckLimits({
-          env: { KV: mockKV as unknown as KVNamespace } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
           bucketName: 'bucket',
           sessionId: 'newsession1234',
           maxSessions: 3,
@@ -243,7 +244,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockListAllKvKeys.mockResolvedValue(sessionKeys);
 
       const result = await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace, SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
         bucketName: 'bucket',
         sessionId: 'newsession1234',
         maxSessions: 1,
@@ -259,7 +260,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set(getTimekeeperKey('bucket'), { thisMonth: { month: getUtcMonthString(new Date()), seconds: 999_999_999 } });
 
       const result = await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace, SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
         bucketName: 'bucket',
         sessionId: 's1',
         maxSessions: 5,
@@ -273,7 +274,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
   describe('ensureBucketAndSeed', () => {
     it('creates bucket and returns r2Config', async () => {
       const result = await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         logger: mockLogger as any,
@@ -290,7 +291,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       await expect(
         ensureBucketAndSeed({
-          env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
           bucketName: 'test-bucket',
           sessionMode: 'default',
           logger: mockLogger as any,
@@ -302,7 +303,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: true });
 
       await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         codingAgents: 'pi',
@@ -331,7 +332,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'advanced' });
 
       await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         logger: mockLogger as any,
@@ -348,7 +349,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('user-prefs:test-bucket', { gettingStartedSeeded: true });
 
       await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         logger: mockLogger as any,
@@ -363,7 +364,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       await expect(
         ensureBucketAndSeed({
-          env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
           bucketName: 'test-bucket',
           sessionMode: 'default',
           logger: mockLogger as any,
@@ -562,7 +563,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       containerId: 'bucket-session1234',
       sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
-      env: { KV: mockKV as unknown as KVNamespace } as Env,
+      env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
       shortContainerId: 'bucket-ses',
       logger: mockLogger as any,
       waitUntil: vi.fn((p: Promise<void>) => { p.catch(() => {}); }),

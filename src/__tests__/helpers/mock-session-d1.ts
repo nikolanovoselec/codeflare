@@ -12,7 +12,7 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     terminal_mode: session.terminalMode ?? 'classic',
     tab_config_json: session.tabConfig ? JSON.stringify(session.tabConfig) : null,
     clone_json: session.clone ? JSON.stringify(session.clone) : null,
-    lifecycle_state: session.status === 'initializing' ? 'starting' : (session.status ?? 'stopped'),
+    lifecycle_state: session.status === 'initializing' ? 'starting' : (session.status ?? 'running'),
     lifecycle_generation: session.lifecycleGeneration ?? 0,
     response_revision: session.responseRevision ?? 0,
     observation_sequence: session.observationSequence ?? -1,
@@ -49,7 +49,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
       const session = await kv.get(item.name, 'json') as Record<string, any> | null;
       if (session) rows.push(row(String(owner), session));
     }
-    return rows;
+    return rows.sort((a, b) => String(b.last_accessed_at).localeCompare(String(a.last_accessed_at)) || String(a.session_id).localeCompare(String(b.session_id)));
   }
 
   return {
@@ -80,9 +80,17 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           }
           const session = await get(args[0], args[1]);
           if (!session) return { success: true, meta: { changes: 0 } };
-          if (sql.includes("lifecycle_state='starting'")) { session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1; }
-          else if (sql.includes("lifecycle_state='stopping'")) { session.status = 'stopping'; session.terminationIntentId = args[2]; session.terminationGeneration = session.lifecycleGeneration ?? 0; }
-          else if (sql.includes("lifecycle_state='stopped'")) { session.status = 'stopped'; }
+          if (/SET\s+lifecycle_state='starting'/.test(sql)) { session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1; }
+          else if (/SET\s+lifecycle_state='stopping'/.test(sql)) { session.status = 'stopping'; session.terminationIntentId = args[2]; session.terminationGeneration = session.lifecycleGeneration ?? 0; }
+          else if (/SET\s+lifecycle_state='stopped'/.test(sql)) { session.status = 'stopped'; session.terminationIntentId = undefined; session.terminationGeneration = undefined; }
+          else if (sql.includes('lifecycle_state=COALESCE')) {
+            if (args[4] != null) session.status = args[4];
+            session.lastInputAt = args[5] ?? session.lastInputAt;
+            session.metrics = { cpu: args[6] ?? undefined, mem: args[7] ?? undefined, hdd: args[8] ?? undefined, syncStatus: args[9] ?? undefined, updatedAt: args[12] };
+            session.editorReady = args[10] === 1;
+            session.editorReadyError = args[11] === 1;
+            session.observationSequence = args[3];
+          }
           if (sql.includes('name=COALESCE')) { if (args[2] != null) session.name = args[2]; if (args[3] != null) session.tabConfig = JSON.parse(String(args[3])); session.lastAccessedAt = args[4]; }
           if (sql.includes('last_accessed_at=?3')) session.lastAccessedAt = args[2];
           await put(args[0], session);

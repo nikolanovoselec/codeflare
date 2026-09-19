@@ -2442,6 +2442,8 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storageGetFailures.clear();
     testState.storageStore.clear();
     testState.storageStore.set('containerAuthToken', 'agent-event-token');
+    testState.storageStore.set('lifecycleGeneration', 0);
+    testState.storageStore.set('observationSequence', -1);
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
     testState.scheduleFailuresRemaining = 0;
@@ -2456,9 +2458,9 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
 
     containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
       {},
-      { KV: mockKV, LOG_LEVEL: 'silent' },
+      { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
     );
-    (containerInstance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    (containerInstance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env.KV = mockKV;
   });
 
   afterEach(() => {
