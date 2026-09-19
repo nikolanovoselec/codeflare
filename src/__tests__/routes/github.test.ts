@@ -306,7 +306,7 @@ describe('POST /api/github/clone', () => {
 
   it('REQ-GITHUB-015 AC6: does not return clone success when session persistence fails', async () => {
     containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
-    mockKV.put.mockRejectedValueOnce(new Error('KV unavailable'));
+    mockKV.put.mockRejectedValue(new Error('KV unavailable'));
 
     const res = await createTestApp(ENT).request('/api/github/clone', {
       method: 'POST',
