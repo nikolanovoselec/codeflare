@@ -9,15 +9,17 @@ vi.mock('../../lib/session-helpers', () => ({ listRunningSessionIds }));
 
 import { drainContainers } from '../../lib/migration-containers';
 
-describe('REQ-ENTERPRISE-021 AC3: governed migration container drain', () => {
+describe('REQ-ENTERPRISE-021 AC4: governed migration container drain', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('destroys every running session container and does nothing when none are running', async () => {
     const first = { destroy: vi.fn().mockResolvedValue(undefined) };
     const second = { destroy: vi.fn().mockResolvedValue(undefined) };
-    listRunningSessionIds.mockResolvedValueOnce(['session-a', 'session-b']);
+    listRunningSessionIds.mockResolvedValueOnce(['session0001', 'session0002']);
     getContainer.mockReturnValueOnce(first).mockReturnValueOnce(second);
     await drainContainers({ USAGE_DB: {} as D1Database, CONTAINER: {} as DurableObjectNamespace } as never, 'bucket-a');
+    expect(getContainer).toHaveBeenNthCalledWith(1, expect.anything(), 'bucket-a-session0001');
+    expect(getContainer).toHaveBeenNthCalledWith(2, expect.anything(), 'bucket-a-session0002');
     expect(first.destroy).toHaveBeenCalledOnce();
     expect(second.destroy).toHaveBeenCalledOnce();
 

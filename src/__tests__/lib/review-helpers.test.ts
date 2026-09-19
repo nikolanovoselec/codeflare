@@ -1056,6 +1056,31 @@ describe('native Pi transcript review facts', () => {
     }
   });
 
+  it('treats an empty completed credited CI-monitor result as terminal timeout', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      reviewReminder(head, `${'a'.repeat(40)}..${head}`, 'main', 'push-1', 'push'),
+      assistantTool('ci-launch', 'subagent', {
+        subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head, cwd: '/repo' }),
+      }),
+      toolResult('ci-launch', 'subagent', false, { details: { agentId: 'agent-ci' } }),
+      assistantTool('ci-result', 'get_subagent_result', { agent_id: 'agent-ci' }),
+      toolResult('ci-result', 'get_subagent_result', false, {
+        text: 'Agent: agent-ci\nType: ci-monitor | Status: completed\nNo output',
+      }),
+    ]);
+
+    expect(reviewTranscriptFacts({
+      sessionFile,
+      requiredLanes: [],
+      ci: { repository: 'owner/repo', repo: '/repo', prNumber: 42, head },
+    })).toMatchObject({ ciLaunched: true, ciTerminal: true, ciResult: 'timeout' });
+  });
+
   it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const head = 'b'.repeat(40);

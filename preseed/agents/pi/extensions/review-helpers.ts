@@ -914,16 +914,14 @@ export function reviewTranscriptFacts(input: {
         if (!successfulSubagentToolIds.has(call.id)) continue;
         ciLaunched = true;
 
-        const nativeTerminal = later.slice(entryIndex + 1)
+        const nativeResults = later.slice(entryIndex + 1)
           .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
-          .find((candidate) => {
-            const notification = candidate.value;
-            return notification !== undefined
-              && notification.toolUseId === call.id
-              && notification.succeeded
-              && (ciTerminalResult(notification.text, ci) !== undefined
-                || /\bCommand timed out after \d+ seconds\b/i.test(notification.text));
-          });
+          .filter((candidate) => candidate.value?.toolUseId === call.id && candidate.value.succeeded);
+        const nativeTerminal = nativeResults.find((candidate) => {
+          const notification = candidate.value!;
+          return ciTerminalResult(notification.text, ci) !== undefined
+            || /\bCommand timed out after \d+ seconds\b/i.test(notification.text);
+        });
         const launchResult = later.find((candidate) => candidate.type === "message"
           && candidate.message?.role === "toolResult"
           && candidate.message?.toolCallId === call.id
@@ -932,15 +930,18 @@ export function reviewTranscriptFacts(input: {
         const launchedAgent = typeof launchResult?.message?.details?.agentId === "string"
           ? launchResult.message.details.agentId
           : undefined;
-        const publicTerminal = launchedAgent ? later
+        const publicResults = launchedAgent ? later
           .map((candidate, index) => ({ candidate, index }))
-          .find(({ candidate }) => candidate.type === "message"
+          .filter(({ candidate }) => candidate.type === "message"
             && candidate.message?.role === "toolResult"
             && candidate.message?.toolName === "get_subagent_result"
             && candidate.message?.isError !== true
-            && resultRequests.get(candidate.message.toolCallId) === launchedAgent
-            && completedPublicCiResult(messageContentText(candidate), ci) !== undefined)
-          : undefined;
+            && resultRequests.get(candidate.message.toolCallId) === launchedAgent)
+          : [];
+        const publicTerminal = publicResults.find(({ candidate }) =>
+          completedPublicCiResult(messageContentText(candidate), ci) !== undefined);
+        const publicCompletion = publicResults.find(({ candidate }) =>
+          /^Type:\s*ci-monitor\s*\|\s*Status:\s*(?:completed|done)\b/mi.test(messageContentText(candidate)));
         const terminal = nativeTerminal && publicTerminal
           ? nativeTerminal.index <= publicTerminal.index
             ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)
@@ -951,7 +952,11 @@ export function reviewTranscriptFacts(input: {
               ?? "timeout" }
             : publicTerminal
               ? { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
-              : undefined;
+              : nativeResults[0]
+                ? { index: nativeResults[0].index, result: "timeout" }
+                : publicCompletion
+                  ? { index: publicCompletion.index, result: "timeout" }
+                  : undefined;
         if (terminal && (ciTerminalIndex === undefined || terminal.index < ciTerminalIndex)) {
           ciTerminalIndex = terminal.index;
           ciResult = terminal.result;

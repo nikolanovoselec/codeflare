@@ -137,6 +137,7 @@ vi.mock('@cloudflare/containers', () => {
                     syncStatus: testState.healthResult.syncStatus,
                     editorReady: testState.healthResult.editorReady,
                     editorReadyError: testState.healthResult.editorReadyError,
+                    workspaceRepos: testState.healthResult.workspaceRepos,
                     observedAt: new Date().toISOString(),
                   }
                 : url.includes('/activity') ? testState.activityResult : testState.healthResult;

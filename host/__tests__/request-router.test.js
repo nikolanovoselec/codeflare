@@ -174,6 +174,7 @@ describe('request router seam (server.ts decomposition)', () => {
       'observedAt',
       'syncStatus',
       'terminalReady',
+      'workspaceRepos',
     ]);
     assert.equal(observed.body.editorReady, readinessState.editorReady);
     assert.equal(observed.body.editorReadyError, readinessState.editorReadyTimedOut);
