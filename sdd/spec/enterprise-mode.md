@@ -995,9 +995,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. A provider tool block becomes executable client output and stored replay state only after a native `tool_use` terminal reason. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-076/079/085: converts Invoke responses and stores signed thinking without exposing it downstream) -->
-2. A `max_tokens` response retains safe text, usage, and `length` without publishing or persisting an incomplete tool call. <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076/085: does not publish or persist an Invoke tool call truncated by max_tokens) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076/085: terminates Eventstream as length without publishing partial tool JSON) -->
+2. A `max_tokens` response retains safe text, usage, and `length` without publishing or persisting an incomplete tool call. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptInvoke --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptEventstream --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076/085: does not publish or persist an Invoke tool call truncated by max_tokens) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076/085: terminates Eventstream as length without publishing partial tool JSON) -->
 3. A zero-result tool proposal may be omitted after a later nonempty text-only user turn proves abandonment; safe assistant prose remains. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::omitAbandonedToolTurns --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076/085: omits an unexecuted poisoned tool turn after a new user turn) -->
-4. Matching or partial results, orphan or duplicate ambiguity, intervening assistant messages, and non-text user content retain fail-closed replay validation. <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: incomplete parallel tool results remain protected despite later assistant and user text) -->
+4. Matching or partial results, orphan or duplicate ambiguity, intervening assistant messages, and non-text user content retain fail-closed replay validation. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::omitAbandonedToolTurns --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::classifyBedrockToolTurn --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: incomplete parallel tool results remain protected despite later assistant and user text) -->
 
 **Constraints:** Profiles, transport authority, retry policy, adapter identity, and authentic signed replay remain unchanged.
 
@@ -2581,27 +2581,13 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- Cache experiments add no retries, delays, fallback or parser changes. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache -->
-- Existing Eventstream/Invoke handling, five-minute checkpoints, fatal stop boundaries and campaign limits remain unchanged. <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-074: discovers selectable native forms on an unknown model with exact replay and $transport dispatch) --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (does not probe cache after an authentication failure or retry another transport) -->
-- Synthetic read counters do not promise immediate provider reuse.
-- After successful tools/replay, each successful Native cache experiment submits exactly two requests with identical public prefix and native controls but different nonempty user questions. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: changes only the user question in each Native Eventstream cache pair while preserving independent %s evidence) -->
-- Dynamic whole-response cache pairs keep identical bodies. <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (accepts Dynamic Gateway %s honestly, without native serialization or an all-branches gate) -->
-
-- Cache hits remain provider decisions; Gateway HIT never proves prefix reuse, including replayed positive counters. Targets with no positive provider-prefix evidence remain usable without model-wide checkpoint permission; UI shows per-level evidence and the Worker rejects unauthorized checkpoints before inference. <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: Gateway HIT with cached provider counters never certifies native input-prefix reuse (%s)) -->
-- A refused cache fill may report a positive write but cannot establish cache permission or submit the paired read; completed tools/replay remain independent. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
-- Only the final tool-result text checkpoint lifts to its enclosing native `tool_result`.
-- Unknown controls, unsupported TTLs, top-level automatic controls and over four checkpoints fail before I/O.
-- Reasoning-independent active replay isolation follows [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity) and [REQ-ENTERPRISE-079](#req-enterprise-079-provider-native-bedrock-replay-confidentiality).
-- Public metadata privacy follows [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication).
-- Malformed cache responses stop discovery with sanitized diagnostics. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (stops after malformed HTTP 200 SSE at $stage without trying another contract) -->
-- Reasoning length or token evidence may establish enabled reasoning without exposing content. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: returns independent $reasoning capability rows without input caching while retaining seven Dynamic preferences) -->
-- Enabled reasoning does not prove graduated fidelity.
-- Usage accounting follows [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation) AC6.
-- Gateway TTLs/headers/policies, historical reasoning mappings, saved transports and Dynamic routing remain unchanged.
-- No fallback or all-branch probing is introduced.
-- Framing alone never certifies incremental delivery; continuation follows [REQ-ENTERPRISE-077](#req-enterprise-077-provider-native-bedrock-transport-dispatch).
-- Only five-minute explicit retention is advertised.
-- Invalid or duplicate capability handles are rejected.
+- Cache experiments add no retry, delay, fallback, parser change, or all-branch probing. <!-- @impl: src/lib/reasoning-discovery.ts::discoverCache -->
+- A successful Native experiment uses two requests with identical prefix and controls but different nonempty questions; Dynamic whole-response pairs remain identical. <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-083: changes only the user question in each Native Eventstream cache pair while preserving independent %s evidence) -->
+- Gateway hits, synthetic counters, refused fills, and inconclusive observations grant no prefix permission. Targets without permission remain usable, and unauthorized checkpoints fail before inference. <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported -->
+- Only final tool-result text may lift to `tool_result`; unknown controls, unsupported TTLs, top-level automatic controls, and more than four checkpoints fail before I/O.
+- Malformed cache responses stop discovery with sanitized diagnostics. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
+- Replay isolation, metadata privacy, usage accounting, and continuation follow [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-079](#req-enterprise-079-provider-native-bedrock-replay-confidentiality), [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation), and [REQ-ENTERPRISE-077](#req-enterprise-077-provider-native-bedrock-transport-dispatch).
+- Five-minute retention is the only advertised TTL; transport, campaign, fatal-stop, historical-authority, and Dynamic-routing rules remain unchanged.
 
 **Priority:** P1
 
