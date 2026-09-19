@@ -4,9 +4,10 @@
  * Owned by explicit user-removal paths. Deployment configuration must not
  * invoke this destructive workflow or infer offboarding from a settings payload.
  */
-import type { Env, Session } from '../types';
+import type { Env } from '../types';
 import { resolveBucketName } from './access';
-import { getSessionPrefix, getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
+import { getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
+import { D1SessionRepository } from './session-repository';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -39,29 +40,19 @@ async function resolveCleanupBucket(normalizedEmail: string, env: Env): Promise<
 }
 
 /**
- * Block A: destroy every session container and delete its KV entry.
- * Returns the number of session entries deleted.
+ * Block A: destroy every D1-owned session container and delete its row.
  */
 async function deleteSessionsAndContainers(bucketName: string, env: Env): Promise<number> {
-  const sessionPrefix = getSessionPrefix(bucketName);
-  const sessionKeys = await listAllKvKeys(env.KV, sessionPrefix);
-
-  let deletedSessions = 0;
-  for (const key of sessionKeys) {
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const sessions = await repository.listSessions(bucketName);
+  for (const session of sessions) {
     try {
-      const sessionData = await env.KV.get<Session>(key.name, 'json');
-      if (sessionData) {
-        const containerId = getContainerId(bucketName, sessionData.id);
-        const container = getContainer(env.CONTAINER, containerId);
-        await container.destroy();
-      }
+      await getContainer(env.CONTAINER, getContainerId(bucketName, session.sessionId)).destroy();
     } catch (err) {
-      logger.warn('Failed to destroy container during user deletion', { sessionKey: key.name, error: String(err) });
+      logger.warn('Failed to destroy container during user deletion', { sessionId: session.sessionId, error: String(err) });
     }
-    await env.KV.delete(key.name);
-    deletedSessions++;
   }
-  return deletedSessions;
+  return repository.deleteOwnerSessions(bucketName);
 }
 
 /** Blocks B + B2: delete the user record and all bucket-keyed KV entries. */

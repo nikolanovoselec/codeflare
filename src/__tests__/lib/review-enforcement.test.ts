@@ -742,9 +742,17 @@ describe('Pi marker-or-dialog review ingress', () => {
       toolCall('bad-review', 'subagent', {
         subagent_type: lane,
         run_in_background: true,
+        inherit_context: false,
+        max_turns: 7,
         prompt: reviewerPrompt(input.head, lane),
       }),
       toolResult('bad-review', 'subagent'),
+      toolCall('bad-inherit', 'subagent', {
+        subagent_type: lane,
+        run_in_background: true,
+        prompt: reviewerPrompt(input.head, lane),
+      }),
+      toolResult('bad-inherit', 'subagent'),
       toolCall('bad-ci', 'subagent', {
         subagent_type: 'ci-monitor',
         run_in_background: true,
@@ -759,16 +767,86 @@ describe('Pi marker-or-dialog review ingress', () => {
       'pr-boundary-launch-plan',
       'pr-boundary-launch-rejection',
       'pr-boundary-launch-rejection',
+      'pr-boundary-launch-rejection',
     ]);
-    expect(app.sent[1]?.content).toContain('inherit_context must be false');
-    expect(app.sent[2]?.content).toContain(`prompt head must equal ${input.head}`);
+    expect(app.sent[1]?.content).toContain('max_turns must be omitted');
+    expect(app.sent[2]?.content).toContain('inherit_context must be false');
+    expect(app.sent[3]?.content).toContain(`prompt head must equal ${input.head}`);
 
     await app.emit('agent_settled');
-    expect(app.sent).toHaveLength(3);
+    expect(app.sent).toHaveLength(4);
 
     appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'corrected');
     await app.emit('agent_settled');
     expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
+  });
+
+  it('requests one triage republish when the table predates the final terminal result', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-early-triage'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const codeId = 'early-code';
+    const specId = 'early-spec';
+    const docId = 'early-doc';
+    append(input.sessionFile,
+      ...[codeId, specId].flatMap((id, index) => {
+        const lane = lanes[index]!;
+        return [
+          toolCall(id, 'subagent', {
+            subagent_type: lane,
+            run_in_background: true,
+            inherit_context: false,
+            prompt: reviewerPrompt(input.head, lane),
+          }),
+          toolResult(id, 'subagent'),
+          notification(id),
+        ];
+      }),
+      toolCall(docId, 'subagent', {
+        subagent_type: lanes[2],
+        run_in_background: true,
+        inherit_context: false,
+        prompt: reviewerPrompt(input.head, lanes[2]!),
+      }),
+      toolResult(docId, 'subagent'),
+      toolCall('early-ci', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
+      }),
+      toolResult('early-ci', 'subagent'),
+      notification('early-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
+      triage(),
+    );
+
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
+
+    append(input.sessionFile,
+      notification(docId),
+      { type: 'message', id: `unchanged-${sequence += 1}`, message: { role: 'assistant', content: [{ type: 'text', text: 'Triage remains unchanged.' }] } },
+    );
+    await app.emit('agent_settled');
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-triage-correction',
+    ]);
+    expect(app.sent[1]?.content).toContain('published before the final result');
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).not.toBe('complete');
+
+    append(input.sessionFile, triage());
+    await app.emit('agent_settled');
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-triage-correction',
+      'pr-boundary-fix-follow-up',
+    ]);
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
   });
 
   it('requests one canonical triage correction when a terminal CI failure row is malformed', async () => {
@@ -788,9 +866,11 @@ describe('Pi marker-or-dialog review ingress', () => {
             prompt: reviewerPrompt(input.head, lane),
           }),
           toolResult(id, 'subagent'),
-          notification(id),
+          ...(index === lanes.length - 1 ? [] : [notification(id)]),
         ];
       }),
+      triage(),
+      notification('correct-triage-review-2'),
       toolCall('correct-triage-ci', 'subagent', {
         subagent_type: 'ci-monitor',
         run_in_background: true,

@@ -469,6 +469,22 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
+function sendEarlyTriageCorrectionFollowUp(
+  pi: ReviewPi,
+  round: ActiveRound,
+): void {
+  pi.sendMessage({
+    customType: "pr-boundary-triage-correction",
+    content: [
+      "## PR boundary — republish joint triage", "",
+      "All required reviewer and CI results are now terminal, but the existing triage table was published before the final result.", "",
+      "Republish the complete tool-free joint triage table now. Make no file or Git changes. End the turn immediately.",
+    ].join("\n"),
+    display: true,
+    details: { head: round.identity.head, reviewRange: round.range, boundaryToolUseId: round.boundaryToolUseId },
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
 function sendTriageCorrectionFollowUp(
   pi: ReviewPi,
   round: ActiveRound,
@@ -772,7 +788,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     }
     if (facts.ciRequired && !facts.ciTerminal) return;
     if (!facts.triageComplete) {
-      if (facts.triagePresent
+      if (!round.triageCorrectionDelivered
+        && facts.earlyTriagePresent
+        && !facts.triagePresent) {
+        round.triageCorrectionDelivered = true;
+        sendEarlyTriageCorrectionFollowUp(pi, round);
+      } else if (facts.triagePresent
         && !round.triageCorrectionDelivered
         && (facts.ciResult === "failure" || facts.ciResult === "timeout")) {
         round.triageCorrectionDelivered = true;

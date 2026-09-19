@@ -135,7 +135,7 @@ The [Architecture](architecture.md) lane owns component boundaries and cross-com
 
 `src/index.ts` is the Hono entry point and asset gateway. WebSocket route validation runs before Hono dispatch because the Workers runtime upgrade path cannot be treated as an ordinary routed response. Authentication middleware and `requireAdmin` establish identity before protected route modules execute. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
-The route catalogue and HTTP outcomes live in [API Reference](api-reference.md). CORS sources and `run_worker_first` asset paths live in [Configuration](configuration.md); failures where an API route or fingerprinted asset falls through to SPA HTML live in [Troubleshooting](troubleshooting.md).
+The route catalogue and HTTP outcomes live in [API Reference](api-reference.md). CORS sources live in [Configuration](configuration.md); the all-request `run_worker_first` boundary defined in `wrangler.toml` and failures where a Worker-owned route falls through to SPA HTML live in [Troubleshooting](troubleshooting.md).
 
 ### Container and interception composition
 

@@ -29,14 +29,14 @@ function createFakeGit(root) {
   const events = join(root, 'startup-events.log');
   mkdirSync(bin, { recursive: true });
   const git = join(bin, 'git');
-  writeFileSync(git, `#!/usr/bin/env bash\nif [ -n "\${FAKE_EVENT_LOG:-}" ]; then printf 'git\\n' >> "$FAKE_EVENT_LOG"; fi\nprintf '%s\\n' "$@" >> "$FAKE_GIT_LOG"\nif [ -n "\${FAKE_GIT_SLEEP:-}" ]; then sleep "$FAKE_GIT_SLEEP"; fi\nexit "\${FAKE_GIT_STATUS:-0}"\n`);
+  writeFileSync(git, `#!/usr/bin/env bash\nif [ -n "\${FAKE_EVENT_LOG:-}" ]; then printf 'git\\n' >> "$FAKE_EVENT_LOG"; fi\nif [ -n "\${FAKE_GIT_ENV_LOG:-}" ]; then printf 'GIT_TERMINAL_PROMPT=%s\\n' "\${GIT_TERMINAL_PROMPT:-unset}" >> "$FAKE_GIT_ENV_LOG"; fi\nprintf '%s\\n' "$@" >> "$FAKE_GIT_LOG"\nif [ -n "\${FAKE_GIT_SLEEP:-}" ]; then sleep "$FAKE_GIT_SLEEP"; fi\nexit "\${FAKE_GIT_STATUS:-0}"\n`);
   chmodSync(git, 0o755);
-  return { bin, log, events };
+  return { bin, log, events, envLog: join(root, 'git-env.log') };
 }
 
 function extractStartupCloneBlock() {
   const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
-  const start = entrypoint.indexOf('# REQ-GITHUB-014: one-shot repo clone at container start.');
+  const start = entrypoint.indexOf('# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start.');
   const end = entrypoint.indexOf('\n# Configure tab auto-start\n', start);
   assert.ok(start >= 0 && end > start, 'entrypoint startup clone block is missing');
   return entrypoint.slice(start, end);
@@ -66,6 +66,43 @@ function runStartupClone({ repo, ref, existing = false, gitStatus = 0 }) {
   const script = `${extractStartupCloneBlock()}\nprintf 'autostart\\n' >> "$FAKE_EVENT_LOG"\n`;
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
   return { root, workspace, fake, result, existingSentinel };
+}
+
+/**
+ * REQ-GITHUB-015: drive the same startup block with a multi-repository target
+ * list. Real shell, real `timeout`, fake git.
+ */
+function runStartupClones({ targets, existingDirs = [], gitStatus = 0, gitSleep, perRepoTimeout, totalBudget }) {
+  const root = mkdtempSync(join(tmpdir(), 'entrypoint-clone-targets-'));
+  const workspace = join(root, 'workspace');
+  const fake = createFakeGit(root);
+  mkdirSync(workspace, { recursive: true });
+  for (const dir of existingDirs) mkdirSync(join(workspace, dir), { recursive: true });
+  const env = {
+    ...process.env,
+    PATH: `${fake.bin}:${process.env.PATH ?? ''}`,
+    USER_WORKSPACE: workspace,
+    GIT_CLONE_TARGETS: targets,
+    GITHUB_HOST: 'github.example.com',
+    FAKE_GIT_LOG: fake.log,
+    FAKE_EVENT_LOG: fake.events,
+    FAKE_GIT_ENV_LOG: fake.envLog,
+    FAKE_GIT_STATUS: String(gitStatus),
+    ...(gitSleep === undefined ? {} : { FAKE_GIT_SLEEP: String(gitSleep) }),
+    ...(perRepoTimeout === undefined ? {} : { GIT_CLONE_PER_REPO_TIMEOUT_SECONDS: String(perRepoTimeout) }),
+    ...(totalBudget === undefined ? {} : { GIT_CLONE_TOTAL_BUDGET_SECONDS: String(totalBudget) }),
+  };
+  delete env.GIT_CLONE_REPO;
+  delete env.GIT_CLONE_REF;
+  const script = `${extractStartupCloneBlock()}\nprintf 'autostart\\n' >> "$FAKE_EVENT_LOG"\n`;
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
+  return { root, workspace, fake, result };
+}
+
+/** Clone target directories in the order git was asked to create them. */
+function clonedDirs(fake, workspace) {
+  const args = readFileSync(fake.log, 'utf8').trim().split('\n');
+  return args.filter((line) => line.startsWith(`${workspace}/`)).map((line) => line.slice(workspace.length + 1));
 }
 
 describe('REQ-GITHUB-004: resolveGitClone validation + dir computation', () => {
@@ -381,5 +418,83 @@ describe('REQ-GITHUB-014: entrypoint startup clone path (real shell behavior)', 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /clone failed for octo\/repo; continuing startup/);
     assert.deepEqual(readFileSync(fake.events, 'utf8').trim().split('\n'), ['git', 'autostart']);
+  });
+});
+
+describe('REQ-GITHUB-015: bounded multi-repository restore (real shell behavior)', () => {
+  it('REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone', () => {
+    const { workspace, fake, result } = runStartupClones({
+      targets: 'octo/api#develop octo/web octo/kept',
+      existingDirs: ['kept'],
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(clonedDirs(fake, workspace), ['api', 'web']);
+    assert.match(result.stdout, /kept.*already exists \(collision refuse\)/);
+    const args = readFileSync(fake.log, 'utf8').trim().split('\n');
+    assert.ok(args.includes('--branch'), 'a target ref must reach git as --branch');
+    assert.ok(args.includes('develop'));
+    assert.ok(args.includes('https://github.example.com/octo/api.git'));
+  });
+
+  it('REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next', () => {
+    const { workspace, fake, result } = runStartupClones({
+      targets: 'octo/slow octo/fast',
+      gitSleep: 3,
+      perRepoTimeout: 1,
+      totalBudget: 60,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /clone failed for octo\/slow/);
+    assert.deepEqual(clonedDirs(fake, workspace), ['slow', 'fast']);
+  });
+
+  it('REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent', () => {
+    const { workspace, fake, result } = runStartupClones({
+      targets: 'octo/slow octo/skipped',
+      gitSleep: 3,
+      perRepoTimeout: 1,
+      totalBudget: 1,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(clonedDirs(fake, workspace), ['slow']);
+    assert.match(result.stdout, /clone budget exhausted/);
+  });
+
+  it('REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart', () => {
+    const { fake, result } = runStartupClones({ targets: 'octo/api octo/web', gitStatus: 7 });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /clone failed for octo\/api/);
+    assert.match(result.stdout, /clone failed for octo\/web/);
+    assert.deepEqual(readFileSync(fake.envLog, 'utf8').trim().split('\n'), [
+      'GIT_TERMINAL_PROMPT=0',
+      'GIT_TERMINAL_PROMPT=0',
+    ]);
+    assert.deepEqual(readFileSync(fake.events, 'utf8').trim().split('\n'), ['git', 'git', 'autostart']);
+  });
+
+  it('REQ-GITHUB-015 AC4: skips an invalid target without invoking git and keeps going', () => {
+    const { workspace, fake, result } = runStartupClones({ targets: 'not-a-repo octo/api#--upload-pack octo/good' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(clonedDirs(fake, workspace), ['good']);
+    assert.match(result.stdout, /Skipping clone: invalid repo\/ref/);
+  });
+
+  it('REQ-GITHUB-015 AC5: falls back to the default overall budget instead of aborting on a malformed override', () => {
+    // Regression: `$(( ... ${GIT_CLONE_TOTAL_BUDGET_SECONDS:-180} ))` with a
+    // non-numeric override used to abort the whole entrypoint under
+    // `set -euo pipefail`, in a block documented as never aborting start.
+    const { workspace, fake, result } = runStartupClones({
+      targets: 'octo/api',
+      totalBudget: 'not-a-number',
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /integer expression expected/);
+    assert.deepEqual(clonedDirs(fake, workspace), ['api']);
   });
 });

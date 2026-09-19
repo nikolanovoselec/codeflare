@@ -1,4 +1,7 @@
 import type { Container } from '@cloudflare/containers';
+import type { OperatorRegistry } from './operators/registry';
+import type { OperatorActivity } from './operators/activity';
+import type { OperatorLoaderBinding } from './operators/loader';
 import { z } from 'zod';
 
 /**
@@ -134,6 +137,12 @@ interface GithubEnv {
 
 /** Enterprise-mode-only bindings: AI Gateway routing + strict-egress transport (AD86). */
 interface EnterpriseEnv {
+  /** Operator control-plane storage; routes remain unavailable outside enterprise mode. */
+  OPERATOR_REGISTRY?: DurableObjectNamespace<OperatorRegistry>;
+  /** Durable activity owner; never exposed as a child Worker capability. */
+  OPERATOR_ACTIVITY?: DurableObjectNamespace<OperatorActivity>;
+  /** Fresh private Worker constructor; children receive only explicit bindings. */
+  LOADER?: OperatorLoaderBinding;
   // Enterprise mode: when 'active', codeflare is deployed inside a customer's
   // own Cloudflare account. All users resolve to unlimited tier + advanced mode,
   // the agent set is restricted to the enterprise allowlist, and LLM traffic is
@@ -211,6 +220,8 @@ export interface Session {
   tabConfig?: TabConfig[];
   /** REQ-GITHUB-004: GitHub repo to clone into the workspace at container start. */
   clone?: { repo: string; ref?: string };
+  /** REQ-GITHUB-015: repositories present in the session workspace, restored on resume. */
+  clones?: { repo: string; ref?: string }[];
   metrics?: {
     cpu?: string;
     mem?: string;
@@ -485,6 +496,8 @@ export interface ContainerConfigPayload {
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */
   gitCloneRepo?: string;
   gitCloneRef?: string;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list restored at container start. */
+  gitCloneTargets?: string;
 }
 
 interface StorageObject {

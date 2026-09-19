@@ -34,11 +34,13 @@ type TranscriptFacts = {
   ciTerminal: boolean;
   ciResult?: 'success' | 'failure' | 'timeout';
   triagePresent: boolean;
+  earlyTriagePresent: boolean;
   triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
   launchIssues: Array<{ toolUseId: string; target: ReviewLane | 'ci-monitor'; problems: string[] }>;
 };
 type PlannedReviewHelpers = {
+  executableShellSegments(command: string): Array<{ command: string; separatorBefore?: string; separatorAfter?: string }>;
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
   isReviewMergeCommand(command: string): boolean;
   exposureTargetsCheckedOutBranch(command: string, identity: { branch: string; pr: number; repository: string }): boolean;
@@ -312,9 +314,13 @@ describe('Claude-equivalent review boundary helpers', () => {
   });
 
   it('REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity', async () => {
-    const { exposureTargetsCheckedOutBranch } = await plannedHelpers();
+    const { executableShellSegments, exposureTargetsCheckedOutBranch } = await plannedHelpers();
     const current = { branch: 'feature', pr: 42, repository: 'owner/repo' };
     expect(exposureTargetsCheckedOutBranch('git push origin feature', current)).toBe(true);
+    expect(executableShellSegments('git push origin feature 2>&1')).toEqual([
+      { command: 'git push origin feature 2>&1', separatorBefore: undefined },
+    ]);
+    expect(exposureTargetsCheckedOutBranch('git push origin feature 2>&1', current)).toBe(true);
     expect(exposureTargetsCheckedOutBranch('git push origin unrelated', current)).toBe(false);
     expect(exposureTargetsCheckedOutBranch('git push origin HEAD:other', current)).toBe(false);
     expect(exposureTargetsCheckedOutBranch('git push origin HEAD:feature', current)).toBe(true);
@@ -736,7 +742,9 @@ describe('native Pi transcript review facts', () => {
       notification('code-2'),
     ]);
 
+    expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).earlyTriagePresent).toBe(true);
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).earlyTriagePresent).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
     expect(reviewTranscriptFacts({ sessionFile: afterDuplicateNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
@@ -1049,6 +1057,31 @@ describe('native Pi transcript review facts', () => {
       expect(facts.ciTerminal).toBe(terminal);
       expect(facts.ciResult).toBe(terminal ? 'failure' : undefined);
     }
+  });
+
+  it('treats an empty completed credited CI-monitor result as terminal timeout', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      reviewReminder(head, `${'a'.repeat(40)}..${head}`, 'main', 'push-1', 'push'),
+      assistantTool('ci-launch', 'subagent', {
+        subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head, cwd: '/repo' }),
+      }),
+      toolResult('ci-launch', 'subagent', false, { details: { agentId: 'agent-ci' } }),
+      assistantTool('ci-result', 'get_subagent_result', { agent_id: 'agent-ci' }),
+      toolResult('ci-result', 'get_subagent_result', false, {
+        text: 'Agent: agent-ci\nType: ci-monitor | Status: completed\nNo output',
+      }),
+    ]);
+
+    expect(reviewTranscriptFacts({
+      sessionFile,
+      requiredLanes: [],
+      ci: { repository: 'owner/repo', repo: '/repo', prNumber: 42, head },
+    })).toMatchObject({ ciLaunched: true, ciTerminal: true, ciResult: 'timeout' });
   });
 
   it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {

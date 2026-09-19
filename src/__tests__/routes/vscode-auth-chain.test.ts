@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleVscodeRequest, validateVscodeRoute } from '../../routes/vscode';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 /**
  * Integration coverage for the browser-IDE auth chain + path forwarding.
@@ -95,6 +96,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
 
     mockEnv = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
       CONTAINER: {} as DurableObjectNamespace,
     } as unknown as Env;
 
@@ -108,6 +110,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
       id: SID,
       name: 'Test Session',
       userId: 'test-bucket',
+      status: 'running',
       createdAt: '2026-01-01T00:00:00.000Z',
       lastAccessedAt: '2026-01-01T00:00:00.000Z',
     } as Session);
@@ -208,7 +211,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
       editorReady: true,
       metrics: { cpu: '42%' },
     });
-    expect(stored.editorReadyError).toBeUndefined();
+    expect(stored.editorReadyError).toBe(false);
     expect(stored.lastAccessedAt).not.toBe('2026-01-01T00:00:00.000Z');
     expect(mockKV.put.mock.calls.some(
       ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),

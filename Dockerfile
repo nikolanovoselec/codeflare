@@ -180,6 +180,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Network tools
     curl \
     openssh-client \
+    # Require Debian's fixed libevent build before image publication.
+    libevent-core-2.1-7 \
     # Process utilities
     procps \
     util-linux \
@@ -199,8 +201,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     bubblewrap \
     slirp4netns \
     iptables \
-    # REQ-SEC-011: require Debian's CVE-2026-58050 fix and invalidate the stale apt layer.
+    # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libevent-core-2.1-7)" ge '2.1.12-stable-8+deb12u1' \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries
     && ln -s "$(which fdfind)" /usr/local/bin/fd \

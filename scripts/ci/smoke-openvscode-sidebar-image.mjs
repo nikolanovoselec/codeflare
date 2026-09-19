@@ -419,6 +419,15 @@ async function verifyCodeServerRuntime() {
   assert.equal(product.codeServerVersion, expected.codeServerVersion);
   assert.equal(product.commit, expected.codeServerCommit);
   assert.equal(await readlink('/usr/local/bin/code-server'), '/opt/code-server/bin/code-server');
+  const libeventVersion = execFileSync('dpkg-query', ['-W', '-f=${Version}', 'libevent-core-2.1-7'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  }).trim();
+  assert.equal(
+    spawnSync('dpkg', ['--compare-versions', libeventVersion, 'ge', '2.1.12-stable-8+deb12u1']).status,
+    0,
+    `libevent-core-2.1-7 must be patched; found ${libeventVersion}`,
+  );
   await assert.rejects(lstat('/usr/local/bin/openvscode-server'), { code: 'ENOENT' });
   await assert.rejects(lstat('/opt/openvscode-server'), { code: 'ENOENT' });
   await assert.rejects(

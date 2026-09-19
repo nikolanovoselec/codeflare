@@ -5,6 +5,7 @@ import {
   UserPreferencesSchema,
   SessionSchema,
   BatchSessionStatusResponseSchema,
+  SessionAncillaryStatusResponseSchema,
   StorageStatsResponseSchema,
   StoragePreviewTextResponseSchema,
   StoragePreviewImageResponseSchema,
@@ -82,23 +83,19 @@ describe('session workspace and readiness schemas', () => {
 
   it('carries editor readiness through batch status', () => {
     const parsed = BatchSessionStatusResponseSchema.parse({
-      statuses: { 'session-1': { status: 'running', ptyActive: false, editorReady: true } },
-      maxSessions: 3,
+      statuses: { 'session-1': { status: 'running', editorReady: true } },
     });
     expect(parsed.statuses['session-1'].editorReady).toBe(true);
   });
 });
 
-describe('BatchSessionStatusResponseSchema storageStats', () => {
+describe('SessionAncillaryStatusResponseSchema storageStats', () => {
   it('accepts storageStats field', () => {
     const data = {
-      statuses: {
-        'session-1': { status: 'running', ptyActive: true },
-      },
       maxSessions: 3,
       storageStats: { totalFiles: 42, totalFolders: 10, totalSizeBytes: 1048576 },
     };
-    const result = BatchSessionStatusResponseSchema.safeParse(data);
+    const result = SessionAncillaryStatusResponseSchema.safeParse(data);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.storageStats).toEqual({
@@ -110,13 +107,8 @@ describe('BatchSessionStatusResponseSchema storageStats', () => {
   });
 
   it('accepts response without storageStats', () => {
-    const data = {
-      statuses: {
-        'session-1': { status: 'stopped', ptyActive: false },
-      },
-      maxSessions: 3,
-    };
-    const result = BatchSessionStatusResponseSchema.safeParse(data);
+    const data = { maxSessions: 3 };
+    const result = SessionAncillaryStatusResponseSchema.safeParse(data);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.storageStats).toBeUndefined();

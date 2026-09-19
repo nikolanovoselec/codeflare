@@ -6,12 +6,15 @@ import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
+import { terminalPresentation, vscodePresentation, type BackendLifecycle } from '../lib/session-presentation';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
 
-const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 'default'> = {
+const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 'default' | 'idle'> = {
   running: 'success',
   stopped: 'default',
+  starting: 'warning',
+  unreachable: 'warning',
   initializing: 'warning',
   stopping: 'warning',
   error: 'error',
@@ -20,6 +23,8 @@ const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 
 const statusPulses: Record<SessionStatus, boolean> = {
   running: true,
   stopped: false,
+  starting: true,
+  unreachable: true,
   initializing: true,
   stopping: true,
   error: false,
@@ -37,14 +42,26 @@ interface SessionStatCardProps {
 const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
   const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
+  const lifecyclePresentation = createMemo(() => {
+    const lifecycle = (props.session.status === 'initializing' || props.session.status === 'error'
+      ? 'running'
+      : props.session.status) as BackendLifecycle;
+    return props.session.workspace === 'vscode'
+      ? vscodePresentation({ lifecycle, editorReady: props.session.editorReady }, { transportReachable: true })
+      : terminalPresentation({ lifecycle, editorReady: props.session.editorReady }, { terminalConnected: wsState() === 'connected' });
+  });
+  const lifecycleLabel = () => {
+    const presentation = lifecyclePresentation();
+    return 'label' in presentation ? presentation.label : `Session ${props.session.status}`;
+  };
   const dotVariant = () => {
     if (props.session.workspace === 'vscode') {
       if (props.session.status === 'error' || props.session.editorReadyError === true) return 'error';
-      if (props.session.status === 'running') return props.session.editorReady === true ? 'success' : 'warning';
+      if (props.session.status === 'running' || props.session.status === 'unreachable') return props.session.editorReady === true ? 'success' : 'default';
       return statusDotVariant[props.session.status];
     }
     if (props.session.status === 'running' && wsState() !== 'connected') {
-      return 'warning'; // Yellow — container alive, WS disconnected
+      return 'idle'; // Blue IDLE is local to this device's terminal socket.
     }
     return statusDotVariant[props.session.status];
   };
@@ -103,6 +120,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         <span class="stat-card__title type-section-header session-stat-card__name">{props.session.name}</span>
         <span
           class={`session-stat-card__dot session-stat-card__dot--${dotVariant()} ${isPulsing() ? 'session-stat-card__dot--pulse' : ''}`}
+          role="status"
+          aria-label={props.session.workspace === 'vscode'
+            ? `Session ${props.session.status}`
+            : lifecycleLabel()}
         />
         <Show when={timerInfo()}>
           {(info) => (

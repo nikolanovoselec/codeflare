@@ -12,6 +12,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 - [Data Model and Boundaries](#data-model-and-boundaries)
 - [Synchronization Lifecycle](#synchronization-lifecycle)
+  - [Restricted Operator Persistence](#restricted-operator-persistence)
 - [Conflict Resolution](#conflict-resolution)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
@@ -85,6 +86,16 @@ s3fs FUSE: every file op = network call (~340ms PUT, ~50ms HEAD), fragile on net
 rclone bisync: all file ops on local disk (<1ms), background daemon every 15 minutes (two minutes after a failed cycle, SIGUSR2-interruptible for manual triggers from the storage panel), final bisync on shutdown via the DO-side synchronous drain (`POST /internal/final-sync`, 120s budget) before stop. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) for the cadence rationale and [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) for the shutdown budget.
 
 ## Synchronization Lifecycle
+
+### Restricted Operator Persistence
+
+Restricted operator sessions use the parent-owned scoped Sync now contract in [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization) and [REQ-OPERATOR-024](../../sdd/spec/operators.md#req-operator-024-independent-synchronization-verification), not whole-home restore or bisync. Trusted startup fixes the activity, session, policy digest, local `~/Operators` root, owner bucket, `Operators/` storage prefix, private manifest prefix, and authority deadline. Candidate requests may name only a stable operation ID, request digest, and bounded file manifest; they cannot choose credentials, a bucket, another local root, or list/copy/delete authority. <!-- @impl: host/src/operator-sync-service.ts::createOperatorSyncService -->
+
+For an accepted operation, authenticated `POST /internal/bisync-trigger` invokes scoped Sync now. The host persists a credential-free receipt before effects, opens only regular non-symlink declared files beneath `~/Operators`, and verifies every declared size and SHA-256. It mirrors at most 128 files and 8 MiB under `Operators/` without implicit deletion. Only after all declared objects succeed does it write the bounded manifest under private `.codeflare/operators/<activity>/<operation>/` metadata; that manifest binds activity, session, operation, request and policy digests plus the exact file list. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/operator-sync-io.ts::OwnedOperatorSyncFiles -->
+
+The activity-owned durable seal is separate from the host receipt: the parent prepares the operation scope before host effects, authorizes writes only while prepared, seals the private manifest prefix after upload, and accepts independent verification only for that sealed manifest digest and the declared `Operators/` files. A changed repeat conflicts. A lost or nonterminal response becomes `unknown` and is never automatically replayed. Shutdown may wait for an already uploading receipt but does not initiate persistence; restricted final sync remains denied. Ordinary human Sync now is unchanged. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown -->
+
+This host upload plus independent R2 readback provides implemented persistence mechanics, not deployed acceptance. Live owner isolation, real R2 evidence, expiry, restart, and incomplete-upload behavior remain Gate 1 deployment checks. The private endpoint envelopes are registered in [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis).
 
 ### Initial Sync on Startup
 

@@ -9,6 +9,8 @@ import '../styles/session-switcher.css';
 
 const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 'default'> = {
   running: 'success',
+  unreachable: 'warning',
+  starting: 'warning',
   stopped: 'default',
   initializing: 'warning',
   stopping: 'warning',

@@ -167,7 +167,12 @@ export function executableShellCommands(command: string): string[][] {
         index = end;
         continue;
       }
-      if (/\s/.test(char) || ";&|(){}".includes(char)) {
+      // `&` is control syntax on its own, but is part of a descriptor
+      // duplication when immediately preceded by `<` or `>` (for example
+      // `2>&1`). Keep that form in one token so downstream policy can discard
+      // the redirection instead of inventing a second command.
+      const redirectionAmpersand = char === "&" && (source[index - 1] === ">" || source[index - 1] === "<");
+      if (!redirectionAmpersand && (/\s/.test(char) || ";&|(){}".includes(char))) {
         finishWord();
         if (";&|(){}\n\r".includes(char)) {
           finishCommand();

@@ -11,6 +11,7 @@
  * canonical description of when the SDK invokes each hook.
  */
 import { toError, toErrorMessage } from '../lib/error-types';
+import { D1SessionRepository } from '../lib/session-repository';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
   collectMetrics as doCollectMetrics,
@@ -61,10 +62,16 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   // new lifecycle inherit an exhausted record or a near-abort failure streak.
   await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
   updateEnvVars(host);
-  // updateKvStatus publishes running plus both startup timestamps from one KV
-  // snapshot, so an immediate eventually-consistent read cannot restore the
-  // pre-start record.
-  await updateKvStatus(host.ctx, host.env, host._bucketName, 'running', 'lastStartedAt');
+  if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
+  const repository = new D1SessionRepository(host.env.USAGE_DB);
+  const session = await repository.getSession(host._bucketName, host._sessionId);
+  if (!session || session.lifecycleState !== 'starting') throw new Error('D1 start generation unavailable');
+  await host.ctx.storage.put('lifecycleGeneration', session.lifecycleGeneration);
+  await host.ctx.storage.put('observationSequence', 0);
+  const observedAt = new Date().toISOString();
+  if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
+    lifecycleState: 'running', observedAt,
+  })) throw new Error('D1 running projection rejected');
   host.logger.info('Container started');
   // Clear any stale schedule rows from previous runs before arming fresh
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
@@ -220,29 +227,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     host.logger.warn('Final agent event drain exceeded teardown deadline', { error: toError(err).message });
   }
 
-  // Record the stop while the identifiers that write still needs are in hand.
-  // onStop() cannot: the clear below nulls _bucketName, so its updateKvStatus
-  // hits the missing-identifiers guard and writes nothing, leaving a torn-down
-  // session recorded as running. That is not cosmetic -- the terminal upgrade's
-  // authoritative 4503 gate reads exactly this field, so the record staying
-  // 'running' is what drops reconnects onto the forward path instead of telling
-  // the client to stop. Observed in prod 2026-07-27: a teardown that overran its
-  // budget and was SIGKILLed left the session 'running' and the tab retried it
-  // about once a second for 20+ minutes.
-  //
-  // Ordered AFTER the marker put above, not before it: a KV await is not a DO
-  // storage op, so the input gate does not hold off alarm delivery across it. A
-  // collectMetrics tick landing in that window would read KV 'stopped' with no
-  // marker yet persisted, take the self-heal branch, and re-assert 'running' --
-  // undoing exactly what this write exists to do.
-  //
-  // Safe on both callers: the delete route deletes the record after destroy()
-  // returns, so this write is superseded rather than resurrecting anything
-  // (REQ-SESSION-009), and the stop route already wrote the same value before
-  // calling in. Best-effort, like every other step of teardown.
-  try {
-    await withinDeadline(updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt'));
-  } catch { /* teardown proceeds regardless */ }
+  // Lifecycle remains stopping until destroy() returns confirmed process-exit evidence.
+  // The route that owns the generation-bound termination intent persists stopped.
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   // Recovery residue must not survive teardown even when another operational
   // key deletion fails below.

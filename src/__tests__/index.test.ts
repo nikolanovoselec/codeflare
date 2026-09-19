@@ -115,6 +115,23 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
   });
 
+  it('REQ-OPERATOR-029: routes the public webhook family through Hono instead of SPA assets', async () => {
+    const { env, mockAssets } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+
+    const response = await worker.fetch(new Request(
+      'https://example.com/operator-webhook/v1/activities/gate1-probe/status',
+    ), env, createMockCtx());
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('Content-Type')).toBe('application/json');
+    expect(await response.json()).toEqual({
+      error: 'Capability required',
+      code: 'WEBHOOK_CAPABILITY_REQUIRED',
+    });
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
+  });
+
   it('redirects GET / to /app when setup is complete and onboarding landing is inactive', async () => {
     const { env, mockKV, mockAssets } = createMockEnv();
     mockKV.get.mockResolvedValue('true');

@@ -312,6 +312,8 @@ export const SETUP_KEYS = {
   ACCESS_AUD_LIST: 'setup:access_aud_list',
   ACCESS_APP_ID: 'setup:access_app_id',
   ACCESS_SW_BYPASS_APP_ID: 'setup:access_sw_bypass_app_id',
+  ACCESS_OPERATOR_WEBHOOK_BYPASS_APP_ID: 'setup:access_operator_webhook_bypass_app_id',
+  ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS: 'setup:access_operator_webhook_bypass_status',
   ACCESS_GROUP_ADMIN_ID: 'setup:access_group_admin_id',
   ACCESS_GROUP_USER_ID: 'setup:access_group_user_id',
   ACCESS_GROUP_ADMIN_NAME: 'setup:access_group_admin_name',
@@ -368,6 +370,7 @@ export const SETUP_KEYS = {
   // Stored as 'active' / 'inactive' (read === 'active'); default OFF when absent.
   // Set by the setup wizard and persisted in KV — no redeploy needed to flip it.
   STRICT_EGRESS: 'setup:strict_egress',
+  OPERATOR_JWT_STAMPING: 'setup:operator_jwt_stamping',
   // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle — disable R2 SSE-C so the
   // corporate bucket is readable/scannable. Stored as 'active' / 'inactive'
   // (read === 'active'); default OFF when absent. Flipping it reconciles each bucket's

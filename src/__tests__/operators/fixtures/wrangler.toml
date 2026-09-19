@@ -1,0 +1,26 @@
+# CI-only runtime fixture. Never used by deployment workflows.
+# LOADER supplies real fresh isolates; the two SQLite fixtures exercise registry/activity
+# persistence and RPC. Synthetic parent credentials must never be copied to deployed config.
+name = "operator-loader-fixture"
+main = "loader-worker.ts"
+compatibility_date = "2026-02-05"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[[worker_loaders]]
+binding = "LOADER"
+
+[[durable_objects.bindings]]
+name = "OPERATOR_REGISTRY"
+class_name = "FixtureRegistry"
+
+[[durable_objects.bindings]]
+name = "ACTIVITY"
+class_name = "FixtureActivity"
+
+[[migrations]]
+tag = "fixture-v1"
+new_sqlite_classes = ["FixtureRegistry", "FixtureActivity"]
+
+[vars]
+PARENT_SECRET = "fixture-parent-only"

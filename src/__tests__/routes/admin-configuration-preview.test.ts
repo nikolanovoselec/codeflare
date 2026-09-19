@@ -498,10 +498,44 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
   it('rejects unsafe strict-egress transitions before writes', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
     const response = await post(app, {
-      section: 'securityEgress', baseRevision: 0, values: { strictGatewayEgress: true },
+      section: 'securityEgress', baseRevision: 0, values: {
+        strictGatewayEgress: true, jwtStamping: { mode: 'off', destinations: [] },
+      },
     });
     expect(response.status).toBe(400);
     expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it('previews, applies and reloads automatic JWT stamping without mutating during preview', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const values = { strictGatewayEgress: false,
+      jwtStamping: { mode: 'list', destinations: ['api.example.test', '*.services.example.test'] } };
+    const previewResponse = await post(app, { section: 'securityEgress', baseRevision: 0, values });
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json() as { warnings: { code: string }[] };
+    expect(await kv.get(SETUP_KEYS.OPERATOR_JWT_STAMPING)).toBeNull();
+    const saved = await app.request('/admin/configuration-runs', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ section: 'securityEgress',
+        baseRevision: 0, values, confirmedWarnings: preview.warnings.map(item => item.code) }) });
+    expect(saved.status).toBe(200);
+    await saved.text();
+    expect(await kv.get(SETUP_KEYS.OPERATOR_JWT_STAMPING, 'json')).toEqual(values.jwtStamping);
+    const reloaded = await app.request('/admin/configuration');
+    expect(await reloaded.json()).toMatchObject({ sections: { securityEgress: values } });
+  });
+
+  it('rejects unsafe stamping destinations and requires the All disclosure warning confirmation', async () => {
+    const invalid = createApp({ ENTERPRISE_MODE: 'active' });
+    expect((await post(invalid.app, { section: 'securityEgress', baseRevision: 0, values: {
+      strictGatewayEgress: false, jwtStamping: { mode: 'list', destinations: ['https://bad.example.test'] },
+    } })).status).toBe(400);
+    const all = createApp({ ENTERPRISE_MODE: 'active' });
+    const response = await post(all.app, { section: 'securityEgress', baseRevision: 0, values: {
+      strictGatewayEgress: false, jwtStamping: { mode: 'all', destinations: [] },
+    } });
+    expect(response.status).toBe(200);
+    expect((await response.json() as { warnings: { code: string }[] }).warnings)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'jwt_stamping_all_disclosure' })]));
   });
 
   it('keeps Browser Run optional but rejects incomplete effective pairs', async () => {

@@ -477,7 +477,7 @@ describe('Container Status Routes', () => {
       const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean; editorReadyError?: boolean };
       expect((await retry.json() as { stage: string }).stage).toBe('ready');
       expect(stored.editorReady).toBe(true);
-      expect(stored.editorReadyError).toBeUndefined();
+      expect(stored.editorReadyError).toBe(false);
     });
 
     it('skips mounting stage when health server is ok after sync (single port architecture)', async () => {

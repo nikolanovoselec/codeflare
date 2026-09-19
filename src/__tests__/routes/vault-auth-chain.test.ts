@@ -4,6 +4,7 @@ import { getVaultBucketToken } from '../../lib/vault-bucket-token';
 import { getVaultEncryptionKey } from '../../routes/vault/crypto';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 /**
  * Integration coverage for the vault auth chain (CF-002).
@@ -106,6 +107,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
 
     mockEnv = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
       CONTAINER: {} as DurableObjectNamespace,
       ENCRYPTION_KEY: 'test-encryption-key-master',
     } as unknown as Env;
@@ -119,6 +121,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
       id: SID,
       name: 'Test Session',
       userId: 'test-bucket',
+      status: 'running',
       createdAt: '2026-01-01T00:00:00.000Z',
       lastAccessedAt: '2026-01-01T00:00:00.000Z',
     };

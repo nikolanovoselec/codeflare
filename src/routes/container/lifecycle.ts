@@ -14,8 +14,10 @@ import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdat
 import { isBucketMigrating } from '../../lib/r2-migration';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from '../../lib/kv-keys';
+import { D1SessionRepository } from '../../lib/session-repository';
 import { getDefaultTabConfig } from '../../lib/agent-config';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { installedAgents } from '../../lib/agent-allowlist';
 import { containerLogger } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -73,13 +75,12 @@ export async function startOrRestartContainer(params: {
   setBucketBody: string;
   containerId: string;
   sessionData: Session;
-  sessionKey: string;
   env: Env;
   shortContainerId: string;
   logger: Logger;
   waitUntil: (p: Promise<void>) => void;
 }): Promise<{ status: string; containerState?: string }> {
-  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
+  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
   let currentState;
@@ -93,17 +94,21 @@ export async function startOrRestartContainer(params: {
   // If container is running but bucket name was wrong or not set, destroy and restart
   if ((currentState.status === 'running' || currentState.status === 'healthy') && needsBucketUpdate) {
     logger.info('Bucket name changed, destroying container to restart with correct bucket');
+    const repository = new D1SessionRepository(env.USAGE_DB);
+    const intentId = crypto.randomUUID();
+    const stopping = await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
+    if (!stopping) throw new Error('Replacement lifecycle could not claim termination ownership');
     try {
       await container.destroy();
-      // The container is stopped the moment destroy() returns, whether or not the
-      // bucket forward below succeeds. Recording that here rather than after the
-      // forward is load-bearing: destroy() persists the deliberate-stop marker and
-      // writes KV 'stopped', so leaving this reading at 'running' on a forward
-      // failure returns already_running without kicking off a start -- onStart()
-      // never runs, so nothing clears the marker or restores 'running', self-heal
-      // declines by design, and the 4503 gate then refuses every terminal upgrade
-      // until the user starts the session by hand (REQ-SESSION-020 AC3).
-      currentState = { status: 'stopped' };
+    } catch (error) {
+      logger.error('Failed to destroy container', toError(error));
+      throw error;
+    }
+    if (!await repository.confirmStopped(
+      sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
+    )) throw new Error('Replacement container exit could not be confirmed');
+    currentState = { status: 'stopped' };
+    try {
       await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
@@ -114,7 +119,7 @@ export async function startOrRestartContainer(params: {
         )
       );
     } catch (error) {
-      logger.error('Failed to destroy container', toError(error));
+      logger.error('Failed to set replacement bucket', toError(error));
     }
   }
 
@@ -128,16 +133,33 @@ export async function startOrRestartContainer(params: {
     };
   }
 
-  // Every path below starts a replacement container. Re-read KV so concurrent
-  // activity/metrics survive, then clear editor readiness before startup polling
-  // can expose Open for an editor that no longer exists.
-  const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
-  const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
-  await putSessionWithMetadata(env.KV, sessionKey, {
-    ...sessionWithoutReadiness,
-    status: 'running' as const,
-    ...(resolveSessionWorkspace(base.workspace) === 'vscode' && { editorReady: false }),
-  });
+  // A definitively stopped process is confirmed before claiming a replacement
+  // generation. Unknown transport/process state is not stopped evidence.
+  if (currentState.status === 'unknown') throw new Error('Container exit is not confirmed for Start');
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const authoritative = await repository.getSession(sessionData.userId, sessionData.id);
+  if (!authoritative) throw new Error('Session lifecycle record unavailable for Start');
+  if (authoritative.lifecycleState !== 'stopped') {
+    if (currentState.status !== 'stopped') throw new Error('Container exit is not confirmed for Start');
+    const intentId = authoritative.lifecycleState === 'stopping'
+      ? authoritative.terminationIntentId
+      : crypto.randomUUID();
+    if (!intentId) throw new Error('Session lifecycle could not claim termination ownership');
+    const stopping = authoritative.lifecycleState === 'stopping'
+      ? authoritative
+      : await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
+    if (!stopping || !await repository.confirmStopped(
+      sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
+    )) throw new Error('Confirmed container exit could not be persisted for Start');
+  }
+
+  // D1 claims the replacement generation before process work begins.
+  const claimed = await repository.start(
+    sessionData.userId,
+    sessionData.id,
+    new Date().toISOString(),
+  );
+  if (!claimed) throw new Error('Session lifecycle could not be claimed for Start');
 
   // Kick off container start in background (non-blocking)
   waitUntil(
@@ -147,15 +169,8 @@ export async function startOrRestartContainer(params: {
         logger.info('Container started and ports ready', { containerId: shortContainerId });
       } catch (error) {
         logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
-        try {
-          const freshSession = await env.KV.get<Session>(sessionKey, 'json');
-          if (freshSession) {
-            const rolledBack = { ...freshSession, status: 'stopped' as const };
-            await putSessionWithMetadata(env.KV, sessionKey, rolledBack);
-          }
-        } catch (err) {
-          logger.error('KV rollback to stopped failed', toError(err));
-        }
+        // Start failure is not confirmed process exit. Leave the generation in
+        // starting for bounded lifecycle reconciliation rather than inventing stopped.
       }
     })()
   );
@@ -435,18 +450,19 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       // entrypoint.sh clones on each fresh workspace start and skips collisions.
       gitCloneRepo: sessionData.clone?.repo,
       gitCloneRef: sessionData.clone?.ref,
+      // REQ-GITHUB-015 AC4: restore every repository tracked for this session,
+      // the session's own repository first.
+      gitCloneTargets: buildCloneTargets(sessionData.clones, sessionData.clone),
       logger: reqLogger,
     });
 
     // Step 5: Start or restart the container
-    const sessionKey = getSessionKey(bucketName, sessionId);
     const result = await startOrRestartContainer({
       container,
       needsBucketUpdate,
       setBucketBody,
       containerId,
       sessionData,
-      sessionKey,
       env: c.env,
       shortContainerId,
       logger: reqLogger,

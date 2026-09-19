@@ -49,6 +49,8 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { createLogger } from './lib/logger';
 import { getValidCloudflareToken } from './lib/cloudflare-token';
+import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
+import type { OperatorPolicy } from './operators/policy';
 
 const logger = createLogger('cf-browser-interceptor');
 
@@ -75,6 +77,10 @@ interface BrowserInterceptorProps {
   browserToken?: string;
   /** Strict gateway egress: route non-trusted api.cloudflare.com via env.EGRESS, else 403. */
   strict?: boolean;
+  jwtStamping?: JwtStampingPolicy;
+  jwtAuthority?: JwtStampingAuthority;
+  /** Presence marks a restricted operator session; admin Browser credentials are never a declared capability. */
+  operatorPolicy?: OperatorPolicy;
   /**
    * NON-enterprise OAuth mode (REQ-AGENT-078): the bound per-session bucket. When set, this
    * interceptor stamps a FRESH `getValidCloudflareToken(bucket)` on EVERY api.cloudflare.com
@@ -133,6 +139,9 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     // api.cloudflare.com path. Keyed on the bound bucket; `bucket` is never set in enterprise
     // (which wires browserAccountId/browserToken) — so the enterprise path below is untouched.
     if (props?.bucket) return this.fetchOAuth(request, url, props.bucket);
+    if (props?.operatorPolicy) {
+      return jsonError(403, 'OPERATOR_BROWSER_DENIED', 'Browser administrator credentials are not available to operators');
+    }
 
     const browserAccountId = props?.browserAccountId;
     const browserToken = props?.browserToken;
@@ -170,16 +179,16 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     headers.set('authorization', `Bearer ${browserToken}`);
 
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    let forward = new Request(url.toString(), {
+      method: request.method, headers, body: hasBody ? request.body : undefined, redirect: 'manual',
+    });
+    if (props?.jwtStamping) {
+      try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }
+      catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
+    }
     let upstream: Response;
     try {
-      upstream = await fetch(
-        new Request(url.toString(), {
-          method: request.method,
-          headers,
-          body: hasBody ? request.body : undefined,
-          redirect: 'manual',
-        }),
-      );
+      upstream = await fetch(forward);
     } catch (err) {
       console.error('CloudflareBrowserInterceptor: upstream fetch failed', {
         error: err instanceof Error ? err.message : String(err),
