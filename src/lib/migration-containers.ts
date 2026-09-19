@@ -29,26 +29,3 @@ export async function hasHealthyContainer(
   }
   return false;
 }
-
-/**
- * Stop + destroy every running session container so no writer holds the old regime during
- * the re-encrypt. Marks KV `stopped` first (so batch-status skips the container probe),
- * then best-effort destroys — mirrors POST /api/sessions/:id/stop. Per-session failures are
- * isolated; a container that is already gone is a no-op.
- */
-async function drainContainers(
-  env: Pick<Env, 'USAGE_DB' | 'CONTAINER'>,
-  bucketName: string,
-): Promise<void> {
-  const sessionIds = await listRunningSessionIds(env, bucketName);
-  await Promise.all(
-    sessionIds.map(async (sessionId) => {
-      try {
-        const container = getContainer(env.CONTAINER, getContainerId(bucketName, sessionId));
-        await container.destroy();
-      } catch {
-        /* best-effort drain — container may already be stopped */
-      }
-    }),
-  );
-}

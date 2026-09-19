@@ -63,7 +63,10 @@ export function createTestApp(options: TestAppOptions) {
     async first() { return null; },
     async run() { return { success: true, meta: { changes: 1 } }; },
   };
-  const emptyD1 = { prepare: () => ({ ...emptyStatement }) } as unknown as D1Database;
+  const emptyD1 = { prepare: (sql: string) => ({
+    ...emptyStatement,
+    async first() { return sql.includes('SELECT state FROM session_cutover') ? { state: 'complete' } : null; },
+  }) } as unknown as D1Database;
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,

@@ -74,7 +74,15 @@ export class D1SessionRepository implements SessionAuthority {
         session.workspace, session.terminalMode, session.tabConfig ? JSON.stringify(session.tabConfig) : null,
         session.clone ? JSON.stringify(session.clone) : null).run();
     if (result.meta.changes !== 1) throw new Error('Session admission is closed');
-    return (await this.getSession(session.ownerKey, session.sessionId))!;
+    return {
+      ...session,
+      lifecycleState: 'stopped',
+      lifecycleGeneration: 0,
+      responseRevision: 0,
+      observationSequence: -1,
+      editorReady: false,
+      editorReadyError: false,
+    };
   }
 
   async getSession(ownerKey: string, sessionId: string): Promise<D1Session | null> {
