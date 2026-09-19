@@ -149,64 +149,18 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   });
 
   describe('onStart lifecycle', () => {
-    it('onStart updates KV with lastStartedAt', async () => {
+    it('onStart never projects lifecycle timestamps to session KV', async () => {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
-      const mockKvGet = vi.fn().mockResolvedValue({
-        id: 'sess123',
-        status: 'running',
-        name: 'Test',
-      });
-      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
-
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
+      mockEnv.KV = { get: vi.fn(), put: mockKvPut };
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      instance.onStart();
-
-      await vi.waitFor(() => {
-        expect(mockKvPut).toHaveBeenCalled();
-      });
-      const putArgs = mockKvPut.mock.calls[0];
-      const writtenSession = JSON.parse(putArgs[1]);
-      expect(writtenSession.lastStartedAt).toBeDefined();
-      expect(new Date(writtenSession.lastStartedAt).toISOString()).toBe(writtenSession.lastStartedAt);
-      // onStart does NOT change status (start route sets 'running' before container launches)
-      expect(writtenSession.status).toBe('running');
+      await instance.onStart();
+      expect(mockKvPut).not.toHaveBeenCalled();
     });
 
-    it('REQ-SESSION-018 AC6: publishes running and both startup timestamps from one KV read', async () => {
-      const mockKvPut = vi.fn().mockResolvedValue(undefined);
-      const mockKvGet = vi.fn().mockResolvedValue({
-        id: 'sess123',
-        status: 'stopped',
-        name: 'Test',
-      });
-      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
+    it('uses D1 only when a reconstructed session identity is available', async () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => expect(mockStorage.get).toHaveBeenCalledWith('bucketName'));
       await instance.onStart();
-
-      expect(mockKvGet).toHaveBeenCalledTimes(1);
-      expect(mockKvPut).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(mockKvPut.mock.calls[0][1])).toMatchObject({
-        status: 'running',
-        lastStartedAt: expect.any(String),
-        lastActiveAt: expect.any(String),
-      });
+      expect(mockCtx.storage.put).not.toHaveBeenCalledWith('lastStartedAt', expect.anything());
     });
 
     // REQ-SESSION-018 AC5: a fresh start clears any stale deliberate-stop marker

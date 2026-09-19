@@ -3,6 +3,7 @@ import { handleWebSocketUpgrade, validateWebSocketRoute } from '../../routes/ter
 import { CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../../lib/constants';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // Mock dependencies
 vi.mock('../../lib/logger', () => ({
@@ -77,6 +78,7 @@ describe('handleWebSocketUpgrade', () => {
 
     mockEnv = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
       CONTAINER: {} as DurableObjectNamespace,
     } as unknown as Env;
 

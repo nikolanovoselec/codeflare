@@ -1,6 +1,7 @@
 // @ts-expect-error Provided by the Cloudflare Vitest Workers runtime.
 import { env } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
@@ -21,6 +22,10 @@ async function createSession(owner = 'owner-a', sessionId = 'session01') {
       'terminal', 'classic', 'stopped', 0, 0, -1, 0, 0, '2027-01-01T00:00:00.000Z')`)
     .bind(owner, sessionId).run();
 }
+
+beforeAll(async () => {
+  await db.exec(migration);
+});
 
 beforeEach(async () => {
   await db.prepare('DELETE FROM runtime_sessions').run();

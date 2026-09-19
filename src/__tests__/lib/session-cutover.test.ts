@@ -1,9 +1,14 @@
 // @ts-expect-error Cloudflare Workers test binding.
 import { env } from 'cloudflare:test';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 import { runSessionCutover } from '../../lib/session-cutover';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
+
+beforeAll(async () => {
+  await db.exec(migration);
+});
 
 beforeEach(async () => {
   await db.prepare('DELETE FROM runtime_sessions').run();

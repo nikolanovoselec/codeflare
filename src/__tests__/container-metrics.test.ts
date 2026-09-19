@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
+import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Session } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -244,9 +245,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   const createContainerInstance = (): InstanceType<typeof container> => {
     const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
       {},
-      { KV: mockKV, LOG_LEVEL: 'silent' },
+      { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
     );
-    (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env.KV = mockKV;
     return instance;
   };
 

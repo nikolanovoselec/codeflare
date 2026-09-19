@@ -17,6 +17,8 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import type { AccessUser } from '../../types';
 import { AppError } from '../../lib/error-types';
+import { createMockSessionD1 } from './mock-session-d1';
+import type { MockKV } from './mock-kv';
 
 interface RouteRegistration {
   path: string;
@@ -55,22 +57,13 @@ export function createTestApp(options: TestAppOptions) {
     return c.json({ error: err.message }, 500);
   });
 
-  // Set up mock env and auth variables. Route tests that do not exercise D1
-  // receive an empty authority; D1-specific tests override this binding.
-  const emptyStatement = {
-    bind() { return this; },
-    async all() { return { results: [] }; },
-    async first() { return null; },
-    async run() { return { success: true, meta: { changes: 1 } }; },
-  };
-  const emptyD1 = { prepare: (sql: string) => ({
-    ...emptyStatement,
-    async first() { return sql.includes('SELECT state FROM session_cutover') ? { state: 'complete' } : null; },
-  }) } as unknown as D1Database;
+  // Legacy route fixtures seed session records through the shared KV fake.
+  // Present those fixtures through a D1-shaped adapter while production remains D1-only.
+  const sessionD1 = createMockSessionD1(mockKV as MockKV);
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
-      USAGE_DB: emptyD1,
+      USAGE_DB: sessionD1,
       CONTAINER: {} as DurableObjectNamespace,
       ...envOverrides,
     } as unknown as Env;
