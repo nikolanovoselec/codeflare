@@ -62,6 +62,14 @@ test('REQ-OPERATOR-021: persists task intent before prompt and reconciles same I
   f.run.resolve();
 });
 
+test('REQ-OPERATOR-021: concurrent same-ID submission reserves one prompt invocation', async () => {
+  const f = fixture();
+  const input = { taskId: 'task-1', digest: 'a'.repeat(64), text: 'do work', mode: 'prompt' };
+  assert.deepEqual(await Promise.all([f.adapter.send(input), f.adapter.send(input)]), [{ status: 'running' }, { status: 'running' }]);
+  assert.deepEqual(f.calls.prompt, ['do work']);
+  f.run.resolve();
+});
+
 test('REQ-OPERATOR-021: persists and executes an approved native Pi tool task without prompting the model', async () => {
   const f = fixture();
   await f.adapter.ensure();

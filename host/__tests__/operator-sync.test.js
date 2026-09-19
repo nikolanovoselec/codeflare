@@ -54,6 +54,14 @@ test('REQ-OPERATOR-023: same operation reconciles and changed reuse conflicts wi
   assert.deepEqual(replay.puts, []);
 });
 
+test('REQ-OPERATOR-023: concurrent same-operation requests upload once and reconcile the receipt', async () => {
+  const f = fixture();
+  const [first, second] = await Promise.all([f.service.upload(request), f.service.upload(request)]);
+  assert.equal(first.status, 'uploaded');
+  assert.deepEqual(second, first);
+  assert.equal(f.puts.length, 3);
+});
+
 test('REQ-OPERATOR-023: interrupted upload becomes unknown and is never automatically replayed', async () => {
   const f = fixture();
   f.uploader.put = async (operationId, key, bytes) => {

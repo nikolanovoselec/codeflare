@@ -68,6 +68,7 @@ export class OperatorSyncService {
   private readonly store: OperatorSyncStore;
   private readonly files: OperatorSyncFiles;
   private readonly uploader: OperatorSyncUploader;
+  private admissionChain: Promise<void> = Promise.resolve();
 
   constructor(options: { activityId: string; sessionId: string; policyDigest: string; root: string;
     filePrefix: string; manifestPrefix: string; deadline: number; store: OperatorSyncStore;
@@ -92,6 +93,10 @@ export class OperatorSyncService {
   async upload(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }): Promise<OperatorSyncReceipt> {
     if (!ID.test(request.operationId) || !DIGEST.test(request.requestDigest)) throw new Error('Invalid operator sync request');
     const files = validateFiles(request.files);
+    return this.admit(() => this.uploadAdmitted(request, files));
+  }
+
+  private async uploadAdmitted(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }, files: OperatorSyncFile[]): Promise<OperatorSyncReceipt> {
     let existing: OperatorSyncReceipt | null;
     try { existing = await this.store.load(request.operationId); }
     catch { throw new Error('Operator sync state unavailable'); }
@@ -150,6 +155,15 @@ export class OperatorSyncService {
     receipt = { ...receipt, status: 'uploaded', manifestDigest: hash(manifest) };
     await this.persist(receipt);
     return receipt;
+  }
+
+  private async admit<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.admissionChain;
+    let release!: () => void;
+    this.admissionChain = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try { return await operation(); }
+    finally { release(); }
   }
 
   private async persist(receipt: OperatorSyncReceipt): Promise<void> {

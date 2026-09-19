@@ -922,34 +922,3 @@ None.
 **Verification:** Planned migration-shape, constraint, index and rerun tests.
 
 **Status:** Planned
-
-#### Normative schema design
-
-`runtime_sessions` columns:
-
-| Group | Columns |
-| --- | --- |
-| Identity | `owner_key TEXT`, `session_id TEXT`, composite primary key |
-| Complete record | `name TEXT`, `created_at TEXT`, `last_accessed_at TEXT`, nullable `agent_type TEXT`, `workspace TEXT`, `terminal_mode TEXT`, nullable `tab_config_json TEXT`, nullable `clone_json TEXT` |
-| Ordering | `lifecycle_state TEXT`, `lifecycle_generation INTEGER`, `response_revision INTEGER`, `observation_sequence INTEGER` |
-| Lifecycle | nullable `last_started_at TEXT`, `last_active_at TEXT`, `transitioned_at TEXT`, nullable `lifecycle_reason TEXT` |
-| Readiness | `editor_ready INTEGER`, `editor_ready_error INTEGER`, nullable `readiness_observed_at TEXT` |
-| Latest projection | nullable `cpu TEXT`, `memory TEXT`, `disk TEXT`, `sync_status TEXT`, `metrics_observed_at TEXT`, `last_input_at TEXT` |
-| Incident | nullable `unreachable_incident_id TEXT`, `unreachable_first_observed_at TEXT`, `unreachable_deadline_ms INTEGER` |
-| Termination | nullable `termination_intent_id TEXT`, `termination_generation INTEGER`, `termination_claimed_at TEXT`, `termination_signal_accepted_at TEXT` |
-
-The schema checks the lifecycle vocabulary, non-negative counters, boolean integers, paired incident fields and generation-bound termination fields. `response_revision` and `lifecycle_generation` start at zero; `observation_sequence` starts at `-1` so sequence zero may be accepted. The owner query orders by `last_accessed_at DESC, session_id ASC`; one index on that tuple is sufficient.
-
-`session_cutover` is a singleton row (`id = 1`) with `state`, `updated_at`, and nullable `completed_at`. Migration inserts `pending`; the reviewed one-time cleanup changes it to `complete` only after exact-prefix purge and empty-dashboard verification.
-
-#### Normative mutation predicates
-
-- Create is an ordinary `INSERT` in `stopped`, generation/revision zero, and fails while cutover is not complete.
-- Start is one conditional `UPDATE`: cutover complete, current state `stopped`, and no termination intent; it increments generation and revision, resets observation sequence to `-1`, and writes `starting`.
-- Runtime projection is one conditional `UPDATE` by owner/session/generation where incoming sequence is greater; accepted mutation stores the sequence and increments revision.
-- Incident open uses deterministic incident identity and only the matching generation; retry of an already committed open reconciles as idempotent, while a conflicting incident fails closed.
-- Recovery clears only the matching generation and incident.
-- Termination claim changes the matching `unreachable` generation/incident to `stopping` and records intent atomically.
-- Confirmed exit changes only the matching terminating generation to `stopped` and clears incident/intent fields.
-- Delete uses `DELETE` only after confirmed graceful destruction. Delayed runtime writers use `UPDATE`, never `UPSERT` or `INSERT OR REPLACE`.
-- `meta.changes === 0` triggers a bounded primary read only on exceptional ownership/idempotency reconciliation paths; the normal projection path performs no readback.

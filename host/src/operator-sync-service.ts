@@ -43,6 +43,7 @@ class ConfiguredCoordinator implements OperatorSyncCoordinator {
   private readonly store: FileOperatorSyncStore;
   private readonly files: OwnedOperatorSyncFiles;
   private readonly uploader: RcloneOperatorSyncUploader;
+  private readonly service: OperatorSyncService;
   constructor(private readonly config: Config, options: { bucket: string; rcloneConfig: string; stateRoot: string;
     run?: (command: string, args: readonly string[], bytes: Uint8Array) => Promise<number> }) {
     this.store = new FileOperatorSyncStore(path.join(options.stateRoot, config.activityId, '.codeflare/sync-receipts'));
@@ -50,12 +51,13 @@ class ConfiguredCoordinator implements OperatorSyncCoordinator {
     this.uploader = new RcloneOperatorSyncUploader({ bucket: options.bucket,
       prefixes: [config.filePrefix, config.manifestPrefix],
       configFile: options.rcloneConfig, ...(options.run ? { run: options.run } : {}) });
+    this.service = new OperatorSyncService({ activityId: config.activityId, sessionId: config.sessionId,
+      policyDigest: config.policyDigest, root: config.root, filePrefix: config.filePrefix,
+      manifestPrefix: config.manifestPrefix, deadline: config.deadline,
+      store: this.store, files: this.files, uploader: this.uploader });
   }
   upload(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }): Promise<OperatorSyncReceipt> {
-    return new OperatorSyncService({ activityId: this.config.activityId, sessionId: this.config.sessionId,
-      policyDigest: this.config.policyDigest, root: this.config.root,
-      filePrefix: this.config.filePrefix, manifestPrefix: this.config.manifestPrefix, deadline: this.config.deadline,
-      store: this.store, files: this.files, uploader: this.uploader }).upload(request);
+    return this.service.upload(request);
   }
   status(operationId: string): Promise<OperatorSyncReceipt | null> { return this.store.load(operationId); }
 }

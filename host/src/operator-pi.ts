@@ -73,6 +73,8 @@ export class OperatorPiConversation {
   private pendingFollowUp = false;
   private pendingSteer = false;
   private saveChain: Promise<void> = Promise.resolve();
+  private ensureInFlight: Promise<{ conversationId: string; sessionFile: string }> | null = null;
+  private admissionChain: Promise<void> = Promise.resolve();
 
   constructor(options: { activityId: string; sessionId: string; store: OperatorPiStore; factory: OperatorPiFactory }) {
     if (!ID.test(options.activityId) || !ID.test(options.sessionId)) throw new Error('Invalid owned Pi identity');
@@ -85,6 +87,13 @@ export class OperatorPiConversation {
   /** Create once or reopen only the persisted file and conversation identity. */
   async ensure(): Promise<{ conversationId: string; sessionFile: string }> {
     if (this.session && this.metadata) return this.identity();
+    if (!this.ensureInFlight) {
+      this.ensureInFlight = this.initialize().finally(() => { this.ensureInFlight = null; });
+    }
+    return this.ensureInFlight;
+  }
+
+  private async initialize(): Promise<{ conversationId: string; sessionFile: string }> {
     const stored = await this.store.load();
     let session: OperatorPiSession;
     if (stored) {
@@ -118,6 +127,10 @@ export class OperatorPiConversation {
       || (input.mode === 'tool' && (!ID.test(input.toolName) || !plain(input.arguments)))
       || (input.mode !== 'tool' && !input.text.trim())
       || new TextEncoder().encode(payload).byteLength > 32 * 1024) throw new Error('Invalid Pi task');
+    return this.admit(() => this.sendAdmitted(input));
+  }
+
+  private async sendAdmitted(input: OperatorPiTaskInput): Promise<{ status: string }> {
     await this.ensure();
     const metadata = this.metadata!;
     const existing = metadata.tasks[input.taskId];
@@ -198,6 +211,15 @@ export class OperatorPiConversation {
     this.unsubscribe = null;
     this.session?.dispose();
     this.session = null;
+  }
+
+  private async admit<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.admissionChain;
+    let release!: () => void;
+    this.admissionChain = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try { return await operation(); }
+    finally { release(); }
   }
 
   private identity(): { conversationId: string; sessionFile: string } {
