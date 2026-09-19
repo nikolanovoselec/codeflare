@@ -494,7 +494,7 @@ describe('Pi marker-or-dialog review ingress', () => {
   it.each([
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && repo=$(pwd) && git -C "$repo" push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && unset -v repo && git -C "$repo" push origin feature`,
-    (input: ReturnType<typeof fixture>) => `. /tmp/untrusted && git -C "$repo" push origin feature`,
+    () => `. /tmp/untrusted && git -C "$repo" push origin feature`,
     (input: ReturnType<typeof fixture>) => `repo=${input.repo} && printf -v repo %s ${input.repo} && git -C "$repo" push origin feature`,
     (input: ReturnType<typeof fixture>) => `(repo=${input.repo}; git -C "$repo" push origin feature)`,
     (input: ReturnType<typeof fixture>) => `if true; then repo=${input.repo}; fi\ngit -C "$repo" push origin feature`,
