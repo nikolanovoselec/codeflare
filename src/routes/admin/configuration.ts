@@ -13,6 +13,7 @@ import { installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS, readActiveAgents } fro
 import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
 import { parseRouteSettings } from '../../lib/reasoning-profiles';
 import { migrateLegacyReasoningAssignments, parseReasoningConfiguration } from '../../lib/reasoning-configuration';
+import { parseJwtStampingPolicy } from '../../operators/jwt-stamping';
 import {
   ADMIN_CONFIGURATION_KEYS,
   getAdminConfigurationLatestKey,
@@ -130,6 +131,7 @@ app.get('/', requireAdmin, async (c) => {
       browserAccountId,
       browserToken,
       strictEgress,
+      jwtStampingRaw,
       r2SseDisabled,
       downloadsDisabled,
       dynamicRoutes,
@@ -138,6 +140,7 @@ app.get('/', requireAdmin, async (c) => {
       reasoningConfigurationRaw,
       groupRouting,
       storedActiveAgents,
+      operatorWebhookBypassStatus,
     ] = await Promise.all([
       c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP),
       c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP),
@@ -147,6 +150,7 @@ app.get('/', requireAdmin, async (c) => {
       c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID),
       c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN),
       c.env.KV.get(SETUP_KEYS.STRICT_EGRESS),
+      c.env.KV.get(SETUP_KEYS.OPERATOR_JWT_STAMPING),
       c.env.KV.get(SETUP_KEYS.R2_SSE_DISABLED),
       c.env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED),
       c.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES),
@@ -155,6 +159,7 @@ app.get('/', requireAdmin, async (c) => {
       c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
       c.env.KV.get(SETUP_KEYS.GROUP_ROUTING),
       readActiveAgents(c.env.KV),
+      c.env.KV.get(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS),
     ]);
     const configurableAgents = CONFIGURABLE_ENTERPRISE_AGENTS.filter((agent) => installedAgents(c.env).includes(agent));
     const activeAgents = storedActiveAgents?.filter((agent) => configurableAgents.includes(agent)) ?? configurableAgents;
@@ -163,6 +168,7 @@ app.get('/', requireAdmin, async (c) => {
       adminUsers: allUsers.filter((user) => user.role === 'admin').map((user) => user.email),
       userAccessGroups: parseAccessGroups(enterpriseAccessGroup),
       adminAccessGroups: parseAccessGroups(enterpriseAdminAccessGroup),
+      operatorWebhookBypassStatus: operatorWebhookBypassStatus ?? 'missing',
     };
     const rawRouteSettings = routeContextWindows === null
       ? {}
@@ -204,7 +210,10 @@ app.get('/', requireAdmin, async (c) => {
       ...(browserAccountId && { accountId: browserAccountId }),
       tokenState: secretState(browserToken),
     };
-    sections.securityEgress = { strictGatewayEgress: strictEgress === 'active' };
+    let jwtStamping;
+    try { jwtStamping = parseJwtStampingPolicy(jwtStampingRaw ? JSON.parse(jwtStampingRaw) : null); }
+    catch { jwtStamping = { mode: 'off' as const, destinations: [] as [] }; }
+    sections.securityEgress = { strictGatewayEgress: strictEgress === 'active', jwtStamping };
     sections.dataGovernance = {
       governedMode: r2SseDisabled === 'active',
       viewOnlyStorage: downloadsDisabled === 'active',

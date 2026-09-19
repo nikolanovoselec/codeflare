@@ -30,6 +30,20 @@ afterEach(() => {
 });
 
 describe('Environment report fields', () => {
+  it('REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access', () => {
+    const { getByText, unmount } = render(() => (
+      <EnvironmentAreaFields section="access" mode="enterprise" current={{ adminUsers: [], userAccessGroups: [],
+        adminAccessGroups: [], operatorWebhookBypassStatus: 'error' }} />
+    ));
+    expect(getByText('Webhook Endpoint Access bypass: Failed')).toBeTruthy();
+    unmount();
+    const ordinary = render(() => (
+      <EnvironmentAreaFields section="access" mode="default" current={{ adminUsers: [], allowedUsers: [],
+        operatorWebhookBypassStatus: 'configured' }} />
+    ));
+    expect(ordinary.queryByText(/Webhook Endpoint Access bypass/)).toBeNull();
+  });
+
   it('REQ-SETUP-020 AC1: renders canonical IANA timezone choices as a select', () => {
     const { getByLabelText } = render(() => (
       <EnvironmentAreaFields
@@ -76,6 +90,25 @@ describe('Environment report fields', () => {
     expect(values.defaultRoute).toEqual({ route: 'development', reasoning: 'medium' });
     expect(values.groupRouting[0]).toMatchObject({ accessGroup: 'developers', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
     expect(values.reasoningConfiguration.routeAssignments.development.activeProfile.id).toBe('workers-ai-kimi-k-thinking');
+  });
+
+  it('REQ-OPERATOR-028: renders Off/list/All stamping controls and serializes canonical destination lines', () => {
+    const { getByLabelText, getByText, container } = render(() => (
+      <EnvironmentAreaFields section="securityEgress" mode="enterprise" current={{ strictGatewayEgress: false,
+        jwtStamping: { mode: 'all', destinations: [] } }} />
+    ));
+    expect((getByLabelText('Automatic Access JWT stamping') as HTMLSelectElement).value).toBe('all');
+    expect(getByText(/All sends the invoking human.*assertion/i)).toBeTruthy();
+    const destination = getByLabelText('JWT destinations, one hostname per line') as HTMLTextAreaElement;
+    destination.value = 'api.example.test\n*.services.example.test';
+    const mode = getByLabelText('Automatic Access JWT stamping') as HTMLSelectElement;
+    mode.value = 'list';
+    const form = document.createElement('form');
+    form.append(container.firstElementChild!);
+    expect(environmentValues('securityEgress', 'enterprise', new FormData(form))).toEqual({
+      strictGatewayEgress: false,
+      jwtStamping: { mode: 'list', destinations: ['api.example.test', '*.services.example.test'] },
+    });
   });
 
   it('REQ-SETUP-020 AC2: retains an accepted stored timezone outside bundled choices', () => {

@@ -723,6 +723,13 @@ export function translateReasoningRequest(payload: Record<string, unknown>, prof
   return translated;
 }
 
+/** Remove every known reasoning control when trusted selection requests provider-default. */
+export function stripRuntimeReasoningRequest(payload: Record<string, unknown>, profile: NormalizedReasoningProfile): Record<string, unknown> {
+  const translated = structuredClone(payload);
+  for (const path of new Set([...WORKERS_REMOVALS, ...profile.removePaths])) deletePath(translated, path);
+  return translated;
+}
+
 /** Runtime hints never expand the assigned profile's executable capabilities. Discovery stays strict. */
 export function selectRuntimeReasoningLevel(profile: NormalizedReasoningProfile, requested: unknown): PiReasoningLevel | undefined {
   if (!profile.enabled || profile.reasoningMode === 'provider-default') return undefined;

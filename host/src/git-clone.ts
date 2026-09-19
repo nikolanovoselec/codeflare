@@ -73,6 +73,53 @@ export function resolveGitClone(
   return resolution;
 }
 
+/** REQ-GITHUB-015 AC1: one repository present in the workspace. */
+export interface WorkspaceRepo {
+  repo: string;
+  ref?: string;
+}
+
+/**
+ * REQ-GITHUB-015 AC1: derive owner/name (+ branch) from a checkout's origin URL.
+ *
+ * Accepts the two forms git writes for a GitHub remote (HTTPS and SSH) on the
+ * configured GitHub host, and rejects everything else: a non-GitHub remote, a
+ * missing origin, and any owner/name that would not survive the clone
+ * validation above. A detached or unknown branch yields no ref, so the restore
+ * clones the repository's default branch instead of a ref git cannot resolve.
+ */
+export function parseWorkspaceRepo(
+  originUrl: unknown,
+  branch: unknown,
+  githubHost: string,
+): WorkspaceRepo | null {
+  if (typeof originUrl !== 'string') return null;
+  const url = originUrl.trim();
+  const host = githubHost.replace(/^https?:\/\//, '');
+  const httpsPrefixes = [`https://${host}/`, `http://${host}/`, `ssh://git@${host}/`];
+  let slug: string | null = null;
+  for (const prefix of httpsPrefixes) {
+    if (url.startsWith(prefix)) {
+      slug = url.slice(prefix.length);
+      break;
+    }
+  }
+  if (slug === null && url.startsWith(`git@${host}:`)) {
+    slug = url.slice(`git@${host}:`.length);
+  }
+  if (slug === null) return null;
+  const repo = slug.replace(/\.git$/, '').replace(/\/+$/, '');
+  if (!REPO_PATTERN.test(repo)) return null;
+  const name = repo.split('/')[1];
+  if (name === '.' || name === '..') return null;
+  const entry: WorkspaceRepo = { repo };
+  if (typeof branch === 'string') {
+    const ref = branch.trim();
+    if (ref && ref !== 'HEAD' && REF_PATTERN.test(ref)) entry.ref = ref;
+  }
+  return entry;
+}
+
 /**
  * Resolve the workspace root the same way entrypoint.sh does: prefer
  * USER_WORKSPACE, else <HOME>/workspace, else /home/user/workspace.

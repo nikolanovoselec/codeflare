@@ -26,6 +26,16 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 
+function extractTopLevelFunction(name) {
+  const src = readFileSync(ENTRYPOINT, 'utf8');
+  const lines = src.split('\n');
+  const start = lines.findIndex((line) => line === `${name}() {`);
+  if (start === -1) throw new Error(`Could not locate ${name}() in entrypoint.sh`);
+  const end = lines.findIndex((line, index) => index > start && line === '}');
+  if (end === -1) throw new Error(`Could not locate end of ${name}() in entrypoint.sh`);
+  return lines.slice(start, end + 1).join('\n');
+}
+
 // Extract just the `start_sync_daemon` function body (from header to
 // matching close brace at column zero). Done at module load time so
 // every test gets the current entrypoint.sh source.
@@ -508,5 +518,46 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     } finally {
       killHarness(h.child, pid);
     }
+  });
+});
+
+describe('REQ-STOR-003 / REQ-SESSION-011: quiet rclone keeps summaries', () => {
+  it('an explicit empty verbosity argument reaches periodic and final bisync without -v', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bisync-quiet-'));
+    const script = join(dir, 'harness.sh');
+    const output = join(dir, 'output.log');
+    const functionBody = extractTopLevelFunction('bisync_with_r2');
+    writeFileSync(script, `#!/usr/bin/env bash
+set -e
+CODEFLARE_RUNTIME_ROOT='${dir}/runtime'
+SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"
+USER_HOME='${dir}/home'
+R2_BUCKET_NAME=test-bucket
+RCLONE_CONFIG='${dir}/rclone.conf'
+RECOVERY_FILTER_FILE='${dir}/filter'
+RCLONE_FILTERS=()
+mkdir -p "$SYNC_RUNTIME_DIR/rclone" "$USER_HOME"
+cleanup_main_transcripts() { :; }
+cleanup_remote_pi_transcript_conflicts() { :; }
+record_sync_disk_failure() { :; }
+repair_hook_exec_bits() { :; }
+pgrep() { return 1; }
+rclone() {
+  printf 'ARGS:%s\\n' "$*"
+  case " $* " in *' -v '*) printf 'Transferred: secret/path.txt\\n';; esac
+  printf 'Transferred: 1 / 1, 100%%\\nElapsed time: 1.0s\\n'
+}
+${functionBody}
+bisync_with_r2 ""
+cat "$CODEFLARE_RUNTIME_ROOT/sync/last-bisync-output.txt"
+`, { mode: 0o700 });
+
+    const result = spawnSync('bash', [script], { encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, 0, result.stderr);
+    writeFileSync(output, result.stdout);
+    assert.doesNotMatch(result.stdout, /ARGS:.*(?:^| )-v(?: |$)/m);
+    assert.doesNotMatch(result.stdout, /secret\/path\.txt/);
+    assert.match(result.stdout, /Transferred: 1 \/ 1, 100%/);
+    assert.match(result.stdout, /Elapsed time: 1\.0s/);
   });
 });

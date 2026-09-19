@@ -229,6 +229,8 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(models[1].thinkingLevelMap, {
       off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
+    assert.equal(models[0].maxTokens, 16384);
+    assert.equal(models[1].maxTokens, 16384);
   });
 
   it('REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model', () => {

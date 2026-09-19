@@ -576,13 +576,13 @@ None.
 
 **Constraints:**
 
-- The `/login` rewrite only executes if `/login` is listed in the Cloudflare Assets `run_worker_first` allowlist (`wrangler.toml`).
+- The `/login` rewrite only executes because Cloudflare Assets runs the Worker before every request (`run_worker_first = true` in `wrangler.toml`).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
-**Verification:** Automated test ([Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [wrangler control-plane test](../../host/__tests__/wrangler-run-worker-first.test.js))
+**Verification:** Automated test ([Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [Wrangler-parsed asset routing test](../../host/__tests__/wrangler-static-assets.test.js))
 
 **Status:** Implemented
 

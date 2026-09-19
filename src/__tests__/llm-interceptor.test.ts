@@ -34,6 +34,8 @@ import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import type { OperatorPolicy } from '../operators/policy';
 import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
@@ -50,10 +52,13 @@ vi.mock('../lib/ai-gateway-management', async (original) => ({
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai';
 const AIG_TOKEN = 'aig-secret-token';
-const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
+const SESSION_USER = 'nikola@novoselec.ch';
+const jwtAuthority: JwtStampingAuthority = { human: { subject: 'human', email: SESSION_USER,
+  issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+  expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'verified.jwt' }; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string; jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority; operatorInference?: { activityId: string; operatorId: string; policy: OperatorPolicy; trusted: { routeId: string; reasoningLevel: string | null } } } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -105,6 +110,17 @@ afterEach(() => {
 });
 
 describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () => {
+  it('REQ-OPERATOR-004: stamps the verified assertion on the actual Gateway recipient without replacing gateway auth', async () => {
+    const res = await makeInterceptor({}, { user: SESSION_USER, sessionId: 'session-1',
+      jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"dynamic/codeflare-enterprise"}',
+        headers: { 'cf-access-jwt-assertion': 'spoof' } }),
+    );
+    expect(res.status).toBe(200);
+    expect(lastFetch?.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
+    expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+  });
+
   it('AC1: api.openai.com/v1/chat/completions -> REST /ai/v1/chat/completions under the account', async () => {
     const res = await makeInterceptor().fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"dynamic/codeflare-enterprise"}' }),
@@ -606,6 +622,37 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
       },
     } as unknown as Partial<Env>);
 
+  it('REQ-OPERATOR-007: enforces parent-trusted route/reasoning over child payload and stamps trusted attribution', async () => {
+    const restricted: OperatorPolicy = { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: ['production'],
+        defaultRouteId: 'production', reasoningLevels: ['high'], defaultReasoningLevel: 'high', inheritUserDefaults: false } };
+    await makeInterceptor(withCatalog(['development', 'production'], 'development'), { user: SESSION_USER,
+      operatorInference: { activityId: 'activity-1', operatorId: 'operator-1', policy: restricted,
+        trusted: { routeId: 'production', reasoningLevel: 'high' } } }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: 'development', reasoning_effort: 'off', messages: [],
+      }) }),
+    );
+    const sent = JSON.parse(lastFetch?.body as string);
+    expect(sent.model).toBe('dynamic/production');
+    expect(sent.reasoning_effort).toBe('high');
+    const metadata = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
+    expect(metadata).toMatchObject({ user: SESSION_USER, operator: 'operator-1', activity: 'activity-1' });
+  });
+
+  it('REQ-OPERATOR-007: rejects a parent selection outside current user eligibility without fallback', async () => {
+    const restricted: OperatorPolicy = { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: ['missing'],
+        defaultRouteId: 'missing', reasoningLevels: ['off'], defaultReasoningLevel: 'off', inheritUserDefaults: false } };
+    const response = await makeInterceptor(withCatalog(['development'], 'development'), { user: SESSION_USER,
+      operatorInference: { activityId: 'activity-1', operatorId: 'operator-1', policy: restricted,
+        trusted: { routeId: 'missing', reasoningLevel: 'off' } } }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'development' }) }),
+    );
+    expect(response.status).toBe(403);
+    expect(lastFetch).toBeNull();
+  });
+
   it('maps a known slash-free handle to dynamic/<route> on chat/completions', async () => {
     await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'production', messages: [] }) }),
@@ -970,7 +1017,8 @@ describe('native provider authorization and compat dispatch', () => {
     });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
-        model: fixture.handle, reasoning_effort: level, stream: true, messages: [{ role: 'user', content: 'Use a tool' }],
+        model: fixture.handle, reasoning_effort: level, stream: true, max_completion_tokens: 16_384,
+        messages: [{ role: 'user', content: 'Use a tool' }],
         tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }],
       }) }),
     );
@@ -980,7 +1028,7 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
     expect(lastFetch?.headers.get('accept')).toBe('application/vnd.amazon.eventstream');
     expect(JSON.parse(lastFetch!.body)).toEqual({
-      anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096,
+      anthropic_version: 'bedrock-2023-05-31', max_tokens: 16_384,
       thinking: { type: 'adaptive' }, output_config: { effort: 'high' },
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Use a tool' }] }],
       tools: [{ name: 'lookup', input_schema: { type: 'object' } }],

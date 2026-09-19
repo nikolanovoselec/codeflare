@@ -608,6 +608,7 @@ RCLONE_FILTERS_COMMON=(
     "${VAULT_FILTER[@]}"
     --filter "+ Uploads/**"
     --filter "+ Temporary/**"
+    --filter "+ Operators/**"
 
     # Global graphify graph is rebuilt at boot from per-project graphs and
     # the vault. Keep it ephemeral; it has no R2 round-trip value.
@@ -773,7 +774,7 @@ initial_sync_from_r2() {
         --checkers 32 \
         --contimeout 10s \
         --timeout 30s \
-        -v 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log; then
+        --stats 30s --stats-one-line 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
@@ -992,7 +993,8 @@ establish_bisync_baseline() {
             --ignore-checksum \
             --max-delete 5000 \
             --retries 3 --retries-sleep 10s \
-            --transfers 32 --checkers 64 -v > "$BASELINE_OUTPUT" 2>&1; then
+            --transfers 32 --checkers 64 \
+            --stats 30s --stats-one-line > "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -1084,7 +1086,7 @@ bisync_with_r2() {
         echo "[sync] Sync blocked by disk space; explicit recovery is required"
         return 1
     fi
-    local verbose_flag="${1:--v}"  # Default to -v (verbose); pass "" for quiet
+    local verbose_flag="${1-}"  # Quiet by default; preserve optional explicit caller verbosity.
     local verbose_args=()
     if [ -n "$verbose_flag" ]; then
         verbose_args=("$verbose_flag")
@@ -1131,7 +1133,8 @@ bisync_with_r2() {
         --ignore-checksum \
         --max-delete 5000 \
         --retries 3 --retries-sleep 10s \
-        --transfers 32 --checkers 64 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
+        --transfers 32 --checkers 64 \
+        --stats 30s --stats-one-line "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0
     else
         RESULT=$?
@@ -1956,6 +1959,33 @@ start_openvscode_supervisor() {
 # ============================================================================
 # Shutdown handler - final bisync on SIGTERM/SIGINT/EXIT
 # ============================================================================
+# Restricted sessions never initiate persistence from PID1. If the authenticated
+# host already accepted an explicit upload, let its receipt leave `uploading`
+# while the host process is still alive; expiry/object errors turn it unknown.
+# No accepted/idle operation is started here and no ordinary bisync is reachable.
+drain_operator_sync_shutdown() {
+    local receipt_root="/home/user/.codeflare/operators"
+    local started now receipt uploading
+    started=$(date +%s)
+    while true; do
+        uploading=0
+        shopt -s nullglob
+        for receipt in "$receipt_root"/*/.codeflare/sync-receipts/*.json; do
+            if grep -q '"status":"uploading"' "$receipt" 2>/dev/null; then
+                uploading=1
+                break
+            fi
+        done
+        shopt -u nullglob
+        [ "$uploading" -eq 0 ] && return 0
+        now=$(date +%s)
+        if [ $((now - started)) -ge 120 ]; then
+            return 1
+        fi
+        sleep 0.2
+    done
+}
+
 shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
@@ -1985,6 +2015,18 @@ shutdown_handler() {
     kill_pidfile_subtree $CODEFLARE_RUNTIME_ROOT/services/silverbullet.pid
     kill_pidfile_subtree "${OPENVSCODE_GENERATION_PIDFILE:-$CODEFLARE_RUNTIME_ROOT/openvscode/generation.pid}"
     kill_pidfile_subtree $CODEFLARE_RUNTIME_ROOT/openvscode/supervisor.pid
+
+    if [ "${CODEFLARE_OPERATOR_SESSION:-}" = "true" ]; then
+        echo "[entrypoint] Restricted operator shutdown: draining accepted explicit upload only (no bisync)..."
+        drain_operator_sync_shutdown \
+            || echo "[entrypoint] WARNING: restricted explicit upload did not settle before shutdown"
+        if [ -n "$TERMINAL_PID" ]; then
+            kill "$TERMINAL_PID" 2>/dev/null || true
+        fi
+        SHUTDOWN_ELAPSED=$(( $(date +%s) - SHUTDOWN_STARTED_AT ))
+        echo "[entrypoint] Shutdown complete (elapsed: ${SHUTDOWN_ELAPSED}s)"
+        exit 0
+    fi
 
     # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
     # is still alive when the final bisync starts, bisync_with_r2's stale-lock
@@ -2672,10 +2714,18 @@ init_sync_log
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 rm -f "$CODEFLARE_INIT_FLAG_FILE"
 
+# REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
+# repository the restore below has not yet recreated is never reported as
+# absent-and-therefore-untracked. Touched once run_post_restore_startup's
+# clone loop finishes (success, failure, or budget exhaustion all count).
+export CODEFLARE_CLONE_RESTORE_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/clone-restore-complete
+rm -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
+
 echo "[entrypoint] Starting terminal server on port 8080..."
 # Subshell-scope the cd so the rest of the entrypoint's cwd is unchanged.
 (cd /app/host && HOME="$USER_HOME" TERMINAL_PORT=8080 \
     CODEFLARE_INIT_FLAG_FILE="$CODEFLARE_INIT_FLAG_FILE" \
+    CODEFLARE_CLONE_RESTORE_FLAG_FILE="$CODEFLARE_CLONE_RESTORE_FLAG_FILE" \
     node dist/server.js) &
 TERMINAL_PID=$!
 echo "$TERMINAL_PID" > $CODEFLARE_RUNTIME_ROOT/services/terminal.pid
@@ -3638,7 +3688,12 @@ COPILOT_BYOK_EOF
                 id: $route, name: display_name($route), reasoning: true,
                 thinkingLevelMap: (canonical_levels | map(. as $level | {key: $level,
                     value: (if ($levels | index($level)) != null then $level else null end)}) | from_entries),
-                input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
+                # Pi otherwise falls back to its 4096-token default. Reviewer
+                # agents commonly need a longer final report after many tool
+                # turns, and a truncated tool proposal cannot be replayed as a
+                # valid call. Keep the explicit output ceiling identical for
+                # discovered-level and Provider-default Native publications.
+                input: ["text", "image"], contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
               } + (if (prompt_cache($route) | length) > 0 then {compat: prompt_cache($route)} else {} end))
               end))' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
@@ -4310,38 +4365,84 @@ configure_fast_start_tool_settings() {
 }
 configure_fast_start_tool_settings
 
-# REQ-GITHUB-014: one-shot repo clone at container start. Runs AFTER the git
-# credential helper above (so private repos authenticate via $GH_TOKEN, or the
-# enterprise egress GitHubInterceptor injects the real token) and BEFORE
-# configure_tab_autostart launches the agent, so the workspace is populated when
-# the user lands. Best-effort: a clone failure is logged but never aborts start.
-if [ -n "${GIT_CLONE_REPO:-}" ]; then
-    clone_repo="$GIT_CLONE_REPO"
-    clone_remote="${GIT_CLONE_REPO%.git}"
-    # Defense-in-depth: re-validate repo/ref shape here (mirrors
-    # host/src/git-clone.ts) so the new-session path fails closed like the
-    # running-session path; rejects an option-leading dash in the ref and a
-    # . / .. repo name that would escape the workspace dir.
-    if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
-       || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
-       || { [ -n "${GIT_CLONE_REF:-}" ] && ! printf '%s' "$GIT_CLONE_REF" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
-        echo "[entrypoint] Skipping clone: invalid repo/ref"
+# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start. Runs
+# AFTER the git credential helper above (so private repos authenticate via
+# $GH_TOKEN, or the enterprise egress GitHubInterceptor injects the real token)
+# and BEFORE configure_tab_autostart launches the agent, so the workspace is
+# populated when the user lands.
+#
+# GIT_CLONE_TARGETS carries every repository tracked for the session as
+# space-separated `owner/name[#ref]` entries, the session's own repository
+# first. GIT_CLONE_REPO/GIT_CLONE_REF remain the single-repository fallback for
+# a Worker that predates the list.
+#
+# Bounded and fail-open (REQ-GITHUB-015 AC5-AC7): each attempt gets its own
+# timeout, the loop stops once the overall budget is spent, credentials are
+# never prompted for interactively, and every failure is logged without
+# aborting start.
+clone_targets="${GIT_CLONE_TARGETS:-}"
+if [ -z "$clone_targets" ] && [ -n "${GIT_CLONE_REPO:-}" ]; then
+    if [ -n "${GIT_CLONE_REF:-}" ]; then
+        clone_targets="${GIT_CLONE_REPO}#${GIT_CLONE_REF}"
     else
+        clone_targets="$GIT_CLONE_REPO"
+    fi
+fi
+if [ -n "$clone_targets" ]; then
+    clone_per_repo_timeout="${GIT_CLONE_PER_REPO_TIMEOUT_SECONDS:-120}"
+    # A malformed override must not abort startup under `set -euo pipefail`
+    # (this block is documented as fail-open); fall back to the default.
+    clone_total_budget="${GIT_CLONE_TOTAL_BUDGET_SECONDS:-180}"
+    case "$clone_total_budget" in
+        ''|*[!0-9]*) clone_total_budget=180 ;;
+    esac
+    clone_deadline=$(( $(date +%s) + clone_total_budget ))
+    for clone_target in $clone_targets; do
+        if [ "$(date +%s)" -ge "$clone_deadline" ]; then
+            echo "[entrypoint] clone budget exhausted; skipping remaining repositories"
+            break
+        fi
+        clone_repo="${clone_target%%#*}"
+        clone_ref=""
+        case "$clone_target" in
+            *#*) clone_ref="${clone_target#*#}" ;;
+        esac
+        clone_remote="${clone_repo%.git}"
+        # Defense-in-depth: re-validate repo/ref shape here (mirrors
+        # host/src/git-clone.ts and src/lib/clone-targets.ts) so the restore
+        # path fails closed like the running-session path; rejects an
+        # option-leading dash in the ref and a . / .. repo name that would
+        # escape the workspace dir.
+        if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
+           || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
+           || { [ -n "$clone_ref" ] && ! printf '%s' "$clone_ref" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
+            echo "[entrypoint] Skipping clone: invalid repo/ref"
+            continue
+        fi
         repo_name="${clone_repo##*/}"
         CLONE_DIR="$USER_WORKSPACE/$repo_name"
         if [ -e "$CLONE_DIR" ]; then
             echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
-        else
-            echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
-            if [ -n "${GIT_CLONE_REF:-}" ]; then
-                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
-                    || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
-            else
-                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
-                    || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
-            fi
+            continue
         fi
-    fi
+        echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
+        if [ -n "$clone_ref" ]; then
+            GIT_TERMINAL_PROMPT=0 timeout "$clone_per_repo_timeout" \
+                git clone --branch "$clone_ref" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
+                || echo "[entrypoint] clone failed for $clone_repo (ref $clone_ref); continuing startup"
+        else
+            GIT_TERMINAL_PROMPT=0 timeout "$clone_per_repo_timeout" \
+                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
+                || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+        fi
+    done
+fi
+# REQ-GITHUB-015 AC1: mark the restore complete (attempted or skipped) so
+# /health can safely report the workspace inventory; touched unconditionally,
+# including when there were no targets at all. No-op if unset (e.g. a Worker
+# that predates this variable, or this block run standalone in tests).
+if [ -n "${CODEFLARE_CLONE_RESTORE_FLAG_FILE:-}" ]; then
+    touch "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
 fi
 
 # Configure tab auto-start
@@ -4429,7 +4530,51 @@ complete_managed_curation_startup() {
     fi
 }
 
+run_operator_startup() {
+    # No initial_sync_from_r2, managed-policy restore, bisync baseline, sync
+    # daemon, Vault restore or clone runs in this lane. Image/provisioned setup
+    # may prepare trusted model routing, after which only the parent-bound Pi
+    # config is copied into the isolated activity root.
+    validate_coding_agent_selection
+    update_sync_status "skipped" "null"
+    run_post_restore_startup
+
+    local operator_root
+    operator_root=$(node --input-type=commonjs <<'NODE'
+const path = require('node:path');
+const fail = () => { throw new Error('invalid operator startup configuration'); };
+let pi, sync;
+try {
+  pi = JSON.parse(process.env.CODEFLARE_OPERATOR_PI_CONFIG || '');
+  sync = JSON.parse(process.env.CODEFLARE_OPERATOR_SYNC_CONFIG || '');
+} catch { fail(); }
+const id = /^[A-Za-z0-9_-]{1,128}$/;
+if (!pi || !sync || pi.schemaVersion !== 1 || sync.schemaVersion !== 1
+  || !id.test(pi.activityId) || pi.activityId !== sync.activityId
+  || !id.test(pi.sessionId) || pi.sessionId !== sync.sessionId) fail();
+const root = path.resolve('/home/user/.codeflare/operators', pi.activityId);
+if (path.resolve(pi.root) !== root || path.resolve(sync.root) !== '/home/user/Operators') fail();
+process.stdout.write(root);
+NODE
+    )
+    install -d -m 0700 "$operator_root" "$operator_root/work" "$operator_root/agent" \
+        "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare" "$USER_HOME/Operators"
+    for trusted_file in models.json settings.json auth.json; do
+        if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
+            install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"
+        fi
+    done
+    [ -f "$operator_root/agent/auth.json" ] || printf '{}\n' > "$operator_root/agent/auth.json"
+    chmod 0600 "$operator_root/agent/auth.json"
+    touch "$CODEFLARE_INIT_FLAG_FILE"
+    echo "[entrypoint] Restricted operator startup ready (no whole-home restore or bisync baseline)"
+}
+
 run_managed_curation_startup() {
+    if [ "${CODEFLARE_OPERATOR_SESSION:-}" = "true" ]; then
+        run_operator_startup
+        return
+    fi
     run_initial_r2_restore
     run_post_restore_startup
     complete_managed_curation_startup

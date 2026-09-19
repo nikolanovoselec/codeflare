@@ -5,7 +5,9 @@
  * All functions receive explicit state/context parameters instead of `this`.
  */
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
-import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../lib/constants';
+import type { OperatorContainerProfile } from './operator-context';
+import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER,
+  ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER, SESSION_ID_PATTERN } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -70,6 +72,10 @@ export interface ContainerEnvState {
   _gitCloneRepo: string | null;
   /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
   _gitCloneRef: string | null;
+  /** Parent-persisted non-secret restrictions; presence selects the restricted startup lane. */
+  _operatorContainerProfile?: OperatorContainerProfile;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
+  _gitCloneTargets?: string | null;
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
@@ -111,9 +117,21 @@ interface RestartPrefsInput {
   gitCloneRepo?: string;
   /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
   gitCloneRef?: string;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
+  gitCloneTargets?: string;
 }
 
 export interface SetBucketNameCreds {
+  sessionId?: string;
+  userEmail?: string;
+  userGroups?: string[];
+  routeCatalog?: string[];
+  defaultRoute?: string;
+  defaultReasoning?: string;
+  routeContextWindows?: Record<string, number>;
+  routeReasoningLevels?: Record<string, string[]>;
+  modelDisplayNames?: Record<string, string>;
+  promptCacheTargets?: string[];
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -144,6 +162,8 @@ export interface SetBucketNameCreds {
   gitCloneRepo?: string;
   /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
   gitCloneRef?: string;
+  /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
+  gitCloneTargets?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +176,7 @@ export interface SetBucketNameCreds {
  */
 export function validateBucketNameInput(input: {
   bucketName: unknown;
+  sessionId?: unknown;
   r2AccessKeyId?: unknown;
   r2SecretAccessKey?: unknown;
   r2AccountId?: unknown;
@@ -169,10 +190,13 @@ export function validateBucketNameInput(input: {
   modelDisplayNames?: unknown;
   promptCacheTargets?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
+  const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
+  }
+  if (sessionId !== undefined && (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId))) {
+    return 'sessionId must be 8-24 lowercase alphanumeric characters when provided';
   }
   if (r2AccessKeyId !== undefined && (typeof r2AccessKeyId !== 'string' || r2AccessKeyId.trim() === '')) {
     return 'r2AccessKeyId must be a non-empty string when provided';
@@ -286,6 +310,8 @@ export function buildEnvVars(
   env: Env,
 ): Record<string, string> {
   const bucketName = state._bucketName || 'unknown-bucket';
+  const operatorProfile = state._operatorContainerProfile;
+  const restrictedOperator = operatorProfile !== undefined;
   // Strict Gateway egress (REQ-ENTERPRISE-016): the real R2 key must NEVER enter the
   // container — emit a non-secret placeholder so rclone runs in signed mode while the
   // EgressController strips it and re-signs with the Worker-held user-scoped key at the R2 boundary
@@ -293,8 +319,9 @@ export function buildEnvVars(
   // the real key (rclone connects to R2 directly, byte-identical to today).
   const realAccessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
   const realSecretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
-  const accessKeyId = state._strictEgress ? ENTERPRISE_R2_KEY_PLACEHOLDER : realAccessKeyId;
-  const secretAccessKey = state._strictEgress ? ENTERPRISE_R2_KEY_PLACEHOLDER : realSecretAccessKey;
+  const mediatedR2 = state._strictEgress || restrictedOperator;
+  const accessKeyId = mediatedR2 ? ENTERPRISE_R2_KEY_PLACEHOLDER : realAccessKeyId;
+  const secretAccessKey = mediatedR2 ? ENTERPRISE_R2_KEY_PLACEHOLDER : realSecretAccessKey;
   const accountId = state._r2AccountId || env.R2_ACCOUNT_ID || '';
   const endpoint = state._r2Endpoint || env.R2_ENDPOINT || '';
 
@@ -318,9 +345,23 @@ export function buildEnvVars(
     R2_ACCOUNT_ID: accountId,
     R2_BUCKET_NAME: bucketName,
     R2_ENDPOINT: endpoint,
-    WORKSPACE_SYNC_ENABLED: state._workspaceSyncEnabled ? 'true' : 'false',
+    WORKSPACE_SYNC_ENABLED: !restrictedOperator && state._workspaceSyncEnabled ? 'true' : 'false',
     FAST_CLI_START: state._fastStartEnabled ? 'true' : 'false',
-    SYNC_MODE: state._workspaceSyncEnabled ? 'full' : 'none',
+    SYNC_MODE: !restrictedOperator && state._workspaceSyncEnabled ? 'full' : 'none',
+    ...(operatorProfile && {
+      CODEFLARE_OPERATOR_SESSION: 'true',
+      CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1,
+        activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
+        root: `/home/user/.codeflare/operators/${operatorProfile.activityId}`,
+        profile: operatorProfile.piProfile }),
+      CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1,
+        activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
+        policyDigest: operatorProfile.policyDigest,
+        root: '/home/user/Operators',
+        filePrefix: operatorProfile.outputPrefix,
+        manifestPrefix: `.codeflare/operators/${operatorProfile.activityId}/`,
+        deadline: operatorProfile.deadline }),
+    }),
     // Terminal server port
     TERMINAL_PORT: String(TERMINAL_SERVER_PORT),
     // Auth token for container HTTP requests
@@ -336,29 +377,29 @@ export function buildEnvVars(
     // back to the standard names ONLY inside the consult-llm MCP server's scoped
     // env block. Suppressed in enterprise mode, where models route through the AI
     // Gateway BYOK and per-user LLM keys do not exist.
-    ...(!isEnterpriseMode(env) && state._openaiApiKey && { CODEFLARE_OPENAI_API_KEY: state._openaiApiKey }),
-    ...(!isEnterpriseMode(env) && state._geminiApiKey && { CODEFLARE_GEMINI_API_KEY: state._geminiApiKey }),
+    ...(!restrictedOperator && !isEnterpriseMode(env) && state._openaiApiKey && { CODEFLARE_OPENAI_API_KEY: state._openaiApiKey }),
+    ...(!restrictedOperator && !isEnterpriseMode(env) && state._geminiApiKey && { CODEFLARE_GEMINI_API_KEY: state._geminiApiKey }),
     // Encryption key for rclone SSE-C. Omitted in Governed Mode (R2_SSE_DISABLED, REQ-ENTERPRISE-018):
     // SSE-C is off there, so rclone never uses it (entrypoint.sh skips the sse_customer_key block) and
     // this high-power shared key (also the vault HKDF master + secret-at-rest key) must not sit unused
     // in the container. Consequence (REQ-ENTERPRISE-016/020): under strict egress + Governed Mode the
     // container carries NO real secret except the DO-issued CONTAINER_AUTH_TOKEN — R2/GitHub/Cloudflare
     // creds are all non-secret placeholders. Non-Governed (SSE-C on) still emits it: rclone needs it.
-    ...(state._encryptionKey && !state._r2SseDisabled && { ENCRYPTION_KEY: state._encryptionKey }),
+    ...(state._encryptionKey && !state._r2SseDisabled && !restrictedOperator && { ENCRYPTION_KEY: state._encryptionKey }),
     // REQ-ENTERPRISE-018 (Governed Mode): when this bucket's R2 SSE-C is disabled,
     // tell entrypoint.sh to omit the SSE-C block from rclone.conf and re-enable
     // checksums (R2 default at-rest encryption keeps usable MD5 ETags). Emitted only
     // when active so a non-Governed container's env is byte-identical to today.
     ...(state._r2SseDisabled && { R2_SSE_DISABLED: 'true' }),
     // One transport boolean owns both image-authoritative entrypoint skips.
-    ...(state._remoteCurationActive && { REMOTE_CURATION_ACTIVE: 'true' }),
-    ...(state._remoteCurationActive && state._remoteCurationReleaseDigest && {
+    ...(state._remoteCurationActive && !restrictedOperator && { REMOTE_CURATION_ACTIVE: 'true' }),
+    ...(state._remoteCurationActive && !restrictedOperator && state._remoteCurationReleaseDigest && {
       REMOTE_CURATION_RELEASE_DIGEST: state._remoteCurationReleaseDigest,
     }),
-    ...(state._remoteCurationActive && state._remoteCurationManifestDigest && {
+    ...(state._remoteCurationActive && !restrictedOperator && state._remoteCurationManifestDigest && {
       REMOTE_CURATION_MANIFEST_DIGEST: state._remoteCurationManifestDigest,
     }),
-    ...(state._managedResourcePolicy && state._managedResourcePolicy !== 'mutable' && {
+    ...(state._managedResourcePolicy && state._managedResourcePolicy !== 'mutable' && !restrictedOperator && {
       MANAGED_RESOURCE_POLICY: state._managedResourcePolicy,
       MANAGED_RESOURCE_PATHS_DIGEST: state._managedResourcePathsDigest!,
     }),
@@ -373,7 +414,7 @@ export function buildEnvVars(
     // Non-enterprise is unchanged: the real token (deploy-keys entry, now also
     // OAuth-populated) flows as GH_TOKEN verbatim — byte-identical to today.
     ...(state._githubToken &&
-      (isEnterpriseMode(env)
+      (isEnterpriseMode(env) || restrictedOperator
         ? { GH_TOKEN: ENTERPRISE_GH_TOKEN_PLACEHOLDER }
         : { GH_TOKEN: state._githubToken })),
     // CLOUDFLARE_API_TOKEN: non-enterprise emits the real Connect-to-Cloudflare deploy
@@ -384,7 +425,7 @@ export function buildEnvVars(
     // token never enters the container; the CloudflareBrowserInterceptor injects it
     // worker-side. Defense-in-depth: in enterprise emit ONLY when the value is exactly the
     // placeholder, so a real token reaching `_cloudflareApiToken` via any path can never leak.
-    ...(state._cloudflareApiToken &&
+    ...(!restrictedOperator && state._cloudflareApiToken &&
       (!isEnterpriseMode(env) || state._cloudflareApiToken === ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER) &&
       { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
     // CLOUDFLARE_ACCOUNT_ID is non-secret. Non-enterprise = the deploy account; enterprise =
@@ -395,8 +436,10 @@ export function buildEnvVars(
     // $USER_WORKSPACE/<repo-name> at start (after the git credential helper is
     // configured, before the agent autostarts), refusing on a name collision.
     // Only emit when set so a session with no clone request gets neither var.
-    ...(state._gitCloneRepo && { GIT_CLONE_REPO: state._gitCloneRepo }),
-    ...(state._gitCloneRef && { GIT_CLONE_REF: state._gitCloneRef }),
+    ...(!restrictedOperator && state._gitCloneRepo && { GIT_CLONE_REPO: state._gitCloneRepo }),
+    ...(!restrictedOperator && state._gitCloneRef && { GIT_CLONE_REF: state._gitCloneRef }),
+    // Restricted operator sessions must not restore ordinary user workspaces.
+    ...(!restrictedOperator && state._gitCloneTargets && { GIT_CLONE_TARGETS: state._gitCloneTargets }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
     CODEFLARE_SESSION_WORKSPACE: state._sessionWorkspace,
@@ -454,6 +497,40 @@ export async function applyBucketName(
   storage: { put: (key: string, value: unknown) => Promise<void> },
   r2Creds?: SetBucketNameCreds,
 ): Promise<void> {
+  const sessionId = r2Creds?.sessionId;
+  if (sessionId !== undefined && !SESSION_ID_PATTERN.test(sessionId)) {
+    throw new Error('Invalid session identity');
+  }
+  if (sessionId) {
+    await storage.put('_sessionId', sessionId);
+    state._sessionId = sessionId;
+  }
+  if (r2Creds?.userEmail !== undefined) {
+    state._userEmail = r2Creds.userEmail;
+    await storage.put('userEmail', r2Creds.userEmail);
+  }
+  if (r2Creds?.userGroups !== undefined) {
+    state._userGroups = [...r2Creds.userGroups];
+    await storage.put('userGroups', state._userGroups);
+  }
+  if (r2Creds?.routeCatalog !== undefined) {
+    state._routeCatalog = [...r2Creds.routeCatalog];
+    state._defaultRoute = r2Creds.defaultRoute ?? null;
+    state._defaultReasoning = r2Creds.defaultReasoning ?? null;
+    state._routeContextWindows = structuredClone(r2Creds.routeContextWindows ?? {});
+    state._routeReasoningLevels = structuredClone(r2Creds.routeReasoningLevels ?? {});
+    state._modelDisplayNames = structuredClone(r2Creds.modelDisplayNames ?? {});
+    state._promptCacheTargets = [...(r2Creds.promptCacheTargets ?? [])];
+    await Promise.all([
+      storage.put('routeCatalog', state._routeCatalog),
+      storage.put('defaultRoute', state._defaultRoute),
+      storage.put('defaultReasoning', state._defaultReasoning),
+      storage.put('routeContextWindows', state._routeContextWindows),
+      storage.put('routeReasoningLevels', state._routeReasoningLevels),
+      storage.put('modelDisplayNames', state._modelDisplayNames),
+      storage.put('promptCacheTargets', state._promptCacheTargets),
+    ]);
+  }
   state._bucketName = name;
   await storage.put('bucketName', name);
   if (typeof r2Creds?.workspaceSyncEnabled === 'boolean') {
@@ -535,6 +612,9 @@ export async function applyBucketName(
   // warm restart preserves the workspace and a fresh ephemeral workspace re-clones.
   if (r2Creds?.gitCloneRepo) state._gitCloneRepo = r2Creds.gitCloneRepo;
   if (r2Creds?.gitCloneRef) state._gitCloneRef = r2Creds.gitCloneRef;
+  if (r2Creds?.gitCloneTargets !== undefined) {
+    state._gitCloneTargets = r2Creds.gitCloneTargets || null;
+  }
 
   // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
   if (r2Creds?.r2AccessKeyId) state._r2AccessKeyId = r2Creds.r2AccessKeyId;
@@ -715,6 +795,15 @@ export async function applyPrefsOnRestart(
     state._gitCloneRepo = input.gitCloneRepo;
     state._gitCloneRef = input.gitCloneRef ?? null;
     changed = true;
+  }
+  // REQ-GITHUB-015 AC4: the tracked-repository list grows and shrinks over a
+  // session's life, so the latest Worker-provided list always wins.
+  if (input.gitCloneTargets !== undefined) {
+    const nextGitCloneTargets = input.gitCloneTargets || null;
+    if (nextGitCloneTargets !== state._gitCloneTargets) {
+      state._gitCloneTargets = nextGitCloneTargets;
+      changed = true;
+    }
   }
 
   // Update userEmail on restart (critical for Timekeeper pings)

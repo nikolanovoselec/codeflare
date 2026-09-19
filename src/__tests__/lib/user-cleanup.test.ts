@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // Mock dependencies before imports
 const mockResolveBucketName = vi.hoisted(() => vi.fn());
@@ -80,10 +81,7 @@ describe('cleanupUserData', () => {
     mockCreateR2Client.mockReturnValue({});
     mockResolveBucketName.mockResolvedValue(bucketName);
     mockUsageBatch = vi.fn(async () => [{ success: true }]);
-    mockUsageDb = {
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
-      batch: mockUsageBatch,
-    } as unknown as D1Database;
+    mockUsageDb = Object.assign(createMockSessionD1(mockKV), { batch: mockUsageBatch });
   });
 
   afterEach(() => {

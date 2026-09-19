@@ -1,0 +1,8 @@
+name = "codeflare-operator-gate1-fixture"
+main = "src/index.ts"
+compatibility_date = "2026-02-05"
+workers_dev = true
+
+# Non-production enterprise-integration fixture. It is intentionally stateless:
+# Access protects the workers.dev hostname and the Worker additionally requires
+# the independently provisioned GATE1_OPERATOR_CONNECTION_SECRET.

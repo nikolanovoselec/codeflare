@@ -9,9 +9,11 @@ import { getSleepTimerInfo } from '../lib/sleep-timer';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
 
-const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 'default'> = {
+const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 'default' | 'idle'> = {
   running: 'success',
   stopped: 'default',
+  starting: 'warning',
+  unreachable: 'warning',
   initializing: 'warning',
   stopping: 'warning',
   error: 'error',
@@ -20,6 +22,8 @@ const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 
 const statusPulses: Record<SessionStatus, boolean> = {
   running: true,
   stopped: false,
+  starting: true,
+  unreachable: true,
   initializing: true,
   stopping: true,
   error: false,
@@ -40,11 +44,11 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const dotVariant = () => {
     if (props.session.workspace === 'vscode') {
       if (props.session.status === 'error' || props.session.editorReadyError === true) return 'error';
-      if (props.session.status === 'running') return props.session.editorReady === true ? 'success' : 'warning';
+      if (props.session.status === 'running' || props.session.status === 'unreachable') return props.session.editorReady === true ? 'success' : 'default';
       return statusDotVariant[props.session.status];
     }
     if (props.session.status === 'running' && wsState() !== 'connected') {
-      return 'warning'; // Yellow — container alive, WS disconnected
+      return 'idle'; // Blue IDLE is local to this device's terminal socket.
     }
     return statusDotVariant[props.session.status];
   };
@@ -103,6 +107,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         <span class="stat-card__title type-section-header session-stat-card__name">{props.session.name}</span>
         <span
           class={`session-stat-card__dot session-stat-card__dot--${dotVariant()} ${isPulsing() ? 'session-stat-card__dot--pulse' : ''}`}
+          role="status"
+          aria-label={props.session.workspace === 'vscode'
+            ? `Session ${props.session.status}`
+            : props.session.status === 'running' && wsState() === 'connected' ? 'ACTIVE' : props.session.status === 'running' ? 'IDLE' : `Session ${props.session.status}`}
         />
         <Show when={timerInfo()}>
           {(info) => (

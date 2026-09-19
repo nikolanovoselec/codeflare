@@ -23,8 +23,8 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../../types';
-import { getSessionKey, putSessionWithMetadata } from '../../lib/kv-keys';
+import type { Env } from '../../types';
+import { D1SessionRepository } from '../../lib/session-repository';
 import {
   SESSION_ID_PATTERN,
   REQUEST_ID_LENGTH,
@@ -268,7 +268,7 @@ export async function handleVaultRequest(
 
     const ownershipResult = await assertSessionOwnership(env, bucketName, effectiveSessionId, jsonHeaders);
     if ('errorResponse' in ownershipResult) return ownershipResult.errorResponse;
-    const { sessionKey } = ownershipResult;
+    const { session } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
@@ -308,13 +308,9 @@ export async function handleVaultRequest(
     // asset; touching the same session KV key for that burst violates KV's
     // same-key write limit without representing 52 distinct user interactions.
     if (!isSilverBulletPrecacheRequest(request, remainingPath)) {
-      ctx.waitUntil((async () => {
-        const fresh = await env.KV.get<Session>(sessionKey, 'json');
-        if (fresh) {
-          const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-          await putSessionWithMetadata(env.KV, sessionKey, touched);
-        }
-      })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
+      ctx.waitUntil(new D1SessionRepository(env.USAGE_DB).updateMutable(bucketName, session.sessionId, {
+        lastAccessedAt: new Date().toISOString(),
+      }).catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
     }
 
     // REQ-VAULT-024 AC1: the codeflare bootstrap-hop short-circuit. This
@@ -557,8 +553,7 @@ app.get('/:sessionId/status', async (c) => {
     return c.json({ error: 'Invalid session ID format', code: 'INVALID_SESSION' }, 400);
   }
 
-  const sessionKey = getSessionKey(bucketName, sessionId);
-  const session = await c.env.KV.get<Session>(sessionKey, 'json');
+  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
   if (!session) {
     throw new NotFoundError('Session');
   }

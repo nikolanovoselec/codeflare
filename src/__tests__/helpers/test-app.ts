@@ -17,6 +17,8 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import type { AccessUser } from '../../types';
 import { AppError } from '../../lib/error-types';
+import { createMockSessionD1 } from './mock-session-d1';
+import type { MockKV } from './mock-kv';
 
 interface RouteRegistration {
   path: string;
@@ -55,10 +57,13 @@ export function createTestApp(options: TestAppOptions) {
     return c.json({ error: err.message }, 500);
   });
 
-  // Set up mock env and auth variables
+  // Legacy route fixtures seed session records through the shared KV fake.
+  // Present those fixtures through a D1-shaped adapter while production remains D1-only.
+  const sessionD1 = createMockSessionD1(mockKV as MockKV);
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: sessionD1,
       CONTAINER: {} as DurableObjectNamespace,
       ...envOverrides,
     } as unknown as Env;

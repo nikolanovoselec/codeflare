@@ -328,6 +328,19 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+      - name: Verify patched Debian runtime packages
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            version=$(dpkg-query -W -f="\${Version}" libevent-core-2.1-7)
+            dpkg --compare-versions "$version" ge "2.1.12-stable-8+deb12u1"
+            printf "libevent-core-2.1-7=%s\n" "$version"
+          '
+
       - name: Verify packaged native Pi Chat and official Claude
         if: steps.reuse.outputs.reused != 'true'
         env:

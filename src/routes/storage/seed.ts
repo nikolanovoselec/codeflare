@@ -40,7 +40,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageSeedRateLimiter);
 
 async function assertNoOwningSession(
-  env: Pick<Env, 'KV' | 'CONTAINER'>,
+  env: Pick<Env, 'KV' | 'USAGE_DB' | 'CONTAINER'>,
   bucketName: string,
 ): Promise<void> {
   if (await hasOwningSessionContainer(env, bucketName)) {
@@ -108,20 +108,20 @@ app.post('/getting-started', async (c) => {
  * Recreate AI agent configuration files (skills, rules), overwriting existing files.
  * Respects the user's session mode preference — cleans up files not in the current mode.
  */
-async function reconcileAgentConfigsForRequest(
-  c: Context<{ Bindings: Env; Variables: AuthVariables }>,
-  automatic: boolean,
-): Promise<Response> {
-  const bucketName = c.get('bucketName');
+export async function reconcileAgentConfigsForBootstrap(input: {
+  env: Env;
+  bucketName: string;
+  user: AuthVariables['user'];
+}, automatic: boolean) {
+  const { env, bucketName, user } = input;
   const preferencesKey = getPreferencesKey(bucketName);
-  const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
-  const user = c.get('user');
-  const mode = await resolveEffectiveSessionMode(preferences ?? null, user, c.env);
+  const preferences = await env.KV.get<UserPreferences>(preferencesKey, 'json');
+  const mode = await resolveEffectiveSessionMode(preferences ?? null, user, env);
 
   try {
-    const projectionIdentity = codingAgentProjectionIdentity(c.env.CODING_AGENTS);
-    const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
-    const managedConfig = await getManagedEnvironmentConfig(c.env.KV);
+    const projectionIdentity = codingAgentProjectionIdentity(env.CODING_AGENTS);
+    const activeManagedRelease = await getActiveVerifiedManagedRelease(env);
+    const managedConfig = await getManagedEnvironmentConfig(env.KV);
     if (activeManagedRelease && !managedConfig) throw new Error('Active managed release has no valid managed environment configuration');
     const resourcePolicy = activeManagedRelease ? managedConfig!.resourcePolicy : 'mutable';
     let priorManagedRelease: PriorManagedReleaseSelection | undefined;
@@ -131,7 +131,7 @@ async function reconcileAgentConfigsForRequest(
       if (automatic) assertAppliedManagedIdentity(applied);
       const priorRelease = activeManagedRelease?.digest === applied.digest
         ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
-        : await getCachedManagedReleaseByDigest(c.env, applied.digest);
+        : await getCachedManagedReleaseByDigest(env, applied.digest);
       if (priorRelease) {
         if (automatic && priorRelease.release.sequence !== applied.sequence) {
           throw new Error('Previously applied managed release identity conflicts with cached content');
@@ -149,13 +149,13 @@ async function reconcileAgentConfigsForRequest(
     // only while curation is active or while a prior curated state must converge
     // back to baked content.
     if (activeManagedRelease || applied || preferences?.managedEnvironmentReconciliation) {
-      await assertNoOwningSession(c.env, bucketName);
+      await assertNoOwningSession(env, bucketName);
     }
 
     // REQ-ENTERPRISE-020: block reseed while the bucket's encryption regime is migrating.
-    if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+    if (await isBucketMigrating(env, bucketName)) throw new BucketMigratingError();
 
-    const latestPreferencesBeforeReconcile = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
+    const latestPreferencesBeforeReconcile = await env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
     if (
       automatic
       && activeManagedRelease
@@ -191,7 +191,7 @@ async function reconcileAgentConfigsForRequest(
       }
       const content = activeManagedRelease && target.digest === activeManagedRelease.digest
         ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
-        : await getCachedManagedReleaseByDigest(c.env, target.digest);
+        : await getCachedManagedReleaseByDigest(env, target.digest);
       if (!content || content.release.sequence !== target.sequence) {
         throw new Error('Interrupted managed release identity is unavailable or conflicting');
       }
@@ -203,36 +203,36 @@ async function reconcileAgentConfigsForRequest(
       });
     }
     if (expectedReconciliationTargets) {
-      await c.env.KV.put(preferencesKey, JSON.stringify({
+      await env.KV.put(preferencesKey, JSON.stringify({
         ...latestPreferencesBeforeReconcile,
         managedEnvironmentReconciliation: { targets: expectedReconciliationTargets },
       }));
     }
 
-    const { accountId, endpoint } = await getR2Config(c.env);
-    const bucketResult = await createBucketIfNotExists(accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName);
+    const { accountId, endpoint } = await getR2Config(env);
+    const bucketResult = await createBucketIfNotExists(accountId, env.CLOUDFLARE_API_TOKEN, bucketName);
     if (!bucketResult.success) {
       throw new ContainerError('seed-agent-configs', bucketResult.error || 'Failed to create storage bucket');
     }
 
     // REQ-ENTERPRISE-020: reconcile in the bucket's current regime (see getting-started above).
-    const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
+    const r2SseDisabled = await resolveBucketSseOnEnsure(env, bucketName, bucketResult.created === true);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
     const validateAutomaticTarget = activeManagedRelease && automatic
       ? async (): Promise<void> => {
-          const currentActive = await getActiveManagedRelease(c.env);
-          const currentPreferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
-          const currentMode = await resolveEffectiveSessionMode(currentPreferences, user, c.env);
-          const currentSseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, false);
-          await assertNoOwningSession(c.env, bucketName);
-          if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+          const currentActive = await getActiveManagedRelease(env);
+          const currentPreferences = await env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
+          const currentMode = await resolveEffectiveSessionMode(currentPreferences, user, env);
+          const currentSseDisabled = await resolveBucketSseOnEnsure(env, bucketName, false);
+          await assertNoOwningSession(env, bucketName);
+          if (await isBucketMigrating(env, bucketName)) throw new BucketMigratingError();
           if (
             !currentActive
             || currentActive.digest !== activeManagedRelease.digest
             || currentActive.pointer.sequence !== activeManagedRelease.release.sequence
             || currentActive.resourcePolicy !== resourcePolicy
-            || codingAgentProjectionIdentity(c.env.CODING_AGENTS) !== projectionIdentity
+            || codingAgentProjectionIdentity(env.CODING_AGENTS) !== projectionIdentity
             || currentMode !== mode
             || currentSseDisabled !== r2SseDisabled
             || JSON.stringify(currentPreferences.managedEnvironmentReconciliation?.targets ?? [])
@@ -247,7 +247,7 @@ async function reconcileAgentConfigsForRequest(
       ? {
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
           resourcePolicy,
-          codingAgents: c.env.CODING_AGENTS,
+          codingAgents: env.CODING_AGENTS,
           projectionIdentity,
           ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
           ...(interruptedManagedReleases.length > 0 ? { interruptedManagedReleases } : {}),
@@ -262,7 +262,7 @@ async function reconcileAgentConfigsForRequest(
               onProgress: async ({ completed, total }: { completed: number; total: number }) => {
                 if (completed === 0 || completed === total || completed % 25 === 0) {
                   const phase = completed === total ? 'finalizing' : 'writing';
-                  await writeManagedReconcileProgress(c.env.KV, bucketName, {
+                  await writeManagedReconcileProgress(env.KV, bucketName, {
                     targetDigest: activeManagedRelease.digest,
                     phase,
                     completed,
@@ -292,7 +292,7 @@ async function reconcileAgentConfigsForRequest(
             : {};
 
     if (automatic && activeManagedRelease) {
-      await writeManagedReconcileProgress(c.env.KV, bucketName, {
+      await writeManagedReconcileProgress(env.KV, bucketName, {
         targetDigest: activeManagedRelease.digest,
         phase: 'planning',
         completed: 0,
@@ -300,12 +300,12 @@ async function reconcileAgentConfigsForRequest(
       });
     }
 
-    const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, mode, {
+    const result = await reconcileAgentConfigs(env, bucketName, endpoint, mode, {
       overwrite: true,
       cleanup: true,
       contextModeEnabled,
       r2SseDisabled,
-      codingAgents: c.env.CODING_AGENTS,
+      codingAgents: env.CODING_AGENTS,
       projectionIdentity,
       ...managedOptions,
     });
@@ -319,7 +319,7 @@ async function reconcileAgentConfigsForRequest(
     // Context-mode stays image-owned even during remote curation. Complete this
     // separate reconciliation before recording the managed release as applied.
     if (activeManagedRelease) {
-      await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled, c.env.CODING_AGENTS);
+      await reseedContextModePlugin(env, bucketName, endpoint, contextModeEnabled, r2SseDisabled, env.CODING_AGENTS);
     }
 
     logger.info('Recreated agent configs', {
@@ -332,14 +332,14 @@ async function reconcileAgentConfigsForRequest(
       deletedCount: result.deleted.length,
     });
 
-    await c.env.KV.delete(`storage-stats:${bucketName}`);
+    await env.KV.delete(`storage-stats:${bucketName}`);
 
     await validateAutomaticTarget?.();
 
     // Re-read to preserve concurrent preference changes. The applied stamp is the
     // final side effect: no caller can observe current until all R2/context work and
     // cache invalidation have succeeded.
-    const latestPreferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
+    const latestPreferences = await env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
     if (
       JSON.stringify(latestPreferences.managedEnvironmentReconciliation?.targets ?? [])
       !== JSON.stringify(expectedReconciliationTargets ?? existingTargets)
@@ -351,7 +351,7 @@ async function reconcileAgentConfigsForRequest(
         key !== 'managedEnvironmentApplied' && key !== 'managedEnvironmentReconciliation'
       )),
     ) as UserPreferences;
-    const enterpriseMode = isEnterpriseMode(c.env);
+    const enterpriseMode = isEnterpriseMode(env);
     const updatedPreferences: UserPreferences = activeManagedRelease
       ? {
           ...withoutManagedState,
@@ -373,9 +373,9 @@ async function reconcileAgentConfigsForRequest(
           lastPreseedProjectionIdentity: projectionIdentity,
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
         };
-    await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
+    await env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
 
-    return c.json({
+    return {
       success: true,
       bucketCreated: bucketResult.created === true,
       written: result.written,
@@ -385,11 +385,23 @@ async function reconcileAgentConfigsForRequest(
       ...(completionProgress && activeManagedRelease ? {
         managedReleaseProgress: completionProgress,
       } : {}),
-    });
+    };
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new ContainerError('seed-agent-configs', toErrorMessage(error));
   }
+}
+
+async function reconcileAgentConfigsForRequest(
+  c: Context<{ Bindings: Env; Variables: AuthVariables }>,
+  automatic: boolean,
+): Promise<Response> {
+  const result = await reconcileAgentConfigsForBootstrap({
+    env: c.env,
+    bucketName: c.get('bucketName'),
+    user: c.get('user'),
+  }, automatic);
+  return c.json(result);
 }
 
 app.post('/agent-configs', (c) => reconcileAgentConfigsForRequest(c, false));

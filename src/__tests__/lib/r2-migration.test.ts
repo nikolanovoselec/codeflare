@@ -414,6 +414,30 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(deps.drainContainers).toHaveBeenCalledTimes(1); // drained once, before the first chunk
   });
 
+  it('aborts every in-flight multipart upload before the first migration chunk', async () => {
+    const aborted: string[] = [];
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('uploads')) {
+        return new Response('<ListMultipartUploadsResult><Upload><Key>draft.md</Key><UploadId>upload-1</UploadId></Upload></ListMultipartUploadsResult>', { status: 200 });
+      }
+      if (method === 'DELETE' && url.includes('uploadId=upload-1')) {
+        aborted.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (method === 'GET' && url.includes('list-type=2')) {
+        return new Response(listXml([]), { status: 200 });
+      }
+      return new Response(null, { status: 500 });
+    });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    await advanceMigration(driverEnv(kv), 'bkt', { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) });
+
+    expect(aborted).toHaveLength(1);
+    expect(aborted[0]).toContain('/bkt/draft.md?uploadId=upload-1');
+  });
+
   it('fully migrates a small bucket within a SINGLE advanceMigration call (loops pages under budget)', async () => {
     // 6 objects across 3 list pages, far under the per-invocation budgets, so one poll drains every
     // migrate AND verify page. Date.now is FROZEN so the wall-clock gate is deterministic (the budget

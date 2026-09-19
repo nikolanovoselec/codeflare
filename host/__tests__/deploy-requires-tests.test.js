@@ -26,6 +26,7 @@ const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const VAPID_GATE = join(ROOT, 'scripts', 'ci', 'validate-vapid-config.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const deployWorkflow = parseYaml(deployYml);
+const gate1DeployWorkflow = parseYaml(readFileSync(join(WORKFLOWS, 'deploy-operator-gate1.yml'), 'utf8'));
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 const testWorkflow = parseYaml(testYml);
 
@@ -212,6 +213,28 @@ describe('manual deploys cannot skip tests', () => {
       }
     });
   }
+
+  it('gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy', () => {
+    const fixture = deployWorkflow.jobs['operator-gate1-fixture'];
+    assert.deepEqual(fixture.needs, ['prepare', 'deploy']);
+    assert.equal(fixture.uses, './.github/workflows/deploy-operator-gate1.yml');
+    assert.equal(fixture.secrets, 'inherit');
+    assert.ok(Object.hasOwn(gate1DeployWorkflow.on, 'workflow_call'),
+      'the fixture workflow must remain callable from deploy.yml');
+    assert.ok(Object.hasOwn(gate1DeployWorkflow.on, 'workflow_dispatch'),
+      'operators must retain the intentional direct-dispatch recovery path');
+    assert.equal(gate1DeployWorkflow.jobs.deploy.environment, 'enterprise integration');
+    const gate = condition('operator-gate1-fixture');
+    const eligible = { cancelled: false, 'needs.deploy.result': 'success',
+      'needs.prepare.outputs.env_name': 'enterprise integration' };
+    for (const [scenario, values, expected] of [
+      ['eligible target', eligible, true],
+      ['primary deploy failed', { ...eligible, 'needs.deploy.result': 'failure' }, false],
+      ['ordinary integration', { ...eligible, 'needs.prepare.outputs.env_name': 'integration' }, false],
+      ['enterprise production', { ...eligible, 'needs.prepare.outputs.env_name': 'enterprise' }, false],
+      ['cancelled', { ...eligible, cancelled: true }, false],
+    ]) assert.equal(evaluateCondition(gate, values), expected, scenario);
+  });
 
   // Every dispatch rendered as the same "Deploy" row in the Actions list, so the
   // only way to tell a production deploy from an integration one was to open it.

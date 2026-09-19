@@ -22,6 +22,7 @@ const UsagePage = lazy(() => import('./components/UsagePage'));
 const AdminSubscriptionManagement = lazy(() => import('./components/admin/SubscriptionManagement'));
 const AdministrationLayout = lazy(() => import('./components/admin/AdministrationLayout'));
 const AdministrationOverview = lazy(() => import('./components/admin/AdministrationOverview'));
+const OperatorsPage = lazy(() => import('./components/admin/OperatorsPage'));
 const EnvironmentIndex = lazy(() => import('./components/admin/EnvironmentIndex'));
 const EnvironmentAreaDetail = lazy(async () => ({ default: (await import('./components/admin/EnvironmentIndex')).EnvironmentAreaDetail }));
 const AnalyticsPage = lazy(() => import('./components/admin/AnalyticsPage'));
@@ -384,6 +385,7 @@ const App: Component = () => {
         <Route path="/analytics/users/:userKey" component={AnalyticsUserDetail} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity" component={ActivityPage} />
+        <Route path="/operators" component={OperatorsPage} />
       </Route>
       <Route
         path="/*"

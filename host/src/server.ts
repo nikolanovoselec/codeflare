@@ -13,6 +13,7 @@
  * - DELETE /sessions/:id      - Delete session
  * - GET  /ws-events           - Recent WebSocket event log (debugging)
  * - GET  /sync-log            - rclone sync log
+ * - *    /internal/operator/pi/* - Parent-configured structured Pi operations
  *
  * This file is the composition root (CF-014): it owns process lifecycle,
  * environment config, the mutable readiness flags, and the pre-warm
@@ -31,6 +32,8 @@ import { isPrewarmTimeoutReady, resolveHostTerminalConfig } from './terminal-mod
 import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
+import { createOperatorPiService } from './operator-pi-service.js';
+import { createOperatorSyncService } from './operator-sync-service.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
@@ -255,8 +258,28 @@ let editorReady = false;
 let editorReadyTimedOut = false;
 let herdrAgentStatusMonitor: HerdrAgentStatusMonitor | null = null;
 
+// Restricted sessions receive one immutable parent-authored config before PID1
+// starts. Ordinary sessions have no config and therefore no structured Pi route.
+const operatorPi = createOperatorPiService({
+  allowedRoot: '/home/user/.codeflare/operators',
+  ...(process.env.CODEFLARE_OPERATOR_PI_CONFIG
+    ? { serializedConfig: process.env.CODEFLARE_OPERATOR_PI_CONFIG }
+    : {}),
+});
+const operatorSync = createOperatorSyncService({
+  allowedRoot: '/home/user/.codeflare/operators',
+  outputRoot: '/home/user/Operators',
+  rcloneConfig: '/home/user/.config/rclone/rclone.conf',
+  ...(process.env.CODEFLARE_OPERATOR_SYNC_CONFIG
+    ? { serializedConfig: process.env.CODEFLARE_OPERATOR_SYNC_CONFIG }
+    : {}),
+  ...(process.env.R2_BUCKET_NAME ? { bucket: process.env.R2_BUCKET_NAME } : {}),
+});
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  ...(operatorPi ? { operatorPi } : {}),
+  ...(operatorSync ? { operatorSync } : {}),
   sessionManager,
   wsEventLog: state.wsEventLog,
   activityTracker: state.activityTracker,

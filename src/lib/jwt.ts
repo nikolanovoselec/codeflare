@@ -25,7 +25,7 @@ const JWTPayloadSchema = z.object({
   iat: z.number(),
   nbf: z.number().optional(),
   iss: z.string(),
-});
+}).passthrough();
 
 /** Single JWK - fields needed to import an RS256 public key. */
 const JWKSchema = z.object({
@@ -141,18 +141,18 @@ async function getPublicKeys(authDomain: string): Promise<JWKS> {
 }
 
 /**
- * Verify a Cloudflare Access JWT token.
- *
- * @param token - The JWT string from cf-access-jwt-assertion header
- * @param authDomain - The CF Access auth domain (e.g., "myteam.cloudflareaccess.com")
- * @param expectedAud - The expected audience tag from the Access application
- * @returns The verified email address, or null if verification fails
+ * Shared cryptographic Access boundary. Consumes an untrusted token and validates
+ * its RS256 signature, configured issuer/audience and time claims before exposing
+ * any payload. Additional claims remain untrusted in shape until a consumer
+ * validates them; keeping them does not narrow the legacy email API.
+ * JWKS lookup/cache is the only I/O. Verification failure returns null, without
+ * logging credentials, retries of business effects or any authorization grant.
  */
-export async function verifyAccessJWT(
+async function verifyAccessPayload(
   token: string,
   authDomain: string,
   expectedAud: string
-): Promise<string | null> {
+): Promise<z.infer<typeof JWTPayloadSchema> | null> {
   try {
     // 1. Split token into header.payload.signature
     const parts = token.split('.');
@@ -249,12 +249,66 @@ export async function verifyAccessJWT(
       return null;
     }
 
-    // 6. Return email if all checks pass
-    return payload.email || null;
+    // 6. Return claims only after all cryptographic and time checks pass.
+    return payload;
   } catch {
     // Any error during verification means the token is invalid
     return null;
   }
+}
+
+/**
+ * Verify a Cloudflare Access JWT for existing email-authentication consumers.
+ * Preserves the accepted legacy claim shape; human operator eligibility is a
+ * separate, stricter operation. Returns null on verification failure or no email.
+ */
+export async function verifyAccessJWT(
+  token: string,
+  authDomain: string,
+  expectedAud: string
+): Promise<string | null> {
+  const payload = await verifyAccessPayload(token, authDomain, expectedAud);
+  return payload?.email || null;
+}
+
+/** Verified human claims only, never the bearer credential or a permission grant. */
+export interface VerifiedHumanAccessClaims {
+  readonly subject: string;
+  readonly email: string;
+  readonly issuer: string;
+  readonly audiences: readonly string[];
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+}
+
+/**
+ * REQ-OPERATOR-001: Resolve human Access application provenance after the shared
+ * signature/issuer/audience/time boundary. Service provenance, absent human
+ * identity and non-application tokens fail closed, without changing ordinary
+ * email authentication. Expiry is the actual signed exp in Unix seconds, not a
+ * renewable lease. Callers still enforce enterprise eligibility, ownership and
+ * current validity before protected effects; this method does not admit work.
+ * Returns null rather than falling back to service/setup/session authentication.
+ */
+export async function verifyHumanAccessJWT(
+  token: string,
+  authDomain: string,
+  expectedAud: string
+): Promise<VerifiedHumanAccessClaims | null> {
+  const payload = await verifyAccessPayload(token, authDomain, expectedAud);
+  if (!payload || payload.type !== 'app'
+    || typeof payload.sub !== 'string' || !payload.sub.trim()
+    || !payload.email?.trim() || Object.hasOwn(payload, 'common_name')) {
+    return null;
+  }
+  return {
+    subject: payload.sub,
+    email: payload.email,
+    issuer: payload.iss,
+    audiences: [...payload.aud],
+    issuedAt: payload.iat,
+    expiresAt: payload.exp,
+  };
 }
 
 /**

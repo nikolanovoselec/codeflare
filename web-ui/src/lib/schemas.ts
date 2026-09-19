@@ -232,7 +232,11 @@ export const SessionSchema = z.object({
   name: z.string(),
   createdAt: z.string(),
   lastAccessedAt: z.string(),
-  status: z.enum(['stopped', 'running']).optional(),
+  status: z.enum(['stopped', 'starting', 'running', 'unreachable', 'stopping']).optional(),
+  lifecycle: z.enum(['stopped', 'starting', 'running', 'unreachable', 'stopping']).optional(),
+  generation: z.number().int().nonnegative().optional(),
+  revision: z.number().int().nonnegative().optional(),
+  unreachableDeadlineMs: z.number().int().nonnegative().optional(),
   agentType: AgentTypeSchema.optional(),
   workspace: SessionWorkspaceSchema.default('terminal'),
   terminalMode: TerminalModeSchema.default('classic'),
@@ -304,8 +308,12 @@ export const StartupStatusResponseSchema = z.object({
 // Batch session status response schema
 export const BatchSessionStatusResponseSchema = z.object({
   statuses: z.record(z.string(), z.object({
-    status: z.enum(['running', 'stopped']),
-    ptyActive: z.boolean(),
+    status: z.enum(['stopped', 'starting', 'running', 'unreachable', 'stopping']),
+    lifecycle: z.enum(['stopped', 'starting', 'running', 'unreachable', 'stopping']).optional(),
+    generation: z.number().int().nonnegative().optional(),
+    revision: z.number().int().nonnegative().optional(),
+    unreachableDeadlineMs: z.number().int().nonnegative().optional(),
+    ptyActive: z.boolean().optional(),
     startupStage: z.string().optional(),
     lastStartedAt: z.string().nullable().optional(),
     lastActiveAt: z.string().nullable().optional(),
@@ -319,6 +327,9 @@ export const BatchSessionStatusResponseSchema = z.object({
       updatedAt: z.string().optional(),
     }).optional(),
   })),
+});
+
+export const SessionAncillaryStatusResponseSchema = z.object({
   maxSessions: z.number(),
   storageStats: z.object({
     totalFiles: z.number(),

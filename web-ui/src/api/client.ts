@@ -12,6 +12,7 @@ import {
   CreateSessionResponseSchema,
   StartupStatusResponseSchema,
   BatchSessionStatusResponseSchema,
+  SessionAncillaryStatusResponseSchema,
   SetupStatusResponseSchema,
   DetectTokenResponseSchema,
   SetupPrefillResponseSchema,
@@ -390,17 +391,26 @@ export interface ManagedReleaseProgress {
   total: number;
 }
 
-/**
- * Get status for all sessions in a single batch call
- * Returns statuses map, maxSessions limit, and optional storageStats
- */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean; include?: readonly ('usage' | 'storage')[] }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; preseedUpgradeTarget?: string; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
-  const query = new URLSearchParams();
-  if (options?.includePreseedCheck) query.set('includePreseedCheck', 'true');
-  if (options?.include?.length) query.set('include', [...new Set(options.include)].sort().join(','));
-  const path = `/sessions/batch-status${query.size ? `?${query}` : ''}`;
-  const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, preseedUpgradeTarget: response.preseedUpgradeTarget, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
+/** Get authoritative lifecycle projections for all sessions. */
+export async function getBatchSessionStatus(_legacyOptions?: unknown): Promise<{ statuses: Record<string, { status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'; lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'; generation?: number; revision?: number; unreachableDeadlineMs?: number; ptyActive?: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }> }> {
+  return fetchApi('/sessions/batch-status', {}, BatchSessionStatusResponseSchema);
+}
+
+export type SessionAncillaryStatus = {
+  maxSessions: number;
+  storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number };
+  usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string };
+  preseedNeedsUpgrade?: boolean;
+  preseedUpgradeTarget?: string;
+  managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending';
+  managedReleaseProgress?: ManagedReleaseProgress;
+  bucketMigrating?: boolean;
+  bucketMigrationPending?: boolean;
+  bucketMigrationPercent?: number;
+};
+
+export async function getSessionAncillaryStatus(): Promise<SessionAncillaryStatus> {
+  return fetchApi('/sessions/ancillary-status', {}, SessionAncillaryStatusResponseSchema);
 }
 
 // Get container startup status (polling endpoint)

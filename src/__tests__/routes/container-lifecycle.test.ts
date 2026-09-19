@@ -374,7 +374,7 @@ describe('Container Lifecycle Routes', () => {
         id: 'abcdef1234567890abcdef12',
         name: 'Test Session',
         userId: 'new-bucket',
-        status: 'stopped',
+        status: 'running',
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
       });
@@ -523,7 +523,7 @@ describe('Container Lifecycle Routes', () => {
       expect([firstResponse.status, secondResponse.status]).toEqual([200, 200]);
       const first = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as Session | null;
       const second = await mockKV.get(`session:test-bucket:${secondSessionId}`, 'json') as Session | null;
-      expect([first?.status, second?.status]).toEqual(['running', 'running']);
+      expect([first?.status, second?.status]).toEqual(['starting', 'starting']);
     });
 
     it('REQ-SESSION-007 AC4: enterprise uses the non-SaaS stored-user role limit', async () => {

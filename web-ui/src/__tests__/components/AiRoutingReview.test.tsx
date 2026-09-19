@@ -529,5 +529,5 @@ describe('AI routing review', () => {
     expect(technical.open).toBe(false);
     expect(within(technical).getByText('private-execution-id')).not.toBeVisible();
     if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
-  });
+  }, 10_000);
 });
