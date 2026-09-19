@@ -466,7 +466,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. The additive D1 migrations apply safely before the reviewed D1-only Worker and matching image are admitted. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) -->
-2. The deployment completion migration records the D1 cutover as complete, so Create and Start admission is open in every environment immediately after deploy. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.create --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.start --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens Create and Start admission when the deployment completion migration runs) -->
+2. Create and Start admission is open in every environment immediately after deployment. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.create --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.start --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens Create and Start admission when the deployment completion migration runs) -->
 3. Legacy KV session records have no authority, compatibility read, migration, or automatic deletion path. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens D1 admission when the deployment completion migration runs) -->
 
 **Constraints:** The D1 authority starts clean; deployment never blocks a new session on legacy-session quiescence or cleanup.
