@@ -34,7 +34,7 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(view.getByRole('button', { name: 'Cancel activity-1' })).toBeTruthy();
   });
 
-  it('uses concise explanatory copy without redundant refresh or close controls', async () => {
+  it('REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls', async () => {
     listMock.mockResolvedValue({ items: [] });
     const view = render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(view.getByRole('button', { name: /operator activity/i }));

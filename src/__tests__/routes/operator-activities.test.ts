@@ -84,7 +84,26 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(JSON.stringify(await registry.listOwnedActivities.mock.results[0]?.value)).not.toContain('private.access.jwt');
   });
 
-  it('returns detail and result only after the durable index proves exact ownership', async () => {
+  it('REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation', async () => {
+    const { request, registry, activity, waitUntil } = fixture();
+    const detail = await request('/activity-1');
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({ activityId: 'activity-1', checkpoint: { step: 1 }, result: null });
+    const result = await request('/activity-1/result');
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ activityId: 'activity-1', checkpoint: { step: 1 }, result: null });
+
+    registry.getOwnedActivity.mockResolvedValueOnce(null);
+    expect((await request('/another-owner/result')).status).toBe(404);
+    expect(activity.start).not.toHaveBeenCalled();
+    expect(activity.cancelDrive).not.toHaveBeenCalled();
+    expect(activity.collectBrowserResult).not.toHaveBeenCalled();
+    expect(orchestration.prepare).not.toHaveBeenCalled();
+    expect(orchestration.run).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('returns detail and collects a result only after the durable index proves exact ownership', async () => {
     const { request, registry, activity } = fixture();
     const detail = await request('/activity-1');
     expect(detail.status).toBe(200);

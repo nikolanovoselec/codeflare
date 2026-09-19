@@ -215,7 +215,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
-  describe('Enterprise operator placement', () => {
+  describe('REQ-OPERATOR-040: Enterprise operator placement', () => {
     it('places the operator control between VS Code and Storage in a terminal header', () => {
       sessionStoreState.enterpriseMode = true;
       render(() => <Header {...defaultSessionProps} onVscodeOpen={vi.fn()} />);

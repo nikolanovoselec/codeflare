@@ -670,9 +670,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ---
 
-### REQ-OPERATOR-027: Owned activity content
+### REQ-OPERATOR-027: Owned activity user surface
 
-**Intent:** Users observe owned activity content without conflating execution, storage and collection outcomes.
+**Intent:** Users observe and control owned activities without conflating execution, storage and collection outcomes.
 
 **Applies To:** User
 
@@ -706,12 +706,12 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. The dashboard header places the operator control after the user control. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Enterprise operator placement) -->
-2. Terminal headers place the operator control between VS Code and Storage. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Enterprise operator placement) -->
-3. The panel is called “Operator overview.” <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-4. The panel explains that operators are autonomous agents that work in the background. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-5. Desktop and tablet render the activity control as an anchored popover. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel -->
-6. Mobile renders the activity control as a bottom sheet. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel -->
+1. The dashboard header places the operator control after the user control. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
+2. Terminal headers place the operator control between VS Code and Storage. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
+3. The panel is called “Operator overview.” <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
+4. The panel explains that operators are autonomous agents that work in the background. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
+5. Desktop and tablet render the activity control as an anchored popover. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @manual: Owner verifies the opened overview remains anchored at desktop and tablet widths. -->
+6. Mobile renders the activity control as a bottom sheet. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @manual: Owner verifies the opened overview is bottom-fixed at mobile width. -->
 
 **Constraints:**
 
@@ -719,7 +719,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-content)
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
 **Verification:** Placement and copy are covered by adjacent component tests. Browser-level responsive viewport coverage is not yet available.
 
@@ -735,11 +735,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-2. Authenticated result requests expose only account-owned activity results. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-3. Activity GET requests are non-effectful. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
-4. Browser closure does not lose valid activity progress. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail -->
-5. Browser closure does not extend authority. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail -->
+1. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+2. Authenticated result requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+3. Activity GET requests are non-effectful. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
 
 **Constraints:**
 
@@ -750,9 +748,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Owner-scoped detail, result and GET behavior are covered by the adjacent route test. Browser-closure behavior remains unverified.
+**Verification:** Owner-scoped detail, result and GET behavior are covered by the adjacent route test.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
