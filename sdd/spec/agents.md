@@ -5471,7 +5471,6 @@ None.
 5. A clean successful CI round may use an empty triage table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) -->
 6. After terminal failed or timed-out CI evidence, a structurally valid table with a malformed CI row receives one correction follow-up and no acknowledgement or FIX. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendTriageCorrectionFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one canonical triage correction when a terminal CI failure row is malformed) -->
 7. A later canonical table completes the same review round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one canonical triage correction when a terminal CI failure row is malformed) -->
-8. A structurally valid triage table published before the final reviewer or CI terminal evidence is treated as premature: after all required evidence becomes terminal, Pi emits exactly one correction follow-up, withholds FIX, and accepts only a later canonical table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendEarlyTriageCorrectionFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
 
 **Constraints:** Reviewer and CI execution remain independent and concurrent.
 
@@ -5480,6 +5479,31 @@ None.
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
 **Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-214: Premature review triage correction
+
+**Intent:** A triage table cannot acknowledge review before the final required reviewer and CI evidence are terminal.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A structurally valid triage table published before the final required reviewer or CI terminal evidence is identified as premature. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+2. Once all required evidence is terminal, a premature table emits exactly one correction follow-up. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendEarlyTriageCorrectionFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+3. A premature table does not write acknowledgement or deliver FIX. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+4. A later canonical table completes the same review round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+
+**Constraints:** Reviewer and CI execution remain independent and concurrent; no timer or persisted recovery state is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
+
+**Verification:** Automated review-enforcement tests
 
 **Status:** Implemented
 
