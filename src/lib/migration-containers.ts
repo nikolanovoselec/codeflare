@@ -11,7 +11,6 @@ import type { Env } from '../types';
 import { getContainerId, safeCheckContainerHealth } from './container-helpers';
 import { listRunningSessionIds } from './session-helpers';
 
-/** True if ANY of the bucket's running sessions has a live container (short-circuits). */
 /** Destroy currently running session containers before a governed storage migration. */
 export async function drainContainers(
   env: Pick<Env, 'USAGE_DB' | 'CONTAINER'>,
@@ -24,6 +23,7 @@ export async function drainContainers(
   }));
 }
 
+/** True if ANY of the bucket's running sessions has a live container (short-circuits). */
 export async function hasHealthyContainer(
   env: Pick<Env, 'USAGE_DB' | 'CONTAINER'>,
   bucketName: string,

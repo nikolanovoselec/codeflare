@@ -921,7 +921,8 @@ export function reviewTranscriptFacts(input: {
             return notification !== undefined
               && notification.toolUseId === call.id
               && notification.succeeded
-              && ciTerminalResult(notification.text, ci) !== undefined;
+              && (ciTerminalResult(notification.text, ci) !== undefined
+                || /\bCommand timed out after \d+ seconds\b/i.test(notification.text));
           });
         const launchResult = later.find((candidate) => candidate.type === "message"
           && candidate.message?.role === "toolResult"
@@ -942,10 +943,12 @@ export function reviewTranscriptFacts(input: {
           : undefined;
         const terminal = nativeTerminal && publicTerminal
           ? nativeTerminal.index <= publicTerminal.index
-            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)
+              ?? "timeout" }
             : { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
           : nativeTerminal
-            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)
+              ?? "timeout" }
             : publicTerminal
               ? { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
               : undefined;
