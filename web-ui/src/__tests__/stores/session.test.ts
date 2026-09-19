@@ -692,6 +692,7 @@ describe('Session Store', () => {
 
       const first = sessionStore.refreshSessionStatuses();
       const second = sessionStore.refreshSessionStatuses();
+      await vi.waitFor(() => expect(mockGetSessionAncillaryStatus).toHaveBeenCalledTimes(1));
       release?.();
       await Promise.all([first, second]);
 

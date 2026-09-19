@@ -71,7 +71,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
         },
         async run() {
           if (sql.includes('INSERT INTO runtime_sessions')) {
-            const session = { id: args[1], name: args[2], createdAt: args[3], lastAccessedAt: args[4], agentType: args[5] ?? undefined, workspace: args[6], terminalMode: args[7], tabConfig: args[8] ? JSON.parse(String(args[8])) : undefined, clone: args[9] ? JSON.parse(String(args[9])) : undefined, status: 'stopped' };
+            const session = { id: args[1], userId: args[0], name: args[2], createdAt: args[3], lastAccessedAt: args[4], agentType: args[5] ?? undefined, workspace: args[6], terminalMode: args[7], tabConfig: args[8] ? JSON.parse(String(args[8])) : undefined, clone: args[9] ? JSON.parse(String(args[9])) : undefined, status: 'stopped' };
             await put(args[0], session); return { success: true, meta: { changes: 1 } };
           }
           if (sql.includes('DELETE FROM runtime_sessions')) {
@@ -91,7 +91,6 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           else if (/SET\s+lifecycle_state='stopped'/.test(sql)) {
             if (session.status !== 'stopping' || session.terminationIntentId !== args[3] || (session.lifecycleGeneration ?? 0) !== args[2]) return { success: true, meta: { changes: 0 } };
             session.status = 'stopped'; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
-            session.metrics = undefined;
           }
           else if (sql.includes('lifecycle_state=COALESCE') && sql.includes('observation_sequence=?4')) {
             if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
@@ -102,6 +101,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             session.editorReadyError = args[11] === 1;
             session.observationSequence = args[3];
           } else if (sql.includes('lifecycle_state=COALESCE')) {
+            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
             if (args[3] != null) session.status = args[3];
             if (args[4] === 'lastStartedAt') session.lastStartedAt = args[5];
             if (args[4] === 'lastActiveAt' || (args[3] === 'running' && args[4] === 'lastStartedAt')) session.lastActiveAt = args[5];

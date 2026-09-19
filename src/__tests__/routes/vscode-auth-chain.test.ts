@@ -110,6 +110,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
       id: SID,
       name: 'Test Session',
       userId: 'test-bucket',
+      status: 'running',
       createdAt: '2026-01-01T00:00:00.000Z',
       lastAccessedAt: '2026-01-01T00:00:00.000Z',
     } as Session);

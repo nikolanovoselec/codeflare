@@ -163,6 +163,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockEnv.KV = { get: vi.fn(), put: mockKvPut };
       mockStorage.get.mockImplementation(async (key: string) => key === 'bucketName' ? 'test-bucket' : key === '_sessionId' ? 'sess123' : null);
       const instance = new ContainerClass(mockCtx as any, mockEnv);
+      (instance as any)._bucketName = 'test-bucket';
+      (instance as any)._sessionId = 'sess123';
       await instance.onStart();
       expect(mockKvPut).not.toHaveBeenCalled();
     });
@@ -170,6 +172,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     it('uses D1 only when a reconstructed session identity is available', async () => {
       mockStorage.get.mockImplementation(async (key: string) => key === 'bucketName' ? 'test-bucket' : key === '_sessionId' ? 'sess123' : null);
       const instance = new ContainerClass(mockCtx as any, mockEnv);
+      (instance as any)._bucketName = 'test-bucket';
+      (instance as any)._sessionId = 'sess123';
       await instance.onStart();
       expect(mockCtx.storage.put).toHaveBeenCalledWith('lifecycleGeneration', 0);
     });
@@ -189,6 +193,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
       });
 
+      (instance as any)._bucketName = 'test-bucket';
+      (instance as any)._sessionId = 'sess123';
       await instance.onStart();
 
       expect(mockStorage.delete).toHaveBeenCalledWith('shutdownRequested');
@@ -735,7 +741,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // Mock schedule to prevent re-arm error
       vi.spyOn(instance, 'schedule' as any).mockResolvedValue(undefined);
 
-      // Trigger onStart to set containerStartedAt
+      // Trigger onStart to set containerStartedAt.
+      (instance as any)._bucketName = 'test-bucket';
+      (instance as any)._sessionId = 'sess123';
       vi.spyOn(instance, 'deleteSchedules' as any).mockImplementation(() => {});
       await instance.onStart();
 
