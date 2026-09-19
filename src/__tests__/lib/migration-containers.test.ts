@@ -9,7 +9,7 @@ vi.mock('../../lib/session-helpers', () => ({ listRunningSessionIds }));
 
 import { drainContainers } from '../../lib/migration-containers';
 
-describe('REQ-ENTERPRISE-021 AC2: governed migration container drain', () => {
+describe('REQ-ENTERPRISE-021 AC3: governed migration container drain', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('destroys every running session container and does nothing when none are running', async () => {
