@@ -2339,7 +2339,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Strict egress with Governed Mode exposes only the DO-issued container credential; all service credentials remain placeholders or absent ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (container secret hygiene: no AWS_* anywhere, CF token placeholder-only in enterprise) -->
-2. While a bucket migrates, write attempts are blocked before user R2 I/O. <!-- @impl: src/routes/storage/upload.ts --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
+2. While a bucket migrates, write attempts are blocked before user R2 I/O. <!-- @impl: src/routes/storage/upload.ts::app --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
 3. While a bucket migrates, sync fan-out performs no container work. <!-- @impl: src/lib/r2-regime-state.ts::isBucketMigrating --> <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/routes/sessions-sync.test.ts (skips the entire fan-out while the bucket is migrating (no container is contacted)) -->
 4. Migration start drains running containers once. <!-- @impl: src/lib/migration-containers.ts::drainContainers --> <!-- @test: src/__tests__/lib/migration-containers.test.ts (REQ-ENTERPRISE-021 AC4: governed migration container drain) -->
 5. The dashboard reuses the REQ-AGENT-049 "Upgrading" affordance: `batch-status` returns `bucketMigrating` plus a 0–99 `bucketMigrationPercent` (omitted while `halted`), and the New Session button disables and labels "Migrating N%". Both the full session load and the 5s background poll mirror these flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::bucketMigrationPercent --> <!-- @manual -->
@@ -2370,6 +2370,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Migration start aborts every in-flight multipart upload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (aborts every in-flight multipart upload before the first migration chunk) -->
+
+**Constraints:** None.
 
 **Priority:** P2
 
