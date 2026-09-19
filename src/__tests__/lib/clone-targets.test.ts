@@ -44,7 +44,7 @@ describe('REQ-GITHUB-015 AC2: normalizeTrackedClones', () => {
     ])).toEqual([{ repo: 'octo/api', ref: 'develop' }]);
   });
 
-  it('orders entries stably regardless of report order', () => {
+  it('REQ-GITHUB-015 AC2: orders entries stably regardless of report order', () => {
     const input = [{ repo: 'octo/web' }, { repo: 'octo/api' }, { repo: 'acme/zeta' }];
     const reversed = [...input].reverse();
 
@@ -52,7 +52,7 @@ describe('REQ-GITHUB-015 AC2: normalizeTrackedClones', () => {
     expect(normalizeTrackedClones(input).map((c) => c.repo)).toEqual(['acme/zeta', 'octo/api', 'octo/web']);
   });
 
-  it(`retains at most ${MAX_TRACKED_CLONES} repositories`, () => {
+  it(`REQ-GITHUB-015 AC2: retains at most ${MAX_TRACKED_CLONES} repositories`, () => {
     const many = Array.from({ length: MAX_TRACKED_CLONES + 5 }, (_, i) => ({
       repo: `octo/repo-${String(i).padStart(2, '0')}`,
     }));
