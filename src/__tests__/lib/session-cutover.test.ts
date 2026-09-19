@@ -1,6 +1,7 @@
 // @ts-expect-error Cloudflare Workers test binding.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 import { runSessionCutover } from '../../lib/session-cutover';
 
