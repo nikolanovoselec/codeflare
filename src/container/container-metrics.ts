@@ -1476,25 +1476,55 @@ export async function collectMetrics(
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
         syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
       };
-      // The host uses zero as its uninitialized sentinel. It is not a valid
-      // input timestamp and must not become the idle reference or D1 activity.
-      const observedInputAt = typeof snapshot.lastInputAt === 'number' && snapshot.lastInputAt > 0
+      // Only a finite positive timestamp is usable activity evidence. An
+      // invalid value must not become the idle reference or D1 activity.
+      const observedInputAt = typeof snapshot.lastInputAt === 'number'
+        && Number.isFinite(snapshot.lastInputAt) && snapshot.lastInputAt > 0
         ? snapshot.lastInputAt
         : null;
       state.lastSeenInputAt = observedInputAt;
+      let canEnforceIdle = true;
       let containerStartedAt = state.containerStartedAt;
-      if (containerStartedAt <= 0) {
-        const persistedStartedAt = await ctx.storage.get<number>('containerStartedAt');
-        // A missing legacy marker must fail open for idle policy: treating it as
-        // epoch zero stops a healthy newly-started container on its first tick.
-        containerStartedAt = typeof persistedStartedAt === 'number' && persistedStartedAt > 0
-          ? persistedStartedAt
-          : Date.now();
-        state.containerStartedAt = containerStartedAt;
+      if (!Number.isFinite(containerStartedAt) || containerStartedAt <= 0) {
+        let persistedStartedAt: number | undefined;
+        try {
+          persistedStartedAt = await ctx.storage.get<number>('containerStartedAt');
+        } catch (error) {
+          // Storage uncertainty cannot turn a successful host observation into
+          // transport failure or authorize an idle stop.
+          canEnforceIdle = false;
+          state.containerStartedAt = 0;
+          containerStartedAt = Date.now();
+          logger.warn('collectMetrics: failed to read startup idle reference', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        if (canEnforceIdle && typeof persistedStartedAt === 'number'
+            && Number.isFinite(persistedStartedAt) && persistedStartedAt > 0) {
+          // A durable baseline already exists; hydration must not rewrite it.
+          containerStartedAt = persistedStartedAt;
+          state.containerStartedAt = containerStartedAt;
+        } else if (canEnforceIdle) {
+          // A missing or invalid legacy marker must fail open for idle policy:
+          // treating it as epoch zero stops a healthy new container immediately.
+          containerStartedAt = Date.now();
+          try {
+            await ctx.storage.put('containerStartedAt', containerStartedAt);
+            state.containerStartedAt = containerStartedAt;
+          } catch (error) {
+            // Without durable timing evidence another coordinator could see a
+            // different baseline. Continue projection, but never stop on it.
+            canEnforceIdle = false;
+            state.containerStartedAt = 0;
+            logger.warn('collectMetrics: failed to persist startup idle reference', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
       }
       const referenceTime = observedInputAt ?? containerStartedAt;
       const idleMs = Date.now() - referenceTime;
-      if (idleMs > sleepMs) {
+      if (canEnforceIdle && idleMs > sleepMs) {
         logger.info('collectMetrics: idle exceeded threshold, stopping', { idleMs, sleepMs, idleTimeoutPref, referenceTime });
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);

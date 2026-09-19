@@ -362,11 +362,47 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(await storage().get<number>('containerStartedAt')).toBeGreaterThan(0);
     });
 
-    it('accepts a duplicate onStart after its generation is already running', async () => {
+    it('preserves generation ownership and idle baseline on a duplicate onStart', async () => {
       await containerInstance.onStart();
+      const startedAt = await storage().get<number>('containerStartedAt');
+      const recovery = {
+        attemptId: 'preserve-this-recovery', startedAt: Date.now(), lastAttemptAt: Date.now(),
+        attemptCount: 1, postResetFailureCount: 0, totalFailureCount: 1, status: 'resetting',
+      };
+      await storage().put('shutdownRequested', Date.now());
+      await storage().put(TRANSPORT_RECOVERY_KEY, recovery);
+      await storage().put('observationSequence', 7);
+      const schedulesBeforeReplay = [...testState.scheduleCalls];
+      const deletionsBeforeReplay = [...testState.deleteScheduleCalls];
 
       await expect(containerInstance.onStart()).resolves.toBeUndefined();
-      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+
+      expect(await storage().get('containerStartedAt')).toBe(startedAt);
+      expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual(recovery);
+      expect(await storage().get('observationSequence')).toBe(7);
+      expect(testState.scheduleCalls).toEqual(schedulesBeforeReplay);
+      expect(testState.deleteScheduleCalls).toEqual(deletionsBeforeReplay);
+    });
+
+    it('rejects a stale onStart replay without clearing shutdown ownership', async () => {
+      await containerInstance.onStart();
+      await storage().put('lifecycleGeneration', 99);
+      await storage().put('shutdownRequested', Date.now());
+
+      await expect(containerInstance.onStart()).rejects.toThrow('D1 start generation replay unavailable');
+      expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));
+    });
+
+    it('rejects a stopping onStart callback without clearing shutdown ownership', async () => {
+      await storage().put('shutdownRequested', Date.now());
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'stopping', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await expect(containerInstance.onStart()).rejects.toThrow('D1 start generation unavailable');
+      expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));
     });
 
     it('REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start', async () => {
@@ -638,6 +674,110 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.stopCalls).toBe(0);
       expect((containerInstance as unknown as { containerStartedAt: number }).containerStartedAt).toBe(startedAt);
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
+    it('persists one fallback baseline across a second coordinator reconstruction', async () => {
+      let now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      testState.activityResult.lastInputAt = null;
+      testState.storedSleepAfter = '30m';
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+      const baseline = await storage().get<number>('containerStartedAt');
+      now += 60_000;
+      containerInstance = createContainerInstance();
+      await vi.waitFor(() => expect(
+        (containerInstance as unknown as { _containerAuthToken: string | null })._containerAuthToken,
+      ).toBe('agent-event-token'));
+      await containerInstance.collectMetrics();
+
+      expect(baseline).toEqual(expect.any(Number));
+      expect(await storage().get('containerStartedAt')).toBe(baseline);
+      expect(testState.stopCalls).toBe(0);
+    });
+
+    it('replaces non-finite persisted startup baselines', async () => {
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      for (const invalidBaseline of [NaN, Infinity]) {
+        testState.storageStore.set('containerStartedAt', invalidBaseline);
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        await containerInstance.collectMetrics();
+        const baseline = await storage().get<number>('containerStartedAt');
+        expect(typeof baseline === 'number' && Number.isFinite(baseline)).toBe(true);
+        expect(baseline).toBeGreaterThan(0);
+      }
+      expect(testState.stopCalls).toBe(0);
+    });
+
+    it('does not authorize idle stopping when fallback baseline persistence fails', async () => {
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      testState.storagePutFailures.add('containerStartedAt');
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+      expect((containerInstance as unknown as { containerStartedAt: number }).containerStartedAt).toBe(0);
+      expect(await storage().get('observationSequence')).toBe(0);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
+      expect(projected.metrics?.cpu).toBe('45%');
+    });
+
+    it('keeps host transport healthy when startup-reference storage cannot be read', async () => {
+      testState.activityResult.lastInputAt = null;
+      testState.storedSleepAfter = '30m';
+      testState.storageGetFailures.add('containerStartedAt');
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.abortReasons).toEqual([]);
+      expect(await storage().get('observationSequence')).toBe(0);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
+      expect(projected.metrics?.cpu).toBe('45%');
+    });
+
+    it('stops after genuine idle expiry from the persisted startup reference', async () => {
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      testState.storageStore.set('containerStartedAt', Date.now() - (31 * 60_000));
+      // A valid baseline is only read. A write failure must not suppress its
+      // established idle deadline.
+      testState.storagePutFailures.add('containerStartedAt');
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(1);
     });
 
     it('projects one lifecycle observation when no separate clone inventory is reported', async () => {

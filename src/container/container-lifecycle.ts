@@ -52,19 +52,6 @@ export interface LifecycleHost extends ContainerHost {
 
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
-  host.containerStartedAt = Date.now();
-  // Alarms can wake a fresh Durable Object instance after the container starts.
-  // Persist the fallback idle reference so a runtime observation with no input
-  // timestamp cannot interpret the zero-valued class field as the Unix epoch.
-  await host.ctx.storage.put('containerStartedAt', host.containerStartedAt);
-  // A fresh start means no deliberate stop is in flight: clear any stale
-  // shutdown marker a prior destroy() left in storage, so a later transient
-  // false-stopped on this run can self-heal (REQ-SESSION-018 AC5).
-  try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
-  // Recovery residue is one startup prerequisite. A batch delete prevents a
-  // partial clear, and a failure leaves metrics unarmed rather than letting the
-  // new lifecycle inherit an exhausted record or a near-abort failure streak.
-  await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
   updateEnvVars(host);
   if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
   const repository = new D1SessionRepository(host.env.USAGE_DB);
@@ -72,22 +59,43 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   if (!session || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running')) {
     throw new Error('D1 start generation unavailable');
   }
-  await host.ctx.storage.put('lifecycleGeneration', session.lifecycleGeneration);
-  if (session.lifecycleState === 'starting') {
+
+  const isFreshStart = session.lifecycleState === 'starting';
+  if (isFreshStart) {
+    host.containerStartedAt = Date.now();
+    // Alarms can wake a fresh Durable Object instance after the container
+    // starts. Persist the fallback idle reference for that reconstruction.
+    await host.ctx.storage.put('containerStartedAt', host.containerStartedAt);
+    // A fresh start owns a new lifecycle generation, so it alone may clear
+    // shutdown and transport-recovery state from the previous generation.
+    try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
+    await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
+    await host.ctx.storage.put('lifecycleGeneration', session.lifecycleGeneration);
     await host.ctx.storage.put('observationSequence', 0);
     const observedAt = new Date().toISOString();
     if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
       lifecycleState: 'running', observedAt,
     })) throw new Error('D1 running projection rejected');
   } else {
-    // The Containers SDK can deliver a duplicate onStart after the first hook
-    // has projected this generation. It is a readiness replay, not a new start.
-    await host.ctx.storage.put('observationSequence', session.observationSequence);
+    // The Containers SDK can replay onStart after the first hook projected the
+    // generation. Only the same durable generation is a harmless replay.
+    const persistedGeneration = await host.ctx.storage.get<number>('lifecycleGeneration');
+    if (persistedGeneration !== session.lifecycleGeneration) {
+      throw new Error('D1 start generation replay unavailable');
+    }
+    const persistedStartedAt = await host.ctx.storage.get<number>('containerStartedAt');
+    host.containerStartedAt = typeof persistedStartedAt === 'number'
+      && Number.isFinite(persistedStartedAt) && persistedStartedAt > 0
+      ? persistedStartedAt
+      : 0;
   }
   host.logger.info('Container started');
-  // Clear any stale schedule rows from previous runs before arming fresh
-  try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-  await host.schedule(60, 'collectMetrics');
+  // A replay preserves the existing schedule and ownership state. Only the
+  // claimed fresh generation is allowed to arm normal metrics work.
+  if (isFreshStart) {
+    try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+    await host.schedule(60, 'collectMetrics');
+  }
 }
 
 export async function collectMetrics(host: LifecycleHost): Promise<void> {
