@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { verifyAccessJWT, resetJWKSCache } from '../../lib/jwt';
+import { verifyAccessJWT, verifyHumanAccessJWT, resetJWKSCache } from '../../lib/jwt';
 
 /**
  * Test helpers for generating RSA key pairs and signing JWTs
@@ -118,6 +118,74 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
   afterEach(() => {
     globalThis.fetch = originalFetch;
     resetJWKSCache();
+  });
+
+  describe('REQ-OPERATOR-001: verified human Access context', () => {
+    const humanClaims = () => {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        aud: [TEST_AUD], email: TEST_EMAIL, sub: 'human-subject', type: 'app',
+        iss: `https://${TEST_AUTH_DOMAIN}`, iat: now - 60, exp: now + 3600,
+      };
+    };
+    const sign = (claims: Record<string, unknown>) => createTestJWT(
+      claims, testKeyPair.privateKey, testKeyPair.kid,
+    );
+
+    it('returns verified human claims and actual expiry without returning the credential', async () => {
+      const claims = humanClaims();
+      const token = await sign(claims);
+      expect(await verifyHumanAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toEqual({
+        subject: claims.sub, email: claims.email, issuer: claims.iss,
+        audiences: claims.aud, issuedAt: claims.iat, expiresAt: claims.exp,
+      });
+      expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+    });
+
+    it.each([
+      ['missing subject', { sub: undefined }],
+      ['empty subject', { sub: '' }],
+      ['blank subject', { sub: '   ' }],
+      ['non-string subject', { sub: 42 }],
+      ['missing email', { email: undefined }],
+      ['empty email', { email: '' }],
+      ['blank email', { email: '   ' }],
+      ['missing token type', { type: undefined }],
+      ['organization token', { type: 'org' }],
+      ['service identity with human-looking claims', { common_name: 'service.access' }],
+      ['malformed service identity', { common_name: null }],
+    ])('rejects %s', async (_label, overrides) => {
+      const token = await sign({ ...humanClaims(), ...overrides });
+      expect(await verifyHumanAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it.each([
+      ['wrong audience', { aud: ['other-app'] }],
+      ['wrong issuer', { iss: 'https://other.cloudflareaccess.com' }],
+      ['expired token', { exp: 1 }],
+      ['future issuance', { iat: Math.floor(Date.now() / 1000) + 3600 }],
+      ['future not-before', { nbf: Math.floor(Date.now() / 1000) + 3600 }],
+    ])('rejects signed claims with %s', async (_label, overrides) => {
+      const token = await sign({ ...humanClaims(), ...overrides });
+      expect(await verifyHumanAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it('rejects a forged human payload while retaining the original signature', async () => {
+      const token = await sign({ ...humanClaims(), sub: '', common_name: 'service.access' });
+      const [header, , signature] = token.split('.');
+      const forged = `${header}.${base64UrlEncode(JSON.stringify(humanClaims()))}.${signature}`;
+      expect(await verifyHumanAccessJWT(forged, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it('preserves legacy email authentication without granting operator eligibility', async () => {
+      const claims = humanClaims();
+      const legacy = await sign({ ...claims, sub: undefined, type: undefined });
+      expect(await verifyAccessJWT(legacy, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyHumanAccessJWT(legacy, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+      const service = await sign({ ...claims, common_name: 'service.access' });
+      expect(await verifyAccessJWT(service, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyHumanAccessJWT(service, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
   });
 
   describe('verifyAccessJWT', () => {

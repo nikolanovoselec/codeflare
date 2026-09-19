@@ -3,7 +3,7 @@
  * Handles GET /health, /startup-status
  */
 import { Hono } from 'hono';
-import { resolveSessionWorkspace, type Env, type Session } from '../../types';
+import { resolveSessionWorkspace, type Env } from '../../types';
 import { getContainerContext, safeCheckContainerHealth, type HealthData } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
@@ -12,7 +12,7 @@ import {
   fetchWithTimeout,
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
-import { getSessionKey, putSessionWithMetadata } from '../../lib/kv-keys';
+import { D1SessionRepository } from '../../lib/session-repository';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -191,8 +191,8 @@ app.get('/startup-status', async (c) => {
   try {
     const user = c.get('user');
     const { bucketName, sessionId, containerId, container } = getContainerContext(c);
-    const sessionKey = getSessionKey(bucketName, sessionId);
-    const session = await c.env.KV.get<Session>(sessionKey, 'json');
+    const repository = new D1SessionRepository(c.env.USAGE_DB);
+    const session = await repository.getSession(bucketName, sessionId);
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
 
     // Populate response details now that we have context
@@ -226,9 +226,14 @@ app.get('/startup-status', async (c) => {
     // Step 2: Check health server (port 8080) - now consolidated into terminal server
     // Returns sync status from /tmp/sync-status.json and system metrics (cpu/mem/hdd)
     const healthRequest = new Request('http://container/health', { method: 'GET' });
-    const healthRes = await fetchWithTimeout(() =>
-      getContainerHealthCB(containerId).execute(() => container.fetch(healthRequest))
-    );
+    let healthRes: Response | null = null;
+    try {
+      healthRes = await fetchWithTimeout(() =>
+        getContainerHealthCB(containerId).execute(() => container.fetch(healthRequest))
+      );
+    } catch (err) {
+      reqLogger.debug('Container health endpoint is not ready', { containerId, error: toErrorMessage(err) });
+    }
 
     // Parse health data if available (includes sync status and system metrics)
     let healthData: HealthData = {};
@@ -272,19 +277,19 @@ app.get('/startup-status', async (c) => {
       if (syncStatus === 'failed') {
         return c.json(buildSyncFailedResponse(response, healthData, cStatus));
       }
+      if (session) {
+        await repository.updateReadiness(
+          bucketName,
+          sessionId,
+          session.lifecycleGeneration,
+          healthData.editorReady === true,
+          healthData.editorReadyTimedOut === true,
+        );
+      }
       if (healthData.editorReady === true) {
-        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
-        if (freshSession && (freshSession.editorReady !== true || freshSession.editorReadyError === true)) {
-          const { editorReadyError: _previousEditorError, ...sessionWithoutError } = freshSession;
-          await putSessionWithMetadata(c.env.KV, sessionKey, { ...sessionWithoutError, editorReady: true });
-        }
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus, false));
       }
       if (healthData.editorReadyTimedOut === true) {
-        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
-        if (freshSession && freshSession.editorReadyError !== true) {
-          await putSessionWithMetadata(c.env.KV, sessionKey, { ...freshSession, editorReady: false, editorReadyError: true });
-        }
         response.stage = 'error';
         response.progress = 0;
         response.message = 'VS Code did not become ready. Retry starting the session.';
@@ -304,9 +309,14 @@ app.get('/startup-status', async (c) => {
     // - During on-demand sync (user clicked sync button), the sessions endpoint IS
     //   responding → container is fully ready, sync is just a background data operation
     const sessionsRequest = new Request('http://container/sessions', { method: 'GET' });
-    const sessionsRes = await fetchWithTimeout(() =>
-      getContainerSessionsCB(containerId).execute(() => container.fetch(sessionsRequest))
-    );
+    let sessionsRes: Response | null = null;
+    try {
+      sessionsRes = await fetchWithTimeout(() =>
+        getContainerSessionsCB(containerId).execute(() => container.fetch(sessionsRequest))
+      );
+    } catch (err) {
+      reqLogger.debug('Container sessions endpoint is not ready', { containerId, error: toErrorMessage(err) });
+    }
     const terminalServerReady = sessionsRes != null && sessionsRes.ok;
 
     // If terminal server is already responding, check if PTY pre-warming is complete.

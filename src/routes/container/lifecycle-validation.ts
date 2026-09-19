@@ -10,11 +10,13 @@ import type { Env, Session } from '../../types';
 import { NotFoundError, QuotaExceededError } from '../../lib/error-types';
 import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
-import { getSessionKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, type SessionListMetadata } from '../../lib/kv-keys';
+import { getTimekeeperKey, getUtcMonthString } from '../../lib/kv-keys';
+import { D1SessionRepository } from '../../lib/session-repository';
 
 /** Running and in-flight starts both consume a concurrent-session slot. */
 export function countsTowardSessionLimit(status: string | undefined): boolean {
-  return status === 'running' || status === 'initializing' || status === 'r' || status === 'i';
+  return status === 'starting' || status === 'running' || status === 'unreachable' || status === 'stopping'
+    || status === 'initializing' || status === 'r' || status === 'i';
 }
 
 /**
@@ -61,11 +63,16 @@ export async function validateSessionAndCheckLimits(params: {
 }): Promise<Session> {
   const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier, billingStatus, billingPeriodEnd } = params;
 
-  const sessionKey = getSessionKey(bucketName, sessionId);
-  const sessionData = await env.KV.get<Session>(sessionKey, 'json');
-  if (!sessionData) {
-    throw new NotFoundError('Session', sessionId);
-  }
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const d1Session = await repository.getSession(bucketName, sessionId);
+  if (!d1Session) throw new NotFoundError('Session', sessionId);
+  const sessionData: Session = {
+    id: d1Session.sessionId, name: d1Session.name, userId: d1Session.ownerKey,
+    createdAt: d1Session.createdAt, lastAccessedAt: d1Session.lastAccessedAt,
+    status: d1Session.lifecycleState === 'running' ? 'running' : 'stopped',
+    agentType: d1Session.agentType, workspace: d1Session.workspace,
+    terminalMode: d1Session.terminalMode, tabConfig: d1Session.tabConfig, clone: d1Session.clone, clones: d1Session.clones,
+  };
 
   // Session limit + quota checks. Bypass when stress testing.
   if (env.STRESS_TEST_MODE !== 'active') {
@@ -79,27 +86,11 @@ export async function validateSessionAndCheckLimits(params: {
       } catch { /* fall back to role-based */ }
     }
 
-    // Session limit: tier-based in SaaS mode, role-based otherwise.
-    // Uses list metadata to count running sessions (zero individual KV.get calls).
+    // Session limit: one owner-scoped D1 query; workload-owning transitional
+    // states reserve capacity under the existing best-effort semantics.
     const effectiveMaxSessions = resolvedTier?.maxSessions ?? maxSessions;
-    const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
-    // Count running sessions from authoritative KV status (the container
-    // writes 'stopped' on exit, so no read-side staleness reconciliation).
-    let runningCount = 0;
-    for (const key of sessionKeys) {
-      const rawMeta = key.metadata as (SessionListMetadata & { s?: string }) | null;
-      if (rawMeta && rawMeta.s) {
-        // Fast path: read status from list metadata. `i` remains accepted for
-        // compatibility with legacy initializing metadata.
-        const keySessionId = key.name.split(':').pop();
-        if (countsTowardSessionLimit(rawMeta.s) && keySessionId !== sessionId) runningCount++;
-      } else {
-        // Fallback: pre-migration key without metadata
-        const s = await env.KV.get<Session>(key.name, 'json');
-        if (!s || s.id === sessionId) continue;
-        if (countsTowardSessionLimit(s.status as string | undefined)) runningCount++;
-      }
-    }
+    const runningCount = (await repository.listSessions(bucketName))
+      .filter((session) => session.sessionId !== sessionId && countsTowardSessionLimit(session.lifecycleState)).length;
 
     if (runningCount >= effectiveMaxSessions) {
       throw new QuotaExceededError(

@@ -105,6 +105,8 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // repo was requested; ref travels with it when present.
     ...(params.gitCloneRepo && { gitCloneRepo: params.gitCloneRepo }),
     ...(params.gitCloneRef && { gitCloneRef: params.gitCloneRef }),
+    // REQ-GITHUB-015 AC4: every tracked repository, encoded as `repo[#ref]`.
+    ...(params.gitCloneTargets !== undefined && { gitCloneTargets: params.gitCloneTargets }),
   });
   return JSON.stringify(body);
 }

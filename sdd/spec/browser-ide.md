@@ -1475,3 +1475,30 @@ A full code-server browser editor for an advanced running session. The editor op
 **Status:** Implemented
 
 ---
+
+---
+
+### REQ-IDE-055: IDE lifecycle and connectivity are presented separately
+
+**Intent:** A VS Code workspace reports authoritative lifecycle independently from temporary editor transport uncertainty.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The lifecycle indicator is yellow only while backend lifecycle is `starting`, green while `running` after editor readiness, and gray when `stopped`. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+2. Backend `unreachable` retains the editor object and shows a separate accessible connectivity/recovery notice without changing the running indicator to yellow. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+3. D1 status failure retains the last ordered lifecycle and editor state and shows a distinct status-unavailable notice. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+4. Recovery reconnects to the existing session without invoking Start. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+5. Client countdown expiry changes messaging only; it cannot declare stopped, close the editor or dispose workspace state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+
+**Constraints:** Editor readiness is separate evidence from process lifecycle and transport reachability.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)
+
+**Verification:** Planned lifecycle-color, accessible-notice, reconnect and retained-editor tests.
+
+**Status:** Planned

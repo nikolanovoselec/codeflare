@@ -5,6 +5,7 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import preferencesRoutes from '../../routes/preferences';
 
 vi.mock('../../middleware/auth', () => ({
@@ -78,6 +79,7 @@ describe('Preferences Routes', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
         ...envOverrides,
       } as Env;
       return next();
@@ -518,6 +520,7 @@ describe('Preferences Routes', () => {
       app.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
           SAAS_MODE: 'active',
         } as Env;
         return next();

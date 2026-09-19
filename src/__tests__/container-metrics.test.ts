@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
+import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Session } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ const testState = vi.hoisted(() => ({
     mem: '1024MB',
     hdd: '2.5GB',
     syncStatus: 'success',
-  } as Record<string, string | boolean>,
+  } as Record<string, unknown>,
   beforeHealthResponse: undefined as (() => void) | undefined,
   tcpFetchShouldFail: false,
   hostProbeCalls: 0,
@@ -48,6 +49,7 @@ const testState = vi.hoisted(() => ({
   agentAckDrainStatus: 200,
   agentDrainEvents: [] as Array<Record<string, unknown>>,
   agentDrainRequests: [] as Array<{ body: Record<string, unknown>; authorization?: string }>,
+  runtimeObservationAuthorizations: [] as Array<string | null>,
   callOrder: [] as string[],
   storageGetFailures: new Set<string>(),
   storagePutFailures: new Set<string>(),
@@ -110,9 +112,13 @@ vi.mock('@cloudflare/containers', () => {
                 });
               }
               testState.hostProbeCalls += 1;
+              const runtimeObservation = url.includes('/internal/runtime-observation');
+              if (runtimeObservation) {
+                testState.runtimeObservationAuthorizations.push(new Headers(init?.headers).get('Authorization'));
+              }
               if (testState.tcpFetchShouldFail
-                  || (url.includes('/activity') && testState.activityFetchShouldFail)
-                  || (url.includes('/health') && testState.healthFetchShouldFail)) {
+                  || ((runtimeObservation || url.includes('/activity')) && testState.activityFetchShouldFail)
+                  || ((runtimeObservation || url.includes('/health')) && testState.healthFetchShouldFail)) {
                 throw new Error('Connection refused');
               }
               // A wedged container: the TCP connect succeeds and nothing is ever
@@ -120,17 +126,27 @@ vi.mock('@cloudflare/containers', () => {
               // drainFinalSync budget test models this same port. Remove the
               // caller's signal and nothing ends this promise, so collectMetrics
               // never returns and the case fails by timeout.
-              if (testState.activityHangs && url.includes('/activity')) {
+              if (testState.activityHangs && (runtimeObservation || url.includes('/activity'))) {
                 return new Promise<Response>((_resolve, reject) => {
                   init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
                 });
               }
-              if (url.includes('/health')) testState.beforeHealthResponse?.();
-              const body = url.includes('/activity')
-                ? testState.activityResult
-                : testState.healthResult;
+              if (runtimeObservation || url.includes('/health')) testState.beforeHealthResponse?.();
+              const body = runtimeObservation
+                ? {
+                    lastInputAt: testState.activityResult.lastInputAt ?? null,
+                    cpu: testState.healthResult.cpu,
+                    memory: testState.healthResult.mem,
+                    disk: testState.healthResult.hdd,
+                    syncStatus: testState.healthResult.syncStatus,
+                    editorReady: testState.healthResult.editorReady,
+                    editorReadyError: testState.healthResult.editorReadyError,
+                    workspaceRepos: testState.healthResult.workspaceRepos,
+                    observedAt: new Date().toISOString(),
+                  }
+                : url.includes('/activity') ? testState.activityResult : testState.healthResult;
               return new Response(JSON.stringify(body), {
-                status: url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
+                status: runtimeObservation ? Math.max(testState.activityStatus, testState.healthStatus) : url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
                 headers: { 'Content-Type': 'application/json' },
               });
             },
@@ -244,9 +260,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   const createContainerInstance = (): InstanceType<typeof container> => {
     const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
       {},
-      { KV: mockKV, LOG_LEVEL: 'silent' },
+      { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
     );
-    (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
     return instance;
   };
 
@@ -320,6 +336,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storageDeleteFailures.clear();
     testState.storageStore.clear();
     testState.storageStore.set('containerAuthToken', 'agent-event-token');
+    testState.storageStore.set('lifecycleGeneration', 0);
+    testState.storageStore.set('observationSequence', -1);
 
     containerInstance = createContainerInstance();
   });
@@ -329,11 +347,62 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('onStart', () => {
+    beforeEach(() => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'starting',
+        lifecycleGeneration: 0, createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+    });
+
     it('should call schedule(60, "collectMetrics") on start', async () => {
       await containerInstance.onStart();
 
       // Check that schedule was called with correct args
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      expect(await storage().get<number>('containerStartedAt')).toBeGreaterThan(0);
+    });
+
+    it('preserves generation ownership and idle baseline on a duplicate onStart', async () => {
+      await containerInstance.onStart();
+      const startedAt = await storage().get<number>('containerStartedAt');
+      const recovery = {
+        attemptId: 'preserve-this-recovery', startedAt: Date.now(), lastAttemptAt: Date.now(),
+        attemptCount: 1, postResetFailureCount: 0, totalFailureCount: 1, status: 'resetting',
+      };
+      await storage().put('shutdownRequested', Date.now());
+      await storage().put(TRANSPORT_RECOVERY_KEY, recovery);
+      await storage().put('observationSequence', 7);
+      const schedulesBeforeReplay = [...testState.scheduleCalls];
+      const deletionsBeforeReplay = [...testState.deleteScheduleCalls];
+
+      await expect(containerInstance.onStart()).resolves.toBeUndefined();
+
+      expect(await storage().get('containerStartedAt')).toBe(startedAt);
+      expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual(recovery);
+      expect(await storage().get('observationSequence')).toBe(7);
+      expect(testState.scheduleCalls).toEqual(schedulesBeforeReplay);
+      expect(testState.deleteScheduleCalls).toEqual(deletionsBeforeReplay);
+    });
+
+    it('rejects a stale onStart replay without clearing shutdown ownership', async () => {
+      await containerInstance.onStart();
+      await storage().put('lifecycleGeneration', 99);
+      await storage().put('shutdownRequested', Date.now());
+
+      await expect(containerInstance.onStart()).rejects.toThrow('D1 start generation replay unavailable');
+      expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));
+    });
+
+    it('rejects a stopping onStart callback without clearing shutdown ownership', async () => {
+      await storage().put('shutdownRequested', Date.now());
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'stopping', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+
+      await expect(containerInstance.onStart()).rejects.toThrow('D1 start generation unavailable');
+      expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));
     });
 
     it('REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start', async () => {
@@ -573,10 +642,252 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         editorReady: true,
         metrics: { cpu: '45%', mem: '1024MB', hdd: '2.5GB', syncStatus: 'success' },
       });
-      expect(stored.editorReadyError).toBeUndefined();
+      expect(stored.editorReadyError).toBe(false);
       expect(mockKV.put.mock.calls.some(
         ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
       )).toBe(false);
+    });
+
+    it('authenticates the private runtime observation probe', async () => {
+      testState.runtimeObservationAuthorizations = [];
+      await vi.waitFor(() => expect(
+        (containerInstance as unknown as { _containerAuthToken: string | null })._containerAuthToken,
+      ).toBe('agent-event-token'));
+      await containerInstance.collectMetrics();
+
+      expect(testState.runtimeObservationAuthorizations).toEqual(['Bearer agent-event-token']);
+    });
+
+    it('does not stop a hibernated coordinator when startup has no input timestamp', async () => {
+      const startedAt = Date.now() - 120_000;
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      testState.storageStore.set('containerStartedAt', startedAt);
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+      expect((containerInstance as unknown as { containerStartedAt: number }).containerStartedAt).toBe(startedAt);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
+    it('persists one fallback baseline across a second coordinator reconstruction', async () => {
+      let now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      testState.activityResult.lastInputAt = null;
+      testState.storedSleepAfter = '30m';
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+      const baseline = await storage().get<number>('containerStartedAt');
+      now += 60_000;
+      containerInstance = createContainerInstance();
+      await vi.waitFor(() => expect(
+        (containerInstance as unknown as { _containerAuthToken: string | null })._containerAuthToken,
+      ).toBe('agent-event-token'));
+      await containerInstance.collectMetrics();
+
+      expect(baseline).toEqual(expect.any(Number));
+      expect(await storage().get('containerStartedAt')).toBe(baseline);
+      expect(testState.stopCalls).toBe(0);
+    });
+
+    it('replaces non-finite persisted startup baselines', async () => {
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      for (const invalidBaseline of [NaN, Infinity]) {
+        testState.storageStore.set('containerStartedAt', invalidBaseline);
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        await containerInstance.collectMetrics();
+        const baseline = await storage().get<number>('containerStartedAt');
+        expect(typeof baseline === 'number' && Number.isFinite(baseline)).toBe(true);
+        expect(baseline).toBeGreaterThan(0);
+      }
+      expect(testState.stopCalls).toBe(0);
+    });
+
+    it('does not authorize idle stopping when fallback baseline persistence fails', async () => {
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      testState.storagePutFailures.add('containerStartedAt');
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+      expect((containerInstance as unknown as { containerStartedAt: number }).containerStartedAt).toBe(0);
+      expect(await storage().get('observationSequence')).toBe(0);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
+      expect(projected.metrics?.cpu).toBe('45%');
+    });
+
+    it('keeps host transport healthy when startup-reference storage cannot be read', async () => {
+      testState.activityResult.lastInputAt = null;
+      testState.storedSleepAfter = '30m';
+      testState.storageGetFailures.add('containerStartedAt');
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.abortReasons).toEqual([]);
+      expect(await storage().get('observationSequence')).toBe(0);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
+      expect(projected.metrics?.cpu).toBe('45%');
+    });
+
+    it('stops after genuine idle expiry from the persisted startup reference', async () => {
+      testState.activityResult.lastInputAt = 0;
+      testState.storedSleepAfter = '30m';
+      testState.storageStore.set('containerStartedAt', Date.now() - (31 * 60_000));
+      // A valid baseline is only read. A write failure must not suppress its
+      // established idle deadline.
+      testState.storagePutFailures.add('containerStartedAt');
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(1);
+    });
+
+    it('projects one lifecycle observation when no separate clone inventory is reported', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      const d1 = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env.USAGE_DB;
+      const prepare = d1.prepare.bind(d1);
+      let projections = 0;
+      vi.spyOn(d1, 'prepare').mockImplementation((sql: string) => {
+        const statement = prepare(sql);
+        if (sql.includes('observation_sequence=?4')) {
+          const run = statement.run.bind(statement);
+          (statement as unknown as { run: () => Promise<unknown> }).run = async () => {
+            projections += 1;
+            return run();
+          };
+        }
+        return statement;
+      });
+
+      await containerInstance.collectMetrics();
+
+      expect(projections).toBe(1);
+      const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session & {
+        lifecycleGeneration?: number;
+        observationSequence?: number;
+      };
+      expect(projected.status).toBe('running');
+      expect(projected.lifecycleGeneration).toBe(0);
+      expect(projected.observationSequence).toBe(0);
+      expect(projected.metrics).toMatchObject({ cpu: '45%', mem: '1024MB', hdd: '2.5GB' });
+    });
+
+    it('continues without transport recovery when the lifecycle projection fails', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      const d1 = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env.USAGE_DB;
+      const prepare = d1.prepare.bind(d1);
+      vi.spyOn(d1, 'prepare').mockImplementation((sql: string) => {
+        const statement = prepare(sql);
+        if (sql.includes('observation_sequence=?4')) {
+          (statement as unknown as { run: () => Promise<unknown> }).run = async () => {
+            throw new Error('D1 unavailable');
+          };
+        }
+        return statement;
+      });
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
+    it('REQ-GITHUB-015 AC1: tracks the repositories the container reports in its workspace', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.workspaceRepos = [
+        { repo: 'octo/web' },
+        { repo: 'octo/api', ref: 'develop' },
+      ];
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        clone: { repo: 'octo/api', ref: 'develop' },
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([
+        { repo: 'octo/api', ref: 'develop' },
+        { repo: 'octo/web' },
+      ]);
+    });
+
+    it('REQ-GITHUB-015 AC1: stops tracking a repository the user removed from the workspace', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.workspaceRepos = [{ repo: 'octo/api', ref: 'develop' }];
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        clones: [{ repo: 'octo/api', ref: 'develop' }, { repo: 'octo/gone' }],
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([{ repo: 'octo/api', ref: 'develop' }]);
+    });
+
+    it('REQ-GITHUB-015 AC2: refuses malformed reported repositories and leaves tracking untouched', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.workspaceRepos = 'octo/api';
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        clones: [{ repo: 'octo/api' }],
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([{ repo: 'octo/api' }]);
+
+      testState.healthResult.workspaceRepos = [{ repo: 'no-slash' }, { repo: 'octo/kept' }];
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(key, 'json') as Session).clones).toEqual([{ repo: 'octo/kept' }]);
     });
 
     it('should fetch health data from TCP port and write metrics to KV', async () => {
@@ -595,7 +906,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       // Verify metrics written to session key (with metadata for batch-status)
       expect(mockKV.put).toHaveBeenCalled();
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = [...mockKV.put.mock.calls].reverse().find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -702,65 +1013,6 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     // REQ-SESSION-018 AC5: a live container whose KV was wrongly flipped to
     // stopped (e.g. by onError on a transient error) self-heals back to running
     // rather than hanging falsely-stopped on the dashboard until a restart.
-    it('re-asserts running when the container is alive but KV reads stopped and no shutdown marker is set (self-heal)', async () => {
-      const session: Session = {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'stopped',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      };
-      mockKV._set('session:test-bucket:testsession123456', session);
-      // Container is demonstrably running, no deliberate shutdown marker in
-      // storage (fresh Map per test): this is a false stopped.
-      testState.containerRunning = true;
-
-      await containerInstance.collectMetrics();
-
-      const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
-      );
-      expect(putCall).toBeDefined();
-      const stored = JSON.parse(putCall![1] as string) as Session;
-      expect(stored.status).toBe('running');
-      // Self-heal also restores the metrics payload in the same write.
-      expect(stored.metrics).toBeDefined();
-      expect(stored.metrics!.cpu).toBe('45%');
-    });
-
-    it('re-asserts running when a stale KV read has no status and the container is alive', async () => {
-      mockKV._set('session:test-bucket:testsession123456', {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      });
-      testState.containerRunning = true;
-
-      await containerInstance.collectMetrics();
-
-      const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
-      );
-      expect(putCall).toBeDefined();
-      const stored = JSON.parse(putCall![1] as string) as Session;
-      expect(stored.status).toBe('running');
-      expect(stored.lastAccessedAt).toBe('2024-01-15T09:30:00.000Z');
-      expect(putCall![2]).toMatchObject({ metadata: expect.objectContaining({ s: 'r' }) });
-    });
-
-    // REQ-SESSION-020: the watchdog must survive the failure it exists to detect.
-    // A wedged container accepts the TCP connect and never answers /activity. The
-    // re-arm is the last statement of doCollectMetrics and schedule() is one-shot,
-    // so before this was bounded the tick never returned and the alarm loop was
-    // gone for good - no idle detection, no health loop, and nothing to restore
-    // them (onStart only runs on a fresh start, onError only when the SDK sees the
-    // container exit; neither fires for wedged-but-running). Remove the bound and
-    // the mock below never settles, so this case fails by timeout rather than by
-    // assertion. Costs one real poll budget of wall-clock; that is the price of
-    // proving a hang rather than simulating one.
     it('REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers', async () => {
       const session: Session = {
         id: 'testsession123456',
@@ -777,7 +1029,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
     }, 25_000);
 
     it('REQ-SESSION-021 AC6: reconstructs immediately when the SDK monitor loses container services after running becomes false', async () => {
@@ -853,7 +1105,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         vi.advanceTimersByTime(91_000);
         await containerInstance.collectMetrics();
 
-        const putCall = mockKV.put.mock.calls.find(
+        const putCall = [...mockKV.put.mock.calls].reverse().find(
           (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         );
         expect(putCall).toBeDefined();
@@ -1337,125 +1589,6 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-024 AC5: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'stopped',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'pre-upgrade-exhausted-stopped',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      const timekeeperStub = await enableTimekeeper();
-      testState.tcpFetchShouldFail = false;
-      testState.scheduleCalls = [];
-
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.stopCalls).toBe(1);
-      expect(testState.scheduleCalls).toEqual([]);
-      expect(testState.hostProbeCalls).toBe(0);
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-    });
-
-    it('REQ-SESSION-024 AC5: migrates pre-upgrade exhausted ownership when the KV record is already absent', async () => {
-      await mockKV.delete('session:test-bucket:testsession123456');
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'pre-upgrade-exhausted-absent',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.tcpFetchShouldFail = false;
-
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.stopCalls).toBe(1);
-    });
-
-    it('REQ-SESSION-024 AC1: re-arms without probing when pre-upgrade terminal KV ownership cannot be read', async () => {
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'pre-upgrade-exhausted-kv-read-failure',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      const timekeeperStub = await enableTimekeeper();
-      mockKV.get.mockRejectedValueOnce(new Error('KV GET failed'));
-      testState.scheduleCalls = [];
-
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(testState.hostProbeCalls).toBe(0);
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'collectMetrics: failed to resolve pre-upgrade terminal ownership',
-        expect.objectContaining({ error: 'KV GET failed' }),
-      );
-    });
-
-    it('REQ-SESSION-024 AC1: retains exhausted ownership when pre-upgrade terminal migration cannot persist', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'stopped',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'pre-upgrade-exhausted-migration-failure',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.storagePutFailures.add(TRANSPORT_RECOVERY_KEY);
-      testState.scheduleCalls = [];
-
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'collectMetrics: failed to migrate pre-upgrade terminal ownership',
-        undefined,
-        expect.objectContaining({ error: `storage write failed: ${TRANSPORT_RECOVERY_KEY}` }),
-      );
-    });
-
     it('REQ-SESSION-022 AC1: a responding probe clears exhausted recovery without stopping the session', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
@@ -1538,14 +1671,12 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       await containerInstance.collectMetrics();
 
-      // /activity still fails, but /health answers with 503. The non-OK response
-      // still proves the DO-to-container attachment recovered and clears the streak.
+      // A non-OK unified observation still proves the DO-to-container
+      // attachment recovered and clears the reconstruction streak.
       testState.tcpFetchShouldFail = false;
-      testState.activityFetchShouldFail = true;
       testState.healthStatus = 503;
       await containerInstance.collectMetrics();
 
-      testState.activityFetchShouldFail = false;
       testState.healthStatus = 200;
       testState.tcpFetchShouldFail = true;
       await containerInstance.collectMetrics();
@@ -1573,10 +1704,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       };
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
       );
       const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
       instanceEnv.KV = mockKV;
+      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
       instanceEnv.SAAS_MODE = 'active';
       instanceEnv.TIMEKEEPER = TIMEKEEPER;
       mockKV._set('session:test-bucket:testsession123456', {
@@ -1624,10 +1756,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       };
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
       );
       const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
       instanceEnv.KV = mockKV;
+      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
       instanceEnv.SAAS_MODE = 'active';
       instanceEnv.TIMEKEEPER = TIMEKEEPER;
       mockKV._set('session:test-bucket:testsession123456', {
@@ -1743,7 +1876,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         vi.advanceTimersByTime(91_000);
         await containerInstance.collectMetrics();
 
-        const putCall = mockKV.put.mock.calls.find(
+        const putCall = [...mockKV.put.mock.calls].reverse().find(
           (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         );
         expect(putCall).toBeDefined();
@@ -1779,7 +1912,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = [...mockKV.put.mock.calls].reverse().find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -1879,13 +2012,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
       );
       // The MockContainer constructor in vi.mock('@cloudflare/containers')
       // resets this.env to { KV: null } and ignores the constructor env arg,
       // so SAAS_MODE and TIMEKEEPER must be assigned post-construction.
       const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
       instanceEnv.KV = mockKV;
+      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
       instanceEnv.SAAS_MODE = 'active';
       instanceEnv.TIMEKEEPER = TIMEKEEPER;
 
@@ -1937,10 +2071,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
       );
       const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
       instanceEnv.KV = mockKV;
+      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
       instanceEnv.SAAS_MODE = 'active';
       instanceEnv.TIMEKEEPER = TIMEKEEPER;
 
@@ -1982,7 +2117,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
+    it('REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
       // The quota-eviction path must drain through /internal/final-sync before
       // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
       // setup and assert the order via callOrder rather than just that stop ran.
@@ -2005,10 +2140,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
       );
       const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
       instanceEnv.KV = mockKV;
+      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
       instanceEnv.SAAS_MODE = 'active';
       instanceEnv.TIMEKEEPER = TIMEKEEPER;
 
@@ -2054,10 +2190,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
       );
       const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
       instanceEnv.KV = mockKV;
+      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
       instanceEnv.SAAS_MODE = 'active';
       instanceEnv.TIMEKEEPER = TIMEKEEPER;
 
@@ -2307,9 +2444,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       // Rebuild the instance so the constructor loads the (absent) bucketName.
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent' },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
       );
-      (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+      (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
 
       // Seed a session whose key would collide if a null identifier somehow
       // produced a write - the assertion below proves it does not.
@@ -2339,9 +2476,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
         {},
-        { KV: mockKV, LOG_LEVEL: 'silent' },
+        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
       );
-      (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+      (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
 
       const session: Session = {
         id: 'testsession123456',
@@ -2363,8 +2500,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
   });
 
-  describe('updateKvStatus clears metrics on stop', () => {
-    it('should delete metrics when status is set to stopped via onStop', async () => {
+  describe('confirmed stopped projection', () => {
+    it('preserves last-known metrics when onStop confirms exit', async () => {
       // Seed a session with metrics
       const session: Session = {
         id: 'testsession123456',
@@ -2388,7 +2525,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       // Verify metrics are preserved (last-known values kept for dashboard display)
       expect(mockKV.put).toHaveBeenCalled();
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = [...mockKV.put.mock.calls].reverse().find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -2415,6 +2552,11 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockKV._set('session:test-bucket:testsession123456', {
+      id: 'testsession123456', userId: 'test-bucket', name: 'Test', status: 'running',
+      createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z',
+      lifecycleGeneration: 0, observationSequence: -1,
+    });
     testState.containerRunning = true;
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
@@ -2441,6 +2583,8 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storageGetFailures.clear();
     testState.storageStore.clear();
     testState.storageStore.set('containerAuthToken', 'agent-event-token');
+    testState.storageStore.set('lifecycleGeneration', 0);
+    testState.storageStore.set('observationSequence', -1);
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
     testState.scheduleFailuresRemaining = 0;
@@ -2455,9 +2599,9 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
 
     containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
       {},
-      { KV: mockKV, LOG_LEVEL: 'silent' },
+      { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
     );
-    (containerInstance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    (containerInstance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
   });
 
   afterEach(() => {
@@ -2507,7 +2651,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
   });
 
   describe('idle-stop drains before stop', () => {
-    it('REQ-SESSION-027 AC1: calls final agent-event drain, then final sync, then stop', async () => {
+    it('REQ-SESSION-032 AC1: calls final agent-event drain, then final sync, then stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: true,
@@ -2531,7 +2675,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
-    it('REQ-SESSION-027 AC6: an event-drain failure still runs final sync and stop', async () => {
+    it('REQ-SESSION-032 AC6: an event-drain failure still runs final sync and stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: false,
@@ -2552,7 +2696,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
-    it('REQ-SESSION-027 AC7: final-sync failure preserves the event attempt and still stops', async () => {
+    it('REQ-SESSION-032 AC7: final-sync failure preserves the event attempt and still stops', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: false,

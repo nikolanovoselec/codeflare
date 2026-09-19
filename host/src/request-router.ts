@@ -12,7 +12,7 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
-import { getSyncStatus, getSystemMetrics } from './metrics.js';
+import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
 import type { HealthResponse } from './types.js';
@@ -31,6 +31,8 @@ import {
   vscodeDisabledResponse,
 } from './vscode-proxy.js';
 import type { SessionManager } from './session-manager.js';
+import type { OperatorPiHttpController } from './operator-pi-http.js';
+import type { OperatorSyncHttpController } from './operator-sync-http.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
 import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE, SYNC_RUNTIME_DIR } from './runtime-paths.js';
 
@@ -83,6 +85,10 @@ export interface RequestRouterDeps {
   readiness(): ReadinessFlags;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
+  operatorPi?: OperatorPiHttpController;
+  /** Fixed explicit-upload service; presence also disables ordinary bisync endpoints. */
+  operatorSync?: OperatorSyncHttpController;
   /** Production composition and focused router tests can provide the queue owner directly. */
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
@@ -191,6 +197,29 @@ function rewriteVscodeResponseHeaders(
   };
 }
 
+async function readBoundedBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let oversized = false;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) { oversized = true; chunks.length = 0; }
+      else if (!oversized) chunks.push(chunk);
+    });
+    req.on('end', () => resolve(oversized ? new Uint8Array(limit + 1) : Buffer.concat(chunks)));
+    req.on('aborted', () => reject(new Error('Request aborted')));
+    req.on('error', reject);
+  });
+}
+
+function safeJsonResponseBody(body: string): string {
+  // Operator observations may contain user-controlled text. Re-encode the
+  // controller JSON and escape HTML-significant characters before reflecting it.
+  const escapes: Record<string, string> = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026' };
+  return JSON.stringify(JSON.parse(body)).replace(/[<>&]/g, character => escapes[character]);
+}
+
 export function createRequestHandler(deps: RequestRouterDeps): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> {
   const { sessionManager, log } = deps;
 
@@ -211,10 +240,85 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
+    // Restricted sessions never enter ordinary whole-home final sync. Their
+    // authenticated Sync now path is handled below by the scoped operator
+    // controller; ordinary sessions retain the existing daemon trigger.
+    if (deps.operatorSync && pathname === '/internal/final-sync') {
+      req.resume();
+      res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Ordinary bisync is unavailable to operator sessions', code: 'OPERATOR_BISYNC_DENIED' }));
+      return;
+    }
+
+    if (deps.operatorSync && (pathname === '/internal/bisync-trigger' || pathname?.startsWith('/internal/operator/sync/'))) {
+      const url = new URL(req.url ?? '/', 'http://container');
+      const response = await deps.operatorSync.handle({ method: method ?? '', pathname, query: url.searchParams,
+        body: await readBoundedBody(req, 64 * 1024) });
+      if (response) {
+        // Controller payloads are JSON contracts, but their header object must
+        // never become response-header authority. Fixed headers also prevent
+        // browser content sniffing of reflected operation data.
+        res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(safeJsonResponseBody(response.body));
+        return;
+      }
+    }
+
+    // The structured adapter exists only when trusted parent startup supplied an
+    // operator profile. Authentication above is intentionally evaluated first;
+    // the controller then owns its narrower path/method/body contract.
+    if (deps.operatorPi && pathname?.startsWith('/internal/operator/pi/')) {
+      const url = new URL(req.url ?? '/', 'http://container');
+      const response = await deps.operatorPi.handle({
+        method: method ?? '', pathname, query: url.searchParams,
+        body: await readBoundedBody(req, 64 * 1024),
+      });
+      if (response) {
+        res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(safeJsonResponseBody(response.body));
+        return;
+      }
+    }
+
+    // One authenticated runtime observation for the metrics projection. Keep the
+    // existing /activity and /health endpoints for their established callers.
+    if (pathname === '/internal/runtime-observation' && method === 'GET') {
+      const syncInfo = getSyncStatus();
+      const sysMetrics = await getSystemMetrics(log);
+      const activity = deps.activityTracker.getActivityInfo(sessionManager);
+      const workspaceRepos = isWorkspaceInventoryReady()
+        ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log)
+        : undefined;
+      const { terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        lastInputAt: activity.lastInputAt ?? null,
+        cpu: sysMetrics.cpu,
+        memory: sysMetrics.mem,
+        disk: sysMetrics.hdd,
+        syncStatus: syncInfo.status,
+        terminalReady: terminalServiceReady,
+        editorReady,
+        editorReadyError: editorReadyTimedOut,
+        workspaceRepos,
+        observedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
     // Health check with full metrics (consolidates separate health server)
     if (pathname === '/health' && method === 'GET') {
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
+      // REQ-GITHUB-015 AC1: report the workspace repository inventory so the
+      // Worker can restore all of them when the session resumes. Omitted while
+      // the startup restore is still in progress (see isWorkspaceInventoryReady)
+      // so a partial workspace never prunes tracking on the session record.
+      const workspaceRepos = isWorkspaceInventoryReady()
+        ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log)
+        : undefined;
       const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -234,6 +338,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,
+          workspaceRepos,
           timestamp: new Date().toISOString(),
         } satisfies HealthResponse)
       );

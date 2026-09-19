@@ -11,6 +11,7 @@
  * canonical description of when the SDK invokes each hook.
  */
 import { toError, toErrorMessage } from '../lib/error-types';
+import { D1SessionRepository } from '../lib/session-repository';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
   collectMetrics as doCollectMetrics,
@@ -51,24 +52,50 @@ export interface LifecycleHost extends ContainerHost {
 
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
-  host.containerStartedAt = Date.now();
-  // A fresh start means no deliberate stop is in flight: clear any stale
-  // shutdown marker a prior destroy() left in storage, so a later transient
-  // false-stopped on this run can self-heal (REQ-SESSION-018 AC5).
-  try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
-  // Recovery residue is one startup prerequisite. A batch delete prevents a
-  // partial clear, and a failure leaves metrics unarmed rather than letting the
-  // new lifecycle inherit an exhausted record or a near-abort failure streak.
-  await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
   updateEnvVars(host);
-  // updateKvStatus publishes running plus both startup timestamps from one KV
-  // snapshot, so an immediate eventually-consistent read cannot restore the
-  // pre-start record.
-  await updateKvStatus(host.ctx, host.env, host._bucketName, 'running', 'lastStartedAt');
+  if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
+  const repository = new D1SessionRepository(host.env.USAGE_DB);
+  const session = await repository.getSession(host._bucketName, host._sessionId);
+  if (!session || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running')) {
+    throw new Error('D1 start generation unavailable');
+  }
+
+  const isFreshStart = session.lifecycleState === 'starting';
+  if (isFreshStart) {
+    host.containerStartedAt = Date.now();
+    // Alarms can wake a fresh Durable Object instance after the container
+    // starts. Persist the fallback idle reference for that reconstruction.
+    await host.ctx.storage.put('containerStartedAt', host.containerStartedAt);
+    // A fresh start owns a new lifecycle generation, so it alone may clear
+    // shutdown and transport-recovery state from the previous generation.
+    try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
+    await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
+    await host.ctx.storage.put('lifecycleGeneration', session.lifecycleGeneration);
+    await host.ctx.storage.put('observationSequence', 0);
+    const observedAt = new Date().toISOString();
+    if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
+      lifecycleState: 'running', observedAt,
+    })) throw new Error('D1 running projection rejected');
+  } else {
+    // The Containers SDK can replay onStart after the first hook projected the
+    // generation. Only the same durable generation is a harmless replay.
+    const persistedGeneration = await host.ctx.storage.get<number>('lifecycleGeneration');
+    if (persistedGeneration !== session.lifecycleGeneration) {
+      throw new Error('D1 start generation replay unavailable');
+    }
+    const persistedStartedAt = await host.ctx.storage.get<number>('containerStartedAt');
+    host.containerStartedAt = typeof persistedStartedAt === 'number'
+      && Number.isFinite(persistedStartedAt) && persistedStartedAt > 0
+      ? persistedStartedAt
+      : 0;
+  }
   host.logger.info('Container started');
-  // Clear any stale schedule rows from previous runs before arming fresh
-  try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-  await host.schedule(60, 'collectMetrics');
+  // A replay preserves the existing schedule and ownership state. Only the
+  // claimed fresh generation is allowed to arm normal metrics work.
+  if (isFreshStart) {
+    try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+    await host.schedule(60, 'collectMetrics');
+  }
 }
 
 export async function collectMetrics(host: LifecycleHost): Promise<void> {
@@ -220,29 +247,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     host.logger.warn('Final agent event drain exceeded teardown deadline', { error: toError(err).message });
   }
 
-  // Record the stop while the identifiers that write still needs are in hand.
-  // onStop() cannot: the clear below nulls _bucketName, so its updateKvStatus
-  // hits the missing-identifiers guard and writes nothing, leaving a torn-down
-  // session recorded as running. That is not cosmetic -- the terminal upgrade's
-  // authoritative 4503 gate reads exactly this field, so the record staying
-  // 'running' is what drops reconnects onto the forward path instead of telling
-  // the client to stop. Observed in prod 2026-07-27: a teardown that overran its
-  // budget and was SIGKILLed left the session 'running' and the tab retried it
-  // about once a second for 20+ minutes.
-  //
-  // Ordered AFTER the marker put above, not before it: a KV await is not a DO
-  // storage op, so the input gate does not hold off alarm delivery across it. A
-  // collectMetrics tick landing in that window would read KV 'stopped' with no
-  // marker yet persisted, take the self-heal branch, and re-assert 'running' --
-  // undoing exactly what this write exists to do.
-  //
-  // Safe on both callers: the delete route deletes the record after destroy()
-  // returns, so this write is superseded rather than resurrecting anything
-  // (REQ-SESSION-009), and the stop route already wrote the same value before
-  // calling in. Best-effort, like every other step of teardown.
-  try {
-    await withinDeadline(updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt'));
-  } catch { /* teardown proceeds regardless */ }
+  // Lifecycle remains stopping until destroy() returns confirmed process-exit evidence.
+  // The route that owns the generation-bound termination intent persists stopped.
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   // Recovery residue must not survive teardown even when another operational
   // key deletion fails below.

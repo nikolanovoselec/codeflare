@@ -33,6 +33,15 @@ import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { wireContainerInterception, type InterceptionHost } from './container-interception';
+import type { OperatorPolicy } from '../operators/policy';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import {
+  bindOperatorAuthority as contextBindOperatorAuthority,
+  configureOperatorContext as contextConfigureOperatorContext,
+  restoreOperatorContext as contextRestoreOperatorContext,
+  type OperatorContainerProfile,
+  type OperatorContextHost,
+} from './operator-context';
 import {
   validateBucketNameInput,
   type ContainerEnvState,
@@ -192,6 +201,12 @@ export class container extends Container<Env> implements ContainerEnvState {
    * it from session KV before each container start. */
   _gitCloneRepo: string | null = null;
   _gitCloneRef: string | null = null;
+/** Durable non-secret origin/profile. Raw Access authority remains memory-only. */
+  _operatorContainerProfile?: OperatorContainerProfile;
+  _operatorPolicy?: OperatorPolicy;
+  _jwtStamping?: JwtStampingPolicy;
+  _jwtAuthority?: JwtStampingAuthority;
+  _gitCloneTargets: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
@@ -298,6 +313,12 @@ export class container extends Container<Env> implements ContainerEnvState {
       // byte-identical to today.
       if (this._strictEgress) this.enableInternet = false;
 
+      // Operator restrictions are restored before env construction or a later
+      // pre-start interception pass. Authority is intentionally absent after
+      // wake and must be rebound by the owning activity before protected I/O.
+      await contextRestoreOperatorContext(this.operatorContextHost);
+      if (this._operatorContainerProfile) this.enableInternet = false;
+
       if (this._bucketName) {
         this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
         this.updateEnvVars();
@@ -313,6 +334,37 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** This DO as the InterceptionHost surface the interception registry consumes. */
   private get interceptionHost(): InterceptionHost { return this as unknown as InterceptionHost; }
+
+  /** This DO as the durable operator context surface. */
+  private get operatorContextHost(): OperatorContextHost { return this as unknown as OperatorContextHost; }
+
+  /**
+   * Parent-only RPC: commit exact owner/activity restrictions before startup.
+   * Child requests cannot reach this typed DO method through the HTTP router.
+   */
+  async configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void> {
+    await contextConfigureOperatorContext(this.operatorContextHost, profile, authority);
+    this.enableInternet = false;
+  }
+
+  /** Rebind current exact-human authority after wake without persisting the JWT. */
+  bindOperatorAuthority(authority: JwtStampingAuthority): void {
+    contextBindOperatorAuthority(this.operatorContextHost, authority);
+  }
+
+  /** Parent-only restricted stop: never invokes the ordinary whole-home final bisync lane. */
+  async stopOperatorSession(activityId: string, sessionId: string): Promise<'stopped' | 'unknown'> {
+    const profile = this._operatorContainerProfile;
+    if (!profile || profile.activityId !== activityId || profile.sessionId !== sessionId) {
+      throw new Error('Operator session ownership mismatch');
+    }
+    try {
+      await this.superDestroy();
+      return 'stopped';
+    } catch {
+      return 'unknown';
+    }
+  }
 
   /** Set the bucket name for this container (called by worker on first access). */
   async setBucketName(name: string, r2Creds?: SetBucketNameCreds): Promise<void> {
@@ -343,6 +395,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** Update envVars with current bucket name and credentials. */
   private updateEnvVars(): void {
     configUpdateEnvVars(this.host);
+  }
+
+  /** Operator-context callback; public only to the extracted trusted helper. */
+  refreshEnv(): void {
+    this.updateEnvVars();
   }
 
   /**

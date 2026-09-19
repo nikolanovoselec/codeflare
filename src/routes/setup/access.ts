@@ -342,6 +342,109 @@ async function upsertSwBypassAccessApp(
   }
 }
 
+// Higher-precedence enterprise Access app for capability-authenticated operator
+// callbacks. Cloudflare Access is bypassed only for the fixed webhook route;
+// the Worker remains responsible for capability, method, path, and mode checks.
+async function upsertOperatorWebhookBypassAccessApp(
+  token: string,
+  accountId: string,
+  customDomain: string,
+  kv: KVNamespace,
+  existingApps: AccessApp[],
+): Promise<void> {
+  const appName = 'codeflare-operator-webhook-bypass';
+  const appDomain = `${customDomain}/operator-webhook/v1/activities/*`;
+  const storedId = await kv.get(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_APP_ID);
+  const existing = existingApps.find((app) => app.domain === appDomain)
+    ?? (storedId ? existingApps.find((app) => app.id === storedId) : undefined)
+    ?? existingApps.find((app) => app.name === appName && app.domain.includes(customDomain))
+    ?? null;
+  const method = existing ? 'PUT' : 'POST';
+  const url = existing
+    ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${existing.id}`
+    : `${CF_API_BASE}/accounts/${accountId}/access/apps`;
+  let createdAppId: string | null = null;
+  let policyReady = false;
+
+  const reportFailure = async (): Promise<void> => {
+    try {
+      await kv.put(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS, 'error');
+    } catch (error) {
+      logger.warn('Failed to persist operator-webhook Access bypass failure status', {
+        error: toErrorMessage(error),
+      });
+    }
+  };
+
+  try {
+    const appRes = await withSetupRetry(
+      () => cfApiCB.execute(() => fetch(url, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: appName,
+          domain: appDomain,
+          destinations: [{ type: 'public', uri: appDomain }],
+          type: 'self_hosted',
+          session_duration: '24h',
+          skip_interstitial: true,
+          precedence: 1,
+        }),
+        signal: AbortSignal.timeout(10000),
+      })),
+      'upsertOperatorWebhookBypassAccessApp',
+    );
+    const appData = await parseCfResponse<AccessAppResult>(appRes);
+    if (!appData.success || !appData.result?.id) {
+      logger.warn('Operator-webhook Access bypass app upsert failed', {
+        domain: appDomain,
+        error: appData.errors?.[0]?.message ?? 'unknown',
+      });
+      await reportFailure();
+      return;
+    }
+
+    const appId = appData.result.id;
+    if (!existing) createdAppId = appId;
+    const policyBody = { name: 'Operator webhook bypass', decision: 'bypass', include: [{ everyone: {} }] };
+    const policyListRes = await cfApiCB.execute(() => fetch(
+      `${CF_API_BASE}/accounts/${accountId}/access/apps/${appId}/policies`,
+      { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) },
+    ));
+    const policyList = await parseCfResponse<Array<{ id: string }>>(policyListRes);
+    const existingPolicyId = policyList.success && policyList.result?.length
+      ? policyList.result[0].id
+      : null;
+    const policyUrl = existingPolicyId
+      ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${appId}/policies/${existingPolicyId}`
+      : `${CF_API_BASE}/accounts/${accountId}/access/apps/${appId}/policies`;
+    const policyRes = await cfApiCB.execute(() => fetch(policyUrl, {
+      method: existingPolicyId ? 'PUT' : 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(policyBody),
+      signal: AbortSignal.timeout(10000),
+    }));
+    if (!policyRes.ok) {
+      logger.warn('Operator-webhook Access bypass policy failed', { appId, status: policyRes.status });
+      if (createdAppId) await deleteAccessApp(token, accountId, createdAppId).catch(() => { /* best effort */ });
+      await reportFailure();
+      return;
+    }
+
+    policyReady = true;
+    // The managed identity is authoritative only after the bypass policy exists.
+    await kv.put(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_APP_ID, appId);
+    await kv.put(SETUP_KEYS.ACCESS_OPERATOR_WEBHOOK_BYPASS_STATUS, 'configured');
+    logger.info('Operator-webhook Access bypass app + policy provisioned', { appId, domain: appDomain });
+  } catch (error) {
+    logger.warn('Operator-webhook Access bypass provisioning errored', { error: toErrorMessage(error) });
+    if (!policyReady && createdAppId) {
+      await deleteAccessApp(token, accountId, createdAppId).catch(() => { /* best effort */ });
+    }
+    await reportFailure();
+  }
+}
+
 async function listAccessGroups(token: string, accountId: string): Promise<AccessGroup[]> {
   const response = await withSetupRetry(
     () => cfApiCB.execute(() => fetch(
@@ -749,6 +852,7 @@ export async function handleCreateAccessApp(
     // SW path reachable already, so no bypass app is created.
     if (enterprise) {
       await upsertSwBypassAccessApp(token, accountId, customDomain, kv, existingApps);
+      await upsertOperatorWebhookBypassAccessApp(token, accountId, customDomain, kv, existingApps);
     }
 
     steps[stepIndex].status = 'success';

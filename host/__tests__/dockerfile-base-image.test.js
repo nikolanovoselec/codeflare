@@ -111,4 +111,9 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
       'Dockerfile must symlink fdfind to /usr/local/bin/fd so the `fd` command works'
     );
   });
+
+  it('REQ-SEC-011 AC8: Dockerfile requests the fixed Debian libevent package', () => {
+    assert.match(dockerfile, /libevent-core-2\.1-7/);
+    assert.match(dockerfile, /dpkg --compare-versions[^\n]+libevent-core-2\.1-7[^\n]+ge '2\.1\.12-stable-8\+deb12u1'/);
+  });
 });

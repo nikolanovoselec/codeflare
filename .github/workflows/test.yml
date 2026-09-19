@@ -173,6 +173,7 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/verify-operator-pi-sdk.mjs'
               - 'scripts/verify-bedrock-pi-prompt-cache.mjs'
               - 'src/lib/bedrock-anthropic-native-adapter.ts'
               - 'src/lib/reasoning-profiles.ts'
@@ -672,7 +673,7 @@ jobs:
         with:
           artifact-pattern: 'frontend-shard-*'
           artifact-prefix: 'frontend-shard'
-          expected-shards: '3'
+          expected-shards: '4'
           slug: frontend
           package-root: web-ui
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -702,18 +703,20 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 3
-      # 129 jsdom test files took 76s in one job — the longest lane in the run
-      # once the backend was sharded. Same reasoning as the backend split: the
-      # cost is per-file and per-process, so it divides across runners.
+      max-parallel: 4
+      # Measured file groups from run 35197159794 isolate the long-running
+      # frontend files and balance the remaining work across four runners so
+      # the full matrix completes in about one minute.
       matrix:
         include:
-          - shard: '1/3'
+          - group: '1/4'
             slug: shard-1
-          - shard: '2/3'
+          - group: '2/4'
             slug: shard-2
-          - shard: '3/3'
+          - group: '3/4'
             slug: shard-3
+          - group: '4/4'
+            slug: shard-4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -739,7 +742,8 @@ jobs:
         uses: ./.github/actions/vitest-suite
         with:
           working-directory: web-ui
-          shard: ${{ matrix.shard }}
+          balance-group: ${{ matrix.group }}
+          balance-suite: frontend
           artifact-name: frontend-${{ matrix.slug }}
           coverage: 'true'
 
@@ -814,6 +818,9 @@ jobs:
 
       - name: Verify installed Pi dependencies and image processing
         run: node scripts/verify-pi-lockstep.mjs --verify-runtime "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent/package.json"
+
+      - name: Verify operator SDK resource and exact-session seam
+        run: node scripts/verify-operator-pi-sdk.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
 
       # Uses the locked, already-installed Pi serializer/parser and injected
       # synthetic fetch only. No credentials, provider I/O or inference billing.

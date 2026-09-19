@@ -5484,6 +5484,31 @@ None.
 
 ---
 
+### REQ-AGENT-214: Premature review triage correction
+
+**Intent:** A triage table cannot acknowledge review before the final required reviewer and CI evidence are terminal.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A structurally valid triage table published before the final required reviewer or CI terminal evidence is identified as premature. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+2. Once all required evidence is terminal, a premature table emits exactly one correction follow-up. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendEarlyTriageCorrectionFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+3. A premature table does not write acknowledgement or deliver FIX. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+4. A later canonical table completes the same review round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one triage republish when the table predates the final terminal result) -->
+
+**Constraints:** Reviewer and CI execution remain independent and concurrent; no timer or persisted recovery state is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
+
+**Verification:** Automated review-enforcement tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-171: User-scoped review completion and common consent
 
 **Intent:** Review completion follows the user, delivery boundaries deterministically launch review, non-delivery exposures use one explicit choice, and interrupted work carries no authority.

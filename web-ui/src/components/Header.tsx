@@ -18,6 +18,7 @@ import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { sessionStore } from '../stores/session';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
 import UsageInlineBadge from './UsageInlineBadge';
+import OperatorActivityButton from './OperatorActivityButton';
 
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
@@ -212,6 +213,11 @@ const Header: Component<HeaderProps> = (props) => {
           </Show>
         </div>
 
+        {/* Dashboard: enterprise operator activity stays adjacent to account identity. */}
+        <Show when={!props.onVscodeOpen}>
+          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
+        </Show>
+
         {/* Sleep timer dropdown */}
         <Show when={timerInfo()}>
           {(info) => (
@@ -269,6 +275,11 @@ const Header: Component<HeaderProps> = (props) => {
               <Icon path={mdiMicrosoftVisualStudioCode} size={20} />
             </button>
           )}
+        </Show>
+
+        {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}
+        <Show when={props.onVscodeOpen}>
+          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
         </Show>
 
         {/* Storage button */}

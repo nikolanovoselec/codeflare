@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { effectiveCwdForCommand } from "./graphify-helpers";
 import { executableShellSegments } from "./review-helpers";
+import { executableShellCommands, shellCommandExecutable } from "./guard-helpers.js";
 
 const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
 
@@ -34,23 +35,101 @@ function unquoteShellToken(value: string): string {
   return value.trim().replace(/^("|')(.*)\1$/, "$2");
 }
 
+function supportedLeadingGitCPath(command: string): string | undefined {
+  const match = /^git\s+-C\s+(?:"([^"$`()]+)"|'([^'$`()]+)'|([^\s;&|"'$`()]+))(?=\s|$)/.exec(command);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
 function effectivePath(command: string, cwd: string): string {
-  const gitC = command.match(/(?:^|[;&|\n]\s*)git\s+-C\s+("[^"]+"|'[^']+'|[^\s;&|\n]+)/);
-  if (gitC?.[1]) return resolve(cwd, unquoteShellToken(gitC[1]));
+  const gitC = supportedLeadingGitCPath(command);
+  if (gitC) return resolve(cwd, gitC);
   return resolve(effectiveCwdForCommand(command, cwd));
 }
 
 export type ShellInvocation = { command: string; cwd: string; certain: boolean };
 
+type LiteralPathBindings = Map<string, string | undefined>;
+
+function expandLiteralGitC(command: string, bindings: LiteralPathBindings): string {
+  return command.replace(/^(git\s+-C\s+)"\$([A-Za-z_][A-Za-z0-9_]*)"(?=\s|$)/, (_match, prefix, name) => {
+    const value = bindings.get(name);
+    return value ? `${prefix}${JSON.stringify(value)}` : _match;
+  });
+}
+
+function literalPathAssignment(command: string): { name: string; value: string } | undefined {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(\/[A-Za-z0-9._/@%+=,:~-]+)$/.exec(command);
+  return match ? { name: match[1]!, value: match[2]! } : undefined;
+}
+
+function bindingMutation(command: string): string | undefined {
+  return /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(command)?.[1];
+}
+
+function supportedStraightLineSegment(command: string): boolean {
+  if (literalPathAssignment(command)) return true;
+  if (/`|\$\{|\$\(\(/.test(command)) return false;
+  const allowed = new Set(["set", "git", "grep", "sed", "test", "[", "awk"]);
+  const commands = executableShellCommands(command);
+  const supported = commands.length > 0 && commands.every((words) => {
+    const executable = shellCommandExecutable(words);
+    return executable !== undefined && allowed.has(executable);
+  });
+  // A bracket assertion runs substitutions in a child shell and cannot rebind
+  // the preceding literal path. Keep that binding only when every parsed
+  // command is already in the read-only straight-line allowlist.
+  if (/\$\(/.test(command) && !/^\[\s+"\$\(.+\)"\s+=\s+[^\s]+\s+\]$/.test(command)) return false;
+  return supported;
+}
+
+function hasUnsupportedScope(command: string): boolean {
+  return /(?:^|[;&|\n]\s*)[({]|\)\s*\{/.test(command);
+}
+
+function hasUnresolvedGitCExpression(command: string): boolean {
+  const rawPath = /\bgit\b[\s\S]*?\s-C\s+("[^"\n]*"|'[^'\n]*'|[^\s;&|\n]+)/.exec(command)?.[1];
+  if (rawPath && /[$`()]/.test(rawPath)) return true;
+  // effectivePath intentionally resolves only an unwrapped leading `git -C`.
+  // Reject other explicit forms rather than validating one path and using cwd.
+  if (rawPath && !/^git\s+-C\s+/.test(command)) return true;
+  for (const words of executableShellCommands(command)) {
+    const gitIndex = words.findIndex((word, index) => word === "git"
+      && shellCommandExecutable(words.slice(0, index + 1)) === "git");
+    if (gitIndex < 0) continue;
+    const paths: string[] = [];
+    for (let index = gitIndex + 1; index < words.length; index += 1) {
+      const value = words[index] ?? "";
+      if (value === "--") break;
+      if (value === "-C") {
+        const path = words[++index];
+        if (typeof path !== "string") return true;
+        paths.push(path);
+        continue;
+      }
+      if (value.startsWith("-C") && value.length > 2) paths.push(value.slice(2));
+      if (!value.startsWith("-")) break;
+      if (["-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path", "--super-prefix"].includes(value)) index += 1;
+    }
+    if (paths.length > 1) return true;
+    if (paths.length === 1 && !supportedLeadingGitCPath(command)) return true;
+    if (paths.some((path) => /[$`()]/.test(path))) return true;
+  }
+  return false;
+}
+
 function commandInvocations(command: string, cwd: string): ShellInvocation[] {
   let effectiveCwd = cwd;
   let cwdCertain = true;
   let errexit = false;
+  const bindings: LiteralPathBindings = new Map();
+  let scopeUnsafe = hasUnsupportedScope(command);
   return executableShellSegments(command).map((segment) => {
+    const certain = cwdCertain && segment.separatorBefore !== "||";
+    if (!supportedStraightLineSegment(segment.command)) scopeUnsafe = true;
     const invocation = {
-      command: segment.command,
+      command: scopeUnsafe ? segment.command : expandLiteralGitC(segment.command, bindings),
       cwd: effectiveCwd,
-      certain: cwdCertain && segment.separatorBefore !== "||",
+      certain,
     };
     const parentShell = segment.separatorBefore !== "|"
       && segment.separatorBefore !== "&"
@@ -65,6 +144,17 @@ function commandInvocations(command: string, cwd: string): ShellInvocation[] {
         if ((word.startsWith("-") && !word.startsWith("--") && word.includes("e"))
           || (word === "-o" && words[index + 1] === "errexit")) errexit = true;
       }
+    }
+
+    if (scopeUnsafe) bindings.clear();
+    const assignment = literalPathAssignment(segment.command);
+    const assignedName = bindingMutation(segment.command);
+    if (assignedName) {
+      // Only one preceding absolute literal assignment is expanded. Any other
+      // assignment or rebinding makes the variable ambiguous rather than
+      // selecting a repository.
+      const trusted = assignment && !scopeUnsafe && certain && parentShell && !bindings.has(assignment.name);
+      bindings.set(assignedName, trusted ? assignment.value : undefined);
     }
 
     const cd = /^cd(?:\s+--)?\s+(.+)$/.exec(segment.command);
@@ -110,7 +200,8 @@ export function shellInvocations(event: any, sessionCwd: string): ShellInvocatio
 }
 
 export function resolveShellInvocationRepo(invocation: ShellInvocation): string | undefined {
-  return invocation.certain ? findGitRoot(effectivePath(invocation.command, invocation.cwd)) : undefined;
+  if (!invocation.certain || hasUnresolvedGitCExpression(invocation.command)) return undefined;
+  return findGitRoot(effectivePath(invocation.command, invocation.cwd));
 }
 
 export function rememberActiveRepoFromToolResult(event: any, sessionCwd: string): string | undefined {

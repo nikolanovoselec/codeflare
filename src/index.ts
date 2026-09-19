@@ -18,8 +18,11 @@ import deployKeysRoutes from './routes/deploy-keys';
 import githubRoutes from './routes/github';
 import cloudflareRoutes from './routes/cloudflare';
 import publicRoutes from './routes/public/index';
+import operatorWebhookRoutes from './routes/operator-webhook';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
+import adminOperatorsRoutes from './routes/admin/operators';
+import operatorActivitiesRoutes from './routes/operator-activities';
 import adminConfigurationRoutes from './routes/admin/configuration';
 import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
 import adminConfigurationRunRoutes from './routes/admin/configuration-runs';
@@ -275,6 +278,9 @@ app.route('/api/setup', setupRoutes);
 app.use('/public/stripe/*', bodyLimit({ maxSize: 1024 * 1024 }));
 app.route('/public/stripe', stripeWebhookRoute);  // Must be before /public catch-all
 app.route('/public', publicRoutes);
+// This fixed route is outside /api because its narrow Access application is the
+// only interactive-Access bypass; Worker capability authentication remains mandatory.
+app.route('/', operatorWebhookRoutes);
 
 // API routes
 app.route('/api/user', userRoutes);
@@ -291,6 +297,8 @@ app.route('/api/github', githubRoutes);
 app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
+app.route('/api/admin/operators', adminOperatorsRoutes);
+app.route('/api/operator-activities', operatorActivitiesRoutes);
 app.route('/api/admin/configuration', adminConfigurationRoutes);
 app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
@@ -396,9 +404,10 @@ export default {
       });
     }
 
-    // Only route API requests through Hono
-    // Non-API routes fall through to static assets (SPA)
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/')) {
+    // Route API and the fixed public webhook family through Hono.
+    // Other non-API routes fall through to static assets (SPA).
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/')
+      || url.pathname.startsWith('/operator-webhook/v1/activities/')) {
       return app.fetch(request, env, ctx);
     }
 
@@ -530,7 +539,7 @@ export default {
     // static.cloudflareinsights.com is added to script-src, and its beacon telemetry endpoint
     // cloudflareinsights.com is added to connect-src.
     secureResponse.headers.set('Content-Security-Policy',
-      `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
+      `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com https://www.gravatar.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
     return secureResponse;
   },
@@ -543,6 +552,9 @@ export default {
 // Export container class for Durable Objects
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
+export { OperatorRegistry } from './operators/registry';
+export { OperatorActivity } from './operators/activity';
+export { OperatorRuntimeCapability } from './operators/gate1-production';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +

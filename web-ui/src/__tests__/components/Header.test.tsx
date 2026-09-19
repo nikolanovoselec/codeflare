@@ -215,6 +215,28 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
+  describe('REQ-OPERATOR-040: Enterprise operator placement', () => {
+    it('places the operator control between VS Code and Storage in a terminal header', () => {
+      sessionStoreState.enterpriseMode = true;
+      render(() => <Header {...defaultSessionProps} onVscodeOpen={vi.fn()} />);
+
+      const vscode = screen.getByTestId('header-vscode-button');
+      const operator = screen.getByRole('button', { name: 'Operator activity' });
+      const storage = screen.getByTestId('header-storage-button');
+      expect(vscode.compareDocumentPosition(operator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(operator.compareDocumentPosition(storage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('keeps the operator control after the user control on the dashboard', () => {
+      sessionStoreState.enterpriseMode = true;
+      render(() => <Header {...defaultSessionProps} />);
+
+      const user = screen.getByTestId('header-user-menu');
+      const operator = screen.getByRole('button', { name: 'Operator activity' });
+      expect(user.compareDocumentPosition(operator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
   describe('User Name Display', () => {
     it('should show user name when provided', () => {
       render(() => <Header {...defaultSessionProps} userName="test@example.com" />);

@@ -186,7 +186,7 @@ skills & rules" click, new bucket creation, Stripe mode change
 (upgrade or downgrade via webhook), subscription termination
 (`customer.subscription.deleted`), Settings toggle of
 `sessionMode`, automatic upgrade on release (triggered by
-`preseedNeedsUpgrade: true` in the initial dashboard batch-status
+`preseedNeedsUpgrade: true` in the initial dashboard ancillary-status
 response; see
 [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)),
 or the one-time enterprise Pro upgrade — at session start or first
@@ -424,7 +424,7 @@ No stdout means no action. Otherwise the root submits the returned request uncha
 
 Joint triage waits for every required reviewer and terminal exact-head CI evidence. Failure and timeout require the exact `Exact-head CI` row and matching `CI_RESULT` token. For every finding, root verifies evidence and scope, judges the finding separately from its proposed fix, rejects unsupported or overengineered proposals, and prefers the smallest correction reusing existing machinery. Root makes no mutation in triage. See [REQ-AGENT-170](../../sdd/spec/agents.md#req-agent-170-joint-review-and-ci-triage).
 
-If Pi sees a table after failed or timed-out CI but its required CI row is malformed, it emits one correction follow-up instead of silently withholding FIX; the corrected canonical table continues the same round. Agent-end or Stop handling then revalidates identity, writes the user-scoped completion marker, and emits the separate FIX follow-up. Head drift or marker-write failure keeps both closed.
+If Pi sees a table after failed or timed-out CI but its required CI row is malformed, it emits one correction follow-up instead of silently withholding FIX; the corrected canonical table continues the same round. If a structurally valid table arrives before the final reviewer or CI result, Pi emits the same one-shot correction type after all required evidence becomes terminal and withholds FIX until a later canonical table is republished. This behavior is implemented by [`reviewTranscriptFacts`](../../preseed/agents/pi/extensions/review-helpers.ts#L685) and [`sendEarlyTriageCorrectionFollowUp`](../../preseed/agents/pi/extensions/review-enforcement.ts#L472), and specified by [REQ-AGENT-214](../../sdd/spec/agents.md#req-agent-214-premature-review-triage-correction). Agent-end or Stop handling then revalidates identity, writes the user-scoped completion marker, and emits the separate FIX follow-up. Head drift or marker-write failure keeps both closed.
 
 Pi holds one active round in memory. Claude inspects only transcript bytes after its current SessionStart offset. Stopped or interrupted work stores no progress, no retry plan, no counter, and no missing-work demand. A later exposure asks again and replans. Non-SDD and default-mode sessions receive no automatic review or CI plan; explicit CI and deploy/merge gates remain independent. Managed Git workflow rules do not block deployment solely because required CI is pending, missing, or failed; dedicated deployment workflows may retain their own CI sequencing ([REQ-AGENT-208](../../sdd/spec/agents.md#req-agent-208-managed-git-workflow-deployment-policy)).
 
@@ -575,7 +575,7 @@ ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: h
 
 Managed curation and the baked fallback select one web, mobile, desktop, static, or incumbent authority and keep motion, components, performance, and available finishing tools subordinate. The pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives usable fallback boundaries without projected skill directories, and Canvas retains required Apache-2.0 attribution. The inventory includes `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design`, and excludes UI UX Pro Max and `emil-design-eng`. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
-The release auto-upgrade check uses `GET /api/sessions/batch-status?includePreseedCheck=true` to compare `PRESEED_CONTENT_HASH` and the canonical agent projection with their stored values. A mismatch starts background reconciliation. Active updates retain the existing New Session and stopped-session gates.
+The release auto-upgrade check uses `GET /api/sessions/ancillary-status` to compare `PRESEED_CONTENT_HASH` and the canonical agent projection with their stored values. A mismatch starts background reconciliation. Active updates retain the existing New Session and stopped-session gates.
 
 Each advertised `preseedUpgradeTarget` gets at most one automatic attempt per page until status reports no upgrade needed; older target-less responses share one pending episode. A new target can proceed without an intervening current observation, but stale target reads cannot repeat previous attempts. Failure replaces the dashboard's New Session action with **Retry upgrade** while the session-menu creation gate stays closed. Retry uses the dedicated upgrade endpoint, not Recreate, and retains in-flight and session-ownership restrictions. Implements [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
 

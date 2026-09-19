@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 
 // Hoisted mutable state so vi.mock() factory below can read the latest
@@ -31,6 +32,7 @@ vi.mock('@cloudflare/containers', () => ({
 function buildEnv(kv: ReturnType<typeof createMockKV>): Env {
   return {
     KV: kv as unknown as KVNamespace,
+    USAGE_DB: createMockSessionD1(kv),
     CONTAINER: {} as unknown as DurableObjectNamespace,
   } as unknown as Env;
 }

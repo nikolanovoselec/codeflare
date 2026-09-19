@@ -6,6 +6,7 @@ import { upgradeAgentConfigs } from '../api/storage';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
+import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
@@ -28,8 +29,6 @@ import {
   updateTerminalLabel,
   cleanupTerminalsForSession,
 } from './session-tabs';
-import { updateStatsFromBatch } from './storage';
-import { setUsageState } from './session-usage';
 import {
   registerR2ReadinessDeps,
   startR2Polling,
@@ -45,6 +44,7 @@ import {
   registerPollingDeps,
   sessionMissCounters,
   refreshSessionStatuses,
+  refreshSessionAncillaryStatus,
   startSessionListPolling,
   stopSessionListPolling,
   markSessionStarted,
@@ -82,8 +82,12 @@ export interface SessionMetrics {
 
 /** Batch status entry shape from the backend */
 type BatchStatusEntry = {
-  status: 'running' | 'stopped';
-  ptyActive: boolean;
+  status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  generation?: number;
+  revision?: number;
+  unreachableDeadlineMs?: number;
+  ptyActive?: boolean;
   startupStage?: string;
   lastStartedAt?: string;
   lastActiveAt?: string;
@@ -323,44 +327,19 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus({ includePreseedCheck: true, include: ['storage', 'usage'] }).catch((err) => {
+      api.getBatchSessionStatus().catch((err) => {
         logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
         batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
-        return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };
+        return { statuses: {} as Record<string, BatchStatusEntry> };
+      }),
+      refreshSessionAncillaryStatus().catch((err) => {
+        logger.warn('[SessionStore] ancillary status refresh failed:', err);
       }),
     ]);
     if (thisGen !== loadSessionsGeneration) return;
     if (batchError) setState('error', batchError);
 
     const batchStatuses = batchResponse.statuses;
-    if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
-    if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
-    if ('usage' in batchResponse && batchResponse.usage) {
-      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
-    }
-
-    const managedReleaseStatus = 'managedReleaseStatus' in batchResponse
-      ? batchResponse.managedReleaseStatus
-      : undefined;
-    if (managedReleaseStatus === undefined) {
-      setState('managedReleaseStatus', null);
-      setState('managedReleaseProgress', null);
-    }
-    const preseedNeedsUpgrade = 'preseedNeedsUpgrade' in batchResponse
-      ? batchResponse.preseedNeedsUpgrade
-      : undefined;
-    const managedReleaseProgress = 'managedReleaseProgress' in batchResponse
-      ? batchResponse.managedReleaseProgress
-      : undefined;
-    const preseedUpgradeTarget = 'preseedUpgradeTarget' in batchResponse ? batchResponse.preseedUpgradeTarget : undefined;
-    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade, managedReleaseProgress, preseedUpgradeTarget);
-
-    // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
-    // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every
-    // batch-status poll while migrating also advances a chunk server-side, so keep polling.
-    setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
-    setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
-    setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
 
     const existingSessions = new Map(state.sessions.map(s => [s.id, s]));
     const existingStatuses = new Map(state.sessions.map(s => [s.id, s.status]));
@@ -406,14 +385,12 @@ async function loadSessions(): Promise<void> {
         continue;
       }
 
-      // Propagate per-session fields from batch-status onto SessionWithStatus.
-      // ptyActive/startupStage are frontend-only mirrors of the latest poll —
-      // consumers (e.g. Layout vault-button gate) read them off the session.
+      // Propagate durable fields from batch-status. Terminal connectivity is
+      // device-local and is never overwritten by a backend projection.
       const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
       if (idx !== -1) {
         if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
         if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
-        setState('sessions', idx, 'ptyActive', batchStatus.ptyActive);
         setState('sessions', idx, 'startupStage', batchStatus.startupStage);
         if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
         setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);
@@ -430,21 +407,39 @@ async function loadSessions(): Promise<void> {
       if (currentStatus === 'initializing' || currentStatus === 'stopping') continue;
       if (batchStatus.status === 'stopped' && shouldRetainNegativeKv(session.id)) continue;
 
+      const current = state.sessions.find((candidate) => candidate.id === session.id);
+      const incomingProjection = {
+        lifecycle: batchStatus.status as BackendLifecycle,
+        generation: batchStatus.generation,
+        revision: batchStatus.revision,
+      };
+      const ordered = applyOrderedProjection(
+        {
+          lifecycle: (current?.lifecycle ?? (current?.status === 'initializing' || current?.status === 'error' ? 'running' : current?.status ?? 'stopped')) as BackendLifecycle,
+          generation: current?.generation,
+          revision: current?.revision,
+        },
+        incomingProjection,
+      );
+      if (ordered !== incomingProjection) continue;
+      const wasRunning = existingStatuses.get(session.id) === 'running';
+      updateSessionStatus(session.id, batchStatus.status);
+      const latestIndex = state.sessions.findIndex((candidate) => candidate.id === session.id);
+      if (latestIndex !== -1) {
+        setState('sessions', latestIndex, 'lifecycle', batchStatus.lifecycle ?? batchStatus.status);
+        if (batchStatus.generation !== undefined) setState('sessions', latestIndex, 'generation', batchStatus.generation);
+        if (batchStatus.revision !== undefined) setState('sessions', latestIndex, 'revision', batchStatus.revision);
+        if (batchStatus.unreachableDeadlineMs !== undefined) setState('sessions', latestIndex, 'unreachableDeadlineMs', batchStatus.unreachableDeadlineMs);
+      }
       if (batchStatus.status === 'running') {
-        const wasRunning = existingStatuses.get(session.id) === 'running';
-        updateSessionStatus(session.id, 'running');
         if (!wasRunning && session.workspace !== 'vscode') {
           initializeTerminalsForSession(session.id);
         }
-      } else {
-        const wasRunning = existingStatuses.get(session.id) === 'running';
-        updateSessionStatus(session.id, batchStatus.status);
+      } else if (wasRunning && batchStatus.status === 'stopped') {
         // Container stopped externally (hibernation/crash) — kill WS retry loops
         // so reconnect attempts don't keep waking the DO. Fresh connect() calls
         // are made when the user starts the session again.
-        if (wasRunning && batchStatus.status === 'stopped') {
-          terminalStore.disposeSession(session.id);
-        }
+        terminalStore.disposeSession(session.id);
       }
     }
   } catch (err) {
@@ -502,10 +497,12 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
 
 async function renameSession(id: string, name: string): Promise<void> {
   try {
-    await api.updateSession(id, { name });
+    // REQ-SESSION-027 AC2: the Worker sanitizes the requested name, so show the
+    // name it accepted rather than the one typed.
+    const updated = await api.updateSession(id, { name });
     const index = state.sessions.findIndex((s) => s.id === id);
     if (index !== -1) {
-      setState('sessions', index, 'name', name);
+      setState('sessions', index, 'name', updated.name);
     }
   } catch (err) {
     setState('error', err instanceof Error ? err.message : 'Failed to rename session');

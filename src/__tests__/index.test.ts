@@ -115,6 +115,23 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
   });
 
+  it('REQ-OPERATOR-029: routes the public webhook family through Hono instead of SPA assets', async () => {
+    const { env, mockAssets } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+
+    const response = await worker.fetch(new Request(
+      'https://example.com/operator-webhook/v1/activities/gate1-probe/status',
+    ), env, createMockCtx());
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('Content-Type')).toBe('application/json');
+    expect(await response.json()).toEqual({
+      error: 'Capability required',
+      code: 'WEBHOOK_CAPABILITY_REQUIRED',
+    });
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
+  });
+
   it('redirects GET / to /app when setup is complete and onboarding landing is inactive', async () => {
     const { env, mockKV, mockAssets } = createMockEnv();
     mockKV.get.mockResolvedValue('true');
@@ -155,6 +172,7 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
     expect(DESIGN_READY_CSP_HASH).toBe(`sha256-${digest}`);
     expect(csp).toContain(`'${DESIGN_READY_CSP_HASH}'`);
+    expect(csp).toContain("frame-src 'self' https://challenges.cloudflare.com");
     const scriptSrc = csp!
       .split(';')
       .map((directive) => directive.trim().split(/\s+/))
@@ -196,6 +214,17 @@ describe('Edge-level setup redirect', () => {
 
     expect(response.status).toBe(200);
     expect(mockAssets.fetch).toHaveBeenCalled();
+  });
+
+  it('permits the SPA Vault bootstrap frame and Gravatar existence probe', async () => {
+    const { env, mockKV } = createMockEnv();
+    mockKV.get.mockResolvedValue('true');
+
+    const response = await worker.fetch(new Request('https://example.com/app/'), env, createMockCtx());
+    const csp = response.headers.get('Content-Security-Policy');
+
+    expect(csp).toContain("frame-src 'self' https://challenges.cloudflare.com");
+    expect(csp).toContain('connect-src \'self\' wss: https://cloudflareinsights.com https://www.gravatar.com');
   });
 
   it('REQ-LANDING-008: marks the public login response noindex without blocking the asset', async () => {

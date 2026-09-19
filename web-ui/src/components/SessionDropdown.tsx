@@ -12,10 +12,12 @@ import '../styles/session-dropdown.css';
 
 const STATUS_ORDER: Record<SessionStatus, number> = {
   running: 0,
-  initializing: 1,
-  stopping: 2,
-  stopped: 3,
-  error: 4,
+  unreachable: 1,
+  starting: 2,
+  initializing: 2,
+  stopping: 3,
+  stopped: 4,
+  error: 5,
 };
 
 interface SessionDropdownProps {
@@ -223,6 +225,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
         sessionName={menuState().session?.name || ''}
         onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
         onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}
+        onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
         onClose={handleMenuClose}
       />
     </Show>

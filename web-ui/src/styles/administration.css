@@ -239,6 +239,14 @@
   overflow: hidden;
 }
 
+/* Operator management inherits admin material and mobile form rules. Local
+   insets align headings, fields and actions without changing other admin pages. */
+.operator-admin-panel { padding: var(--space-4); }
+.operator-admin-panel > h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--font-semibold); }
+.operator-admin-panel > p { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.operator-admin-panel .admin-form-grid,
+.operator-admin-panel .admin-form-actions { padding: var(--space-4) 0; }
+
 .admin-panel + .admin-panel {
   margin-top: var(--space-6);
 }

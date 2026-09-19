@@ -49,10 +49,13 @@ When public workflows or consumers change, update the owning document in the [pr
 | [Security](lanes/security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |
 | [Configuration](lanes/configuration.md) | Default-mode configuration and public runtime behavior | Operators |
 | [Administration and historical usage](lanes/administration-analytics.md) | Environment changes, D1 history, reports, retention, and rollout checks | Operators, Developers |
+| [Operator Interface foundation](lanes/operators.md) | Phase-1 ownership, trust boundaries and reusable operator primitives | Operators, Developers, Security |
+| [Operator Gate 1](lanes/operator-gate-1.md) | G1-01–29 fixture/native/deployed evidence separation and acceptance ledger | Operators, Developers |
 | [Target capability discovery](lanes/target-capability-discovery.md) | Explicit discovery, shared contracts, evidence grades, and bounded qualification | Operators, Developers |
 | [Generic Anthropic Bedrock model support](lanes/bedrock-generic-model-support.md) | Reusable native contract, reasoning semantics, authority, and upgrades | Operators, Developers |
 | [Bedrock prompt caching](lanes/bedrock-prompt-caching.md) | Native checkpoints, usage accounting, and historical cache/stream evidence | Operators, Developers |
 | [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
+| [D1 Session Lifecycle](lanes/session-lifecycle-d1.md) | D1 session authority, runtime recovery, status projection, and clean-slate cutover boundary | Operators, Developers |
 | [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
 | [CI/CD & Testing](lanes/ci-cd.md) | Public workflow behavior and test-suite structure | Developers |
 | [Development & Deployment](lanes/deployment.md) | Deployment execution, verification, rollback, development references, dated cost evidence | Developers, Operators |

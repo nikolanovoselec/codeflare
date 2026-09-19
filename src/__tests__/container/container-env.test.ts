@@ -339,6 +339,52 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env).ENTERPRISE_PROMPT_CACHE_TARGETS).toBe('[]');
   });
 
+  it('applyBucketName binds a validated session identity before container configuration', async () => {
+    const state = baseState();
+    state._sessionId = null;
+    const { writes, storage } = makeStorage();
+
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { sessionId: 'gate1a1b2c3d4e5f6a7b8' });
+
+    expect(state._sessionId).toBe('gate1a1b2c3d4e5f6a7b8');
+    expect(writes._sessionId).toBe('gate1a1b2c3d4e5f6a7b8');
+  });
+
+  it('applyBucketName persists trusted operator identity and routes for environment serialization', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    const routes = {
+      userEmail: 'owner@example.test', userGroups: ['engineering'],
+      routeCatalog: ['Development'], defaultRoute: 'Development', defaultReasoning: 'high',
+      routeContextWindows: { Development: 256_000 }, routeReasoningLevels: { Development: ['off', 'high'] },
+      modelDisplayNames: { Development: 'Development' }, promptCacheTargets: [],
+    };
+
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, routes);
+
+    expect(writes).toMatchObject(routes);
+    expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env)).toMatchObject({
+      ENTERPRISE_ROUTE_CATALOG: '["Development"]', ENTERPRISE_DEFAULT_ROUTE: 'Development',
+      ENTERPRISE_DEFAULT_REASONING: 'high', ENTERPRISE_ROUTE_CONTEXT_WINDOWS: '{"Development":256000}',
+      ENTERPRISE_ROUTE_REASONING_LEVELS: '{"Development":["off","high"]}',
+      ENTERPRISE_MODEL_DISPLAY_NAMES: '{"Development":"Development"}', ENTERPRISE_PROMPT_CACHE_TARGETS: '[]',
+    });
+  });
+
+  it.each(['Uppercase1', 'abcd-1234', 'abcdefg', 'a'.repeat(25)])(
+    'applyBucketName rejects non-canonical session identity %s before mutating container state', async sessionId => {
+      const state = baseState();
+      state._sessionId = null;
+      const { writes, storage } = makeStorage();
+
+      await expect(applyBucketName(state, 'codeflare-test', baseEnv, storage, { sessionId }))
+        .rejects.toThrow('Invalid session identity');
+
+      expect(state._sessionId).toBeNull();
+      expect(writes).toEqual({});
+    },
+  );
+
   it('applyBucketName persists userTimezone into both state and storage', async () => {
     const state = baseState();
     const { writes, storage } = makeStorage();

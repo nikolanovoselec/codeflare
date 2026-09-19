@@ -20,9 +20,13 @@ inputs:
     required: false
     default: ''
   balance-group:
-    description: 'Optional measured backend file group (e.g. "1/3"). Mutually exclusive with shard.'
+    description: 'Optional measured file group (e.g. "1/4"). Mutually exclusive with shard.'
     required: false
     default: ''
+  balance-suite:
+    description: 'Measured suite selector: backend (default) or frontend.'
+    required: false
+    default: 'backend'
   artifact-name:
     description: >-
       Artifact name for the report + log; also the report filename. Must be
@@ -55,6 +59,7 @@ runs:
         FORCE_COLOR: '0'
         SHARD: ${{ inputs.shard }}
         BALANCE_GROUP: ${{ inputs.balance-group }}
+        BALANCE_SUITE: ${{ inputs.balance-suite }}
         SCRIPT: ${{ inputs.script }}
         NAME: ${{ inputs.artifact-name }}
         PRE_RUN: ${{ inputs.pre-run }}
@@ -89,9 +94,14 @@ runs:
             echo "::error::balance-group and shard are mutually exclusive"
             exit 1
           fi
-          mapfile -t test_args < <(node "$GITHUB_WORKSPACE/scripts/ci/select-weighted-backend-tests.mjs" "$BALANCE_GROUP")
+          case "$BALANCE_SUITE" in
+            backend|frontend) ;;
+            *) echo "::error::unsupported weighted suite: $BALANCE_SUITE"; exit 1 ;;
+          esac
+          selector="$GITHUB_WORKSPACE/scripts/ci/select-weighted-${BALANCE_SUITE}-tests.mjs"
+          mapfile -t test_args < <(node "$selector" "$BALANCE_GROUP")
           if [ "${#test_args[@]}" -lt 1 ]; then
-            echo "::error::weighted backend test selection is empty"
+            echo "::error::weighted $BALANCE_SUITE test selection is empty"
             exit 1
           fi
         fi
@@ -129,12 +139,15 @@ runs:
         SCRIPT: ${{ inputs.script }}
         SHARD: ${{ inputs.shard }}
         BALANCE_GROUP: ${{ inputs.balance-group }}
+        BALANCE_SUITE: ${{ inputs.balance-suite }}
       run: |
         # The run page shows a red X and 3,000 lines of dot-reporter output. Give
         # the reader the artifact link and the exact command that reproduces this
         # shard locally, so a failure is one paste away from a local repro.
         if [ -n "$BALANCE_GROUP" ]; then
-          REPRO="mapfile -t tests < <(node scripts/ci/select-weighted-backend-tests.mjs $BALANCE_GROUP); npm run $SCRIPT -- \"\${tests[@]}\""
+          SELECTOR="scripts/ci/select-weighted-${BALANCE_SUITE}-tests.mjs"
+          [ "$DIR" != "." ] && SELECTOR="../$SELECTOR"
+          REPRO="mapfile -t tests < <(node $SELECTOR $BALANCE_GROUP); npm run $SCRIPT -- \"\${tests[@]}\""
         else
           REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}"
         fi

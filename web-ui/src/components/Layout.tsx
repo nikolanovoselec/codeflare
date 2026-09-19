@@ -21,6 +21,7 @@ import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
+import { isMountedLifecycle } from '../lib/session-presentation';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -498,7 +499,8 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.getActiveSession();
     const hasActiveTerminal = session
       && session.workspace !== 'vscode'
-      && (session.status === 'running' || session.status === 'initializing' || sessionStore.isSessionInitializing(session.id));
+      && (session.status === 'initializing' || sessionStore.isSessionInitializing(session.id)
+        || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')));
     const hasActiveMultiView = terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview';
 
     if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
@@ -583,7 +585,8 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleSelectSession = (id: string) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
-    if (session?.status === 'running' || session?.status === 'initializing') {
+    if (session && (session.status === 'initializing'
+      || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
       openSessionWorkspace(id);
     } else if (session?.status === 'stopped') {
       openSessionWorkspace(id, { shouldStart: true });
@@ -687,7 +690,8 @@ const Layout: Component<LayoutProps> = (props) => {
       if (requestedSession.workspace === 'vscode') {
         keepDashboardOwnership();
         writeHistoryPath(dashboardPath(), 'replace');
-      } else if (requestedSession.status === 'running' || requestedSession.status === 'initializing') {
+      } else if (requestedSession.status === 'initializing'
+        || (requestedSession.status !== 'error' && isMountedLifecycle(requestedSession.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'))) {
         openSessionWorkspace(requestedSessionId, { updateHistory: false });
       } else {
         // A canonical link may identify a session that stopped after the
@@ -725,7 +729,8 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleDashboardSessionSelect = (sessionId: string) => {
     const session = sessionStore.sessions.find(s => s.id === sessionId);
-    if (session?.status === 'running' || session?.status === 'initializing') {
+    if (session && (session.status === 'initializing'
+      || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
       openSessionWorkspace(sessionId);
     } else if (session?.status === 'stopped') {
       // Always do a full start — even if the container could auto-wake via SDK,

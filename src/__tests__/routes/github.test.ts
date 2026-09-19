@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { AppError } from '../../lib/error-types';
 
 vi.mock('../../lib/logger', () => ({
@@ -28,6 +29,7 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 import githubRoutes from '../../routes/github';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { getContainer } from '@cloudflare/containers';
 
 const KEY = 'deploy-keys:test-bucket';
@@ -39,6 +41,7 @@ const ENT: Partial<Env> = {
 };
 
 let mockKV: ReturnType<typeof createMockKV>;
+let mockD1: D1Database;
 
 function createTestApp(env: Partial<Env>) {
   const app = new Hono<{ Bindings: Env }>();
@@ -47,7 +50,7 @@ function createTestApp(env: Partial<Env>) {
     return c.json({ error: 'Unexpected error' }, 500);
   });
   app.use('*', async (c, next) => {
-    (c.env as unknown) = { KV: mockKV, ...env };
+    (c.env as unknown) = { KV: mockKV, USAGE_DB: mockD1, ...env };
     return next();
   });
   app.route('/api/github', githubRoutes);
@@ -60,6 +63,11 @@ function ok(json: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockKV = createMockKV();
+  mockD1 = createMockSessionD1(mockKV);
+  mockKV._set('session:test-bucket:sid12345678', {
+    id: 'sid12345678', name: 'Test', userId: 'test-bucket', status: 'running',
+    createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+  });
 });
 
 // ─── GET /status (REQ-GITHUB-002 AC1) ───────────────────────────────────────
@@ -241,6 +249,92 @@ describe('POST /api/github/clone', () => {
     expect(sentBody).toEqual({ repo: 'octo/repo', ref: 'develop' });
     // Container is addressed by the bucket+session-derived id.
     expect(vi.mocked(getContainer).mock.calls[0][1]).toBe('test-bucket-sid12345678');
+  });
+
+  it('REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds', async () => {
+    const key = 'session:test-bucket:sid12345678';
+    mockKV._set(key, {
+      id: SID, name: 'Test', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    });
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', ref: 'develop', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(200);
+    const persisted = await mockKV.get(key, 'json') as { clones?: Array<{ repo: string; ref?: string }> };
+    expect(persisted.clones).toEqual([{ repo: 'octo/repo', ref: 'develop' }]);
+    expect(buildCloneTargets(persisted.clones, undefined)).toBe('octo/repo#develop');
+  });
+
+  it('REQ-GITHUB-015 AC6: merges clone tracking into the latest session record', async () => {
+    const key = 'session:test-bucket:sid12345678';
+    containerFetch.mockImplementationOnce(async () => {
+      mockKV._set(key, {
+        id: SID, name: 'Renamed during clone', userId: 'test-bucket', status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      });
+      return containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' });
+    });
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(200);
+    const persisted = await mockKV.get(key, 'json') as { name: string; clones: unknown };
+    expect(persisted.name).toBe('Renamed during clone');
+    expect(persisted.clones).toEqual([{ repo: 'octo/repo' }]);
+  });
+
+  it('REQ-GITHUB-015 AC6: rejects a clone request for a missing session before forwarding', async () => {
+    mockKV._clear();
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(404);
+    expect((await res.json() as Record<string, unknown>).code).toBe('SESSION_NOT_FOUND');
+    expect(containerFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-GITHUB-015 AC6: does not return clone success when session persistence fails', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
+    mockKV.put.mockRejectedValue(new Error('KV unavailable'));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(500);
+  });
+
+  it('REQ-GITHUB-015 AC3: does not track a repository when the clone did not succeed', async () => {
+    const key = 'session:test-bucket:sid12345678';
+    mockKV._set(key, {
+      id: SID, name: 'Test', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    });
+    containerFetch.mockResolvedValueOnce(containerJson(502, { error: 'failed', code: 'CLONE_FAILED' }));
+
+    await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect((await mockKV.get(key, 'json') as { clones?: unknown }).clones).toBeUndefined();
   });
 
   it('relays a 409 collision verbatim', async () => {

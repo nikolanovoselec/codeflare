@@ -48,6 +48,7 @@ export type TranscriptFacts = {
   ciTerminal: boolean;
   ciResult?: "success" | "failure" | "timeout";
   triagePresent: boolean;
+  earlyTriagePresent: boolean;
   triageComplete: boolean;
   fixDelivered: boolean;
   closedNotified: boolean;
@@ -159,7 +160,12 @@ export function executableShellSegments(command: string): ExecutableShellSegment
       quote = "";
       continue;
     }
-    if (!quote && ";&|\n\r".includes(char)) {
+    // In descriptor duplication (`2>&1`, `0<&3`) the ampersand belongs to the
+    // redirection operator. Treating it as a background-job separator truncates
+    // the executable segment and can make a valid push look as though it targets
+    // an unrelated refspec.
+    const redirectionAmpersand = char === "&" && (source[index - 1] === ">" || source[index - 1] === "<");
+    if (!quote && !redirectionAmpersand && ";&|\n\r".includes(char)) {
       let separator: ShellSeparator;
       if ((char === "&" || char === "|") && source[index + 1] === char) {
         separator = char === "&" ? "&&" : "||";
@@ -289,6 +295,9 @@ export function exposureTargetsCheckedOutBranch(
   const positional: string[] = [];
   for (let index = 1; index < relevant.args.length; index += 1) {
     const value = relevant.args[index] ?? "";
+    // executableShellCommands preserves compact descriptor redirections as a
+    // single argv-shaped token. They are shell syntax, never push refspecs.
+    if (/^\d*[<>]&\d+$/.test(value)) continue;
     if (value === "--") {
       positional.push(...relevant.args.slice(index + 1));
       break;
@@ -760,6 +769,7 @@ export function reviewTranscriptFacts(input: {
     ciRequired: false,
     ciTerminal: false,
     triagePresent: false,
+    earlyTriagePresent: false,
     triageComplete: false,
     fixDelivered: false,
     closedNotified: false,
@@ -831,6 +841,7 @@ export function reviewTranscriptFacts(input: {
       const problems = [
         ...(call.arguments?.run_in_background === true ? [] : ["run_in_background must be true"]),
         ...(call.arguments?.inherit_context === false ? [] : ["inherit_context must be false"]),
+        ...(call.arguments?.max_turns === undefined ? [] : ["max_turns must be omitted"]),
         ...(assignmentLines.has("scope=diff") ? [] : ["prompt must include exact scope=diff"]),
         ...(assignmentLines.has(expectedScope) ? [] : [`prompt must include exact ${expectedScope}`]),
         ...(assignmentLines.has(expectedOutput) ? [] : [`prompt must include exact ${expectedOutput}`]),
@@ -906,15 +917,14 @@ export function reviewTranscriptFacts(input: {
         if (!successfulSubagentToolIds.has(call.id)) continue;
         ciLaunched = true;
 
-        const nativeTerminal = later.slice(entryIndex + 1)
+        const nativeResults = later.slice(entryIndex + 1)
           .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
-          .find((candidate) => {
-            const notification = candidate.value;
-            return notification !== undefined
-              && notification.toolUseId === call.id
-              && notification.succeeded
-              && ciTerminalResult(notification.text, ci) !== undefined;
-          });
+          .filter((candidate) => candidate.value?.toolUseId === call.id && candidate.value?.succeeded === true);
+        const nativeTerminal = nativeResults.find((candidate) => {
+          const notification = candidate.value!;
+          return ciTerminalResult(notification.text, ci) !== undefined
+            || /\bCommand timed out after \d+ seconds\b/i.test(notification.text);
+        });
         const launchResult = later.find((candidate) => candidate.type === "message"
           && candidate.message?.role === "toolResult"
           && candidate.message?.toolCallId === call.id
@@ -923,24 +933,33 @@ export function reviewTranscriptFacts(input: {
         const launchedAgent = typeof launchResult?.message?.details?.agentId === "string"
           ? launchResult.message.details.agentId
           : undefined;
-        const publicTerminal = launchedAgent ? later
+        const publicResults = launchedAgent ? later
           .map((candidate, index) => ({ candidate, index }))
-          .find(({ candidate }) => candidate.type === "message"
+          .filter(({ candidate }) => candidate.type === "message"
             && candidate.message?.role === "toolResult"
             && candidate.message?.toolName === "get_subagent_result"
             && candidate.message?.isError !== true
-            && resultRequests.get(candidate.message.toolCallId) === launchedAgent
-            && completedPublicCiResult(messageContentText(candidate), ci) !== undefined)
-          : undefined;
+            && resultRequests.get(candidate.message.toolCallId) === launchedAgent)
+          : [];
+        const publicTerminal = publicResults.find(({ candidate }) =>
+          completedPublicCiResult(messageContentText(candidate), ci) !== undefined);
+        const publicCompletion = publicResults.find(({ candidate }) =>
+          /^Type:\s*ci-monitor\s*\|\s*Status:\s*(?:completed|done)\b/mi.test(messageContentText(candidate)));
         const terminal = nativeTerminal && publicTerminal
           ? nativeTerminal.index <= publicTerminal.index
-            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)
+              ?? "timeout" }
             : { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
           : nativeTerminal
-            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)
+              ?? "timeout" }
             : publicTerminal
               ? { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
-              : undefined;
+              : nativeResults[0]
+                ? { index: nativeResults[0].index, result: "timeout" as CiTerminalResult }
+                : publicCompletion
+                  ? { index: publicCompletion.index, result: "timeout" as CiTerminalResult }
+                  : undefined;
         if (terminal && (ciTerminalIndex === undefined || terminal.index < ciTerminalIndex)) {
           ciTerminalIndex = terminal.index;
           ciResult = terminal.result;
@@ -957,6 +976,11 @@ export function reviewTranscriptFacts(input: {
     || (ciRequired && ciTerminalIndex === undefined)
     ? undefined
     : Math.max(latestRequiredTerminalIndex, ciTerminalIndex ?? -1);
+  const earlyTriagePresent = completionIndex !== undefined && later.some((entry, index) =>
+    index < completionIndex
+    && toolCalls(entry).length === 0
+    && triageTablePresent(messageText(entry, "assistant")),
+  );
   const triagePresent = completionIndex !== undefined && later.some((entry, index) =>
     index > completionIndex
     && toolCalls(entry).length === 0
@@ -993,6 +1017,7 @@ export function reviewTranscriptFacts(input: {
     ciTerminal: ciTerminalIndex !== undefined,
     ciResult,
     triagePresent,
+    earlyTriagePresent,
     triageComplete,
     fixDelivered,
     closedNotified,

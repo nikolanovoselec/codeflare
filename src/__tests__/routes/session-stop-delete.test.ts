@@ -129,7 +129,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
 
     it('returns 404 when session does not exist', async () => {
       const app = createLifecycleApp();
-      const res = await app.request('/sessions/nonexistent12345678/stop', { method: 'POST' });
+      const res = await app.request('/sessions/aabbccdd11223344/stop', { method: 'POST' });
       expect(res.status).toBe(404);
     });
 
@@ -148,7 +148,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
 
       expect(res.status).toBe(500);
       const stored = await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json') as Session;
-      expect(stored.status).toBe('running');
+      expect(stored.status).toBe('stopping');
     });
   });
 
@@ -190,7 +190,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
 
     it('returns 404 when deleting non-existent session', async () => {
       const app = createCrudApp();
-      const res = await app.request('/sessions/nonexistent12345678', { method: 'DELETE' });
+      const res = await app.request('/sessions/aabbccdd11223344', { method: 'DELETE' });
       expect(res.status).toBe(404);
     });
   });

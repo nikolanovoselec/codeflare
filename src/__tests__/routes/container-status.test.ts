@@ -160,6 +160,19 @@ describe('Container Status Routes', () => {
       expect(body.details.healthServerOk).toBe(false);
     });
 
+    it('keeps startup retryable when the health fetch rejects during boot', async () => {
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockRejectedValue(new Error('container connection reset'));
+
+      const res = await app.request(`/container/startup-status${sessionQuery}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { stage: string; progress: number; error?: string; details: { healthServerOk: boolean } };
+      expect(body).toMatchObject({ stage: 'starting', progress: 20, details: { healthServerOk: false } });
+      expect(body.error).toBeUndefined();
+    });
+
     it('returns syncing stage when sync is pending during startup', async () => {
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });
@@ -477,7 +490,7 @@ describe('Container Status Routes', () => {
       const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean; editorReadyError?: boolean };
       expect((await retry.json() as { stage: string }).stage).toBe('ready');
       expect(stored.editorReady).toBe(true);
-      expect(stored.editorReadyError).toBeUndefined();
+      expect(stored.editorReadyError).toBe(false);
     });
 
     it('skips mounting stage when health server is ok after sync (single port architecture)', async () => {
@@ -510,6 +523,21 @@ describe('Container Status Routes', () => {
       // Goes straight to verifying (sessions check), not mounting
       expect(body.stage).toBe('verifying');
       expect(body.progress).toBe(85);
+    });
+
+    it('keeps terminal verification retryable when the sessions fetch rejects', async () => {
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'ok', syncStatus: 'success' }), { status: 200 }))
+        .mockRejectedValueOnce(new Error('container connection reset'));
+
+      const res = await app.request(`/container/startup-status${sessionQuery}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { stage: string; progress: number; error?: string; details: { terminalServerOk: boolean } };
+      expect(body).toMatchObject({ stage: 'verifying', progress: 85, details: { terminalServerOk: false } });
+      expect(body.error).toBeUndefined();
     });
 
     it('returns verifying stage when sessions endpoint is not ready', async () => {
