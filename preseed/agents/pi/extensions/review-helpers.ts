@@ -48,6 +48,7 @@ export type TranscriptFacts = {
   ciTerminal: boolean;
   ciResult?: "success" | "failure" | "timeout";
   triagePresent: boolean;
+  earlyTriagePresent: boolean;
   triageComplete: boolean;
   fixDelivered: boolean;
   closedNotified: boolean;
@@ -768,6 +769,7 @@ export function reviewTranscriptFacts(input: {
     ciRequired: false,
     ciTerminal: false,
     triagePresent: false,
+    earlyTriagePresent: false,
     triageComplete: false,
     fixDelivered: false,
     closedNotified: false,
@@ -973,6 +975,11 @@ export function reviewTranscriptFacts(input: {
     || (ciRequired && ciTerminalIndex === undefined)
     ? undefined
     : Math.max(latestRequiredTerminalIndex, ciTerminalIndex ?? -1);
+  const earlyTriagePresent = completionIndex !== undefined && later.some((entry, index) =>
+    index < completionIndex
+    && toolCalls(entry).length === 0
+    && triageTablePresent(messageText(entry, "assistant")),
+  );
   const triagePresent = completionIndex !== undefined && later.some((entry, index) =>
     index > completionIndex
     && toolCalls(entry).length === 0
@@ -1009,6 +1016,7 @@ export function reviewTranscriptFacts(input: {
     ciTerminal: ciTerminalIndex !== undefined,
     ciResult,
     triagePresent,
+    earlyTriagePresent,
     triageComplete,
     fixDelivered,
     closedNotified,

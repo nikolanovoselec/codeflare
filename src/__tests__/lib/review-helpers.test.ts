@@ -34,6 +34,7 @@ type TranscriptFacts = {
   ciTerminal: boolean;
   ciResult?: 'success' | 'failure' | 'timeout';
   triagePresent: boolean;
+  earlyTriagePresent: boolean;
   triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
   launchIssues: Array<{ toolUseId: string; target: ReviewLane | 'ci-monitor'; problems: string[] }>;
@@ -741,7 +742,9 @@ describe('native Pi transcript review facts', () => {
       notification('code-2'),
     ]);
 
+    expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).earlyTriagePresent).toBe(true);
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).earlyTriagePresent).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
     expect(reviewTranscriptFacts({ sessionFile: afterDuplicateNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);

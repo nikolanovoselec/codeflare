@@ -771,6 +771,67 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
   });
 
+  it('requests one triage republish when the table predates the final terminal result', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-early-triage'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const codeId = 'early-code';
+    const specId = 'early-spec';
+    const docId = 'early-doc';
+    append(input.sessionFile,
+      ...[codeId, specId].flatMap((id, index) => {
+        const lane = lanes[index]!;
+        return [
+          toolCall(id, 'subagent', {
+            subagent_type: lane,
+            run_in_background: true,
+            inherit_context: false,
+            prompt: reviewerPrompt(input.head, lane),
+          }),
+          toolResult(id, 'subagent'),
+          notification(id),
+        ];
+      }),
+      triage(),
+      toolCall(docId, 'subagent', {
+        subagent_type: lanes[2],
+        run_in_background: true,
+        inherit_context: false,
+        prompt: reviewerPrompt(input.head, lanes[2]!),
+      }),
+      toolResult(docId, 'subagent'),
+      toolCall('early-ci', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
+      }),
+      toolResult('early-ci', 'subagent'),
+      notification('early-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
+    );
+
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
+
+    append(input.sessionFile, notification(docId));
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-triage-correction',
+    ]);
+    expect(app.sent[1]?.content).toContain('published before the final result');
+
+    append(input.sessionFile, triage());
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-triage-correction',
+      'pr-boundary-fix-follow-up',
+    ]);
+  });
+
   it('requests one canonical triage correction when a terminal CI failure row is malformed', async () => {
     const input = fixture();
     const app = await harness(input, []);
