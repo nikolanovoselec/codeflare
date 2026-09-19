@@ -83,6 +83,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           if (/SET\s+lifecycle_state='starting'/.test(sql)) {
             if (session.status !== 'stopped' || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
             session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1;
+            session.editorReady = false; session.editorReadyError = false;
           }
           else if (/SET\s+lifecycle_state='stopping'/.test(sql)) {
             if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };

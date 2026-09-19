@@ -98,7 +98,8 @@ export class D1SessionRepository implements SessionAuthority {
   async start(ownerKey: string, sessionId: string, transitionedAt: string): Promise<D1Session | null> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
-      observation_sequence=-1, transitioned_at=?3, lifecycle_reason=NULL
+      observation_sequence=-1, editor_ready=0, editor_ready_error=0,
+      transitioned_at=?3, lifecycle_reason=NULL
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
         AND termination_intent_id IS NULL
         AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')`)

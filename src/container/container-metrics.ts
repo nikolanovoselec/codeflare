@@ -535,6 +535,7 @@ async function deliverRunningAgentEvents(
   ctx: DurableObjectState,
   env: Env,
 ): Promise<void> {
+  if (!env.VAPID_SUBJECT || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
   const deliveryState = deliveryStateFor(state);
   const priorAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
   const drained = await drainAgentEvents(ctx, CONTAINER_POLL_BUDGET_MS, {

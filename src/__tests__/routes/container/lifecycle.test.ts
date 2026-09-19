@@ -474,8 +474,9 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     // reverting fields refreshed by the preceding destroy.
     const written = JSON.parse(kv.put.mock.calls.at(-1)?.[1] as string);
     expect(written.status).toBe('starting');
-    // Re-read rather than spread the snapshot: spreading would revert the field
-    // destroy() had just refreshed.
-    expect(written.lastActiveAt).toBe('REFRESHED-BY-DESTROY');
+    // Confirmed replacement exit refreshes activity rather than spreading the
+    // stale caller snapshot back over authoritative D1 state.
+    expect(written.lastActiveAt).not.toBe('STALE');
+    expect(Date.parse(written.lastActiveAt)).not.toBeNaN();
   });
 });
