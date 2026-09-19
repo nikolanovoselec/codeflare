@@ -76,6 +76,12 @@ flowchart TD
     L --> M[Route Handler]
 ```
 
+### Human Access claims for the Operator Interface
+
+`src/lib/jwt.ts::verifyHumanAccessJWT` shares signature, issuer, audience, time validation and JWKS caching with `verifyAccessJWT`, but requires a nonempty human subject/email, application token type and no service-token `common_name`. It returns only verified subject/email/issuer/audiences and actual issued-at/expiry, never the bearer token. The existing email verifier and ordinary authentication callers retain their accepted claim shape.
+
+This primitive is not operator admission or renewal: callers must still enforce enterprise eligibility, owner resolution and valid authority at each protected effect. Missing/expired human context cannot fall back to service/setup/session credentials. See [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verified-human-access-claims). The wider operator runtime remains under implementation; this primitive alone does not establish deployed operator readiness.
+
 ### Cloudflare Access Flow
 
 The Worker verifies Access JWTs against the configured issuer/JWKS and derives the principal from verified claims. Setup may create the Access application, groups, and policies in applicable modes; exact provisioning belongs to [Configuration](configuration.md) and the setup implementation.

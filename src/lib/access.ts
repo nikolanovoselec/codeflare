@@ -1,5 +1,5 @@
 import type { AccessTier, AccessUser, BillingStatus, Env, SubscriptionTier, UserRole } from '../types';
-import { verifyAccessJWT } from './jwt';
+import { verifyAccessJWT, verifyHumanAccessJWT, type VerifiedHumanAccessClaims } from './jwt';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './constants';
 import { verifySessionJWT, SESSION_JWT_AUD } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
@@ -152,6 +152,29 @@ function extractAccessJwt(request: Request): string | null {
   const jwtAssertionHeader = request.headers.get('cf-access-jwt-assertion');
   const jwtCookie = getCookieValue(request.headers.get('Cookie'), 'CF_Authorization');
   return jwtAssertionHeader || jwtCookie;
+}
+
+/**
+ * REQ-OPERATOR-001/002: Resolve a parent-only human credential using the existing
+ * Access configuration/extraction path. No service, setup-header or session-JWT
+ * fallback. Caller first authenticates/authorizes the current user; matching email
+ * prevents combining a service/admin identity with another human's assertion.
+ * Never serialize this result into public projections or child bindings.
+ */
+export async function requireOperatorHumanContext(
+  request: Request, env: Env, authenticatedEmail: string,
+): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string }> {
+  if (!isEnterpriseMode(env)) throw new ForbiddenError();
+  const accessJwt = extractAccessJwt(request);
+  if (!accessJwt) throw new ForbiddenError('Human Access authentication required');
+  const config = await loadAuthConfig(env);
+  if (!config.authConfigured || !config.authDomain) throw new ForbiddenError('Human Access authentication required');
+  for (const audience of config.accessAudList) {
+    const human = await verifyHumanAccessJWT(accessJwt, config.authDomain, audience);
+    if (human && human.email.trim().toLowerCase() === authenticatedEmail.trim().toLowerCase()
+      && human.expiresAt * 1000 > Date.now()) return { human, accessJwt };
+  }
+  throw new ForbiddenError('Human Access authentication required');
 }
 
 /** Auth config derived from the module-level cache after {@link loadAuthConfig}. */

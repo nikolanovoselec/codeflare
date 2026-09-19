@@ -1,5 +1,5 @@
 /* v8 ignore start -- user-validated administration UI */
-import { For, Match, Switch, type Component } from 'solid-js';
+import { For, Match, Show, Switch, createSignal, type Component } from 'solid-js';
 import type { AdministrationMode, ConfigurationSection } from '../../types';
 import { ianaTimezoneOptions } from '../../lib/iana-timezones';
 import AiRoutingFields from './AiRoutingFields';
@@ -23,6 +23,8 @@ function lines(value: unknown): string { return list(value).join('\n'); }
 
 const EnvironmentAreaFields: Component<Props> = (props) => {
   const current = () => record(props.current);
+  const jwtCurrent = () => record(current().jwtStamping);
+  const [jwtMode, setJwtMode] = createSignal(text(jwtCurrent().mode) || 'off');
   const field = (name: string, label: string, type = 'text', value: unknown = current()[name]) => (
     <label class="admin-form-field"><span>{label}</span><input name={name} type={type} value={value === null || value === undefined ? '' : String(value)} /></label>
   );
@@ -37,7 +39,8 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
     <Match when={props.section === 'access'}>
       {textarea('adminUsers', 'Administrator emails, one per line', lines(current().adminUsers))}
       {props.mode === 'enterprise'
-        ? <>{textarea('userAccessGroups', 'User Access groups, one per line', lines(current().userAccessGroups))}{textarea('adminAccessGroups', 'Administrator Access groups, one per line', lines(current().adminAccessGroups))}</>
+        ? <>{textarea('userAccessGroups', 'User Access groups, one per line', lines(current().userAccessGroups))}{textarea('adminAccessGroups', 'Administrator Access groups, one per line', lines(current().adminAccessGroups))}
+          <p class="admin-status-text admin-form-wide" role="status">Webhook Endpoint Access bypass: {text(current().operatorWebhookBypassStatus) === 'configured' ? 'Configured' : text(current().operatorWebhookBypassStatus) === 'error' ? 'Failed' : 'Missing'}</p></>
         : textarea('allowedUsers', 'Allowed user emails, one per line', lines(current().allowedUsers))}
     </Match>
     <Match when={props.section === 'domain'}>{field('customDomain', 'Custom domain')}</Match>
@@ -46,7 +49,15 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
       <div class="admin-form-wide"><span class="admin-field-label">Active agents</span><div class="admin-checkbox-list"><For each={list(current().configurableAgents)}>{(agent) => <label class="admin-toggle-field"><input type="checkbox" name="activeAgents" value={agent} checked={list(current().activeAgents).includes(agent)} /><span>{agent}</span></label>}</For></div></div>
     </Match>
     <Match when={props.section === 'browserRendering'}>{field('accountId', 'Browser Rendering account ID')}{field('replacementToken', 'Replacement API token', 'password', '')}</Match>
-    <Match when={props.section === 'securityEgress'}>{toggle('strictGatewayEgress', 'Route all other egress through strict Gateway')}</Match>
+    <Match when={props.section === 'securityEgress'}>
+      {toggle('strictGatewayEgress', 'Route all other egress through strict Gateway')}
+      <label class="admin-form-field"><span>Automatic Access JWT stamping</span><select name="jwtStampingMode"
+        value={jwtMode()} onChange={event => setJwtMode(event.currentTarget.value)}>
+        <option value="off">Off</option><option value="list">Destination list</option><option value="all">All HTTPS destinations</option>
+      </select></label>
+      {textarea('jwtStampingDestinations', 'JWT destinations, one hostname per line', lines(jwtCurrent().destinations))}
+      <Show when={jwtMode() === 'all'}><p class="admin-form-wide" role="alert">All sends the invoking human Access assertion to every otherwise allowed HTTPS destination. Recipients may echo or disclose it.</p></Show>
+    </Match>
     <Match when={props.section === 'dataGovernance'}>{toggle('governedMode', 'Enable governed storage encryption')}{toggle('viewOnlyStorage', 'Disable storage downloads')}</Match>
     <Match when={props.section === 'managedEnvironment'}>
       {toggle('enabled', 'Enable managed environment', current().enabled === true)}{field('repository', 'Curation repository')}{field('personalAccessToken', 'Replacement personal access token', 'password', '')}{field('publicKey', 'Ed25519 public key (hex)', 'text', '')}{toggle('immutableResources', 'Keep managed resources immutable')}{toggle('disableUserCreatedResources', 'Disable user-created resources')}
@@ -100,7 +111,12 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
     };
     case 'codingAgents': return { activeAgents: data.getAll('activeAgents').map(String) };
     case 'browserRendering': return { accountId: value(data, 'accountId'), replacementToken: value(data, 'replacementToken') };
-    case 'securityEgress': return { strictGatewayEgress: checked(data, 'strictGatewayEgress') };
+    case 'securityEgress': {
+      const mode = value(data, 'jwtStampingMode') || 'off';
+      return { strictGatewayEgress: checked(data, 'strictGatewayEgress'), jwtStamping: {
+        mode, destinations: mode === 'list' ? split(data.get('jwtStampingDestinations')) : [],
+      } };
+    }
     case 'dataGovernance': return { governedMode: checked(data, 'governedMode'), viewOnlyStorage: checked(data, 'viewOnlyStorage') };
     case 'managedEnvironment': return checked(data, 'enabled') ? { enabled: true, repository: value(data, 'repository'), personalAccessToken: value(data, 'personalAccessToken'), publicKey: value(data, 'publicKey'), immutableResources: checked(data, 'immutableResources'), disableUserCreatedResources: checked(data, 'disableUserCreatedResources') } : { enabled: false };
     case 'github': return { providerType: value(data, 'providerType'), appClientId: value(data, 'appClientId'), appReplacementSecret: value(data, 'appReplacementSecret'), oauthClientId: value(data, 'oauthClientId'), oauthReplacementSecret: value(data, 'oauthReplacementSecret') };

@@ -16,7 +16,7 @@
  *     container's PLACEHOLDER `authorization` is STRIPPED and the request is RE-SIGNED with
  *     that bucket's Worker-held scoped R2 key (aws4fetch,
  *     reusing the request's `x-amz-content-sha256` so the body streams through unbuffered
- *     and SSE-C headers are preserved) — so the real R2 key never enters the container.
+ *     while trusted SSE-C headers are applied) — so neither R2 nor encryption keys enter the container.
  *   - own account-scoped CF API: direct passthrough (dormant fallback — `api.cloudflare.com`
  *     Browser Rendering is normally claimed by the per-host CloudflareBrowserInterceptor
  *     (REQ-BROWSER-008), which strips the placeholder + injects the real token and TAKES
@@ -55,8 +55,13 @@ import {
   readVerifiedManagedR2Policy,
 } from './lib/managed-r2-policy';
 import { createLogger } from './lib/logger';
+import { interceptedGithubHosts } from './github-interceptor';
+import { decideOperatorNetwork, decideOperatorStorage, type OperatorStorageOperation } from './operators/interception-policy';
+import type { OperatorPolicy } from './operators/policy';
+import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 
 const logger = createLogger('egress-controller');
+const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 
 /** Props the container DO passes at wiring time (resolved once, never per-request). */
 interface EgressProps {
@@ -73,6 +78,15 @@ interface EgressProps {
   r2SseDisabled?: boolean;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
+  /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
+  operatorPolicy?: OperatorPolicy;
+  /** Durable owner and prefix used to seal explicit sync writes before signing. */
+  operatorSync?: { activityId: string; outputPrefix: string; manifestPrefix: string };
+  /** True only for an upload ID already owned by this activity. */
+  ownedMultipart?: boolean;
+  /** Deployment policy plus current parent-verified authority; neither grants egress. */
+  jwtStamping?: JwtStampingPolicy;
+  jwtAuthority?: JwtStampingAuthority;
 }
 
 function s3PolicyError(status: 403 | 503, code: string, requestId: string): Response {
@@ -96,6 +110,32 @@ function requestedR2Bucket(url: URL, accountId: string | undefined): string | un
 async function sha256Prefix(value: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
   return Array.from(digest.slice(0, 6), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function operatorR2Path(url: URL, accountId: string | undefined, bucket: string): string | null {
+  const accountHost = `${accountId?.toLowerCase()}.r2.cloudflarestorage.com`;
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  const encoded = host === accountHost ? url.pathname.slice(`/${bucket}`.length).replace(/^\//, '')
+    : url.pathname.replace(/^\//, '');
+  try { return decodeURIComponent(encoded); } catch { return null; }
+}
+
+function operatorR2Operation(request: Request, url: URL): OperatorStorageOperation {
+  if (request.headers.has('x-amz-copy-source')) return 'copy';
+  if (request.method === 'POST' && url.searchParams.has('delete')) return 'delete';
+  if (url.searchParams.has('tagging') || url.searchParams.has('acl')) return 'control';
+  if (url.searchParams.has('uploadId')) {
+    if (request.method === 'DELETE') return 'multipart-abort';
+    if (request.method === 'PUT' || request.method === 'POST') return 'multipart-write';
+    return 'control';
+  }
+  if (url.searchParams.has('uploads')) return request.method === 'POST' ? 'multipart-write' : 'control';
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    return url.searchParams.has('list-type') || url.searchParams.has('prefix') ? 'list' : 'read';
+  }
+  if (request.method === 'PUT') return 'write';
+  if (request.method === 'DELETE') return 'delete';
+  return 'control';
 }
 
 function managedR2Operation(request: Request, url: URL): string {
@@ -158,6 +198,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
     const accountId = props.accountId;
     const accountScoped = isAccountScopedDestination(url, accountId);
     const ownR2 = isOwnAccountR2(url, accountId);
+    if (props.operatorPolicy && !ownR2) {
+      const decision = decideOperatorNetwork(props.operatorPolicy, url.hostname, interceptedGithubHosts(this.env));
+      if (!decision.allowed) return jsonError(403, 'OPERATOR_EGRESS_DENIED', 'Operator egress is not permitted');
+    }
     const scopedR2Credentials = props.r2AccessKeyId && props.r2SecretAccessKey
       ? { accessKeyId: props.r2AccessKeyId, secretAccessKey: props.r2SecretAccessKey }
       : null;
@@ -168,6 +212,40 @@ export class EgressController extends WorkerEntrypoint<Env> {
         return jsonError(403, 'EGRESS_R2_BUCKET_FORBIDDEN', 'R2 bucket is not permitted');
       }
       const boundBucket = props.bucket;
+      if (props.operatorPolicy) {
+        const path = operatorR2Path(url, accountId, boundBucket);
+        const operation = operatorR2Operation(request, url);
+        const operatorSync = props.operatorSync;
+        const syncWrite = (operation === 'write' || operation === 'multipart-write') && operatorSync
+          && path !== null && (path.startsWith(operatorSync.outputPrefix)
+            || path.startsWith(operatorSync.manifestPrefix));
+        if (syncWrite) {
+          const operationId = request.headers.get(OPERATOR_SYNC_OPERATION_HEADER) ?? '';
+          if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId)) {
+            return jsonError(403, 'OPERATOR_SYNC_SCOPE_DENIED', 'Operator sync write scope is invalid');
+          }
+          if (!this.env.OPERATOR_ACTIVITY) {
+            return jsonError(503, 'OPERATOR_SYNC_AUTHORITY_UNAVAILABLE', 'Operator sync authority is unavailable');
+          }
+          try {
+            const authorization = await this.env.OPERATOR_ACTIVITY.getByName(operatorSync.activityId)
+              .authorizeSyncWrite(operationId, path!);
+            if (!authorization.ok) {
+              const sealed = authorization.reason === 'sealed';
+              return jsonError(403, sealed ? 'OPERATOR_SYNC_SEALED' : 'OPERATOR_SYNC_SCOPE_DENIED',
+                sealed ? 'Operator sync operation is sealed' : 'Operator sync write is not authorized');
+            }
+          } catch {
+            return jsonError(503, 'OPERATOR_SYNC_AUTHORITY_UNAVAILABLE', 'Operator sync authority is unavailable');
+          }
+        } else {
+          const decision = path === null ? { allowed: false as const } : decideOperatorStorage(
+            props.operatorPolicy, operation, operation === 'list' ? (url.searchParams.get('prefix') ?? path) : path,
+            props.ownedMultipart === true,
+          );
+          if (!decision.allowed) return jsonError(403, 'OPERATOR_STORAGE_DENIED', 'Operator storage operation is not permitted');
+        }
+      }
       if (!scopedR2Credentials) {
         return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
       }
@@ -222,6 +300,11 @@ export class EgressController extends WorkerEntrypoint<Env> {
       }
     }
 
+    if (props.jwtStamping) {
+      try { effectiveRequest = prepareJwtStampedRequest(effectiveRequest, props.jwtStamping, props.jwtAuthority); }
+      catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
+    }
+
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
     // socket. Forward the original request VERBATIM (transparent proxy). Browser-run's CDP WS
     // (api.cloudflare.com /browser-rendering/devtools/...) does NOT arrive here — it is claimed
@@ -264,6 +347,17 @@ export class EgressController extends WorkerEntrypoint<Env> {
     for (const h of STRIPPED_REQUEST_HOP_BY_HOP) headers.delete(h);
     headers.delete('host');
     headers.delete('content-length');
+    headers.delete(OPERATOR_SYNC_OPERATION_HEADER);
+    if (ownR2) {
+      for (const name of [
+        'x-amz-server-side-encryption-customer-algorithm',
+        'x-amz-server-side-encryption-customer-key',
+        'x-amz-server-side-encryption-customer-key-md5',
+      ]) headers.delete(name);
+      for (const [name, value] of Object.entries(getSseHeaders(this.env, props.r2SseDisabled === true))) {
+        headers.set(name, value);
+      }
+    }
 
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.
@@ -282,8 +376,8 @@ export class EgressController extends WorkerEntrypoint<Env> {
       if (ownR2 && scopedR2Credentials) {
         // Own R2: strip the container's PLACEHOLDER signature and RE-SIGN with the bound
         // bucket's scoped key. aws4fetch reuses the request's existing x-amz-content-sha256
-        // (so the body streams through unbuffered) and signs every present header (SSE-C
-        // x-amz-* preserved). Account-scoped ⇒ egresses direct, never env.EGRESS.
+        // (so the body streams through unbuffered) and signs the trusted SSE-C headers above.
+        // Account-scoped ⇒ egresses direct, never env.EGRESS.
         const signHeaders = new Headers(forward.headers);
         signHeaders.delete('authorization');
         const signed = await createR2Client({

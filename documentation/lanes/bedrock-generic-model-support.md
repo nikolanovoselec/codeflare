@@ -72,7 +72,7 @@ Discovery and runtime build the mapped native request and validate replay before
 
 <!-- @impl: src/lib/native-ai-targets.ts::nativePromptCacheSupported --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse -->
 
-Only a target with positive same-target prefix evidence on every enabled selectable semantic mapping/operation, or retained validated historical authority under its original rules, publishes model-wide `cacheControlFormat: "anthropic"`. No-cache, Gateway-HIT-only and mixed cached/uncached profiles remain usable without that flag. Per-level UI facts must not imply model-wide cache permission. The Worker independently rejects client checkpoints when that capability is absent. Dynamic targets never receive this serialization.
+At least one positive provider-prefix observation may authorize model-wide `cacheControlFormat: "anthropic"` only for that exact receipt-bound target; retained validated historical authority keeps its original rules. No positive mapping, Gateway-HIT-only evidence, and inconclusive observations remain insufficient. Per-level UI facts must not imply permission for another target. The Worker independently rejects client checkpoints when that capability is absent. Dynamic targets never receive this serialization.
 
 Existing five-minute allowlisting, maximum four checkpoints, tool-result marker lifting, uncached/read/write accounting, `cacheRetention: none` semantics, and lifecycle explicit-empty revocation remain intact. Missing optional counters stay unmeasured. Provider thinking is included in output usage exactly once.
 

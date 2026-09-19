@@ -404,14 +404,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       const request = new Request('http://container/_internal/setBucketName', {
         method: 'POST',
-        body: JSON.stringify({ bucketName: 'new-bucket', sessionId: 'sess123' }),
+        body: JSON.stringify({ bucketName: 'new-bucket', sessionId: 'sess1234' }),
         headers: { 'Content-Type': 'application/json' },
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(409);
       // sessionId should still be stored even on 409
-      expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'sess123');
+      expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'sess1234');
     });
 
     it('dispatches GET /_internal/getBucketName to handler', async () => {
@@ -442,6 +442,26 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(400);
+    });
+
+    it('REQ-SEC-009 AC3: setBucketName rejects a non-canonical sessionId before storage or state mutation', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket', sessionId: 'Bad-session' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: 'sessionId must be 8-24 lowercase alphanumeric characters when provided',
+      });
+      expect(mockStorage.put).not.toHaveBeenCalled();
+      expect(instance._sessionId).toBeNull();
+      expect(instance._bucketName).toBeNull();
     });
 
     it('setBucketName stores sessionId in DO storage', async () => {

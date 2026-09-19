@@ -13,6 +13,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 - [Container Image](#container-image)
 - [Runtime Paths](#runtime-paths)
 - [Runtime Lifecycle](#runtime-lifecycle)
+  - [Restricted Operator Lifecycle](#restricted-operator-lifecycle)
 - [Agent Runtime Interfaces](#agent-runtime-interfaces)
 - [Release and Deployment Alias](#release-and-deployment-alias)
 - [Requirement and Source Map](#requirement-and-source-map)
@@ -196,6 +197,16 @@ That bisync baseline then runs in a **background subshell deprioritized to `nice
 Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings.
 
 **PTY PATH:** The `.bashrc` tab autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find globally installed CLI tools.
+
+### Restricted Operator Lifecycle
+
+A parent-marked `CODEFLARE_OPERATOR_SESSION=true` selects a separate startup and shutdown lane under [REQ-OPERATOR-022](../../sdd/spec/operators.md#req-operator-022-restricted-operator-container-lifecycle). It does not change the ordinary lifecycle above.
+
+At startup, PID1 validates that the parent-provided Pi and sync configurations have the same bounded activity and session identities and resolve to the fixed `/home/user/.codeflare/operators/<activityId>` tree. It creates mode-0700 `work`, `agent`, `sessions`, `output`, and private metadata directories, and copies only trusted Pi model/settings/auth inputs as mode-0600 files. It then releases readiness without running whole-home R2 restore, managed-policy restore, the bisync baseline or daemon, Vault restore, or repository clone. The restricted environment also omits broad user/deployment credentials and exposes only the parent-bound service configuration. <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+
+At shutdown, PID1 stops supervised processes and waits for an already accepted explicit operator upload whose receipt is still `uploading`, for at most 120 seconds. It never starts a new upload, ordinary bisync, or final-sync operation. It then stops the terminal host. An unsettled upload remains visibly incomplete or unknown for parent reconciliation; shutdown does not claim persistence from elapsed time alone. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @impl: entrypoint.sh::shutdown_handler -->
+
+Structured Pi and explicit sync are private authenticated host services, not PTY replacements. Ordinary human sessions retain their existing startup, root execution, PTYs, periodic sync, and final drain. See [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis) and [Restricted operator persistence](storage-and-sync.md#restricted-operator-persistence).
 
 ### code-server (Browser IDE)
 

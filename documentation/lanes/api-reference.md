@@ -11,6 +11,8 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Conventions](#conventions)
 - [Session Management](#session-management)
 - [Container Lifecycle](#container-lifecycle)
+- [Operator Activities](#operator-activities)
+- [Internal Operator Host APIs](#internal-operator-host-apis)
 - [Terminal](#terminal)
 - [Vault](#vault)
 - [Browser IDE](#browser-ide)
@@ -119,6 +121,73 @@ These are endpoint observations, not persisted lifecycle states. `details` ident
 Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later generation-bound D1 lifecycle claim are not atomic. Concurrent-session admission is explicitly best effort, so simultaneous starts may exceed the nominal per-user limit; deployment `max_instances` is a separate hard platform boundary. Enterprise currently follows the non-SaaS role-based resolver, while [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit.
 
 A successful start response means asynchronous startup was accepted, not that ports are ready. If `startAndWaitForPorts()` later fails, the background task retains generation-fenced lifecycle truth for reconciliation; clients do not infer stopped from the transport failure. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
+
+## Operator Activities
+
+These Worker routes exist only in enterprise mode and implement [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-017](../../sdd/spec/operators.md#req-operator-017-durable-drive-generations), [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration), [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-026](../../sdd/spec/operators.md#req-operator-026-managed-webhook-edge-bypass), [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge), [REQ-OPERATOR-031](../../sdd/spec/operators.md#req-operator-031-non-consuming-webhook-observation), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface), and [REQ-OPERATOR-033](../../sdd/spec/operators.md#req-operator-033-activity-surface-resilience).
+
+| Method | Path | Auth | Implements | Description |
+|---|---|---|---|---|
+| POST | `/api/operator-activities` | Session, verified current human Access, CSRF | [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Prepare an activity and issue its start capability. |
+| GET | `/api/operator-activities` | Session and verified human Access | [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | List owner-scoped activity summaries. |
+| GET | `/api/operator-activities/:activityId` | Session and exact owner | [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Read one bounded activity detail. |
+| POST | `/api/operator-activities/:activityId/start` | Session, exact owner, CSRF | [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Admit and schedule one winning direct drive. |
+| POST | `/api/operator-activities/:activityId/continue` | Session, exact owner, CSRF | [REQ-OPERATOR-017](../../sdd/spec/operators.md#req-operator-017-durable-drive-generations), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Schedule a new generation for durable waiting work. |
+| POST | `/api/operator-activities/:activityId/cancel` | Session, exact owner, CSRF | [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Fence the owned drive without overstating cleanup. |
+| GET / POST | `/api/operator-activities/:activityId/result` | Session and exact owner; POST also requires CSRF | [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Observe or collect an activity result. |
+| POST | `/operator-webhook/v1/activities/:activityId/start` | Activity start bearer capability | [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge) | Queue one activity and issue read authority once. |
+| GET | `/operator-webhook/v1/activities/:activityId/status` | Activity read bearer capability | [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge), [REQ-OPERATOR-031](../../sdd/spec/operators.md#req-operator-031-non-consuming-webhook-observation) | Read bounded status without consumption. |
+| POST | `/operator-webhook/v1/activities/:activityId/result` | Activity read bearer capability | [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge), [REQ-OPERATOR-031](../../sdd/spec/operators.md#req-operator-031-non-consuming-webhook-observation) | Redeem one terminal result. |
+
+### Browser activity endpoint details
+
+All browser activity routes are enterprise-only. Missing bindings return `503`; missing or invalid current human authentication returns `401`; POST without the CSRF header returns `403`; and invalid, absent, or other-owner activity IDs return `404`. <!-- @impl: src/routes/operator-activities.ts -->
+
+- `POST /api/operator-activities` accepts bounded JSON `{ operatorId, invocation }`. A `201` response is `{ activityId, startCapability, startExpiresAt }`; activity identity, registration revision, policy, artifact, and authority are server-selected. [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration)
+- `GET /api/operator-activities` returns `{ items }` with at most 100 owner-scoped secret-free summaries. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `GET /api/operator-activities/:activityId` returns bounded execution, cleanup, collection, checkpoint, and result state without credentials. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `POST /api/operator-activities/:activityId/start` accepts `{ capability }`. One winning admission returns the queued outcome and schedules one request-attached drive; rejected or repeated starts return `409` with the durable reason and schedule nothing. [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration)
+- `POST /api/operator-activities/:activityId/continue` accepts no body. For exact owner-scoped durable `waiting` work with a checkpoint, it returns `202 { ok: true, phase: "queued" }` and schedules one generation-fenced request-attached drive. Other states return `409 CONTINUATION_NOT_READY`. [REQ-OPERATOR-017](../../sdd/spec/operators.md#req-operator-017-durable-drive-generations), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `POST /api/operator-activities/:activityId/cancel` returns current bounded detail after fencing. Rejection returns `409` with the durable reason; success does not claim that compute cleanup has completed. [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+- `GET /api/operator-activities/:activityId/result` observes the same bounded detail without consumption. `POST` marks one terminal browser result collected; a nonterminal result returns `409 RESULT_NOT_READY`. [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface)
+
+### Webhook activity endpoint details [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge) <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->
+
+The webhook family accepts no request body, is throttled, uses `Cache-Control: no-store`, and is the only route family covered by the narrow managed Access bypass. Start success queues one admitted activity and returns its read capability once. Status is non-consuming. Result returns `202` while not ready and consumes one terminal redemption before delivery. <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/activity.ts --> <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp -->
+
+| Operation outcome | Status | Response envelope |
+|---|---:|---|
+| Start queued | `200` | `{ "ok": true, "phase": "queued", "readCapability": "<capability>" }` |
+| Status available | `200` | `{ "ok": true, "terminal": false, "status": "<activity status>" }`; terminal status sets `terminal` to `true` and includes `result` |
+| Result not ready | `202` | `{ "error": "Webhook capability operation rejected", "code": "WEBHOOK_NOT_READY" }` |
+
+These fixed envelopes are produced by the webhook route from the durable activity result. <!-- @test: src/__tests__/routes/operator-webhook.test.ts (routes fixed operations with exact response shapes, no-store and no token reflection) -->
+
+Non-enterprise or unknown routes return `404`; an invalid method returns `405`; a body returns `400`; throttling returns `429`; and missing or invalid capability returns `401`. Durable capability outcomes map expiry to `410`, consumed/already-started to `409`, missing preparation to `404`, admission or authority denial to `403`, and uncertain/unavailable service to `503`. Static assets run the Worker first for every request, so `/operator-webhook/*` reaches Worker logic before SPA fallback. <!-- @impl: wrangler.toml --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/routes/operator-webhook.ts --> <!-- @impl: src/operators/orchestrator.ts -->
+
+## Internal Operator Host APIs
+
+These routes are private container-host contracts for a restricted operator session; they are not public Worker endpoints. Every request first requires the container Bearer token. The routes exist only when trusted parent startup supplied the matching operator service configuration, use `Cache-Control: no-store`, accept at most 64 KiB of JSON, and are governed by [REQ-OPERATOR-021](../../sdd/spec/operators.md#req-operator-021-structured-owned-pi-conversation) and [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization). Candidate input cannot choose the activity, Codeflare session, filesystem root, model, tools, bucket, R2 credentials, policy, remote prefix, or authority deadline.
+
+### Structured Pi
+
+| Method | Private host path | Request | Success response | Errors |
+|---|---|---|---|---|
+| POST | `/internal/operator/pi/ensure` | Empty JSON object | `200 { conversationId, ready: true }`; creates once or reopens only the exact persisted conversation | `400 PI_REQUEST_INVALID`; `409 PI_OPERATION_CONFLICT` if the owned conversation is lost or cannot be reconciled; `500 PI_OPERATION_FAILED` |
+| POST | `/internal/operator/pi/tasks` | Prompt form: `{ taskId, digest, text, mode }`, where mode is `prompt`, `follow-up`, or `steer`. Native-tool form: `{ taskId, digest, mode: "tool", toolName, arguments }`. IDs are 1–128 safe characters, digest is lowercase SHA-256, and text/tool arguments are bounded to 32 KiB. | `202 { taskId, status }`; stable task identity reconciles an exact repeat. Tool mode invokes only an active tool already approved by the trusted Pi profile. | `400 PI_REQUEST_INVALID`; `409 PI_OPERATION_CONFLICT` for changed identity, busy state, or a full pending follow-up/steer slot; `500 PI_OPERATION_FAILED` |
+| GET | `/internal/operator/pi/events?cursor=<sequence>` | Optional nonnegative safe-integer cursor; no other query keys | `200 { events, nextCursor, gap }`; at most 100 events and 64 KiB, with `gap: true` when retained history no longer covers the cursor | `400 PI_REQUEST_INVALID`; `500 PI_OPERATION_FAILED` |
+| POST | `/internal/operator/pi/tasks/:taskId/abort` | Empty JSON object | `200 { taskId, status: "cancelled" }` after SDK abort and current prompt settlement | `400 PI_REQUEST_INVALID`; `404 PI_TASK_NOT_FOUND`; `409 PI_OPERATION_CONFLICT`; `500 PI_OPERATION_FAILED` |
+
+Unsupported methods return `405 METHOD_NOT_ALLOWED`; unknown paths under the prefix return `404 PI_ROUTE_NOT_FOUND`. Task intent is persisted before SDK submission. The service does not replace a missing conversation or automatically replay an uncertain effect. <!-- @impl: host/src/operator-pi-http.ts::OperatorPiHttpController --> <!-- @impl: host/src/operator-pi-service.ts::createOperatorPiService -->
+
+### Explicit operator output sync <!-- @impl: host/src/operator-sync-http.ts::OperatorSyncHttpController -->
+
+| Method | Private host path | Request | Success response | Errors |
+|---|---|---|---|---|
+| POST | `/internal/bisync-trigger` | Scoped operator Sync now body `{ operationId, requestDigest, files }`; at most 128 unique canonical paths beneath `~/Operators` and 8 MiB total, each with exact `path`, `size`, and lowercase SHA-256 | `200` with the persisted version-1 receipt after every declared file and the private final manifest upload; an uncertain remote outcome returns `202 { status: "unknown", code: "SYNC_OUTCOME_UNKNOWN" }` | `400 SYNC_REQUEST_INVALID`; `403 SYNC_AUTHORITY_EXPIRED`; `409 SYNC_CONFLICT`, `SYNC_OUTPUT_NOT_FOUND`, or `SYNC_OUTPUT_MISMATCH`; `413 REQUEST_TOO_LARGE`; `500 SYNC_OPERATION_FAILED`; `503 SYNC_STATE_FAILED` |
+| GET | `/internal/operator/sync/operations/:operationId` | No query parameters; a request body up to 64 KiB is ignored | `200` with the current credential-free receipt | `400 SYNC_REQUEST_INVALID` for query parameters; `404 SYNC_NOT_FOUND`; `413 REQUEST_TOO_LARGE` for a larger body |
+
+Declared files are read from the fixed `~/Operators` root without following symlinks, checked against their exact size and digest, and mirrored beneath R2 `Operators/**`. The private parent-selected `.codeflare/operators/<activity>/<operation>/` prefix receives `manifest.json` only after every declared file upload. Exact completed repeats reconcile, changed repeats conflict, and a pre-existing nonterminal receipt is fenced as unknown rather than replayed. Restricted sessions use `/internal/bisync-trigger` for this scoped Sync now contract; only `/internal/final-sync` remains denied with `403 OPERATOR_BISYNC_DENIED`. <!-- @impl: host/src/operator-sync-http.ts::OperatorSyncHttpController --> <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
 
 ## Terminal
 

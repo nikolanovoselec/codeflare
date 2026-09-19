@@ -44,10 +44,12 @@
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { ForbiddenError } from './lib/error-types';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
-import { canonicalHash, translateRuntimeReasoningRequest } from './lib/reasoning-profiles';
+import { canonicalHash, isPiReasoningLevel, stripRuntimeReasoningRequest,
+  translateRuntimeReasoningRequest, type NormalizedReasoningProfile } from './lib/reasoning-profiles';
 import { compatibilityRequest, compatibilityResponse, type CompatibilityWire } from './lib/ai-capability-discovery/compatibility-wire';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
 import { verificationMatches } from './lib/reasoning-verification';
@@ -58,6 +60,9 @@ import { nativeProviderSelector } from './lib/native-ai-targets';
 import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
 import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
 import { encryptForKV, getAndDecrypt, getOrImportKey } from './lib/kv-crypto';
+import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
+import type { OperatorPolicy } from './operators/policy';
+import { resolveOperatorInference, type EffectiveOperatorInference } from './operators/inference-selection';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -131,6 +136,11 @@ interface InterceptorProps {
   gatewayUrl?: string;
   gatewayId?: string;
   token?: string;
+  jwtStamping?: JwtStampingPolicy;
+  jwtAuthority?: JwtStampingAuthority;
+  /** Parent-owned selection; child payload cannot widen or replace it. */
+  operatorInference?: { activityId: string; operatorId: string; policy: OperatorPolicy;
+    trusted: { routeId: string; reasoningLevel: string | null } };
 }
 
 /**
@@ -296,6 +306,18 @@ function ensureStreamTerminator(): TransformStream<Uint8Array, Uint8Array> {
   });
 }
 
+function applyEffectiveReasoning(payload: Record<string, unknown>, profile: NormalizedReasoningProfile,
+  scopeDefault: string, operatorSelection: EffectiveOperatorInference | null): Record<string, unknown> {
+  if (!operatorSelection) return translateRuntimeReasoningRequest(payload, profile, scopeDefault);
+  if (operatorSelection.reasoningLevel === null) return stripRuntimeReasoningRequest(payload, profile);
+  if (!isPiReasoningLevel(operatorSelection.reasoningLevel)
+    || !profile.supportedLevels.includes(operatorSelection.reasoningLevel)) {
+    throw new Error('Operator reasoning level is not eligible');
+  }
+  return translateRuntimeReasoningRequest({ ...payload, reasoning_effort: operatorSelection.reasoningLevel },
+    profile, operatorSelection.reasoningLevel);
+}
+
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     // AI Gateway URL/token come from the DO props (wizard-first KV with deploy-secret env
@@ -366,9 +388,11 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // user matching more groups than fit is truncated DETERMINISTICALLY (configured
     // order, preserved from resolveUserAccessGroup) and the drop is LOGGED (never
     // silent). The scalar `group` tag is dropped entirely (revised contract).
-    const metadata: Record<string, string | number> = { user: user ?? 'unknown' };
+    const metadata: Record<string, string | number> = { user: user ?? 'unknown',
+      ...(props?.operatorInference ? { operator: props.operatorInference.operatorId,
+        activity: props.operatorInference.activityId } : {}) };
     const groups = props?.groups ?? [];
-    const groupBudget = MAX_METADATA_TAGS - 1; // user always occupies one slot.
+    const groupBudget = MAX_METADATA_TAGS - (props?.operatorInference ? 3 : 1); // trusted attribution has priority.
     const kept = groups.slice(0, groupBudget);
     if (groups.length > groupBudget) {
       console.warn(`LlmInterceptor: ${groups.length} matched groups exceed the ${groupBudget}-group metadata budget; keeping the first ${groupBudget} (configured order) and dropping ${groups.slice(groupBudget).join(', ')}`);
@@ -421,6 +445,18 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         status: 403, headers: { 'Content-Type': 'application/json' },
       });
     }
+    let operatorSelection: EffectiveOperatorInference | null = null;
+    if (catalog && props?.operatorInference) {
+      try {
+        operatorSelection = resolveOperatorInference({ eligible: { routeIds: catalog.routes,
+          defaultRouteId: catalog.defaultRoute, defaultReasoningLevel: catalog.defaultReasoning },
+        policy: props.operatorInference.policy, trusted: props.operatorInference.trusted });
+      } catch {
+        return new Response(JSON.stringify({ error: 'Operator inference selection is not eligible', code: 'ROUTE_NOT_ELIGIBLE' }), {
+          status: 403, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
     if (hasBody && isModelRoutable && catalog) {
       // Buffer the body ONCE as text so it can be REPLAYED across both transports
       // on fallback (a stream could only be consumed once). Reading the inbound
@@ -454,7 +490,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
           });
         }
         {
-          const handle = typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute;
+          const handle = operatorSelection?.routeId
+            ?? (typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute);
           const requestedNative = handle.startsWith('cf-native-');
           if (requestedNative && !catalog.nativeTargets[handle] && !catalog.routes.includes(handle)) {
             return new Response(JSON.stringify({ error: 'Native target is not authorized', code: 'ROUTE_NOT_ELIGIBLE' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
@@ -475,10 +512,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
             try {
-              payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+              payload = applyEffectiveReasoning(payload, profile, catalog.defaultReasoning, operatorSelection);
             } catch {
-              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
-                status: 400, headers: { 'Content-Type': 'application/json' },
+              return new Response(JSON.stringify({ error: operatorSelection
+                ? 'Operator reasoning level is not eligible' : 'Reasoning profile configuration unavailable',
+              code: operatorSelection ? 'REASONING_NOT_ELIGIBLE' : 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: operatorSelection ? 403 : 400, headers: { 'Content-Type': 'application/json' },
               });
             }
             if (native.transport === 'aig-legacy-compat') {
@@ -552,11 +591,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
             compatibilityWire = profile.compatibility;
             compatClientStreaming = payload.stream === true;
             try {
-              payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+              payload = applyEffectiveReasoning(payload, profile, catalog.defaultReasoning, operatorSelection);
               payload = compatibilityRequest(payload, compatibilityWire);
             } catch {
-              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
-                status: 400, headers: { 'Content-Type': 'application/json' },
+              return new Response(JSON.stringify({ error: operatorSelection
+                ? 'Operator reasoning level is not eligible' : 'Reasoning profile configuration unavailable',
+              code: operatorSelection ? 'REASONING_NOT_ELIGIBLE' : 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: operatorSelection ? 403 : 400, headers: { 'Content-Type': 'application/json' },
               });
             }
           }
@@ -571,18 +612,19 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // to one surfaces the masked "Model execution failed", also 404). A 404 is a
     // complete error body — not a stream — so the replay never double-bills or
     // truncates a partial response. Genuine non-404 errors are returned as-is.
-    const sendTo = (target: string, h: Headers, body: BodyInit | null | undefined = outboundBody): Promise<Response> =>
-      fetch(
-        new Request(target, {
-          method: request.method,
-          headers: h,
-          body,
-          // Do not transparently follow gateway/provider redirects — a 3xx would
-          // otherwise be chased to an arbitrary Location host. Surface it to the
-          // agent's client instead.
-          redirect: 'manual',
-        }),
-      );
+    const sendTo = (target: string, h: Headers, body: BodyInit | null | undefined = outboundBody): Promise<Response> => {
+      let forward = new Request(target, {
+        method: request.method,
+        headers: h,
+        body,
+        // Do not transparently follow gateway/provider redirects — a 3xx would
+        // otherwise be chased to an arbitrary Location host. Surface it to the
+        // agent's client instead.
+        redirect: 'manual',
+      });
+      if (props?.jwtStamping) forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority);
+      return fetch(forward);
+    };
 
     let upstream: Response;
     try {
@@ -595,6 +637,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         upstream = await sendTo(compatUrl, compatHeaders, stripOpenAiOnlyFields(outboundBody));
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) return new Response(JSON.stringify({
+        error: 'Current human Access authority is required', code: 'JWT_STAMPING_AUTHORITY_UNAVAILABLE',
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } });
       // A thrown fetch (DNS, TLS, connection reset to the gateway) would otherwise
       // escape as an opaque 500; surface it as a clean 502 and log the cause.
       console.error('LlmInterceptor: upstream gateway fetch failed', {

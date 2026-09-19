@@ -111,4 +111,5 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
       'Dockerfile must symlink fdfind to /usr/local/bin/fd so the `fd` command works'
     );
   });
+
 });

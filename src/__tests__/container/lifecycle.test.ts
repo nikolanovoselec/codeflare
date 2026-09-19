@@ -942,4 +942,51 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(interceptOutboundHttps).not.toHaveBeenCalled();
     });
   });
+
+  describe('operator context composition (REQ-OPERATOR-005)', () => {
+    const operatorProfile = {
+      schemaVersion: 1 as const, activityId: 'activity-1', operatorId: 'operator-1', sessionId: 'session-1', ownerBucket: 'owner-bucket',
+      policyDigest: 'b'.repeat(64), deadline: Date.now() + 500_000,
+      outputPrefix: 'Operators/', human: { subject: 'human-1', email: 'owner@example.test', issuer: 'https://issuer.example.test/', audiences: ['aud-1'] },
+      policy: { schemaVersion: 1 as const, networkHosts: ['allowed.example.test'],
+        github: { repositories: [], methods: [] }, storage: { readPrefixes: ['input/'], writePrefixes: ['output/'] },
+        inference: { routeIds: ['route-1'], defaultRouteId: 'route-1', reasoningLevels: ['medium'],
+          defaultReasoningLevel: 'medium', inheritUserDefaults: false } },
+      jwtPolicy: { mode: 'off' as const, destinations: [] as [] },
+      piProfile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'medium',
+        systemPrompt: 'Approved operator context', tools: ['read'] },
+    };
+    const authority = { accessJwt: 'signed-access-jwt', human: { ...operatorProfile.human, issuedAt: 1,
+      expiresAt: Math.floor(Date.now() / 1000) + 600 } };
+
+    it('exposes parent-only configure/rebind RPCs and publishes env only after durable profile commit', async () => {
+      const instance = new ContainerClass(mockCtx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' });
+      await vi.waitFor(() => expect(mockStorage.get).toHaveBeenCalledWith('vaultKey'));
+      (instance as any)._bucketName = 'owner-bucket';
+      (instance as any)._sessionId = 'session-1';
+      await instance.configureOperatorContext(operatorProfile, authority);
+      expect(mockStorage.put).toHaveBeenCalledWith('operatorContainerProfile', expect.objectContaining({ activityId: 'activity-1' }));
+      expect((instance as any)._operatorPolicy.networkHosts).toEqual(['allowed.example.test']);
+      expect((instance as any)._jwtStamping).toEqual({ mode: 'off', destinations: [] });
+      expect((instance as any)._jwtAuthority.accessJwt).toBe('signed-access-jwt');
+      expect(instance.envVars!.CODEFLARE_OPERATOR_SESSION).toBe('true');
+      expect((instance as any).enableInternet).toBe(false);
+      expect(() => instance.bindOperatorAuthority({ ...authority,
+        human: { ...authority.human, subject: 'other' } })).toThrow(/authority/i);
+    });
+
+    it('restores restrictions before startup without restoring raw authority', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'owner-bucket';
+        if (key === '_sessionId') return 'session-1';
+        if (key === 'operatorContainerProfile') return structuredClone(operatorProfile);
+        return null;
+      });
+      const instance = new ContainerClass(mockCtx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' });
+      await vi.waitFor(() => expect(instance.envVars?.CODEFLARE_OPERATOR_SESSION).toBe('true'));
+      expect((instance as any)._operatorPolicy.networkHosts).toEqual(['allowed.example.test']);
+      expect((instance as any)._jwtAuthority).toBeUndefined();
+      expect((instance as any).enableInternet).toBe(false);
+    });
+  });
 });

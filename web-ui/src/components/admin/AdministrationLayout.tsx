@@ -36,6 +36,8 @@ const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
     return [
       { href: '/admin', label: 'Overview', icon: mdiViewDashboardOutline, show: true },
       { href: '/admin/environment', label: 'Environment', icon: mdiCogOutline, show: true },
+      // Operator management inherits this shell; it never appears in other deployment modes.
+      { href: '/admin/operators', label: 'Operators', icon: mdiWrenchOutline, show: mode === 'enterprise' },
       { href: '/admin/users', label: 'Users', icon: mdiAccountMultipleOutline, show: mode !== 'enterprise' },
       { href: '/admin/subscriptions', label: 'Subscription Tiers', icon: mdiCreditCardOutline, show: mode === 'saas' },
       { href: '/admin/analytics', label: 'Analytics', icon: mdiChartLine, show: true },

@@ -182,7 +182,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
           ? 'mutable managed resources require a null path digest'
           : null;
     const validationError = resourceIdentityError ?? validateBucketNameInput({
-      bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
+      bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
       workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames, promptCacheTargets,
     });
     if (validationError) {

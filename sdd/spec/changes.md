@@ -2,6 +2,26 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-19
+
+- **Runtime image requires Debian's fixed libevent package** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)). Enterprise Integration deployment run `35433182220` exposed six fixable HIGH/CRITICAL `libevent-core-2.1-7` findings before image publication. Runtime assembly now installs the package explicitly and fails unless it reaches `2.1.12-stable-8+deb12u1`; no vulnerability exception is added.
+
+- **Native Bedrock tool completion is terminally certified and old unexecuted fragments are recoverable** ([REQ-ENTERPRISE-073](enterprise-mode.md#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-076](enterprise-mode.md#req-enterprise-076-provider-native-bedrock-protocol-translation), [REQ-ENTERPRISE-085](enterprise-mode.md#req-enterprise-085-provider-native-bedrock-incomplete-tool-recovery)). Invoke and Eventstream publish and persist structured tools only after Bedrock terminates with `tool_use`; `max_tokens` preserves safe text, usage, and `length` without creating executable replay state. Existing proposals with zero tool results may be omitted after a later text-only user turn proves abandonment, retaining safe prose and preserving exact fail-closed validation for completed, partial, ambiguous, and non-text histories. This repairs ordinary continuation and compaction over already-poisoned transcripts without weakening authentic signed replay or changing profiles, transport authority, retry policy, or adapter identity.
+
+- **Native route publication uses one bounded output ceiling** ([REQ-ENTERPRISE-058](enterprise-mode.md#req-enterprise-058-native-model-container-publication) AC5). Provider-default and explicit Native routes publish the same 16,384-token output cap while retaining their distinct reasoning-choice mappings and unchanged administrator context.
+
+- **Exact-target prompt-cache permission accepts one positive provider observation** ([REQ-ENTERPRISE-083](enterprise-mode.md#req-enterprise-083-native-bedrock-prompt-cache-checkpoints) AC1). At least one positive provider-prefix mapping authorizes checkpoints only for its receipt-bound Native target. Zero positive mappings, Gateway-HIT-only evidence, and inconclusive observations remain insufficient; Dynamic routes remain unchanged.
+
+## 2026-09-17
+
+- **Operator final-review corrections** ([Operators](operators.md), REQ-OPERATOR-005/009/020/022/023/027/036–039). Non-Governed operator R2 writes and independent reads use trusted parent-owned SSE-C headers so ordinary `Operators/**` restore remains readable without exposing the encryption key. Headless bootstrap settles bucket encryption migration before managed configuration reconciliation. Scoped Sync documentation distinguishes visible output from private manifests and its classified failures. Acceptance criteria separate lifecycle, consumer and owner-scoped mutation outcomes while preserving the existing implementation boundary.
+
+## 2026-09-16
+
+- **Operator review corrections** ([Operators](operators.md), REQ-OPERATOR-002–035). Restore requirements with pending deployed acceptance to Planned, split independently observable criteria and use independently resolvable source/test anchors. Add authenticated request-attached direct orchestration with one 25-second transport/runtime deadline, admission-pinned distribution authority, admission-only activity publication, safe host JSON responses, descriptor-validated output reads and explicit webhook asset routing. Gate 1 deployment proof remains pending.
+
+- **Enterprise Operator foundation specification** ([Operators](operators.md)). Specify Phase-1-only registration, verified human authority, durable runtime, restrictive interception, structured Pi/session/persistence interfaces, optional encrypted webhook handoff, managed narrow Access bypass and enterprise surfaces. Existing root sessions, human/non-enterprise behavior and local review resources remain unchanged. Private Flue and operational Remote Reviews are later phases. Requirements start Planned. CI run 35119689823 at tests-first commit `28c40a97` demonstrated 19 failing signed-human-claims cases before implementation. The shared verifier and stricter human-claims API passed exact-head CI 35120031781 at `18960850` (REQ-OPERATOR-001 Implemented). Discovery/bundle validation follows 47 behavioral RED cases at `5b530c82` in CI 35121144349 and passed exact-head CI 35122553530 at `798fccda`. The next tests-first slice specifies authenticated, redirect-free, bounded distribution transport. No deployed operator acceptance is claimed.
+
 ## 2026-09-14
 
 - **Node 26 terminal host/runtime** (REQ-OPS-011). Advance the glibc-based host/build/runtime image and host CI to Node 26 while preserving all three Node 22 Browser IDE build stages; no permissions or platform privileges change.

@@ -771,6 +771,19 @@ jobs:
             echo "| Image reused (build/scan skipped) | ${REUSED} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  operator-gate1-fixture:
+    name: Deploy Operator Gate 1 fixture
+    needs: [prepare, deploy]
+    if: >-
+      !cancelled() &&
+      needs.deploy.result == 'success' &&
+      needs.prepare.outputs.env_name == 'enterprise integration'
+    # The callee binds the enterprise-integration environment itself. Inherit is
+    # required so repository-scoped Cloudflare credentials accompany its
+    # environment-scoped fixture secret without copying values into this job.
+    uses: ./.github/workflows/deploy-operator-gate1.yml
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+
   # A Deploy run in which every gated job declines to run reports `success`,
   # because a skipped job is not a failed one. `gh run list --workflow=deploy.yml`
   # then shows a green Deploy against a SHA that was never deployed — which is

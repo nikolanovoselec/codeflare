@@ -230,7 +230,17 @@ export function nativePromptCacheSupported(target: NativeAiTarget, profile?: Nor
     const evidence = target.verification?.discovery;
     if (!evidence || !genericDiscoveryQualifies(target, profile)) return false;
     return evidence.schemaVersion === 1 ? evidence.nativePromptCache === true
-      : evidence.mappings.length > 0 && evidence.mappings.every((mapping) => mapping.cache === 'provider-prefix');
+      // Bedrock prompt caching is a property of this receipt-bound
+      // provider/model/region Messages contract, not of an effort value. Both
+      // InvokeModel operations forward the same native system cache_control
+      // blocks. A positive provider cache-read on either operation therefore
+      // authorizes Pi to publish those checkpoints for the exact target. Using
+      // `every` here disabled checkpoints target-wide when an independent
+      // effort probe was inconclusive (the observed Opus Eventstream failure),
+      // which made subsequent real traffic incapable of producing cache reads.
+      // This remains fail closed when no mapping has positive provider evidence;
+      // Gateway response HITs and inconclusive observations do not qualify.
+      : evidence.mappings.some((mapping) => mapping.cache === 'provider-prefix');
   }
   return target.profileRef.id === 'bedrock-anthropic-native-sonnet' || target.profileRef.id.startsWith('bedrock-anthropic-native-opus-');
 }

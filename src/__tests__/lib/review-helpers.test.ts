@@ -39,6 +39,7 @@ type TranscriptFacts = {
   launchIssues: Array<{ toolUseId: string; target: ReviewLane | 'ci-monitor'; problems: string[] }>;
 };
 type PlannedReviewHelpers = {
+  executableShellSegments(command: string): Array<{ command: string; separatorBefore?: string; separatorAfter?: string }>;
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
   isReviewMergeCommand(command: string): boolean;
   exposureTargetsCheckedOutBranch(command: string, identity: { branch: string; pr: number; repository: string }): boolean;
@@ -312,9 +313,13 @@ describe('Claude-equivalent review boundary helpers', () => {
   });
 
   it('REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity', async () => {
-    const { exposureTargetsCheckedOutBranch } = await plannedHelpers();
+    const { executableShellSegments, exposureTargetsCheckedOutBranch } = await plannedHelpers();
     const current = { branch: 'feature', pr: 42, repository: 'owner/repo' };
     expect(exposureTargetsCheckedOutBranch('git push origin feature', current)).toBe(true);
+    expect(executableShellSegments('git push origin feature 2>&1')).toEqual([
+      { command: 'git push origin feature 2>&1', separatorBefore: undefined },
+    ]);
+    expect(exposureTargetsCheckedOutBranch('git push origin feature 2>&1', current)).toBe(true);
     expect(exposureTargetsCheckedOutBranch('git push origin unrelated', current)).toBe(false);
     expect(exposureTargetsCheckedOutBranch('git push origin HEAD:other', current)).toBe(false);
     expect(exposureTargetsCheckedOutBranch('git push origin HEAD:feature', current)).toBe(true);

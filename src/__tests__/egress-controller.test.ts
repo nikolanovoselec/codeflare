@@ -10,9 +10,12 @@
  * WebSocket upgrades are BRIDGED (a fresh WebSocketPair accepted on both ends), not returned
  * as-is. `strict` comes from props (no per-request KV read).
  */
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
+import type { OperatorPolicy } from '../operators/policy';
+import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 
 const policyLogs = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -25,6 +28,13 @@ vi.mock('../lib/logger', () => ({
 }));
 
 const STRICT_KEY = 'setup:strict_egress';
+const jwtAuthority: JwtStampingAuthority = { human: { subject: 'human', email: 'human@example.test',
+  issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+  expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'verified.jwt' };
+const operatorPolicy: OperatorPolicy = { schemaVersion: 1, networkHosts: ['allowed.example.test'],
+  github: { repositories: [], methods: [] }, storage: { readPrefixes: ['inputs/'], writePrefixes: ['outputs/activity/'] },
+  inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null,
+    inheritUserDefaults: false } };
 
 function makeController(
   envOverrides: Partial<Env> & { __kv?: Record<string, string> } = {},
@@ -38,6 +48,11 @@ function makeController(
     pathsDigest?: string;
     r2SseDisabled?: boolean;
     strict?: boolean;
+    operatorPolicy?: OperatorPolicy;
+    operatorSync?: { activityId: string; outputPrefix: string; manifestPrefix: string };
+    ownedMultipart?: boolean;
+    jwtStamping?: JwtStampingPolicy;
+    jwtAuthority?: JwtStampingAuthority;
   } = { accountId: 'acc' },
 ) {
   const kvStore = envOverrides.__kv ?? { [STRICT_KEY]: 'active' };
@@ -75,6 +90,142 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-OPERATOR-019: verified Access stamping in generic egress', () => {
+  it('stamps an eligible request after network authorization while preserving Authorization', async () => {
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy,
+      jwtStamping: { mode: 'list', destinations: ['allowed.example.test'] }, jwtAuthority });
+    const response = await controller.fetch(new Request('https://allowed.example.test/path', {
+      headers: { authorization: 'Bearer specialized', 'cf-access-jwt-assertion': 'spoof' },
+    }));
+    expect(response.status).toBe(200);
+    const forwarded = egressFetch.mock.calls[0][0] as Request;
+    expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
+    expect(forwarded.headers.get('authorization')).toBe('Bearer specialized');
+  });
+
+  it('strips spoofed assertions when stamping is Off', async () => {
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy,
+      jwtStamping: { mode: 'off', destinations: [] }, jwtAuthority });
+    expect((await controller.fetch(new Request('https://allowed.example.test/path', {
+      headers: { 'cf-access-jwt-assertion': 'spoof' },
+    }))).status).toBe(200);
+    expect((egressFetch.mock.calls[0][0] as Request).headers.get('cf-access-jwt-assertion')).toBeNull();
+  });
+});
+
+describe('REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials', () => {
+  it('denies undeclared general egress and specialized GitHub without forwarding', async () => {
+    for (const url of ['https://denied.example.test/path', 'https://api.github.com/repos/octo/repo']) {
+      const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy });
+      const response = await controller.fetch(new Request(url));
+      expect(response.status).toBe(403);
+      expect((await response.json() as { code?: string }).code).toBe('OPERATOR_EGRESS_DENIED');
+      expect(egressFetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('forwards declared general egress through the existing Gateway path', async () => {
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', operatorPolicy });
+    expect((await controller.fetch(new Request('https://allowed.example.test/path'))).status).toBe(200);
+    expect(egressFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the parent activity before writing an owned sync operation and denies sealed writes before signing', async () => {
+    const authorizeSyncWrite = vi.fn(async () => ({ ok: false as const, reason: 'sealed' as const }));
+    const activityNamespace = { getByName: vi.fn(() => ({ authorizeSyncWrite })) };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    try {
+      const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
+        accountId: 'acc', operatorPolicy: { ...operatorPolicy,
+          storage: { ...operatorPolicy.storage, writePrefixes: ['outputs/activity/'] } },
+        operatorSync: { activityId: 'activity', outputPrefix: 'outputs/activity/',
+          manifestPrefix: '.codeflare/operators/activity/' },
+      });
+      const response = await controller.fetch(new Request(
+        'https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/report.txt',
+        { method: 'PUT', body: 'late', headers: { 'x-codeflare-operator-sync-operation': 'sync-1' } },
+      ));
+      expect(response.status).toBe(403);
+      expect((await response.json() as { code?: string }).code).toBe('OPERATOR_SYNC_SEALED');
+      expect(activityNamespace.getByName).toHaveBeenCalledWith('activity');
+      expect(authorizeSyncWrite).toHaveBeenCalledWith('sync-1', 'outputs/activity/report.txt');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it('authorizes exact visible and private sync writes with parent-owned SSE-C before signing', async () => {
+    const authorizeSyncWrite = vi.fn(async () => ({ ok: true as const }));
+    const activityNamespace = { getByName: vi.fn(() => ({ authorizeSyncWrite })) };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const operatorSync = { activityId: 'activity', outputPrefix: 'Operators/',
+      manifestPrefix: '.codeflare/operators/activity/' };
+    const encryptionKey = btoa('a'.repeat(32));
+    try {
+      for (const key of ['Operators/Gate%201/report.txt', '.codeflare/operators/activity/sync-1/manifest.json']) {
+        const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never,
+          ENCRYPTION_KEY: encryptionKey }, {
+          accountId: 'acc', operatorPolicy: { ...operatorPolicy, storage: { readPrefixes: [], writePrefixes: [] } },
+          operatorSync, r2SseDisabled: false,
+        });
+        const response = await controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
+          method: 'PUT', body: 'value', headers: {
+            'x-codeflare-operator-sync-operation': 'sync-1',
+            'x-amz-server-side-encryption-customer-algorithm': 'spoof',
+            'x-amz-server-side-encryption-customer-key': 'spoof',
+            'x-amz-server-side-encryption-customer-key-md5': 'spoof',
+          },
+        }));
+        expect(response.status).toBe(200);
+      }
+      expect(authorizeSyncWrite).toHaveBeenNthCalledWith(1, 'sync-1', 'Operators/Gate 1/report.txt');
+      expect(authorizeSyncWrite).toHaveBeenNthCalledWith(2, 'sync-1', '.codeflare/operators/activity/sync-1/manifest.json');
+      for (const call of fetchSpy.mock.calls) {
+        const request = call[0] as Request;
+        expect(request.headers.get('x-codeflare-operator-sync-operation')).toBeNull();
+        expect(request.headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe('AES256');
+        expect(request.headers.get('x-amz-server-side-encryption-customer-key')).toBe(encryptionKey);
+        expect(request.headers.get('x-amz-server-side-encryption-customer-key-md5')).not.toBe('spoof');
+        expect(request.headers.get('authorization')).toContain(
+          'x-amz-server-side-encryption-customer-algorithm;x-amz-server-side-encryption-customer-key;'
+          + 'x-amz-server-side-encryption-customer-key-md5',
+        );
+      }
+
+      for (const value of [null, '../spoof']) {
+        const headers = value === null ? undefined : { 'x-codeflare-operator-sync-operation': value };
+        const { controller } = makeController({ OPERATOR_ACTIVITY: activityNamespace as never }, {
+          accountId: 'acc', operatorPolicy, operatorSync,
+        });
+        const denied = await controller.fetch(new Request(
+          'https://acc.r2.cloudflarestorage.com/bucket/Operators/Gate%201/report.txt',
+          { method: 'PUT', body: 'value', headers },
+        ));
+        expect(denied.status).toBe(403);
+        expect((await denied.json() as { code?: string }).code).toBe('OPERATOR_SYNC_SCOPE_DENIED');
+      }
+      expect(authorizeSyncWrite).toHaveBeenCalledTimes(2);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it('enforces read/write and destructive operation scopes before R2 signing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const cases = [
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/inputs/file.txt'), 200],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt', { method: 'PUT', body: 'ok' }), 200],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt'), 403],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/inputs/file.txt', { method: 'PUT', body: 'bad' }), 403],
+      [new Request('https://acc.r2.cloudflarestorage.com/bucket/outputs/activity/result.txt', { method: 'DELETE' }), 403],
+    ] as const;
+    try {
+      for (const [request, status] of cases) {
+        const { controller } = makeController({}, { accountId: 'acc', operatorPolicy });
+        expect((await controller.fetch(request)).status).toBe(status);
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally { fetchSpy.mockRestore(); }
+  });
 });
 
 describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
@@ -217,16 +368,20 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
-  it('re-signs the bound bucket with its user-scoped key, never the deployment-wide key, while preserving streaming and SSE-C', async () => {
+  it('re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
-    const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
+    const encryptionKey = btoa('a'.repeat(32));
+    const encryptionKeyMd5 = createHash('md5').update(new TextEncoder().encode('a'.repeat(32))).digest('base64');
+    const { controller, egressFetch } = makeController({ ENCRYPTION_KEY: encryptionKey }, { accountId: 'acc' });
     await controller.fetch(
       new Request('https://acc.r2.cloudflarestorage.com/bucket/key', {
         method: 'PUT',
         headers: {
           authorization: 'AWS4-HMAC-SHA256 Credential=PLACEHOLDER-KEY/20260101/auto/s3/aws4_request, Signature=deadbeef',
           'x-amz-content-sha256': 'fixedhash123',
-          'x-amz-server-side-encryption-customer-algorithm': 'AES256',
+          'x-amz-server-side-encryption-customer-algorithm': 'spoof',
+          'x-amz-server-side-encryption-customer-key': 'spoof',
+          'x-amz-server-side-encryption-customer-key-md5': 'spoof',
           'content-type': 'application/octet-stream',
         },
         body: 'payload-bytes',
@@ -242,9 +397,13 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     expect(auth).not.toContain('admin-r2-key');
     // rclone's precomputed payload hash is REUSED (not recomputed / UNSIGNED) — body streams unbuffered.
     expect(signed.headers.get('x-amz-content-sha256')).toBe('fixedhash123');
-    // SSE-C header preserved AND covered by the new signature (present in SignedHeaders).
+    // Parent-owned SSE-C headers replace caller values and are covered by the new signature.
     expect(signed.headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe('AES256');
+    expect(signed.headers.get('x-amz-server-side-encryption-customer-key')).toBe(encryptionKey);
+    expect(signed.headers.get('x-amz-server-side-encryption-customer-key-md5')).toBe(encryptionKeyMd5);
     expect(auth).toContain('x-amz-server-side-encryption-customer-algorithm');
+    expect(auth).toContain('x-amz-server-side-encryption-customer-key');
+    expect(auth).toContain('x-amz-server-side-encryption-customer-key-md5');
     fetchSpy.mockRestore();
   });
 
