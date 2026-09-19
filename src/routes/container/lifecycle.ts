@@ -132,10 +132,27 @@ export async function startOrRestartContainer(params: {
     };
   }
 
-  // Every path below starts a replacement lifecycle. D1 claims the generation
-  // before process work begins; an outstanding termination intent or non-stopped
-  // state rejects the claim.
-  const claimed = await new D1SessionRepository(env.USAGE_DB).start(
+  // A definitively stopped process is confirmed before claiming a replacement
+  // generation. Unknown transport/process state is not stopped evidence.
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const authoritative = await repository.getSession(sessionData.userId, sessionData.id);
+  if (!authoritative) throw new Error('Session lifecycle record unavailable for Start');
+  if (authoritative.lifecycleState !== 'stopped') {
+    if (currentState.status !== 'stopped') throw new Error('Container exit is not confirmed for Start');
+    const intentId = authoritative.lifecycleState === 'stopping'
+      ? authoritative.terminationIntentId
+      : crypto.randomUUID();
+    if (!intentId) throw new Error('Session lifecycle could not claim termination ownership');
+    const stopping = authoritative.lifecycleState === 'stopping'
+      ? authoritative
+      : await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
+    if (!stopping || !await repository.confirmStopped(
+      sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
+    )) throw new Error('Confirmed container exit could not be persisted for Start');
+  }
+
+  // D1 claims the replacement generation before process work begins.
+  const claimed = await repository.start(
     sessionData.userId,
     sessionData.id,
     new Date().toISOString(),

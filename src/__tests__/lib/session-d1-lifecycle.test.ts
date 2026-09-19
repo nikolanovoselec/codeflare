@@ -26,7 +26,7 @@ async function createSession(owner = 'owner-a', sessionId = 'session01') {
 }
 
 beforeAll(async () => {
-  for (const statement of migration.split(';').map((part) => part.trim()).filter(Boolean)) {
+  for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(statement).run();
   }
 });

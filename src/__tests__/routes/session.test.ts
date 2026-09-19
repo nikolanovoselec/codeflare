@@ -621,7 +621,7 @@ describe('POST /sessions/:id/stop', () => {
 
     // Verify KV was updated with 'stopped' status
     const putCalls = mockKV.put.mock.calls;
-    const sessionPutCall = putCalls.findLast(
+    const sessionPutCall = [...putCalls].reverse().find(
       (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('sessiontostop12345')
     );
     expect(sessionPutCall).toBeDefined();

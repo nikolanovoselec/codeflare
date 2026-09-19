@@ -8,7 +8,7 @@ import { runSessionCutover } from '../../lib/session-cutover';
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
 beforeAll(async () => {
-  for (const statement of migration.split(';').map((part) => part.trim()).filter(Boolean)) {
+  for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(statement).run();
   }
 });

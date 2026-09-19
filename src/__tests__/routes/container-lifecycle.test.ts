@@ -374,7 +374,7 @@ describe('Container Lifecycle Routes', () => {
         id: 'abcdef1234567890abcdef12',
         name: 'Test Session',
         userId: 'new-bucket',
-        status: 'stopped',
+        status: 'running',
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
       });

@@ -588,7 +588,14 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
     it('destroys and restarts when running but bucket name changed', async () => {
       const container = createMockContainer('running');
-      const params = baseParams(container, { needsBucketUpdate: true });
+      mockKV._set('session:bucket:session1234', {
+        id: 'session1234', userId: 'bucket', name: 'Test', status: 'running',
+        createdAt: '2024-01-01T00:00:00Z', lastAccessedAt: '2024-01-01T00:00:00Z',
+      });
+      const params = baseParams(container, {
+        needsBucketUpdate: true,
+        sessionData: { id: 'session1234', userId: 'bucket', name: 'Test', status: 'running', createdAt: '2024-01-01T00:00:00Z' } as Session,
+      });
 
       const result = await startOrRestartContainer(params);
 
@@ -620,7 +627,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       const container = createMockContainer('stopped');
       const params = baseParams(container, {
         sessionData: {
-          id: 'session1234', name: 'Editor', status: 'stopped', workspace: 'vscode',
+          id: 'session1234', userId: 'bucket', name: 'Editor', status: 'stopped', workspace: 'vscode',
           editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
         } as Session,
       });
@@ -648,14 +655,12 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(container.startAndWaitForPorts).toHaveBeenCalledTimes(1);
     });
 
-    it('handles getState failure gracefully and starts container', async () => {
+    it('does not invent stopped evidence when getState fails', async () => {
       const container = createMockContainer('stopped');
       container.getState.mockRejectedValue(new Error('state unavailable'));
       const params = baseParams(container);
 
-      const result = await startOrRestartContainer(params);
-
-      expect(result.status).toBe('starting');
+      await expect(startOrRestartContainer(params)).rejects.toThrow('Container exit is not confirmed');
     });
 
     it('retains starting for bounded reconciliation when startAndWaitForPorts throws', async () => {

@@ -1380,14 +1380,12 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       await containerInstance.collectMetrics();
 
-      // /activity still fails, but /health answers with 503. The non-OK response
-      // still proves the DO-to-container attachment recovered and clears the streak.
+      // A non-OK unified observation still proves the DO-to-container
+      // attachment recovered and clears the reconstruction streak.
       testState.tcpFetchShouldFail = false;
-      testState.activityFetchShouldFail = true;
       testState.healthStatus = 503;
       await containerInstance.collectMetrics();
 
-      testState.activityFetchShouldFail = false;
       testState.healthStatus = 200;
       testState.tcpFetchShouldFail = true;
       await containerInstance.collectMetrics();
@@ -1825,7 +1823,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       }
 
       expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
-      expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
     it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
@@ -2211,8 +2209,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
   });
 
-  describe('updateKvStatus clears metrics on stop', () => {
-    it('should delete metrics when status is set to stopped via onStop', async () => {
+  describe('confirmed stopped projection', () => {
+    it('preserves last-known metrics when onStop confirms exit', async () => {
       // Seed a session with metrics
       const session: Session = {
         id: 'testsession123456',

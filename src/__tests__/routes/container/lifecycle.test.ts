@@ -443,10 +443,9 @@ describe('Container Lifecycle - restart after a bucket change', () => {
   it('REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy', async () => {
     const waitUntil = vi.fn();
     const kv = createMockKV();
-    // What destroy() left behind: stopped, with lastActiveAt refreshed on its way
-    // out. The caller's snapshot predates that write.
+    // The running D1 generation is terminated and confirmed before replacement.
     kv._set('session:codeflare-test-example-com:sess123', {
-      id: 'sess123', status: 'stopped', lastActiveAt: 'REFRESHED-BY-DESTROY',
+      id: 'sess123', userId: 'codeflare-test-example-com', status: 'running', lastActiveAt: 'REFRESHED-BY-DESTROY',
     });
     const container = {
       fetch: vi.fn().mockRejectedValue(new Error('Network connection lost.')),
@@ -460,7 +459,7 @@ describe('Container Lifecycle - restart after a bucket change', () => {
       needsBucketUpdate: true,
       setBucketBody: JSON.stringify({ bucketName: 'codeflare-test-example-com' }),
       containerId: 'container-abc',
-      sessionData: { id: 'sess123', userId: 'codeflare-test-example-com', status: 'stopped', lastActiveAt: 'STALE' } as unknown as Session,
+      sessionData: { id: 'sess123', userId: 'codeflare-test-example-com', status: 'running', lastActiveAt: 'STALE' } as unknown as Session,
       env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
       shortContainerId: 'cont-abc',
       logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,

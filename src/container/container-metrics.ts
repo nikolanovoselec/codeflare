@@ -1300,9 +1300,18 @@ export async function collectMetrics(
   env: Env,
   callbacks: MetricsCallbacks,
 ): Promise<void> {
+  // Deliberate shutdown owns the generation before probes or projections. This
+  // recheck closes the race where shutdown begins while an earlier tick awaits I/O.
+  try {
+    if (await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) !== undefined) return;
+  } catch {
+    // Ownership uncertainty fails closed: never project running or re-arm.
+    return;
+  }
+
   // Terminal convergence is a durable lifecycle phase, not transport recovery.
-  // Handle it before probes, KV self-healing, or usage accounting so a later
-  // host response cannot resurrect a session whose terminal stop already began.
+  // Handle it before probes or usage accounting so a later host response cannot
+  // resurrect a session whose terminal stop already began.
   let storedRecovery: unknown;
   try {
     storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
@@ -1470,6 +1479,7 @@ export async function collectMetrics(
       if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {
         logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: snapshot.syncStatus });
       }
+      if (await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) !== undefined) return;
       const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
       const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
       if (!sessionId || !bucketName) throw new Error('session identity unavailable');
