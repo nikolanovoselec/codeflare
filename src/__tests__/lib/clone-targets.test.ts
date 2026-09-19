@@ -52,7 +52,7 @@ describe('REQ-GITHUB-015 AC2: normalizeTrackedClones', () => {
     expect(normalizeTrackedClones(input).map((c) => c.repo)).toEqual(['acme/zeta', 'octo/api', 'octo/web']);
   });
 
-  it(`REQ-GITHUB-015 AC2: retains at most ${MAX_TRACKED_CLONES} repositories`, () => {
+  it('REQ-GITHUB-015 AC4: retains at most 20 repositories', () => {
     const many = Array.from({ length: MAX_TRACKED_CLONES + 5 }, (_, i) => ({
       repo: `octo/repo-${String(i).padStart(2, '0')}`,
     }));

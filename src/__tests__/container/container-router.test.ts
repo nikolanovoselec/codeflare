@@ -167,6 +167,25 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(host.envVars.GIT_CLONE_REPO).toBe('octo/api');
   });
 
+  it('REQ-GITHUB-015: an empty inventory clears stale clone targets on a warm DO', async () => {
+    const host = makeHost({
+      _bucketName: 'b',
+      _gitCloneTargets: 'octo/api octo/web',
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({ bucketName: 'b', gitCloneTargets: '' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(host._gitCloneTargets).toBeNull();
+    expect(host.envVars.GIT_CLONE_TARGETS).toBeUndefined();
+  });
+
   it('restores scoped R2 credentials from the validated restart payload after a Durable Object wake', async () => {
     const host = makeHost({
       _bucketName: 'b',

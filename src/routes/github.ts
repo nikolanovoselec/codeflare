@@ -191,6 +191,12 @@ app.post('/clone', cloneRateLimiter, async (c) => {
 
   const { repo, ref, sessionId } = await parseJsonBody(c, CloneBody);
 
+  const key = getSessionKey(c.get('bucketName'), sessionId);
+  const session = await c.env.KV.get<Session>(key, 'json');
+  if (!session) {
+    return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+  }
+
   const containerId = getContainerId(c.get('bucketName'), sessionId);
   const container = getContainer(c.env.CONTAINER, containerId);
 
@@ -221,15 +227,11 @@ app.post('/clone', cloneRateLimiter, async (c) => {
   // in the ~1 metrics tick before the container reports its workspace still
   // restores the repository. A failed clone tracks nothing.
   if (upstream.status === 200) {
-    const key = getSessionKey(c.get('bucketName'), sessionId);
-    const session = await c.env.KV.get<Session>(key, 'json');
-    if (session) {
-      const clones = normalizeTrackedClones([
-        ...(session.clones ?? []),
-        { repo, ...(ref ? { ref } : {}) },
-      ]);
-      await putSessionWithMetadata(c.env.KV, key, { ...session, clones });
-    }
+    const clones = normalizeTrackedClones([
+      ...(session.clones ?? []),
+      { repo, ...(ref ? { ref } : {}) },
+    ]);
+    await putSessionWithMetadata(c.env.KV, key, { ...session, clones });
   }
 
   return c.json(payload as Record<string, unknown>, upstream.status as never);

@@ -28,6 +28,7 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 import githubRoutes from '../../routes/github';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { getContainer } from '@cloudflare/containers';
 
 const KEY = 'deploy-keys:test-bucket';
@@ -60,6 +61,10 @@ function ok(json: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockKV = createMockKV();
+  mockKV._set('session:test-bucket:sid12345678', {
+    id: 'sid12345678', name: 'Test', userId: 'test-bucket', status: 'running',
+    createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+  });
 });
 
 // ─── GET /status (REQ-GITHUB-002 AC1) ───────────────────────────────────────
@@ -258,8 +263,24 @@ describe('POST /api/github/clone', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await mockKV.get(key, 'json') as { clones?: unknown }).clones)
-      .toEqual([{ repo: 'octo/repo', ref: 'develop' }]);
+    const persisted = await mockKV.get(key, 'json') as { clones?: Array<{ repo: string; ref?: string }> };
+    expect(persisted.clones).toEqual([{ repo: 'octo/repo', ref: 'develop' }]);
+    expect(buildCloneTargets(persisted.clones, undefined)).toBe('octo/repo#develop');
+  });
+
+  it('REQ-GITHUB-015 AC3: fails closed when a successful clone cannot be persisted', async () => {
+    mockKV._clear();
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(404);
+    expect((await res.json() as Record<string, unknown>).code).toBe('SESSION_NOT_FOUND');
+    expect(containerFetch).not.toHaveBeenCalled();
   });
 
   it('REQ-GITHUB-015 AC3: does not track a repository when the clone did not succeed', async () => {

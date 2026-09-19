@@ -545,7 +545,9 @@ export async function applyBucketName(
   // warm restart preserves the workspace and a fresh ephemeral workspace re-clones.
   if (r2Creds?.gitCloneRepo) state._gitCloneRepo = r2Creds.gitCloneRepo;
   if (r2Creds?.gitCloneRef) state._gitCloneRef = r2Creds.gitCloneRef;
-  if (r2Creds?.gitCloneTargets) state._gitCloneTargets = r2Creds.gitCloneTargets;
+  if (r2Creds?.gitCloneTargets !== undefined) {
+    state._gitCloneTargets = r2Creds.gitCloneTargets || null;
+  }
 
   // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
   if (r2Creds?.r2AccessKeyId) state._r2AccessKeyId = r2Creds.r2AccessKeyId;
@@ -729,9 +731,12 @@ export async function applyPrefsOnRestart(
   }
   // REQ-GITHUB-015 AC4: the tracked-repository list grows and shrinks over a
   // session's life, so the latest Worker-provided list always wins.
-  if (input.gitCloneTargets && input.gitCloneTargets !== state._gitCloneTargets) {
-    state._gitCloneTargets = input.gitCloneTargets;
-    changed = true;
+  if (input.gitCloneTargets !== undefined) {
+    const nextGitCloneTargets = input.gitCloneTargets || null;
+    if (nextGitCloneTargets !== state._gitCloneTargets) {
+      state._gitCloneTargets = nextGitCloneTargets;
+      changed = true;
+    }
   }
 
   // Update userEmail on restart (critical for Timekeeper pings)

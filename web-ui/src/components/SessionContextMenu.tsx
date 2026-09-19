@@ -10,7 +10,7 @@ interface SessionContextMenuProps {
   sessionName: string;
   onStop: () => void;
   onDelete: () => void;
-  /** REQ-SESSION-006 AC7: rename the session this menu was opened for. */
+  /** REQ-SESSION-027 AC1: rename the session this menu was opened for. */
   onRename: (name: string) => void;
   onClose: () => void;
 }
@@ -61,7 +61,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
     setConfirmingDelete(true);
   };
 
-  // REQ-SESSION-006 AC7: renaming is display-only - it never stops, starts or
+  // REQ-SESSION-027 AC1: renaming is display-only - it never stops, starts or
   // otherwise touches the session, so it is offered whatever the session state.
   const handleRenameClick = () => {
     setDraftName(props.sessionName);

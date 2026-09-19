@@ -51,7 +51,7 @@ describe('SessionContextMenu', () => {
     });
   });
 
-  describe('REQ-SESSION-006 AC7: Rename action', () => {
+  describe('REQ-SESSION-027 AC1: Rename action', () => {
     it('offers Rename for a session whatever its state', () => {
       render(() => <SessionContextMenu {...defaultProps} canStop={false} />);
       expect(screen.getByTestId('context-menu-rename')).toBeInTheDocument();

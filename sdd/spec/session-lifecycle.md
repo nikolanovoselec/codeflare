@@ -187,20 +187,44 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. Restarting a session reconnects to the same workspace and applies any updated preferences without recreating the container. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/container/index.test.ts (setBucketName updates USER_TIMEZONE on restart (bucket already set, prefs change path)) -->
 5. Deleting a session runs the same graceful shutdown as Stop (so the final sync runs), then removes the session record permanently; an unconfirmed destruction returns failure and retains the record for retry. <!-- @impl: src/container/index.ts::destroy --> <!-- @impl: src/routes/session/crud.ts::container.destroy --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (REQ-SESSION-006 AC5: delete calls container.destroy then removes KV record) -->
 6. Frontend transitions are visible: stopped to initializing to running on start, and running to stopping on stop. It reaches stopped only after batch status confirms stopped or missing; polling timeout or errors preserve `stopping` and terminal state for refresh or retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (stopSession) -->
-7. A user can rename any of their sessions, whatever its name came from and whether it is running or stopped, and sees the accepted name; a name the user cannot keep is rejected without changing the session. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: web-ui/src/stores/session.ts::renameSession --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-006 AC7: Rename action) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-006 AC7: rename) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006 AC7: shows the name the server accepted, not the one typed) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006 AC7: should set error on API failure) -->
 
 **Constraints:**
 
 - Clearing session-side identifiers before teardown is critical to prevent asynchronous writebacks from re-creating a stale session record.
 - The shutdown sync runs against credentials baked into the container at start, independent of the session-side identifier cleanup.
 - The final shutdown sync is bounded so a deletion storm cannot wipe persistent storage.
-- Renaming changes only what the user sees; it never restarts a session or alters its workspace, repositories, or terminals.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
 **Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-stop-delete.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-027: User can rename sessions
+
+**Intent:** A user can change a session's display name without affecting its runtime or workspace.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Rename is available for running and stopped sessions regardless of how the existing name was assigned. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-027 AC1: Rename action) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-027 AC1: rename) -->
+2. After rename succeeds, the user sees the server-accepted name. <!-- @impl: web-ui/src/stores/session.ts::renameSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-027 AC2: shows the name the server accepted, not the one typed) -->
+3. A rejected rename leaves the session unchanged and presents the failure. <!-- @impl: web-ui/src/stores/session.ts::renameSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-027 AC3: should set error on API failure) -->
+
+**Constraints:**
+
+- Renaming never restarts a session or alters its workspace, repositories, or terminals.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
+
+**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/stores/session.test.ts))
 
 **Status:** Implemented
 

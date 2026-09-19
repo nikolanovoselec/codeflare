@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-18
 
-- **Sessions restore every workspace repository on resume, and renaming is a user action** ([REQ-GITHUB-015](github.md#req-github-015-tracked-workspace-repositories-restore-on-resume) new; [REQ-GITHUB-014](github.md#req-github-014-clone-created-session-resume) AC1/AC3 generalized; [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC7 added). Resume now restores every repository tracked for the session, not only the one it was created from, under a new bounded and fail-open restore budget. Renaming a session, previously API-only, now has a user surface and its own acceptance criterion.
+- **Sessions track and restore workspace repositories, and renaming is a user action** ([REQ-GITHUB-015](github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](github.md#req-github-016-tracked-repository-restoration), and [REQ-SESSION-027](session-lifecycle.md#req-session-027-user-can-rename-sessions) new; [REQ-GITHUB-014](github.md#req-github-014-clone-created-session-resume) AC1/AC3 generalized). Tracking and bounded fail-open restoration are separate requirement concerns. Renaming a session, previously API-only, now has a user surface and atomic acceptance criteria.
 
 ## 2026-09-14
 

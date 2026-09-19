@@ -192,7 +192,7 @@ describe('SessionDropdown', () => {
     });
   });
 
-  describe('REQ-SESSION-006 AC7: rename', () => {
+  describe('REQ-SESSION-027 AC1: rename', () => {
     it('renames the session the menu was opened for', () => {
       render(() => <SessionDropdown {...defaultProps} />);
 

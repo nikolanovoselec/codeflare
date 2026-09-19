@@ -502,7 +502,7 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
 
 async function renameSession(id: string, name: string): Promise<void> {
   try {
-    // REQ-SESSION-006 AC7: the Worker sanitizes the requested name, so show the
+    // REQ-SESSION-027 AC2: the Worker sanitizes the requested name, so show the
     // name it accepted rather than the one typed.
     const updated = await api.updateSession(id, { name });
     const index = state.sessions.findIndex((s) => s.id === id);

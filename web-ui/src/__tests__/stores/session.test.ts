@@ -1300,7 +1300,7 @@ describe('Session Store', () => {
       expect(session?.name).toBe('New Name');
     });
 
-    it('REQ-SESSION-006 AC7: shows the name the server accepted, not the one typed', async () => {
+    it('REQ-SESSION-027 AC2: shows the name the server accepted, not the one typed', async () => {
       const mockUpdateSession = vi.mocked(api.updateSession);
       mockUpdateSession.mockResolvedValue({
         id: 'session-1',
@@ -1315,7 +1315,7 @@ describe('Session Store', () => {
       expect(session?.name).toBe('Sanitized Name');
     });
 
-    it('REQ-SESSION-006 AC7: should set error on API failure', async () => {
+    it('REQ-SESSION-027 AC3: should set error on API failure', async () => {
       const mockUpdateSession = vi.mocked(api.updateSession);
       mockUpdateSession.mockRejectedValue(new Error('Rename failed'));
 

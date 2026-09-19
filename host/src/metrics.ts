@@ -24,6 +24,7 @@ const WORKSPACE_REPO_GIT_TIMEOUT_MS = 2000;
 
 /** Mirrors MAX_TRACKED_CLONES in src/lib/clone-targets.ts: the Worker keeps at most 20. */
 const MAX_WORKSPACE_REPOS = 20;
+const WORKSPACE_REPO_INVENTORY_BUDGET_MS = 8000;
 
 /**
  * REQ-GITHUB-015 AC1: the inventory is only meaningful once the startup restore
@@ -69,23 +70,28 @@ export async function collectWorkspaceRepos(
   const dirs = entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort();
+    .sort()
+    .slice(0, MAX_WORKSPACE_REPOS);
+  const deadline = Date.now() + WORKSPACE_REPO_INVENTORY_BUDGET_MS;
   for (const name of dirs) {
-    if (byRepo.size >= MAX_WORKSPACE_REPOS) break;
     const dir = `${workspaceRoot}/${name}`;
     let origin: string;
+    const originBudget = Math.min(WORKSPACE_REPO_GIT_TIMEOUT_MS, deadline - Date.now());
+    if (originBudget <= 0) break;
     try {
       const { stdout } = await execFileAsync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
-        timeout: WORKSPACE_REPO_GIT_TIMEOUT_MS,
+        timeout: originBudget,
       });
       origin = stdout.trim();
     } catch {
       continue;
     }
     let branch: string | undefined;
+    const branchBudget = Math.min(WORKSPACE_REPO_GIT_TIMEOUT_MS, deadline - Date.now());
+    if (branchBudget <= 0) break;
     try {
       const { stdout } = await execFileAsync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD'], {
-        timeout: WORKSPACE_REPO_GIT_TIMEOUT_MS,
+        timeout: branchBudget,
       });
       branch = stdout.trim();
     } catch {

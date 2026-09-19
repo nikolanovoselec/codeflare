@@ -438,7 +438,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       gitCloneRef: sessionData.clone?.ref,
       // REQ-GITHUB-015 AC4: restore every repository tracked for this session,
       // the session's own repository first.
-      gitCloneTargets: buildCloneTargets(sessionData.clones, sessionData.clone) || undefined,
+      gitCloneTargets: buildCloneTargets(sessionData.clones, sessionData.clone),
       logger: reqLogger,
     });
 
