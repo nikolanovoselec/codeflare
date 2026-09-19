@@ -1,4 +1,3 @@
-// @ts-expect-error Provided by the Cloudflare Vitest Workers runtime.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';

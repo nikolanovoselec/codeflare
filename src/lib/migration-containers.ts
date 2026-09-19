@@ -12,6 +12,18 @@ import { getContainerId, safeCheckContainerHealth } from './container-helpers';
 import { listRunningSessionIds } from './session-helpers';
 
 /** True if ANY of the bucket's running sessions has a live container (short-circuits). */
+/** Destroy currently running session containers before a governed storage migration. */
+export async function drainContainers(
+  env: Pick<Env, 'USAGE_DB' | 'CONTAINER'>,
+  bucketName: string,
+): Promise<void> {
+  const sessionIds = await listRunningSessionIds(env, bucketName);
+  await Promise.all(sessionIds.map(async sessionId => {
+    const container = getContainer(env.CONTAINER, getContainerId(bucketName, sessionId));
+    await container.destroy();
+  }));
+}
+
 export async function hasHealthyContainer(
   env: Pick<Env, 'USAGE_DB' | 'CONTAINER'>,
   bucketName: string,

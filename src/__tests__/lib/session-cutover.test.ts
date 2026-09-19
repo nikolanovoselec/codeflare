@@ -1,4 +1,3 @@
-// @ts-expect-error Cloudflare Workers test binding.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.

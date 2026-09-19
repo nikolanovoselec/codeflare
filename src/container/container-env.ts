@@ -75,7 +75,7 @@ export interface ContainerEnvState {
   /** Parent-persisted non-secret restrictions; presence selects the restricted startup lane. */
   _operatorContainerProfile?: OperatorContainerProfile;
   /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
-  _gitCloneTargets: string | null;
+  _gitCloneTargets?: string | null;
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
