@@ -457,29 +457,25 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-### REQ-SESSION-030: One-time clean-slate cutover is guarded and exact
+### REQ-SESSION-030: Clean-slate D1 admission is live on deployment
 
-**Intent:** The D1 authority begins without importing stale KV sessions and without deleting unrelated data.
+**Intent:** A D1-only deployment admits new sessions immediately without importing, reading, or deleting legacy KV session records.
 
-**Applies To:** Operator
+**Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The additive D1 migration applies and reruns safely before the reviewed D1-only Worker and matching image are admitted.
-2. A one-time D1 marker closes Create and Start admission until cleanup completes.
-3. Cleanup requires operator-confirmed quiescence and aborts if legacy metadata reports running or initializing; metadata absence is not accepted as liveness proof.
-4. The idempotent purge enumerates and deletes exactly each authenticated owner's `session:${bucketName}:` namespace and no unrelated KV or R2 data.
-5. Old Worker writers cannot recreate legacy keys during cleanup, the D1 session dashboard is verified empty, then the marker records completion and admission reopens.
-6. Ordinary deployments never rerun the purge.
-7. If the environment is not quiescent, cutover stops without automatically draining or killing sessions.
+1. The additive D1 migrations apply safely before the reviewed D1-only Worker and matching image are admitted. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary applies migrations) -->
+2. The deployment completion migration records the D1 cutover as complete, so Create and Start admission is open in every environment immediately after deploy. <!-- @impl: migrations/usage/0003_complete_session_cutover.sql --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens D1 admission when the deployment completion migration runs) -->
+3. Legacy KV session records have no authority, compatibility read, migration, or automatic deletion path. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens D1 admission when the deployment completion migration runs) -->
 
-**Constraints:** Production execution is separately authorized; this requirement defines the reviewed integration-safe mechanism.
+**Constraints:** The D1 authority starts clean; deployment never blocks a new session on legacy-session quiescence or cleanup.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Verification:** Planned migration, admission-gate, prefix-purge and unrelated-data preservation tests.
+**Verification:** Automated D1 deployment, migration, and session-admission tests.
 
 **Status:** Planned
 

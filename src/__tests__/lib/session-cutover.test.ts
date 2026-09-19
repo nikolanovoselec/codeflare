@@ -2,6 +2,8 @@ import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
+import completionMigration from '../../../migrations/usage/0003_complete_session_cutover.sql?raw';
 import { runSessionCutover } from '../../lib/session-cutover';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
@@ -18,6 +20,14 @@ beforeEach(async () => {
 });
 
 describe('REQ-SESSION-030: guarded exact clean-slate cutover', () => {
+  it('opens D1 admission when the deployment completion migration runs', async () => {
+    await db.prepare("UPDATE session_cutover SET state='pending', completed_at=NULL WHERE id=1").run();
+    for (const statement of completionMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+      await db.prepare(statement).run();
+    }
+    await expect(db.prepare('SELECT state FROM session_cutover WHERE id=1').first()).resolves.toEqual({ state: 'complete' });
+  });
+
   it('refuses cleanup without operator-confirmed quiescence', async () => {
     await expect(runSessionCutover({ db, kv: { list: vi.fn(), delete: vi.fn() }, bucketNames: ['bucket-a'], quiescentConfirmed: false })).rejects.toThrow('quiescence');
   });

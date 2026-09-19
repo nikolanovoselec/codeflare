@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-19
 
+- **D1 session admission completes with deployment** ([REQ-SESSION-030](session-lifecycle.md#req-session-030-clean-slate-d1-admission-is-live-on-deployment)). The D1-only clean-slate migration no longer leaves Create and Start admission pending after an otherwise successful deployment. A completion migration opens the D1 gate in every environment without a KV backfill, compatibility read, or automatic legacy-record deletion.
+
 - **Premature review triage is corrected after terminal evidence** ([REQ-AGENT-214](agents.md#req-agent-214-premature-review-triage-correction)). A structurally valid table published before the final reviewer or CI result now receives exactly one post-completion correction follow-up; FIX remains withheld until a later canonical table is republished. This preserves fail-closed reviewer/CI correlation without timers, outboxes, or lifecycle persistence.
 
 - **Runtime image requires Debian's fixed libevent package** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)). Enterprise Integration deployment run `35433182220` exposed six fixable HIGH/CRITICAL `libevent-core-2.1-7` findings before image publication. Runtime assembly now installs the package explicitly and fails unless it reaches `2.1.12-stable-8+deb12u1`; no vulnerability exception is added.
