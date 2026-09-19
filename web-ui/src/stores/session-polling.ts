@@ -84,13 +84,13 @@ export function registerPollingDeps(deps: {
 }
 
 // ============================================================================
-// Startup guard - protect recently-started sessions from stale KV 'stopped'
+// Startup guard - protect recently-started sessions from delayed 'stopped'
 // ============================================================================
 
 /** Timestamp when each session first reached 'running' status. */
 const sessionStartedAt = new Map<string, number>();
 
-/** How long to protect a session from stale KV 'stopped' after it starts running. */
+/** How long to protect a session from delayed 'stopped' after it starts running. */
 const STARTUP_GUARD_MS = 3 * 60 * 1000; // 3 minutes
 
 /** Record that a session started running (called from status update path). */
@@ -157,9 +157,11 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
     setStateRaw('maxSessions', response.maxSessions);
     if (response.storageStats) updateStatsFromBatch(response.storageStats);
     if (response.usage) setUsageState(response.usage.monthlySeconds, response.usage.monthlyQuotaSeconds);
-    if (response.managedReleaseStatus !== undefined || response.preseedNeedsUpgrade !== undefined) {
-      applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
+    if (response.managedReleaseStatus === undefined) {
+      setStateRaw('managedReleaseStatus', null);
+      setStateRaw('managedReleaseProgress', null);
     }
+    applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
     setStateRaw('bucketMigrating', response.bucketMigrating === true);
     setStateRaw('bucketMigrationPending', response.bucketMigrationPending === true);
     setStateRaw('bucketMigrationPercent', response.bucketMigrationPercent ?? null);
@@ -180,6 +182,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     const batchStatuses = batchResponse.statuses;
     const ancillaryDue = forceManagedReleaseCheck
       || state.managedReleaseStatus === 'upgrading'
+      || state.managedReleaseStatus === 'update_pending'
       || state.bucketMigrating
       || state.bucketMigrationPending
       || Date.now() - lastAncillaryCheckAt >= ANCILLARY_CHECK_INTERVAL_MS;
@@ -215,14 +218,12 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       const remote = batchStatuses[session.id];
       if (!remote) continue;
 
-      // Propagate per-session fields from batch-status onto SessionWithStatus.
-      // ptyActive/startupStage are frontend-only mirrors of the latest poll -
-      // consumers (e.g. Layout vault-button gate) read them off the session.
+      // Propagate durable fields from batch-status. Terminal connectivity is
+      // device-local and is never overwritten by a backend projection.
       const idx = getState().sessions.findIndex(s => s.id === session.id);
       if (idx !== -1) {
         if (remote.lastActiveAt) setStateRaw('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
         if (remote.lastStartedAt) setStateRaw('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
-        setStateRaw('sessions', idx, 'ptyActive', remote.ptyActive);
         setStateRaw('sessions', idx, 'startupStage', remote.startupStage);
         if (remote.editorReady !== undefined) setStateRaw('sessions', idx, 'editorReady', remote.editorReady);
         setStateRaw('sessions', idx, 'editorReadyError', remote.editorReadyError === true);
@@ -235,25 +236,24 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
         });
       }
 
-      // Guard 1: Manual stop - don't overwrite "stopping" with stale KV "running"
+      // Guard 1: Manual stop - don't overwrite local termination ownership.
       if (session.status === 'stopping') continue;
 
       // Guard 2: Startup - block ALL KV transitions while session is initializing.
       // isSessionInitializing tracks the full startup flow (SSE stream), not just
-      // the 'initializing' status. KV may still show 'stopped' during container start.
+      // the 'initializing' status. The accepted D1 start can still be converging.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
 
-      // Guard 3: Negative KV evidence cannot stop a newly started session or a
+      // Guard 3: Delayed negative evidence cannot stop a newly started session or a
       // session whose terminal transport still owns a socket/retry loop. Manual
       // stop and persisted-state 4503 bypass this path in session.ts/terminal.ts.
       if (remote.status === 'stopped' && shouldRetainNegativeKvFn(session.id)) continue;
 
-      // KV is the dashboard projection for unguarded, transport-free sessions.
-      if (remote.status === 'running' && session.status !== 'running') {
-        updateSessionStatusFn(session.id, 'running');
-      } else if (remote.status === 'stopped' && session.status !== 'stopped') {
-        updateSessionStatusFn(session.id, 'stopped');
-        terminalStore.disposeSession(session.id);
+      // Apply the ordered D1 lifecycle projection. Transport ownership remains
+      // local, so uncertainty never disposes mounted terminal/editor state.
+      if (remote.status !== session.status) {
+        updateSessionStatusFn(session.id, remote.status);
+        if (remote.status === 'stopped') terminalStore.disposeSession(session.id);
       }
     }
   } catch (err) {

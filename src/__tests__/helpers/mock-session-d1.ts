@@ -12,7 +12,7 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     terminal_mode: session.terminalMode ?? 'classic',
     tab_config_json: session.tabConfig ? JSON.stringify(session.tabConfig) : null,
     clone_json: session.clone ? JSON.stringify(session.clone) : null,
-    lifecycle_state: session.status === 'initializing' ? 'starting' : (session.status ?? 'running'),
+    lifecycle_state: session.status === 'initializing' ? 'starting' : (session.status ?? 'stopped'),
     lifecycle_generation: session.lifecycleGeneration ?? 0,
     response_revision: session.responseRevision ?? 0,
     observation_sequence: session.observationSequence ?? -1,
@@ -91,6 +91,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           else if (/SET\s+lifecycle_state='stopped'/.test(sql)) {
             if (session.status !== 'stopping' || session.terminationIntentId !== args[3] || (session.lifecycleGeneration ?? 0) !== args[2]) return { success: true, meta: { changes: 0 } };
             session.status = 'stopped'; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
+            session.metrics = undefined;
           }
           else if (sql.includes('lifecycle_state=COALESCE') && sql.includes('observation_sequence=?4')) {
             if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };

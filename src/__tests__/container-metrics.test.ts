@@ -111,9 +111,10 @@ vi.mock('@cloudflare/containers', () => {
                 });
               }
               testState.hostProbeCalls += 1;
+              const runtimeObservation = url.includes('/internal/runtime-observation');
               if (testState.tcpFetchShouldFail
-                  || (url.includes('/activity') && testState.activityFetchShouldFail)
-                  || (url.includes('/health') && testState.healthFetchShouldFail)) {
+                  || ((runtimeObservation || url.includes('/activity')) && testState.activityFetchShouldFail)
+                  || ((runtimeObservation || url.includes('/health')) && testState.healthFetchShouldFail)) {
                 throw new Error('Connection refused');
               }
               // A wedged container: the TCP connect succeeds and nothing is ever
@@ -121,17 +122,26 @@ vi.mock('@cloudflare/containers', () => {
               // drainFinalSync budget test models this same port. Remove the
               // caller's signal and nothing ends this promise, so collectMetrics
               // never returns and the case fails by timeout.
-              if (testState.activityHangs && url.includes('/activity')) {
+              if (testState.activityHangs && (runtimeObservation || url.includes('/activity'))) {
                 return new Promise<Response>((_resolve, reject) => {
                   init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
                 });
               }
-              if (url.includes('/health')) testState.beforeHealthResponse?.();
-              const body = url.includes('/activity')
-                ? testState.activityResult
-                : testState.healthResult;
+              if (runtimeObservation || url.includes('/health')) testState.beforeHealthResponse?.();
+              const body = runtimeObservation
+                ? {
+                    lastInputAt: testState.activityResult.lastInputAt ?? null,
+                    cpu: testState.healthResult.cpu,
+                    memory: testState.healthResult.mem,
+                    disk: testState.healthResult.hdd,
+                    syncStatus: testState.healthResult.syncStatus,
+                    editorReady: testState.healthResult.editorReady,
+                    editorReadyError: testState.healthResult.editorReadyError,
+                    observedAt: new Date().toISOString(),
+                  }
+                : url.includes('/activity') ? testState.activityResult : testState.healthResult;
               return new Response(JSON.stringify(body), {
-                status: url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
+                status: runtimeObservation ? Math.max(testState.activityStatus, testState.healthStatus) : url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
                 headers: { 'Content-Type': 'application/json' },
               });
             },
@@ -321,6 +331,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storageDeleteFailures.clear();
     testState.storageStore.clear();
     testState.storageStore.set('containerAuthToken', 'agent-event-token');
+    testState.storageStore.set('lifecycleGeneration', 0);
+    testState.storageStore.set('observationSequence', -1);
 
     containerInstance = createContainerInstance();
   });
@@ -330,6 +342,13 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('onStart', () => {
+    beforeEach(() => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'starting',
+        lifecycleGeneration: 0, createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+    });
+
     it('should call schedule(60, "collectMetrics") on start', async () => {
       await containerInstance.onStart();
 
@@ -596,7 +615,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       // Verify metrics written to session key (with metadata for batch-status)
       expect(mockKV.put).toHaveBeenCalled();
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = mockKV.put.mock.calls.findLast(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -719,7 +738,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = mockKV.put.mock.calls.findLast(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -742,7 +761,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = mockKV.put.mock.calls.findLast(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -854,7 +873,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         vi.advanceTimersByTime(91_000);
         await containerInstance.collectMetrics();
 
-        const putCall = mockKV.put.mock.calls.find(
+        const putCall = mockKV.put.mock.calls.findLast(
           (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         );
         expect(putCall).toBeDefined();
@@ -1744,7 +1763,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         vi.advanceTimersByTime(91_000);
         await containerInstance.collectMetrics();
 
-        const putCall = mockKV.put.mock.calls.find(
+        const putCall = mockKV.put.mock.calls.findLast(
           (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         );
         expect(putCall).toBeDefined();
@@ -1780,7 +1799,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = mockKV.put.mock.calls.findLast(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
@@ -2389,7 +2408,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       // Verify metrics are preserved (last-known values kept for dashboard display)
       expect(mockKV.put).toHaveBeenCalled();
-      const putCall = mockKV.put.mock.calls.find(
+      const putCall = mockKV.put.mock.calls.findLast(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();

@@ -1,5 +1,3 @@
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE runtime_sessions (
   owner_key TEXT NOT NULL,
   session_id TEXT NOT NULL,

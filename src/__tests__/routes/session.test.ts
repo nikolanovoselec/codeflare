@@ -601,7 +601,7 @@ describe('POST /sessions/:id/stop', () => {
     });
   }
 
-  it('sets session status to stopping in KV', async () => {
+  it('confirms the session stopped after container exit', async () => {
     const app = createLifecycleApp();
     const session: Session = {
       id: 'sessiontostop12345',
@@ -621,7 +621,7 @@ describe('POST /sessions/:id/stop', () => {
 
     // Verify KV was updated with 'stopped' status
     const putCalls = mockKV.put.mock.calls;
-    const sessionPutCall = putCalls.find(
+    const sessionPutCall = putCalls.findLast(
       (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('sessiontostop12345')
     );
     expect(sessionPutCall).toBeDefined();

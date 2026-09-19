@@ -8,7 +8,6 @@ vi.stubGlobal('fetch', mockFetch);
 import {
   getUser,
   getSessions,
-  getBatchSessionStatus,
   getSessionAncillaryStatus,
   createSession,
   deleteSession,

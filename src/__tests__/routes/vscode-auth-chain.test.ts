@@ -210,7 +210,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
       editorReady: true,
       metrics: { cpu: '42%' },
     });
-    expect(stored.editorReadyError).toBeUndefined();
+    expect(stored.editorReadyError).toBe(false);
     expect(stored.lastAccessedAt).not.toBe('2026-01-01T00:00:00.000Z');
     expect(mockKV.put.mock.calls.some(
       ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),

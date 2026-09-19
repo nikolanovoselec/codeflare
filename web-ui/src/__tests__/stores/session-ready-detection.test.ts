@@ -25,7 +25,8 @@ vi.mock('../../api/client', () => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
   updateSession: vi.fn(),
-  getBatchSessionStatus: vi.fn().mockResolvedValue({ statuses: {}, maxSessions: 3 }),
+  getBatchSessionStatus: vi.fn().mockResolvedValue({ statuses: {} }),
+  getSessionAncillaryStatus: vi.fn().mockResolvedValue({ maxSessions: 3 }),
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
@@ -44,7 +45,7 @@ const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
 /**
  * Tests for session ready detection on page load.
  *
- * loadSessions() uses batch-status from KV to determine which sessions
+ * loadSessions() uses D1 batch-status to determine which sessions
  * are running vs stopped on initial page load (or refresh). This avoids
  * per-session DO queries which would wake hibernated containers.
  */
