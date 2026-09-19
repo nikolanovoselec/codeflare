@@ -40,8 +40,8 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     });
   }
 
-  it('uses one owner-indexed D1 query and performs no session KV operations', async () => {
-    const response = await app().request('/sessions/batch-status');
+  it('uses one owner-indexed D1 query and performs no session or ancillary KV operations', async () => {
+    const response = await app().request('/sessions/batch-status?include=storage,usage&includePreseedCheck=true');
     expect(response.status).toBe(200);
     expect(db.prepare).toHaveBeenCalledTimes(1);
     expect(all).toHaveBeenCalledTimes(1);

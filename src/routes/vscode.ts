@@ -287,9 +287,11 @@ export async function handleVscodeRequest(
     // whole-session snapshot over concurrent lifecycle or readiness updates.
     if (response.status < 400) {
       if (session.workspace === 'vscode' && session.lifecycleState === 'running') {
-        ctx.waitUntil(new D1SessionRepository(env.USAGE_DB).updateMutable(bucketName, sessionId, {
-          lastAccessedAt: new Date().toISOString(),
-        }).catch((err) => logger.warn('Failed to update editor activity', { error: toErrorMessage(err) })));
+        const repository = new D1SessionRepository(env.USAGE_DB);
+        ctx.waitUntil((async () => {
+          await repository.updateMutable(bucketName, sessionId, { lastAccessedAt: new Date().toISOString() });
+          await repository.updateReadiness(bucketName, sessionId, session.lifecycleGeneration, true, false);
+        })().catch((err) => logger.warn('Failed to update editor activity', { error: toErrorMessage(err) })));
       }
     }
     return response;

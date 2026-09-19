@@ -9,6 +9,7 @@ import {
   getUser,
   getSessions,
   getBatchSessionStatus,
+  getSessionAncillaryStatus,
   createSession,
   deleteSession,
   updateSession,
@@ -41,20 +42,20 @@ describe('API Client', () => {
     vi.resetAllMocks();
   });
 
-  it('REQ-AGENT-049: carries the authoritative upgrade target through batch status parsing', async () => {
+  it('REQ-AGENT-049: carries the authoritative upgrade target through ancillary status parsing', async () => {
     for (const target of ['target-a', 'target-b']) {
-      mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
+      mockFetch.mockResolvedValueOnce(Response.json({ maxSessions: 3, preseedNeedsUpgrade: true,
         managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
-      expect(await getBatchSessionStatus({ includePreseedCheck: true })).toMatchObject({
+      expect(await getSessionAncillaryStatus()).toMatchObject({
         preseedNeedsUpgrade: true, preseedUpgradeTarget: target,
       });
     }
   });
 
-  it.each([0, '', null, {}])('REQ-AGENT-049: rejects an invalid upgrade target from batch status (%s)', async (target) => {
-    mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
+  it.each([0, '', null, {}])('REQ-AGENT-049: rejects an invalid upgrade target from ancillary status (%s)', async (target) => {
+    mockFetch.mockResolvedValueOnce(Response.json({ maxSessions: 3, preseedNeedsUpgrade: true,
       managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
-    await expect(getBatchSessionStatus({ includePreseedCheck: true })).rejects.toThrow();
+    await expect(getSessionAncillaryStatus()).rejects.toThrow();
   });
 
   it('REQ-ENTERPRISE-075: retains sanitized Native cache-refusal evidence through API parsing', async () => {

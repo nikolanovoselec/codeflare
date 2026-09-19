@@ -460,8 +460,8 @@ describe('Container Lifecycle - restart after a bucket change', () => {
       needsBucketUpdate: true,
       setBucketBody: JSON.stringify({ bucketName: 'codeflare-test-example-com' }),
       containerId: 'container-abc',
-      sessionData: { id: 'sess123', status: 'running', lastActiveAt: 'STALE' } as unknown as Session,
-      env: { KV: kv } as unknown as Env,
+      sessionData: { id: 'sess123', userId: 'codeflare-test-example-com', status: 'stopped', lastActiveAt: 'STALE' } as unknown as Session,
+      env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
       shortContainerId: 'cont-abc',
       logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
       waitUntil,
@@ -471,11 +471,10 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     expect(result.status).toBe('starting');
     expect(waitUntil).toHaveBeenCalled();
 
-    // destroy() left the record 'stopped'. The pre-destroy snapshot still reads
-    // 'running', so trusting it would leave the record stopped for the whole boot
-    // and the non-retryable 4503 gate would end the tab's reconnects.
+    // The D1 claim advances the replacement lifecycle to starting without
+    // reverting fields refreshed by the preceding destroy.
     const written = JSON.parse(kv.put.mock.calls.at(-1)?.[1] as string);
-    expect(written.status).toBe('running');
+    expect(written.status).toBe('starting');
     // Re-read rather than spread the snapshot: spreading would revert the field
     // destroy() had just refreshed.
     expect(written.lastActiveAt).toBe('REFRESHED-BY-DESTROY');

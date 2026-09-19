@@ -191,7 +191,8 @@ app.get('/startup-status', async (c) => {
   try {
     const user = c.get('user');
     const { bucketName, sessionId, containerId, container } = getContainerContext(c);
-    const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
+    const repository = new D1SessionRepository(c.env.USAGE_DB);
+    const session = await repository.getSession(bucketName, sessionId);
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
 
     // Populate response details now that we have context
@@ -270,6 +271,15 @@ app.get('/startup-status', async (c) => {
       }
       if (syncStatus === 'failed') {
         return c.json(buildSyncFailedResponse(response, healthData, cStatus));
+      }
+      if (session) {
+        await repository.updateReadiness(
+          bucketName,
+          sessionId,
+          session.lifecycleGeneration,
+          healthData.editorReady === true,
+          healthData.editorReadyTimedOut === true,
+        );
       }
       if (healthData.editorReady === true) {
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus, false));

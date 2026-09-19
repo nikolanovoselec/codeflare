@@ -51,6 +51,7 @@ import { getAllUsers, syncAccessPolicy } from '../../lib/access-policy';
 import { AppError } from '../../lib/error-types';
 
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 const mockGetAllUsers = getAllUsers as ReturnType<typeof vi.fn>;
 const mockSyncAccessPolicy = syncAccessPolicy as ReturnType<typeof vi.fn>;
@@ -66,10 +67,7 @@ function setAuthUser(user: Partial<AccessUser> & { email: string }) {
 
 // Mock global fetch for CF API calls
 const mockFetch = vi.fn();
-const mockUsageDb = {
-  prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
-  batch: vi.fn(async () => [{ success: true }]),
-} as unknown as D1Database;
+let mockUsageDb: D1Database;
 
 describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -77,6 +75,9 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockUsageDb = Object.assign(createMockSessionD1(mockKV), {
+      batch: vi.fn(async () => [{ success: true }]),
+    });
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T10:00:00.000Z'));
     globalThis.fetch = mockFetch;

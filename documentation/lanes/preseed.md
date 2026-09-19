@@ -186,7 +186,7 @@ skills & rules" click, new bucket creation, Stripe mode change
 (upgrade or downgrade via webhook), subscription termination
 (`customer.subscription.deleted`), Settings toggle of
 `sessionMode`, automatic upgrade on release (triggered by
-`preseedNeedsUpgrade: true` in the initial dashboard batch-status
+`preseedNeedsUpgrade: true` in the initial dashboard ancillary-status
 response; see
 [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)),
 or the one-time enterprise Pro upgrade — at session start or first
@@ -575,7 +575,7 @@ ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: h
 
 Managed curation and the baked fallback select one web, mobile, desktop, static, or incumbent authority and keep motion, components, performance, and available finishing tools subordinate. The pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives usable fallback boundaries without projected skill directories, and Canvas retains required Apache-2.0 attribution. The inventory includes `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design`, and excludes UI UX Pro Max and `emil-design-eng`. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
-The release auto-upgrade check uses `GET /api/sessions/batch-status?includePreseedCheck=true` to compare `PRESEED_CONTENT_HASH` and the canonical agent projection with their stored values. A mismatch starts background reconciliation. Active updates retain the existing New Session and stopped-session gates.
+The release auto-upgrade check uses `GET /api/sessions/ancillary-status` to compare `PRESEED_CONTENT_HASH` and the canonical agent projection with their stored values. A mismatch starts background reconciliation. Active updates retain the existing New Session and stopped-session gates.
 
 Each advertised `preseedUpgradeTarget` gets at most one automatic attempt per page until status reports no upgrade needed; older target-less responses share one pending episode. A new target can proceed without an intervening current observation, but stale target reads cannot repeat previous attempts. Failure replaces the dashboard's New Session action with **Retry upgrade** while the session-menu creation gate stays closed. Retry uses the dedicated upgrade endpoint, not Recreate, and retains in-flight and session-ownership restrictions. Implements [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
 

@@ -137,11 +137,23 @@ export class D1SessionRepository implements SessionAuthority {
       cpu=?7, memory=?8, disk=?9, sync_status=?10, editor_ready=?11,
       editor_ready_error=?12, metrics_observed_at=?13, observation_sequence=?4,
       response_revision=response_revision+1
-      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence`)
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
+        AND lifecycle_state IN ('starting','running','unreachable')
+        AND termination_intent_id IS NULL`)
       .bind(ownerKey, sessionId, generation, sequence, projection.lifecycleState ?? null,
         projection.lastInputAt ?? null, projection.cpu ?? null, projection.memory ?? null, projection.disk ?? null,
         projection.syncStatus ?? null, projection.editorReady ? 1 : 0, projection.editorReadyError ? 1 : 0,
         projection.observedAt).run();
+    return result.meta.changes === 1;
+  }
+
+  async updateReadiness(ownerKey: string, sessionId: string, generation: number, editorReady: boolean, editorReadyError: boolean): Promise<boolean> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET
+      editor_ready=?4, editor_ready_error=?5, response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+        AND lifecycle_state IN ('starting','running','unreachable')
+        AND termination_intent_id IS NULL`)
+      .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0).run();
     return result.meta.changes === 1;
   }
 

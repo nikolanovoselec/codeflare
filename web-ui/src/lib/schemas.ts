@@ -313,7 +313,7 @@ export const BatchSessionStatusResponseSchema = z.object({
     generation: z.number().int().nonnegative().optional(),
     revision: z.number().int().nonnegative().optional(),
     unreachableDeadlineMs: z.number().int().nonnegative().optional(),
-    ptyActive: z.boolean(),
+    ptyActive: z.boolean().optional(),
     startupStage: z.string().optional(),
     lastStartedAt: z.string().nullable().optional(),
     lastActiveAt: z.string().nullable().optional(),
@@ -327,6 +327,9 @@ export const BatchSessionStatusResponseSchema = z.object({
       updatedAt: z.string().optional(),
     }).optional(),
   })),
+});
+
+export const SessionAncillaryStatusResponseSchema = z.object({
   maxSessions: z.number(),
   storageStats: z.object({
     totalFiles: z.number(),

@@ -247,7 +247,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       {},
       { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
     );
-    (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env.KV = mockKV;
+    (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
     return instance;
   };
 
@@ -2310,7 +2310,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         {},
         { KV: mockKV, LOG_LEVEL: 'silent' },
       );
-      (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+      (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
 
       // Seed a session whose key would collide if a null identifier somehow
       // produced a write - the assertion below proves it does not.
@@ -2342,7 +2342,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         {},
         { KV: mockKV, LOG_LEVEL: 'silent' },
       );
-      (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+      (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
 
       const session: Session = {
         id: 'testsession123456',
@@ -2416,6 +2416,11 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockKV._set('session:test-bucket:testsession123456', {
+      id: 'testsession123456', userId: 'test-bucket', name: 'Test', status: 'running',
+      createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z',
+      lifecycleGeneration: 0, observationSequence: -1,
+    });
     testState.containerRunning = true;
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
@@ -2460,7 +2465,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       {},
       { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
     );
-    (containerInstance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env.KV = mockKV;
+    (containerInstance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
   });
 
   afterEach(() => {

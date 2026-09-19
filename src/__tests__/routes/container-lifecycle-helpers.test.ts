@@ -549,6 +549,13 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
   });
 
   describe('startOrRestartContainer', () => {
+    beforeEach(() => {
+      mockKV._set('session:bucket:session1234', {
+        id: 'session1234', userId: 'bucket', name: 'Test', status: 'stopped',
+        createdAt: '2024-01-01T00:00:00Z', lastAccessedAt: '2024-01-01T00:00:00Z',
+      });
+    });
+
     const createMockContainer = (state = 'stopped') => ({
       fetch: vi.fn().mockResolvedValue(new Response('ok')),
       destroy: vi.fn().mockResolvedValue(undefined),
@@ -561,7 +568,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       needsBucketUpdate: false,
       setBucketBody: '{}',
       containerId: 'bucket-session1234',
-      sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
+      sessionData: { id: 'session1234', userId: 'bucket', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
       env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
       shortContainerId: 'bucket-ses',
@@ -599,14 +606,14 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(params.waitUntil).toHaveBeenCalled();
     });
 
-    it('marks session as running in KV', async () => {
+    it('claims the D1 lifecycle as starting before process readiness', async () => {
       const container = createMockContainer('stopped');
       const params = baseParams(container);
 
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
-      expect(stored.status).toBe('running');
+      expect(stored.status).toBe('starting');
     });
 
     it('REQ-IDE-049 AC1: clears stale editor readiness before restarting a stopped VS Code session', async () => {
@@ -621,7 +628,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false });
+      expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false });
       expect(stored.editorReadyError).toBeUndefined();
     });
 
@@ -637,7 +644,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false, lastActiveAt: '2024-01-02T00:00:00Z' });
+      expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false, lastActiveAt: '2024-01-02T00:00:00Z' });
       expect(container.startAndWaitForPorts).toHaveBeenCalledTimes(1);
     });
 
@@ -651,8 +658,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(result.status).toBe('starting');
     });
 
-    // CF-022: KV rollback on container start failure
-    it('rolls back KV session status to stopped when startAndWaitForPorts throws', async () => {
+    it('retains starting for bounded reconciliation when startAndWaitForPorts throws', async () => {
       const container = createMockContainer('stopped');
       container.startAndWaitForPorts.mockRejectedValue(new Error('Container crashed'));
 
@@ -677,9 +683,8 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(capturedPromises.length).toBe(1);
       await capturedPromises[0];
 
-      // After start failure, KV should be rolled back to 'stopped'
       const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
-      expect(stored.status).toBe('stopped');
+      expect(stored.status).toBe('starting');
     });
 
     it('handles KV rollback failure gracefully (does not throw)', async () => {

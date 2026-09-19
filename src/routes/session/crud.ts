@@ -243,8 +243,11 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   const session = await repository.getSession(bucketName, sessionId);
   if (!session) throw new NotFoundError('Session not found');
 
-  const intentId = crypto.randomUUID();
-  const claimed = session.lifecycleState === 'stopped'
+  const intentId = session.lifecycleState === 'stopping'
+    ? session.terminationIntentId
+    : crypto.randomUUID();
+  if (!intentId) throw new Error('Session delete ownership unavailable');
+  const claimed = session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping'
     ? session
     : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
   if (!claimed) throw new Error('Session delete ownership unavailable');
@@ -253,8 +256,8 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
 
   // The DO's destroy() override drains a final R2 bisync while the container is
   // still alive, BEFORE signalling stop (REQ-SESSION-011); the entrypoint trap
-  // is only a best-effort backstop. Destroy FIRST so a failure leaves the KV
-  // entry intact for retry.
+  // is only a best-effort backstop. Destroy FIRST so a failure leaves the D1
+  // termination intent intact for retry/reconciliation.
   try {
     await container.destroy();
     reqLogger.info('Destroyed container', { containerId });

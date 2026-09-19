@@ -140,29 +140,31 @@ let pollInFlight: Promise<void> | null = null;
 // refreshSessionStatuses
 // ============================================================================
 
-const MANAGED_RELEASE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
-let lastManagedCheckAt = 0;
-// The poll runs on setInterval without awaiting, and a forced check can start while one
-// is outstanding, so this counts probes rather than flagging one: clearing on the first
-// settle would let the next poll re-probe while another is still in flight.
-let managedChecksInFlight = 0;
+const ANCILLARY_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+let lastAncillaryCheckAt = 0;
+let ancillaryCheckInFlight: Promise<void> | null = null;
 
-/** Test-only: clear the module-level probe window and in-flight count between cases. */
+/** Test-only: clear the ancillary probe window and in-flight request. */
 export function resetManagedCheckState(): void {
-  lastManagedCheckAt = 0;
-  managedChecksInFlight = 0;
+  lastAncillaryCheckAt = 0;
+  ancillaryCheckInFlight = null;
 }
 
-/** Issue the batch-status call, counting an outstanding managed-release probe. */
-async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
-  const include = ['storage', 'usage'] as const;
-  if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck, include });
-  managedChecksInFlight += 1;
-  try {
-    return await api.getBatchSessionStatus({ includePreseedCheck, include });
-  } finally {
-    managedChecksInFlight -= 1;
-  }
+export function refreshSessionAncillaryStatus(): Promise<void> {
+  if (ancillaryCheckInFlight) return ancillaryCheckInFlight;
+  ancillaryCheckInFlight = api.getSessionAncillaryStatus().then((response) => {
+    lastAncillaryCheckAt = Date.now();
+    setStateRaw('maxSessions', response.maxSessions);
+    if (response.storageStats) updateStatsFromBatch(response.storageStats);
+    if (response.usage) setUsageState(response.usage.monthlySeconds, response.usage.monthlyQuotaSeconds);
+    if (response.managedReleaseStatus !== undefined || response.preseedNeedsUpgrade !== undefined) {
+      applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
+    }
+    setStateRaw('bucketMigrating', response.bucketMigrating === true);
+    setStateRaw('bucketMigrationPending', response.bucketMigrationPending === true);
+    setStateRaw('bucketMigrationPercent', response.bucketMigrationPercent ?? null);
+  }).finally(() => { ancillaryCheckInFlight = null; });
+  return ancillaryCheckInFlight;
 }
 
 /**
@@ -174,33 +176,14 @@ async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
 export async function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   try {
     const state = getState();
-    // Each managed check costs a KV read plus an R2 GET and two HEADs server-side, so a
-    // settled release is re-probed on the freshness window rather than every poll.
-    // Transient states keep the full poll cadence so convergence stays visible.
-    const now = Date.now();
-    const includePreseedCheck = forceManagedReleaseCheck
-      || (managedChecksInFlight === 0
-        && (state.managedReleaseStatus !== 'current'
-          || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
-    const batchResponse = await fetchBatchSessionStatus(includePreseedCheck);
-    // Only a completed check consumes the window; a failed call must not suppress the next.
-    if (includePreseedCheck) lastManagedCheckAt = now;
+    const batchResponse = await api.getBatchSessionStatus();
     const batchStatuses = batchResponse.statuses;
-    if (batchResponse.maxSessions !== undefined) setStateRaw('maxSessions', batchResponse.maxSessions);
-    if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
-    if (batchResponse.usage) {
-      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
-    }
-    if (batchResponse.managedReleaseStatus !== undefined || batchResponse.preseedNeedsUpgrade !== undefined) {
-      applyManagedReleaseBatchFn(batchResponse.managedReleaseStatus, batchResponse.preseedNeedsUpgrade, batchResponse.managedReleaseProgress, batchResponse.preseedUpgradeTarget);
-    }
-
-    // REQ-ENTERPRISE-020: mirror the Governed Mode migration flags on EVERY background poll (not just the
-    // full loadSessions). Without this, a migration that completes between full loads leaves the New Session
-    // button stuck on "Migrating" until a manual page reload; mirroring here clears it within one 5s poll.
-    setStateRaw('bucketMigrating', batchResponse.bucketMigrating === true);
-    setStateRaw('bucketMigrationPending', batchResponse.bucketMigrationPending === true);
-    setStateRaw('bucketMigrationPercent', typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
+    const ancillaryDue = forceManagedReleaseCheck
+      || state.managedReleaseStatus === 'upgrading'
+      || state.bucketMigrating
+      || state.bucketMigrationPending
+      || Date.now() - lastAncillaryCheckAt >= ANCILLARY_CHECK_INTERVAL_MS;
+    if (ancillaryDue) await refreshSessionAncillaryStatus().catch(() => undefined);
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions - they may not appear in batch status yet.

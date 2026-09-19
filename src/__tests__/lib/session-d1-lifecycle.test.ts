@@ -1,6 +1,7 @@
 // @ts-expect-error Provided by the Cloudflare Vitest Workers runtime.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { D1SessionRepository } from '../../lib/session-repository';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 
@@ -113,6 +114,11 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
       AND unreachable_deadline_ms <= 180000 AND termination_intent_id IS NULL`).run();
     expect(claim.meta.changes).toBe(1);
     expect(await row()).toMatchObject({ lifecycle_state: 'stopping', termination_intent_id: 'term-a', termination_generation: 3 });
+
+    await expect(new D1SessionRepository(db).project('owner-a', 'session01', 3, 99, {
+      lifecycleState: 'running', observedAt: '2027-01-01T00:03:00.500Z',
+    })).resolves.toBe(false);
+    expect((await row())?.lifecycle_state).toBe('stopping');
 
     await db.prepare("UPDATE runtime_sessions SET termination_signal_accepted_at='2027-01-01T00:03:01.000Z' WHERE owner_key='owner-a' AND session_id='session01'").run();
     expect((await row())?.lifecycle_state).toBe('stopping');

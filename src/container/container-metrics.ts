@@ -229,14 +229,31 @@ export async function updateKvStatus(
     const generation = await ctx.storage.get<number>('lifecycleGeneration');
     if (typeof generation !== 'number') return 'failed';
     const timestamp = new Date().toISOString();
-    const state = status === 'running' ? 'running' : status === 'stopped' ? 'stopped' : null;
+    if (status === 'stopped') {
+      const repository = new D1SessionRepository(env.USAGE_DB);
+      const session = await repository.getSession(bucketName, sessionId);
+      if (!session || session.lifecycleGeneration !== generation) return 'absent';
+      let intentId = session.terminationIntentId;
+      if (session.lifecycleState !== 'stopping') {
+        intentId = `confirmed-exit-${generation}`;
+        const claimed = await repository.claimStop(bucketName, sessionId, intentId, timestamp);
+        if (!claimed) return 'absent';
+      }
+      if (!intentId) return 'absent';
+      return await repository.confirmStopped(bucketName, sessionId, generation, intentId, timestamp)
+        ? 'written'
+        : 'absent';
+    }
+    const state = status === 'running' ? 'running' : null;
     const result = await env.USAGE_DB.prepare(`UPDATE runtime_sessions SET
       lifecycle_state=COALESCE(?4,lifecycle_state),
       last_started_at=CASE WHEN ?5='lastStartedAt' THEN ?6 ELSE last_started_at END,
       last_active_at=CASE WHEN ?5='lastActiveAt' OR (?4='running' AND ?5='lastStartedAt') THEN ?6 ELSE last_active_at END,
       transitioned_at=CASE WHEN ?4 IS NULL THEN transitioned_at ELSE ?6 END,
       response_revision=response_revision+1
-      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3`)
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+        AND lifecycle_state IN ('starting','running','unreachable')
+        AND termination_intent_id IS NULL`)
       .bind(bucketName, sessionId, generation, state, field, timestamp).run();
     return result.meta.changes === 1 ? 'written' : 'absent';
   } catch (err) {
@@ -517,7 +534,6 @@ async function deliverRunningAgentEvents(
   state: MetricsState,
   ctx: DurableObjectState,
   env: Env,
-  trusted: TrustedTickSession,
 ): Promise<void> {
   const deliveryState = deliveryStateFor(state);
   const priorAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
@@ -532,8 +548,9 @@ async function deliverRunningAgentEvents(
   for (const eventId of priorAckIds) deliveryState.pendingAckIds.delete(eventId);
   const priorAckSet = new Set(priorAckIds);
   const events = drained.events.filter((event) => !priorAckSet.has(event.eventId));
-  if (events.length === 0
-      || trusted.error !== undefined
+  if (events.length === 0) return;
+  const trusted = await loadTrustedTickSession(state, ctx, env);
+  if (trusted.error !== undefined
       || !trusted.sessionId
       || !trusted.bucketName
       || !trusted.session
@@ -1376,12 +1393,11 @@ export async function collectMetrics(
   // a future transient blip starts a fresh streak.
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
-  // Resolve trusted identity before either host probe for agent delivery. The
-  // metrics write fresh-reads session state after the probes so a slow health
-  // response cannot roll back a concurrent lifecycle or readiness update.
-  const trustedTickSession = await loadTrustedTickSession(state, ctx, env);
+  // Notification delivery owns its exceptional D1 read only when the host
+  // actually offers events. The normal metrics path remains one host snapshot
+  // plus one generation/sequence-fenced D1 update with no pre-read.
   try {
-    await deliverRunningAgentEvents(state, ctx, env, trustedTickSession);
+    await deliverRunningAgentEvents(state, ctx, env);
   } catch {
     // Notification delivery is best-effort and independent from idle, health,
     // usage accounting, and the one-shot schedule re-arm below.
@@ -1454,9 +1470,9 @@ export async function collectMetrics(
       if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {
         logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: snapshot.syncStatus });
       }
-      if (trustedTickSession.error !== undefined) throw trustedTickSession.error;
-      const { sessionId, bucketName } = trustedTickSession;
-      if (!sessionId || !bucketName) return;
+      const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
+      const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
+      if (!sessionId || !bucketName) throw new Error('session identity unavailable');
       const generation = await ctx.storage.get<number>('lifecycleGeneration');
       const previousSequence = await ctx.storage.get<number>('observationSequence') ?? -1;
       if (typeof generation !== 'number') throw new Error('lifecycle generation unavailable');
