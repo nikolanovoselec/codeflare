@@ -40,7 +40,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageSeedRateLimiter);
 
 async function assertNoOwningSession(
-  env: Pick<Env, 'KV' | 'CONTAINER'>,
+  env: Pick<Env, 'KV' | 'USAGE_DB' | 'CONTAINER'>,
   bucketName: string,
 ): Promise<void> {
   if (await hasOwningSessionContainer(env, bucketName)) {

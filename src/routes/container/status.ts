@@ -3,7 +3,7 @@
  * Handles GET /health, /startup-status
  */
 import { Hono } from 'hono';
-import { resolveSessionWorkspace, type Env, type Session } from '../../types';
+import { resolveSessionWorkspace, type Env } from '../../types';
 import { getContainerContext, safeCheckContainerHealth, type HealthData } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';

@@ -21,7 +21,7 @@
  * Implements REQ-IDE-001, REQ-IDE-002, REQ-IDE-003.
  */
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../types';
+import type { Env } from '../types';
 import { D1SessionRepository } from '../lib/session-repository';
 import {
   REQUEST_ID_LENGTH,

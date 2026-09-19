@@ -24,7 +24,7 @@ describe('REQ-SESSION-030: guarded exact clean-slate cutover', () => {
   it('deletes only exact owner prefixes, verifies empty D1, completes once, and reruns safely', async () => {
     const kv = {
       list: vi.fn(async ({ prefix }: { prefix: string }) => ({ keys: [{ name: `${prefix}old00001`, metadata: { s: 's' } }], list_complete: true })),
-      delete: vi.fn(async () => {}),
+      delete: vi.fn(async (_key: string) => {}),
     };
     await expect(runSessionCutover({ db, kv, bucketNames: ['bucket-a', 'bucket-b'], quiescentConfirmed: true, now: '2027-01-01T00:00:00.000Z' })).resolves.toEqual({ deleted: 2 });
     expect(kv.delete.mock.calls.map(([key]) => key)).toEqual(['session:bucket-a:old00001', 'session:bucket-b:old00001']);

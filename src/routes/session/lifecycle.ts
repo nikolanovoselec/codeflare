@@ -4,53 +4,14 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../../types';
+import type { Env } from '../../types';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
-import { getContainerSessionsCB } from '../../lib/circuit-breakers';
+import { getContainerId } from '../../lib/container-helpers';
 import { ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
-
-/**
- * Check container health and PTY status for a session.
- * Returns the container status and whether the given session has an active PTY.
- */
-async function getContainerSessionStatus(
-  container: DurableObjectStub,
-  sessionId: string,
-  containerId: string
-): Promise<{ status: string; ptyActive: boolean; terminalSessions: { id: string; [key: string]: unknown }[] }> {
-  const healthResult = await safeCheckContainerHealth(container, containerId);
-
-  if (!healthResult.healthy) {
-    return { status: 'stopped', ptyActive: false, terminalSessions: [] };
-  }
-
-  let terminalSessions: { id: string; [key: string]: unknown }[] = [];
-  try {
-    const sessionsRes = await getContainerSessionsCB(containerId).execute(() =>
-      container.fetch(
-        new Request('http://container/sessions', { method: 'GET' })
-      )
-    );
-    if (sessionsRes.ok) {
-      const data = (await sessionsRes.json()) as {
-        sessions: { id: string; [key: string]: unknown }[];
-      };
-      terminalSessions = data.sessions || [];
-    }
-  } catch {
-    // PTY check failed, but container is healthy
-  }
-
-  // Terminal sessions use compound IDs: "sessionId-terminalId" (e.g., "abc123-1")
-  // Match any terminal belonging to this session via prefix
-  const ptyActive = terminalSessions.some((s) => s.id === sessionId || s.id.startsWith(sessionId + '-'));
-  return { status: 'running', ptyActive, terminalSessions };
-}
 
 /**
  * Rate limiter for session stop

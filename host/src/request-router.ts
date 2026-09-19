@@ -216,7 +216,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (pathname === '/internal/runtime-observation' && method === 'GET') {
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
-      const activity = deps.activityTracker.getActivityInfo(sessionManager) as Record<string, unknown>;
+      const activity = deps.activityTracker.getActivityInfo(sessionManager);
       const { terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({

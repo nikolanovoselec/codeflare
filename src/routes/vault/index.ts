@@ -23,7 +23,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../../types';
+import type { Env } from '../../types';
 import { D1SessionRepository } from '../../lib/session-repository';
 import {
   SESSION_ID_PATTERN,
