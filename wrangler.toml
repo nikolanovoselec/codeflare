@@ -122,6 +122,16 @@ new_sqlite_classes = ["container"]
 tag = "v2"
 new_classes = ["timekeeper"]
 
+# Migration tags are append-only: these classes were created by the published
+# integration script even though this branch no longer binds them.
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["OperatorRegistry"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["OperatorActivity"]
+
 # Static assets (frontend) with SPA routing
 [assets]
 directory = "./web-ui/dist"
