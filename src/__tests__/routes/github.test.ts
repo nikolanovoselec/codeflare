@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { AppError } from '../../lib/error-types';
 
 vi.mock('../../lib/logger', () => ({
@@ -40,6 +41,7 @@ const ENT: Partial<Env> = {
 };
 
 let mockKV: ReturnType<typeof createMockKV>;
+let mockD1: D1Database;
 
 function createTestApp(env: Partial<Env>) {
   const app = new Hono<{ Bindings: Env }>();
@@ -48,7 +50,7 @@ function createTestApp(env: Partial<Env>) {
     return c.json({ error: 'Unexpected error' }, 500);
   });
   app.use('*', async (c, next) => {
-    (c.env as unknown) = { KV: mockKV, ...env };
+    (c.env as unknown) = { KV: mockKV, USAGE_DB: mockD1, ...env };
     return next();
   });
   app.route('/api/github', githubRoutes);
@@ -61,6 +63,7 @@ function ok(json: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockKV = createMockKV();
+  mockD1 = createMockSessionD1(mockKV);
   mockKV._set('session:test-bucket:sid12345678', {
     id: 'sid12345678', name: 'Test', userId: 'test-bucket', status: 'running',
     createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
