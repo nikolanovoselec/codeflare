@@ -158,8 +158,6 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
 4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
-6. For no-input idle timing, enforcement reuses a valid durable container-start reference after coordinator reconstruction; absent or invalid references initialize one durable fallback. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (persists one fallback baseline across a second coordinator reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (replaces non-finite persisted startup baselines) -->
-7. Unreadable or unpersistable no-input timing evidence skips idle termination while observation and polling continue. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not authorize idle stopping when fallback baseline persistence fails) --> <!-- @test: src/__tests__/container-metrics.test.ts (keeps host transport healthy when startup-reference storage cannot be read) -->
 
 **Constraints:**
 
@@ -702,6 +700,29 @@ None.
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+
+**Verification:** Automated test ([container metrics](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-034: Durable idle baseline survives coordinator reconstruction
+
+**Intent:** A reconstructed coordinator cannot stop a healthy no-input container from invalid or unavailable startup timing evidence.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. For no-input idle timing, enforcement reuses a valid durable container-start reference after coordinator reconstruction; absent or invalid references initialize one durable fallback. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (persists one fallback baseline across a second coordinator reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (replaces non-finite persisted startup baselines) -->
+2. Unreadable or unpersistable no-input timing evidence skips idle termination while observation and polling continue. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not authorize idle stopping when fallback baseline persistence fails) --> <!-- @test: src/__tests__/container-metrics.test.ts (keeps host transport healthy when startup-reference storage cannot be read) -->
+
+**Constraints:** A valid expired idle reference remains eligible for termination under [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
 **Verification:** Automated test ([container metrics](../../src/__tests__/container-metrics.test.ts))
 
