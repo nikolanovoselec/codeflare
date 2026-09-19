@@ -50,6 +50,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       ? vscodePresentation({ lifecycle, editorReady: props.session.editorReady }, { transportReachable: true })
       : terminalPresentation({ lifecycle, editorReady: props.session.editorReady }, { terminalConnected: wsState() === 'connected' });
   });
+  const lifecycleLabel = () => {
+    const presentation = lifecyclePresentation();
+    return 'label' in presentation ? presentation.label : `Session ${props.session.status}`;
+  };
   const dotVariant = () => {
     if (props.session.workspace === 'vscode') {
       if (props.session.status === 'error' || props.session.editorReadyError === true) return 'error';
@@ -119,7 +123,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           role="status"
           aria-label={props.session.workspace === 'vscode'
             ? `Session ${props.session.status}`
-            : ('label' in lifecyclePresentation() ? lifecyclePresentation().label : `Session ${props.session.status}`)}
+            : lifecycleLabel()}
         />
         <Show when={timerInfo()}>
           {(info) => (

@@ -125,6 +125,11 @@ describe('SessionStatCard', () => {
       expect(dot).toBeInTheDocument();
     });
 
+    it('uses the terminal lifecycle label for the status dot', () => {
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
+      expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'ACTIVE');
+    });
+
     it.each([
       [{ status: 'running', editorReady: true }, 'success'],
       [{ status: 'running', editorReady: false }, 'default'],
