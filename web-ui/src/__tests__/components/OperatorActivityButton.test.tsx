@@ -34,13 +34,29 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(view.getByRole('button', { name: 'Cancel activity-1' })).toBeTruthy();
   });
 
-  it('does not present request failures as empty and supports retry and Escape dismissal', async () => {
-    listMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ items: [] });
+  it('uses concise explanatory copy without redundant refresh or close controls', async () => {
+    listMock.mockResolvedValue({ items: [] });
     const view = render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(view.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(view.getByText('No operator activity')).toBeTruthy());
+    expect(view.getByText('Operators work on tasks in the background.')).toBeTruthy();
+    expect(view.getByText('Track progress and results here.')).toBeTruthy();
+    expect(view.queryByRole('button', { name: /refresh/i })).toBeNull();
+    expect(view.queryByRole('button', { name: /close operator activity/i })).toBeNull();
+  });
+
+  it('does not present request failures as empty and supports retry, outside-click and Escape dismissal', async () => {
+    listMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ items: [] });
+    const view = render(() => <OperatorActivityButton enabled />);
+    const trigger = view.getByRole('button', { name: /operator activity/i });
+    await fireEvent.click(trigger);
     await waitFor(() => expect(view.getByText('Activity unavailable')).toBeTruthy());
     expect(view.queryByText('No operator activity')).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(view.getByText('No operator activity')).toBeTruthy());
+    await fireEvent.mouseDown(document.body);
+    expect(view.queryByText('No operator activity')).toBeNull();
+    await fireEvent.click(trigger);
     await waitFor(() => expect(view.getByText('No operator activity')).toBeTruthy());
     await fireEvent.keyDown(document, { key: 'Escape' });
     expect(view.queryByText('No operator activity')).toBeNull();

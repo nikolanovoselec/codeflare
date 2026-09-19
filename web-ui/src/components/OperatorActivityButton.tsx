@@ -1,5 +1,5 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from 'solid-js';
-import { mdiDeveloperBoard, mdiClose, mdiRefresh } from '@mdi/js';
+import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from 'solid-js';
+import { mdiDeveloperBoard } from '@mdi/js';
 import Icon from './Icon';
 import { cancelOperatorActivity, listOperatorActivities } from '../api/operator-activities';
 
@@ -17,14 +17,22 @@ const OperatorActivityButton: Component<Props> = (props) => {
     catch { setLoadError(true); return null; }
   });
   const working = createMemo(() => (activities()?.items ?? []).filter(item => workingStates.has(item.executionStatus)).length);
-  let closeButton: HTMLButtonElement | undefined;
+  let control: HTMLDivElement | undefined;
   const close = () => setOpen(false);
   const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape' && open()) close(); };
-  onMount(() => document.addEventListener('keydown', keydown));
-  onCleanup(() => document.removeEventListener('keydown', keydown));
+  const clickOutside = (event: MouseEvent) => {
+    if (open() && event.target instanceof Node && !control?.contains(event.target)) close();
+  };
+  onMount(() => {
+    document.addEventListener('keydown', keydown);
+    document.addEventListener('mousedown', clickOutside);
+  });
+  onCleanup(() => {
+    document.removeEventListener('keydown', keydown);
+    document.removeEventListener('mousedown', clickOutside);
+  });
   const interval = setInterval(() => { if (props.enabled) void refetch(); }, 15_000);
   onCleanup(() => clearInterval(interval));
-  createEffect(() => { if (open()) queueMicrotask(() => closeButton?.focus()); });
   const updatedDate = (updatedAt: string | number) => typeof updatedAt === 'number'
     ? new Date(updatedAt) : new Date(updatedAt);
   const stale = (updatedAt: string | number) => Date.now() - updatedDate(updatedAt).getTime() > 2 * 60_000;
@@ -34,7 +42,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
   };
 
   return <Show when={props.enabled}>
-    <div class="operator-activity-control">
+    <div ref={control} class="operator-activity-control">
       <button type="button" class="header-icon-button operator-activity-trigger" aria-label="Operator activity"
         aria-expanded={open()} onClick={() => setOpen(value => !value)}>
         <Icon path={mdiDeveloperBoard} size={22} />
@@ -42,9 +50,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
       </button>
       <Show when={open()}>
         <section class="operator-activity-panel" role="dialog" aria-label="Operator activity" aria-modal="false">
-          <header><div><strong>Operator activity</strong><small>Execution, cleanup and collection are independent.</small></div>
-            <button ref={closeButton} type="button" class="header-icon-button" aria-label="Close operator activity" onClick={close}><Icon path={mdiClose} size={18} /></button>
-          </header>
+          <header><div><strong>Operator activity</strong><small>Operators work on tasks in the background.<br />Track progress and results here.</small></div></header>
           <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
             <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>
               <Show when={(activities()?.items.length ?? 0) > 0} fallback={<div class="operator-activity-state">No operator activity</div>}>
@@ -66,7 +72,6 @@ const OperatorActivityButton: Component<Props> = (props) => {
               </Show>
             </Show>
           </Show>
-          <footer><button type="button" onClick={() => void refetch()}><Icon path={mdiRefresh} size={16} /> Refresh</button></footer>
         </section>
       </Show>
     </div>

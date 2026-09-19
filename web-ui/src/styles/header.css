@@ -509,11 +509,11 @@
   padding: 0 4px; border-radius: 999px; background: var(--color-accent); color: white; font-size: 10px; font-weight: 700;
 }
 .operator-activity-panel {
-  position: absolute; z-index: 210; top: calc(100% + 8px); right: 0; width: min(420px, calc(100vw - 24px));
+  position: absolute; z-index: 210; top: calc(100% + 8px); right: 0; width: min(340px, calc(100vw - 24px));
   max-height: min(620px, calc(100vh - 84px)); overflow: auto; padding: var(--space-3); border: 1px solid var(--color-border);
   border-radius: var(--radius-xl); background: var(--color-bg-elevated); box-shadow: var(--shadow-lg);
 }
-.operator-activity-panel > header, .operator-activity-panel > footer, .operator-activity-item > div,
+.operator-activity-panel > header, .operator-activity-item > div,
 .operator-activity-item nav { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .operator-activity-panel > header small { display: block; margin-top: 2px; color: var(--color-text-secondary); }
 .operator-activity-list { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
