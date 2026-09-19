@@ -1,4 +1,4 @@
-import { Component, Show, createSignal } from 'solid-js';
+import { Component, Show, createSignal, createEffect } from 'solid-js';
 import { mdiPencilOutline, mdiStop, mdiTrashCanOutline } from '@mdi/js';
 import Icon from './Icon';
 import '../styles/session-context-menu.css';
@@ -20,6 +20,24 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   const [renaming, setRenaming] = createSignal(false);
   const [draftName, setDraftName] = createSignal('');
 
+  // The menu stays mounted across opens (only `isOpen`/`position` change), so
+  // any per-open transient state must be reset explicitly on every path that
+  // closes the menu; otherwise a stale draft can carry over to the next
+  // session this menu is opened for.
+  const resetTransient = () => {
+    setConfirmingDelete(false);
+    setRenaming(false);
+    setDraftName('');
+  };
+
+  let renameInput: HTMLInputElement | undefined;
+  createEffect(() => {
+    if (renaming()) {
+      renameInput?.focus();
+      renameInput?.select();
+    }
+  });
+
   const clampedPosition = () => {
     const menuWidth = 160;
     const menuHeight = 120;
@@ -32,6 +50,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const handleStop = () => {
     props.onStop();
+    resetTransient();
     props.onClose();
   };
 
@@ -54,18 +73,26 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
     const next = draftName().trim();
     if (!next) return;
     props.onRename(next);
-    setRenaming(false);
+    resetTransient();
     props.onClose();
+  };
+
+  const handleRenameKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setRenaming(false);
+      setDraftName('');
+    }
   };
 
   const handleDeleteConfirm = () => {
     props.onDelete();
+    resetTransient();
     props.onClose();
   };
 
   return (
     <Show when={props.isOpen}>
-      <div class="session-context-menu__backdrop" onClick={() => { setConfirmingDelete(false); setRenaming(false); props.onClose(); }} />
+      <div class="session-context-menu__backdrop" onClick={() => { resetTransient(); props.onClose(); }} />
       <div
         class="session-context-menu"
         data-testid="session-context-menu"
@@ -100,6 +127,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             onSubmit={handleRenameSubmit}
           >
             <input
+              ref={renameInput}
               type="text"
               class="session-context-menu__rename-input"
               data-testid="context-menu-rename-input"
@@ -107,6 +135,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
               value={draftName()}
               maxLength={100}
               onInput={(e) => setDraftName(e.currentTarget.value)}
+              onKeyDown={handleRenameKeyDown}
             />
           </form>
         </Show>

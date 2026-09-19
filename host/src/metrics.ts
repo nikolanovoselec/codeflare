@@ -17,6 +17,28 @@ import { parseWorkspaceRepo, type WorkspaceRepo } from './git-clone.js';
 const execFileAsync = promisify(execFile);
 
 /**
+ * Bound for a single inventory `git` call. /health is polled with `--max-time 1`
+ * inside a 10s metrics budget, so a hung repository must not hold the tick.
+ */
+const WORKSPACE_REPO_GIT_TIMEOUT_MS = 2000;
+
+/** Mirrors MAX_TRACKED_CLONES in src/lib/clone-targets.ts: the Worker keeps at most 20. */
+const MAX_WORKSPACE_REPOS = 20;
+
+/**
+ * REQ-GITHUB-015 AC1: the inventory is only meaningful once the startup restore
+ * has finished. Before that the workspace is legitimately incomplete, and
+ * reporting it would prune every repository the restore has not yet recreated.
+ * The entrypoint exports this flag path and touches the file after the restore
+ * block. No-ops in tests and dev mode where the variable is unset.
+ */
+export function isWorkspaceInventoryReady(): boolean {
+  const flagPath = process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+  if (!flagPath) return true;
+  return fs.existsSync(flagPath);
+}
+
+/**
  * REQ-GITHUB-015 AC1: report the GitHub repositories checked out at the top of
  * the workspace, whichever way they arrived (session clone, repository panel, or
  * the agent running git itself). The Worker persists this on the session record
@@ -25,8 +47,9 @@ const execFileAsync = promisify(execFile);
  *
  * Only direct children are inspected (a nested repository is restored by its
  * parent, not on its own), one entry per repository, ordered by repository name
- * so the reported inventory is stable. Any failure yields no entry rather than
- * an error: this feeds a best-effort restore.
+ * so the reported inventory is stable, and at most MAX_WORKSPACE_REPOS entries
+ * are inspected. Every `git` call is bounded. Any failure yields no entry rather
+ * than an error: this feeds a best-effort restore.
  */
 export async function collectWorkspaceRepos(
   workspaceRoot: string,
@@ -43,19 +66,27 @@ export async function collectWorkspaceRepos(
   }
   const githubHost = process.env.GITHUB_HOST || 'github.com';
   const byRepo = new Map<string, WorkspaceRepo>();
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const dir = `${workspaceRoot}/${entry.name}`;
+  const dirs = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  for (const name of dirs) {
+    if (byRepo.size >= MAX_WORKSPACE_REPOS) break;
+    const dir = `${workspaceRoot}/${name}`;
     let origin: string;
     try {
-      const { stdout } = await execFileAsync('git', ['-C', dir, 'remote', 'get-url', 'origin']);
+      const { stdout } = await execFileAsync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
+        timeout: WORKSPACE_REPO_GIT_TIMEOUT_MS,
+      });
       origin = stdout.trim();
     } catch {
       continue;
     }
     let branch: string | undefined;
     try {
-      const { stdout } = await execFileAsync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
+      const { stdout } = await execFileAsync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD'], {
+        timeout: WORKSPACE_REPO_GIT_TIMEOUT_MS,
+      });
       branch = stdout.trim();
     } catch {
       branch = undefined;

@@ -56,19 +56,23 @@ export function normalizeTrackedClones(input: unknown): TrackedClone[] {
  * first so the user's primary workspace is populated before the rest of the
  * time budget is spent. Both the validated repo and ref charsets exclude spaces
  * and `#`, so the encoding is unambiguous.
+ *
+ * The primary repository is reserved before the cap is applied, so a session
+ * tracking a full inventory still restores the repository it was created from.
+ * For that repository the creation-time ref wins over a container-reported
+ * branch, so a resume reproduces the ref the session was created with; the
+ * container remains the authority on which repositories are tracked at all.
  */
 export function buildCloneTargets(
   tracked: readonly TrackedClone[] | undefined,
   primary: TrackedClone | undefined,
 ): string {
-  const ordered = normalizeTrackedClones([
-    ...(primary ? [primary] : []),
-    ...(tracked ?? []),
-  ]);
-  const primaryRepo = primary ? validate(primary)?.repo : undefined;
-  const first = ordered.filter((c) => c.repo === primaryRepo);
-  const rest = ordered.filter((c) => c.repo !== primaryRepo);
-  return [...first, ...rest]
+  const primaryClone = primary ? validate(primary) : null;
+  const rest = normalizeTrackedClones(tracked ?? []).filter(
+    (c) => c.repo !== primaryClone?.repo,
+  );
+  return [...(primaryClone ? [primaryClone] : []), ...rest]
+    .slice(0, MAX_TRACKED_CLONES)
     .map((c) => (c.ref ? `${c.repo}#${c.ref}` : c.repo))
     .join(' ');
 }
