@@ -57,9 +57,9 @@ export function normalizeTrackedClones(input: unknown): TrackedClone[] {
  * time budget is spent. Both the validated repo and ref charsets exclude spaces
  * and `#`, so the encoding is unambiguous.
  *
- * The primary repository is reserved before the cap is applied, so a session
- * tracking a full inventory still restores the repository it was created from.
- * For that repository the creation-time ref wins over a container-reported
+ * The primary repository is separate from the 20-entry tracked inventory, so a
+ * distinct primary plus all 20 tracked repositories can be restored. For that
+ * repository the creation-time ref wins over a container-reported
  * branch, so a resume reproduces the ref the session was created with; the
  * container remains the authority on which repositories are tracked at all.
  */
@@ -72,7 +72,6 @@ export function buildCloneTargets(
     (c) => c.repo !== primaryClone?.repo,
   );
   return [...(primaryClone ? [primaryClone] : []), ...rest]
-    .slice(0, MAX_TRACKED_CLONES)
     .map((c) => (c.ref ? `${c.repo}#${c.ref}` : c.repo))
     .join(' ');
 }

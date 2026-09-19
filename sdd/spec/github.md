@@ -192,7 +192,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Constraints:**
 
 - Repository identities reported from a container are untrusted input and are revalidated before reaching a clone.
-- Inventory collection inspects at most 20 workspace directories within an eight-second aggregate deadline.
+- Inventory collection inspects at most 20 workspace directories within an eight-second aggregate deadline; an incomplete scan is withheld so it cannot prune prior tracking.
 
 **Priority:** P1
 

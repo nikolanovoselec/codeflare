@@ -55,7 +55,8 @@ export function isWorkspaceInventoryReady(): boolean {
 export async function collectWorkspaceRepos(
   workspaceRoot: string,
   log: Logger,
-): Promise<WorkspaceRepo[]> {
+  budgetMs = WORKSPACE_REPO_INVENTORY_BUDGET_MS,
+): Promise<WorkspaceRepo[] | undefined> {
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(workspaceRoot, { withFileTypes: true });
@@ -70,14 +71,14 @@ export async function collectWorkspaceRepos(
   const dirs = entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort()
-    .slice(0, MAX_WORKSPACE_REPOS);
-  const deadline = Date.now() + WORKSPACE_REPO_INVENTORY_BUDGET_MS;
+    .sort();
+  if (dirs.length > MAX_WORKSPACE_REPOS) return undefined;
+  const deadline = Date.now() + budgetMs;
   for (const name of dirs) {
     const dir = `${workspaceRoot}/${name}`;
     let origin: string;
     const originBudget = Math.min(WORKSPACE_REPO_GIT_TIMEOUT_MS, deadline - Date.now());
-    if (originBudget <= 0) break;
+    if (originBudget <= 0) return undefined;
     try {
       const { stdout } = await execFileAsync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
         timeout: originBudget,
@@ -88,7 +89,7 @@ export async function collectWorkspaceRepos(
     }
     let branch: string | undefined;
     const branchBudget = Math.min(WORKSPACE_REPO_GIT_TIMEOUT_MS, deadline - Date.now());
-    if (branchBudget <= 0) break;
+    if (branchBudget <= 0) return undefined;
     try {
       const { stdout } = await execFileAsync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD'], {
         timeout: branchBudget,
@@ -100,6 +101,7 @@ export async function collectWorkspaceRepos(
     const repo = parseWorkspaceRepo(origin, branch, githubHost);
     if (repo && !byRepo.has(repo.repo)) byRepo.set(repo.repo, repo);
   }
+  if (Date.now() >= deadline) return undefined;
   return [...byRepo.values()].sort((a, b) => (a.repo < b.repo ? -1 : a.repo > b.repo ? 1 : 0));
 }
 

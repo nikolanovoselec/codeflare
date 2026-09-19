@@ -227,11 +227,15 @@ app.post('/clone', cloneRateLimiter, async (c) => {
   // in the ~1 metrics tick before the container reports its workspace still
   // restores the repository. A failed clone tracks nothing.
   if (upstream.status === 200) {
+    const latestSession = await c.env.KV.get<Session>(key, 'json');
+    if (!latestSession) {
+      return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    }
     const clones = normalizeTrackedClones([
-      ...(session.clones ?? []),
+      ...(latestSession.clones ?? []),
       { repo, ...(ref ? { ref } : {}) },
     ]);
-    await putSessionWithMetadata(c.env.KV, key, { ...session, clones });
+    await putSessionWithMetadata(c.env.KV, key, { ...latestSession, clones });
   }
 
   return c.json(payload as Record<string, unknown>, upstream.status as never);

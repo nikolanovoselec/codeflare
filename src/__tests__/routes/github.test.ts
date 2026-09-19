@@ -268,9 +268,30 @@ describe('POST /api/github/clone', () => {
     expect(buildCloneTargets(persisted.clones, undefined)).toBe('octo/repo#develop');
   });
 
-  it('REQ-GITHUB-015 AC3: fails closed when a successful clone cannot be persisted', async () => {
+  it('REQ-GITHUB-015 AC6: merges clone tracking into the latest session record', async () => {
+    const key = 'session:test-bucket:sid12345678';
+    containerFetch.mockImplementationOnce(async () => {
+      mockKV._set(key, {
+        id: SID, name: 'Renamed during clone', userId: 'test-bucket', status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      });
+      return containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' });
+    });
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(200);
+    const persisted = await mockKV.get(key, 'json') as { name: string; clones: unknown };
+    expect(persisted.name).toBe('Renamed during clone');
+    expect(persisted.clones).toEqual([{ repo: 'octo/repo' }]);
+  });
+
+  it('REQ-GITHUB-015 AC6: rejects a clone request for a missing session before forwarding', async () => {
     mockKV._clear();
-    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
 
     const res = await createTestApp(ENT).request('/api/github/clone', {
       method: 'POST',
@@ -281,6 +302,19 @@ describe('POST /api/github/clone', () => {
     expect(res.status).toBe(404);
     expect((await res.json() as Record<string, unknown>).code).toBe('SESSION_NOT_FOUND');
     expect(containerFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-GITHUB-015 AC6: does not return clone success when session persistence fails', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
+    mockKV.put.mockRejectedValueOnce(new Error('KV unavailable'));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(500);
   });
 
   it('REQ-GITHUB-015 AC3: does not track a repository when the clone did not succeed', async () => {

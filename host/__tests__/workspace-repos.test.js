@@ -96,7 +96,7 @@ describe('REQ-GITHUB-015 AC1: workspace repository inventory', () => {
     assert.deepEqual(repos, []);
   });
 
-  it('inspects at most 20 workspace directories', async () => {
+  it('omits an inventory that cannot inspect every workspace directory', async () => {
     const workspace = makeWorkspace();
     for (let i = 0; i < 20; i++) {
       mkdirSync(join(workspace, `dir-${String(i).padStart(2, '0')}`));
@@ -105,7 +105,16 @@ describe('REQ-GITHUB-015 AC1: workspace repository inventory', () => {
 
     const repos = await collectWorkspaceRepos(workspace, noop);
 
-    assert.deepEqual(repos, []);
+    assert.equal(repos, undefined);
+  });
+
+  it('omits an inventory when its aggregate deadline is exhausted', async () => {
+    const workspace = makeWorkspace();
+    makeRepo(workspace, 'api', { origin: 'https://github.com/octo/api.git' });
+
+    const repos = await collectWorkspaceRepos(workspace, noop, 0);
+
+    assert.equal(repos, undefined);
   });
 });
 
