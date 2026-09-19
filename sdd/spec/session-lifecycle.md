@@ -127,6 +127,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
 6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
+7. For no-input idle timing, enforcement reuses a valid durable container-start reference after coordinator reconstruction; absent or invalid references initialize one durable fallback. Unreadable or unpersistable timing evidence skips idle termination while observation and polling continue, and a valid expired reference can stop the container. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (persists one fallback baseline across a second coordinator reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (replaces non-finite persisted startup baselines) --> <!-- @test: src/__tests__/container-metrics.test.ts (does not authorize idle stopping when fallback baseline persistence fails) --> <!-- @test: src/__tests__/container-metrics.test.ts (keeps host transport healthy when startup-reference storage cannot be read) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) -->
 
 **Constraints:**
 
@@ -161,8 +162,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Constraints:**
 
-- If no input is ever received, idle time is measured from container start.
-- A container with an open terminal but no typing stops after the configured idle timeout has elapsed from start.
+- If no input is ever received, idle time is measured from a valid durable container-start reference.
+- A container with an open terminal but no typing stops after the configured idle timeout has elapsed from that reference.
 
 **Priority:** P0
 
@@ -264,7 +265,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. Restarting a session on the same workspace preserves the bucket association and applies any stored preference updates. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled preference / REQ-SESSION-008 (fast-start preference persists across restart)) -->
-2. The idle-metric polling schedule is re-armed and the container start timestamp is recorded on each start. <!-- @impl: src/container/index.ts::onStart --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+2. A fresh lifecycle generation records its container-start timestamp and arms idle-metric polling. A same-generation callback replay preserves its timestamp, lifecycle ownership and existing polling; stale or stopping callbacks do neither. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (preserves generation ownership and idle baseline on a duplicate onStart) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
 3. Updated credentials and preferences take effect on restart without requiring container recreation. <!-- @impl: src/container/index.ts::onStart --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008: Container restart preserves R2 bucket) -->
 4. The container entrypoint runs an initial sync that restores the workspace from persistent storage on restart. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008: Container restart preserves R2 bucket) -->
 5. User preference changes (idle timeout, fast-start, session mode) take effect on restart without requiring container recreation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008: Container restart preserves R2 bucket) -->

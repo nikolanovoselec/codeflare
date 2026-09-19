@@ -399,7 +399,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'stopping', lifecycleGeneration: 0,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
-      } as Session);
+      });
 
       await expect(containerInstance.onStart()).rejects.toThrow('D1 start generation unavailable');
       expect(await storage().get('shutdownRequested')).toEqual(expect.any(Number));

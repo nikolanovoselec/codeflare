@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-19
 
+- **Idle startup references survive coordinator reconstruction** ([REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-005](session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-SESSION-008](session-lifecycle.md#req-session-008-container-restart-preserves-r2-bucket)). Idle enforcement reuses a valid durable startup reference across coordinator reconstruction and fails open when timing evidence is missing, invalid, or unavailable; valid expired references still stop. Only a fresh lifecycle generation arms polling and clears lifecycle ownership; same-generation start callbacks validate and preserve it.
+
 - **D1 session admission completes with deployment** ([REQ-SESSION-030](session-lifecycle.md#req-session-030-clean-slate-d1-admission-is-live-on-deployment)). The D1-only clean-slate migration no longer leaves Create and Start admission pending after an otherwise successful deployment. A completion migration opens the D1 gate in every environment without a KV backfill, compatibility read, or automatic legacy-record deletion.
 
 - **Premature review triage is corrected after terminal evidence** ([REQ-AGENT-214](agents.md#req-agent-214-premature-review-triage-correction)). A structurally valid table published before the final reviewer or CI result now receives exactly one post-completion correction follow-up; FIX remains withheld until a later canonical table is republished. This preserves fail-closed reviewer/CI correlation without timers, outboxes, or lifecycle persistence.
