@@ -625,12 +625,12 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
     it('REQ-IDE-049 AC1: clears stale editor readiness before restarting a stopped VS Code session', async () => {
       const container = createMockContainer('stopped');
-      const params = baseParams(container, {
-        sessionData: {
-          id: 'session1234', userId: 'bucket', name: 'Editor', status: 'stopped', workspace: 'vscode',
-          editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
-        } as Session,
-      });
+      const editorSession = {
+        id: 'session1234', userId: 'bucket', name: 'Editor', status: 'stopped', workspace: 'vscode',
+        editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
+      } as Session;
+      mockKV._set('session:bucket:session1234', editorSession);
+      const params = baseParams(container, { sessionData: editorSession });
 
       await startOrRestartContainer(params);
 
@@ -642,7 +642,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
     it('clears stale readiness when KV says running but the container is stopped', async () => {
       const container = createMockContainer('stopped');
       const sessionData = {
-        id: 'session1234', name: 'Editor', status: 'running', workspace: 'vscode',
+        id: 'session1234', userId: 'bucket', name: 'Editor', status: 'running', workspace: 'vscode',
         editorReady: true, createdAt: '2024-01-01T00:00:00Z',
       } as Session;
       mockKV._set('session:bucket:session1234', { ...sessionData, lastActiveAt: '2024-01-02T00:00:00Z' });
@@ -671,7 +671,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('session:bucket:session1234', {
         id: 'session1234',
         name: 'Test',
-        status: 'running',
+        status: 'stopped',
         createdAt: '2024-01-01T00:00:00Z',
       });
 
@@ -700,7 +700,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('session:bucket:session1234', {
         id: 'session1234',
         name: 'Test',
-        status: 'running',
+        status: 'stopped',
         createdAt: '2024-01-01T00:00:00Z',
       });
 

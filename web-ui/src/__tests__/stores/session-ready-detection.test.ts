@@ -40,7 +40,7 @@ import { sessionStore } from '../../stores/session';
 import * as api from '../../api/client';
 
 const mockGetSessions = vi.mocked(api.getSessions);
-const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
+const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus) as any;
 
 /**
  * Tests for session ready detection on page load.

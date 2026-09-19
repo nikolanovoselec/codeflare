@@ -134,6 +134,7 @@ export async function startOrRestartContainer(params: {
 
   // A definitively stopped process is confirmed before claiming a replacement
   // generation. Unknown transport/process state is not stopped evidence.
+  if (currentState.status === 'unknown') throw new Error('Container exit is not confirmed for Start');
   const repository = new D1SessionRepository(env.USAGE_DB);
   const authoritative = await repository.getSession(sessionData.userId, sessionData.id);
   if (!authoritative) throw new Error('Session lifecycle record unavailable for Start');

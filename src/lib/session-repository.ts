@@ -118,7 +118,7 @@ export class D1SessionRepository implements SessionAuthority {
 
   async confirmStopped(ownerKey: string, sessionId: string, generation: number, intentId: string, observedAt: string): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='stopped',
-      transitioned_at=?5, response_revision=response_revision+1,
+      transitioned_at=?5, last_active_at=?5, response_revision=response_revision+1,
       unreachable_incident_id=NULL, unreachable_first_observed_at=NULL, unreachable_deadline_ms=NULL,
       termination_intent_id=NULL, termination_generation=NULL, termination_claimed_at=NULL,
       termination_signal_accepted_at=NULL

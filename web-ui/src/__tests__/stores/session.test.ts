@@ -84,7 +84,7 @@ import {
 const mockGetSessions = vi.mocked(api.getSessions);
 const mockCreateSession = vi.mocked(api.createSession);
 const mockDeleteSession = vi.mocked(api.deleteSession);
-const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
+const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus) as any;
 const mockGetSessionAncillaryStatus = vi.mocked(api.getSessionAncillaryStatus);
 const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);

@@ -90,7 +90,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           }
           else if (/SET\s+lifecycle_state='stopped'/.test(sql)) {
             if (session.status !== 'stopping' || session.terminationIntentId !== args[3] || (session.lifecycleGeneration ?? 0) !== args[2]) return { success: true, meta: { changes: 0 } };
-            session.status = 'stopped'; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
+            session.status = 'stopped'; session.lastActiveAt = args[4]; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
           }
           else if (sql.includes('lifecycle_state=COALESCE') && sql.includes('observation_sequence=?4')) {
             if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
@@ -109,6 +109,9 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           if (sql.includes('editor_ready=?4')) { session.editorReady = args[3] === 1; session.editorReadyError = args[4] === 1; }
           if (sql.includes('name=COALESCE')) { if (args[2] != null) session.name = args[2]; if (args[3] != null) session.tabConfig = JSON.parse(String(args[3])); session.lastAccessedAt = args[4]; }
           if (sql.includes('last_accessed_at=?3')) session.lastAccessedAt = args[2];
+          // Model UPDATE semantics: deleting the row while this fake statement
+          // is in flight yields changes=0 and must never resurrect it.
+          if (!await get(args[0], args[1])) return { success: true, meta: { changes: 0 } };
           await put(args[0], session);
           return { success: true, meta: { changes: 1 } };
         },
