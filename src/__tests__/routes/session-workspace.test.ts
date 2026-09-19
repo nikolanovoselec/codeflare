@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import crudRoutes from '../../routes/session/crud';
 import type { AccessUser, Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { createTestApp } from '../helpers/test-app';
 
 describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {

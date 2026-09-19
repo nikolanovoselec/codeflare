@@ -6,6 +6,7 @@ import type { Env, Session } from '../../types';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 vi.mock('../../lib/access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/access')>();
   return {
@@ -58,6 +59,7 @@ function createLifecycleApp(mockKV: ReturnType<typeof createMockKV>, bucketName 
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
       CONTAINER: {} as DurableObjectNamespace,
     } as unknown as Env;
     c.set('user', { email: 'test@example.com', authenticated: true });
@@ -574,6 +576,7 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
       adminApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
           CONTAINER: {} as DurableObjectNamespace,
         } as unknown as Env;
         c.set('user', { email: 'admin@example.com', authenticated: true, role: 'admin' as const });

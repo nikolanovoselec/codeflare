@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Env, Session } from '../../../types';
 import type { AuthVariables } from '../../../middleware/auth';
 import { createMockKV } from '../../helpers/mock-kv';
+import { createMockSessionD1 } from '../../helpers/mock-session-d1';
 
 // ---- Hoisted mocks ----
 
@@ -156,6 +157,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
         CLOUDFLARE_API_TOKEN: 'test-api-token',
         R2_ACCESS_KEY_ID: 'account-level-ak',
         R2_SECRET_ACCESS_KEY: 'account-level-sk',
@@ -388,6 +390,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
         CLOUDFLARE_API_TOKEN: 'test-api-token',
         R2_ACCESS_KEY_ID: 'account-level-ak',
         R2_SECRET_ACCESS_KEY: 'account-level-sk',
