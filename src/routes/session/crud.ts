@@ -6,7 +6,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
-import { getPreferencesKey, getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
+import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
@@ -54,11 +55,30 @@ const UpdateSessionBody = z.object({
 
 const logger = createLogger('session-crud');
 
-function toWorkspaceApiSession(session: Session) {
+function toWorkspaceApiSession(session: Session | D1Session) {
+  const normalized: Session = 'sessionId' in session ? {
+    id: session.sessionId,
+    name: session.name,
+    userId: session.ownerKey,
+    createdAt: session.createdAt,
+    lastAccessedAt: session.lastAccessedAt,
+    status: session.lifecycleState === 'running' ? 'running' : 'stopped',
+    agentType: session.agentType,
+    workspace: session.workspace,
+    terminalMode: session.terminalMode,
+    tabConfig: session.tabConfig,
+    clone: session.clone,
+    lastStartedAt: session.lastStartedAt,
+    lastActiveAt: session.lastActiveAt,
+    editorReady: session.editorReady,
+    editorReadyError: session.editorReadyError,
+    metrics: { cpu: session.cpu, mem: session.memory, hdd: session.disk, syncStatus: session.syncStatus, updatedAt: session.metricsObservedAt },
+  } : session;
   return {
-    ...toApiSession(session),
-    workspace: resolveSessionWorkspace(session.workspace),
-    terminalMode: resolveTerminalMode(session.terminalMode),
+    ...toApiSession(normalized),
+    ...('sessionId' in session ? { lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
+    workspace: resolveSessionWorkspace(normalized.workspace),
+    terminalMode: resolveTerminalMode(normalized.terminalMode),
   };
 }
 
@@ -90,35 +110,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
  */
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const prefix = getSessionPrefix(bucketName);
-
-  // List all sessions for this user from KV (with pagination for >1000 keys)
-  const keys = await listAllKvKeys(c.env.KV, prefix);
-
-  // The response body needs name/createdAt/lastAccessedAt, which list metadata
-  // does NOT carry, so every key still needs its full record. Bound the
-  // fan-out with a chunked concurrency limiter (batches of 20) instead of an
-  // unbounded Promise.all over all keys.
-  const sessions: Session[] = [];
-  for (let i = 0; i < keys.length; i += 20) {
-    const chunk = keys.slice(i, i + 20);
-    const results = await Promise.all(
-      chunk.map(key => c.env.KV.get<Session>(key.name, 'json'))
-    );
-    for (const session of results) {
-      if (session !== null) sessions.push(session);
-    }
-  }
-
-  // Sort by lastAccessedAt (most recent first). KV status is authoritative -
-  // the container writes 'stopped' on exit, so no read-side reconciliation.
-  sessions.sort(
-    (a, b) =>
-      new Date(b.lastAccessedAt).getTime() -
-      new Date(a.lastAccessedAt).getTime()
-  );
-
-  // Omit userId from API responses
+  const sessions = await new D1SessionRepository(c.env.USAGE_DB).listSessions(bucketName);
   const sanitizedSessions = sessions.map(toWorkspaceApiSession);
 
   return c.json({ sessions: sanitizedSessions });
@@ -183,22 +175,18 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
   const sessionId = generateSessionId();
   const now = new Date().toISOString();
 
-  const session: Session = {
-    id: sessionId,
+  const session = await new D1SessionRepository(c.env.USAGE_DB).create({
+    ownerKey: bucketName,
+    sessionId,
     name: sessionName,
-    userId: bucketName,
     createdAt: now,
     lastAccessedAt: now,
     ...(agentType && { agentType }),
-    ...(workspace === 'vscode' && { workspace }),
+    workspace,
     terminalMode,
     ...(body.tabConfig && { tabConfig: body.tabConfig }),
     ...(body.clone && { clone: body.clone }),
-  };
-
-  // Store session in KV
-  const key = getSessionKey(bucketName, sessionId);
-  await putSessionWithMetadata(c.env.KV, key, session);
+  });
 
   // Omit userId from API response
   return c.json({ session: toWorkspaceApiSession(session) }, 201);
@@ -212,11 +200,8 @@ app.get('/:id', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
   validateSessionId(sessionId);
-  const key = getSessionKey(bucketName, sessionId);
-
-  const session = await getSessionOrThrow(c.env.KV, key);
-
-  // Omit userId from API response
+  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
+  if (!session) throw new ValidationError('Session not found');
   return c.json({ session: toWorkspaceApiSession(session) });
 });
 
@@ -228,23 +213,18 @@ app.patch('/:id', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
   validateSessionId(sessionId);
-  const key = getSessionKey(bucketName, sessionId);
-
-  const session = await getSessionOrThrow(c.env.KV, key);
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  const session = await repository.getSession(bucketName, sessionId);
+  if (!session) throw new ValidationError('Session not found');
 
   const body = await parseJsonBody(c, UpdateSessionBody);
   validateTabConfigForMode(body.tabConfig, resolveTerminalMode(session.terminalMode));
-
-  // Update fields (immutable)
-  const updated = {
-    ...session,
+  const updated = await repository.updateMutable(bucketName, sessionId, {
     ...(body.name ? { name: sanitizeSessionName(body.name) } : {}),
     ...(body.tabConfig ? { tabConfig: body.tabConfig } : {}),
     lastAccessedAt: new Date().toISOString(),
-  };
-
-  // Save updated session
-  await putSessionWithMetadata(c.env.KV, key, updated);
+  });
+  if (!updated) throw new ValidationError('Session not found');
 
   // Omit userId from API response
   return c.json({ session: toWorkspaceApiSession(updated) });
@@ -259,11 +239,15 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
   validateSessionId(sessionId);
-  const key = getSessionKey(bucketName, sessionId);
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  const session = await repository.getSession(bucketName, sessionId);
+  if (!session) throw new ValidationError('Session not found');
 
-  // Check if session exists
-  await getSessionOrThrow(c.env.KV, key);
-
+  const intentId = crypto.randomUUID();
+  const claimed = session.lifecycleState === 'stopped'
+    ? session
+    : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
+  if (!claimed) throw new Error('Session delete ownership unavailable');
   const containerId = getContainerId(bucketName, sessionId);
   const container = getContainer(c.env.CONTAINER, containerId);
 
@@ -282,8 +266,10 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
     throw err;
   }
 
-  // Delete from KV only after confirmed container destruction.
-  await c.env.KV.delete(key);
+  if (claimed.lifecycleState !== 'stopped' && !await repository.confirmStopped(
+    bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString(),
+  )) throw new Error('Confirmed exit could not be persisted');
+  if (!await repository.deleteConfirmed(bucketName, sessionId)) throw new Error('Session exit is not confirmed');
 
   return c.json({ success: true, deleted: true, id: sessionId });
 });
@@ -296,12 +282,9 @@ app.post('/:id/touch', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
   validateSessionId(sessionId);
-  const key = getSessionKey(bucketName, sessionId);
-
-  const session = await getSessionOrThrow(c.env.KV, key);
-
-  const updated = { ...session, lastAccessedAt: new Date().toISOString() };
-  await putSessionWithMetadata(c.env.KV, key, updated);
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  const updated = await repository.updateMutable(bucketName, sessionId, { lastAccessedAt: new Date().toISOString() });
+  if (!updated) throw new ValidationError('Session not found');
 
   return c.json({ session: toWorkspaceApiSession(updated) });
 });

@@ -155,11 +155,10 @@ export function resetManagedCheckState(): void {
 
 /** Issue the batch-status call, counting an outstanding managed-release probe. */
 async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
-  const include = ['storage', 'usage'] as const;
-  if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck, include });
+  if (!includePreseedCheck) return api.getBatchSessionStatus();
   managedChecksInFlight += 1;
   try {
-    return await api.getBatchSessionStatus({ includePreseedCheck, include });
+    return await api.getBatchSessionStatus();
   } finally {
     managedChecksInFlight -= 1;
   }

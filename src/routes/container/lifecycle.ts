@@ -14,7 +14,8 @@ import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdat
 import { isBucketMigrating } from '../../lib/r2-migration';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from '../../lib/kv-keys';
+import { D1SessionRepository } from '../../lib/session-repository';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { installedAgents } from '../../lib/agent-allowlist';
 import { containerLogger } from './shared';
@@ -73,13 +74,12 @@ export async function startOrRestartContainer(params: {
   setBucketBody: string;
   containerId: string;
   sessionData: Session;
-  sessionKey: string;
   env: Env;
   shortContainerId: string;
   logger: Logger;
   waitUntil: (p: Promise<void>) => void;
 }): Promise<{ status: string; containerState?: string }> {
-  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
+  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
   let currentState;
@@ -128,16 +128,15 @@ export async function startOrRestartContainer(params: {
     };
   }
 
-  // Every path below starts a replacement container. Re-read KV so concurrent
-  // activity/metrics survive, then clear editor readiness before startup polling
-  // can expose Open for an editor that no longer exists.
-  const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
-  const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
-  await putSessionWithMetadata(env.KV, sessionKey, {
-    ...sessionWithoutReadiness,
-    status: 'running' as const,
-    ...(resolveSessionWorkspace(base.workspace) === 'vscode' && { editorReady: false }),
-  });
+  // Every path below starts a replacement lifecycle. D1 claims the generation
+  // before process work begins; an outstanding termination intent or non-stopped
+  // state rejects the claim.
+  const claimed = await new D1SessionRepository(env.USAGE_DB).start(
+    sessionData.userId,
+    sessionData.id,
+    new Date().toISOString(),
+  );
+  if (!claimed) throw new Error('Session lifecycle could not be claimed for Start');
 
   // Kick off container start in background (non-blocking)
   waitUntil(
@@ -147,15 +146,8 @@ export async function startOrRestartContainer(params: {
         logger.info('Container started and ports ready', { containerId: shortContainerId });
       } catch (error) {
         logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
-        try {
-          const freshSession = await env.KV.get<Session>(sessionKey, 'json');
-          if (freshSession) {
-            const rolledBack = { ...freshSession, status: 'stopped' as const };
-            await putSessionWithMetadata(env.KV, sessionKey, rolledBack);
-          }
-        } catch (err) {
-          logger.error('KV rollback to stopped failed', toError(err));
-        }
+        // Start failure is not confirmed process exit. Leave the generation in
+        // starting for bounded lifecycle reconciliation rather than inventing stopped.
       }
     })()
   );
@@ -439,14 +431,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     });
 
     // Step 5: Start or restart the container
-    const sessionKey = getSessionKey(bucketName, sessionId);
     const result = await startOrRestartContainer({
       container,
       needsBucketUpdate,
       setBucketBody,
       containerId,
       sessionData,
-      sessionKey,
       env: c.env,
       shortContainerId,
       logger: reqLogger,

@@ -18,7 +18,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import { resolveTerminalMode, type Env, type Session } from '../types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
+import { D1SessionRepository } from '../lib/session-repository';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
@@ -188,9 +188,9 @@ export async function handleWebSocketUpgrade(
 
     logger.info('User authenticated for WebSocket', { email: user.email, containerId, terminalId });
 
-    // Validate session exists using BASE sessionId
-    const sessionKey = getSessionKey(bucketName, baseSessionId);
-    const session = await env.KV.get<Session>(sessionKey, 'json');
+    // Validate session from the owner-scoped D1 authority.
+    const repository = new D1SessionRepository(env.USAGE_DB);
+    const session = await repository.getSession(bucketName, baseSessionId);
 
     if (!session) {
       return new Response(JSON.stringify({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }), {
@@ -267,13 +267,9 @@ export async function handleWebSocketUpgrade(
 
     // Update last accessed timestamp (don't await)
     // Re-read session inside waitUntil to avoid stale read-modify-write race (FIX-23)
-    ctx.waitUntil((async () => {
-      const fresh = await env.KV.get<Session>(sessionKey, 'json');
-      if (fresh) {
-        const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-        await putSessionWithMetadata(env.KV, sessionKey, touched);
-      }
-    })().catch(err => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
+    ctx.waitUntil(repository.updateMutable(bucketName, baseSessionId, {
+      lastAccessedAt: new Date().toISOString(),
+    }).catch(err => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
 
     // (container already resolved above for the warming-up /health probe)
 
@@ -383,9 +379,8 @@ app.get('/:sessionId/status', async (c) => {
     return c.json({ error: 'Invalid session ID format', code: 'INVALID_SESSION' }, 400);
   }
 
-  // Validate session
-  const sessionKey = getSessionKey(bucketName, sessionId);
-  const session = await c.env.KV.get<Session>(sessionKey, 'json');
+  // Validate session from D1 authority.
+  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
 
   if (!session) {
     throw new NotFoundError('Session');

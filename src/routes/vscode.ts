@@ -22,7 +22,7 @@
  */
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
-import { putSessionWithMetadata } from '../lib/kv-keys';
+import { D1SessionRepository } from '../lib/session-repository';
 import {
   REQUEST_ID_LENGTH,
   REQUEST_ID_PATTERN,
@@ -213,7 +213,7 @@ export async function handleVscodeRequest(
 
     const ownershipResult = await assertSessionOwnership(env, bucketName, sessionId, jsonHeaders);
     if ('errorResponse' in ownershipResult) return ownershipResult.errorResponse;
-    const { sessionKey } = ownershipResult;
+    const { session } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
@@ -286,17 +286,11 @@ export async function handleVscodeRequest(
     // the container response so this activity write cannot restore a stale
     // whole-session snapshot over concurrent lifecycle or readiness updates.
     if (response.status < 400) {
-      ctx.waitUntil((async () => {
-        const fresh = await env.KV.get<Session>(sessionKey, 'json');
-        if (fresh?.workspace === 'vscode' && fresh.status === 'running') {
-          const { editorReadyError: _staleEditorError, ...withoutEditorError } = fresh;
-          await putSessionWithMetadata(env.KV, sessionKey, {
-            ...withoutEditorError,
-            editorReady: true,
-            lastAccessedAt: new Date().toISOString(),
-          });
-        }
-      })().catch((err) => logger.warn('Failed to update editor activity', { error: toErrorMessage(err) })));
+      if (session.workspace === 'vscode' && session.lifecycleState === 'running') {
+        ctx.waitUntil(new D1SessionRepository(env.USAGE_DB).updateMutable(bucketName, sessionId, {
+          lastAccessedAt: new Date().toISOString(),
+        }).catch((err) => logger.warn('Failed to update editor activity', { error: toErrorMessage(err) })));
+      }
     }
     return response;
   } catch (err) {

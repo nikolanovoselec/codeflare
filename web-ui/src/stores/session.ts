@@ -82,8 +82,12 @@ export interface SessionMetrics {
 
 /** Batch status entry shape from the backend */
 type BatchStatusEntry = {
-  status: 'running' | 'stopped';
-  ptyActive: boolean;
+  status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  generation?: number;
+  revision?: number;
+  unreachableDeadlineMs?: number;
+  ptyActive?: boolean;
   startupStage?: string;
   lastStartedAt?: string;
   lastActiveAt?: string;
@@ -323,7 +327,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus({ includePreseedCheck: true, include: ['storage', 'usage'] }).catch((err) => {
+      api.getBatchSessionStatus().catch((err) => {
         logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
         batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
         return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };

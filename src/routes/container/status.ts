@@ -12,7 +12,7 @@ import {
   fetchWithTimeout,
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
-import { getSessionKey, putSessionWithMetadata } from '../../lib/kv-keys';
+import { D1SessionRepository } from '../../lib/session-repository';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -191,8 +191,7 @@ app.get('/startup-status', async (c) => {
   try {
     const user = c.get('user');
     const { bucketName, sessionId, containerId, container } = getContainerContext(c);
-    const sessionKey = getSessionKey(bucketName, sessionId);
-    const session = await c.env.KV.get<Session>(sessionKey, 'json');
+    const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
 
     // Populate response details now that we have context
@@ -273,18 +272,9 @@ app.get('/startup-status', async (c) => {
         return c.json(buildSyncFailedResponse(response, healthData, cStatus));
       }
       if (healthData.editorReady === true) {
-        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
-        if (freshSession && (freshSession.editorReady !== true || freshSession.editorReadyError === true)) {
-          const { editorReadyError: _previousEditorError, ...sessionWithoutError } = freshSession;
-          await putSessionWithMetadata(c.env.KV, sessionKey, { ...sessionWithoutError, editorReady: true });
-        }
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus, false));
       }
       if (healthData.editorReadyTimedOut === true) {
-        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
-        if (freshSession && freshSession.editorReadyError !== true) {
-          await putSessionWithMetadata(c.env.KV, sessionKey, { ...freshSession, editorReady: false, editorReadyError: true });
-        }
         response.stage = 'error';
         response.progress = 0;
         response.message = 'VS Code did not become ready. Retry starting the session.';

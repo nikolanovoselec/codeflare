@@ -48,6 +48,10 @@
   background: var(--color-success);
 }
 
+.session-stat-card__dot--idle {
+  background: var(--color-info, #3b82f6);
+}
+
 .session-stat-card__dot--warning {
   background: var(--color-warning);
 }

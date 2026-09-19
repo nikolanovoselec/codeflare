@@ -4242,3 +4242,11 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 **Related REQs:** [REQ-AGENT-095](../../sdd/spec/agents.md#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation), [REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt).
 
 ---
+
+### AD120: D1 owns complete session lifecycle authority
+
+**Decision.** Reuse `USAGE_DB` for complete non-secret session rows and shared lifecycle truth. Keep process identity and generation-local scheduling in the per-session Durable Object. Retire session KV records through a guarded clean-slate cutover rather than migration or dual write. Model host transport uncertainty as one absolute-deadline `unreachable` incident; require confirmed exit for `stopped`. Keep terminal ACTIVE/IDLE device-local.
+
+**Rationale.** KV LIST and point reads are eventually consistent across devices and cannot safely own destructive lifecycle convergence. D1 conditional updates provide owner-indexed reads and generation/sequence fencing while preserving the existing Durable Object's process-control and reattachment responsibilities.
+
+**Consequences.** Rollback after cutover must be D1-compatible. D1 failure retains the last client projection and fails lifecycle mutations closed. The one-time purge requires operator-confirmed quiescence and never runs during ordinary deployment.
