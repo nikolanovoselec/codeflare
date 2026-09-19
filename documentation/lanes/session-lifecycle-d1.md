@@ -11,7 +11,7 @@
 - [Lifecycle authority](#lifecycle-authority)
 - [Runtime recovery and status](#runtime-recovery-and-status)
 - [Cutover boundary](#cutover-boundary)
-- [Requirement and source map](#requirement-and-source-map)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related documentation](#related-documentation)
 
 ## Lifecycle authority
@@ -22,15 +22,23 @@ Backend lifecycle states are `stopped`, `starting`, `running`, `unreachable`, an
 
 ## Runtime recovery and status
 
-A complete host-transport failure opens one D1 incident with an absolute deadline 120 seconds after its first observation. Reconstruction reuses the incident, deadline, generation, SDK process identity, and existing PTY. Deadline expiry is earliest termination eligibility. Termination is generation-bound and duplicate-safe; signal acceptance remains `stopping` until exit is confirmed. D1 failure is status uncertainty, not transport or stopped evidence. <!-- @impl: src/lib/session-runtime-policy.ts::openUnreachableIncident --> <!-- @impl: src/lib/session-runtime-policy.ts::claimExpiredTermination --> [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
+A complete host-transport failure opens one D1 incident with an absolute deadline 120 seconds after its first observation. Reconstruction reuses the incident, deadline, generation, SDK process identity, and existing PTY.
 
-Visible batch status is one owner-indexed primary-consistent D1 query with `no-store`. Normal metrics projection is one authenticated combined host observation followed by one conditional D1 update. Optional usage, storage, entitlement, managed-release, preseed, and migration refreshes are not part of frequent status projection. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once)
+Deadline expiry is earliest termination eligibility. Termination is generation-bound and duplicate-safe; signal acceptance remains `stopping` until exit is confirmed. D1 failure is status uncertainty, not transport or stopped evidence. <!-- @impl: src/lib/session-runtime-policy.ts::openUnreachableIncident --> <!-- @impl: src/lib/session-runtime-policy.ts::claimExpiredTermination --> [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-Terminal ACTIVE/IDLE is local presentation: a running backend with this device's connected terminal socket is ACTIVE; without it, IDLE. VS Code lifecycle color remains green for a ready running workspace during temporary connectivity recovery, with a separate accessible notice. D1 outages retain the last ordered state and mounted terminal/editor workspace. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/lib/session-presentation.ts::vscodePresentation --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyStatusFailure --> [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-client-lifecycle-presentation-retains-workspace-through-uncertainty)
+Visible batch status is one owner-indexed primary-consistent D1 query with `no-store`. Normal metrics projection is one authenticated combined host observation followed by one conditional D1 update.
+
+Optional usage, storage, entitlement, managed-release, preseed, and migration refreshes are not part of frequent status projection. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once)
+
+Terminal ACTIVE/IDLE is local presentation: a running backend with this device's connected terminal socket is ACTIVE; without it, IDLE. VS Code lifecycle color remains green for a ready running workspace during temporary connectivity recovery, with a separate accessible notice.
+
+D1 outages retain the last ordered state and mounted terminal/editor workspace. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/lib/session-presentation.ts::vscodePresentation --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyStatusFailure --> [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-client-lifecycle-presentation-retains-workspace-through-uncertainty)
 
 ## Cutover boundary
 
-Cutover is clean-slate and one-time. After migration, an operator confirms quiescence, admission remains closed by the pending marker, exact `session:${bucketName}:` KV prefixes are purged, D1 is verified empty, and the marker opens admission. There is no import, backfill, dual write, shadow read, reverse migration, or automatic draining. Post-cutover rollback must remain D1-compatible. <!-- @impl: src/lib/session-cutover.ts::runSessionCutover --> [REQ-SESSION-028](../../sdd/spec/session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path)
+Cutover is clean-slate and one-time. After migration, an operator confirms quiescence, admission remains closed by the pending marker, exact `session:${bucketName}:` KV prefixes are purged, and D1 is verified empty before the marker opens admission.
+
+There is no import, backfill, dual write, shadow read, reverse migration, or automatic draining. Post-cutover rollback must remain D1-compatible. <!-- @impl: src/lib/session-cutover.ts::runSessionCutover --> [REQ-SESSION-028](../../sdd/spec/session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path)
 
 ## Schema and mutation design
 
@@ -65,13 +73,13 @@ The schema checks the lifecycle vocabulary, non-negative counters, boolean integ
 - Delete uses `DELETE` only after confirmed graceful destruction. Delayed runtime writers use `UPDATE`, never `UPSERT` or `INSERT OR REPLACE`.
 - `meta.changes === 0` triggers a bounded primary read only on exceptional ownership/idempotency reconciliation paths; the normal projection path performs no readback.
 
-## Requirement and source map
+## Requirement and Source Map
 
-- [D1 authority and cutover](../../sdd/spec/session-lifecycle.md#req-session-018-d1-session-authority-and-clean-slate-cutover): `migrations/usage/0002_runtime_sessions.sql`, `src/lib/session-repository.ts`, and `src/lib/session-cutover.ts`.
-- [Runtime recovery](../../sdd/spec/session-lifecycle.md#req-session-021-bounded-transport-unreachable-policy): `src/lib/session-runtime-policy.ts` and `src/container/container-metrics.ts`.
-- [Status and presentation](../../sdd/spec/session-lifecycle.md#req-session-025-frequent-batch-status-uses-one-d1-query): `src/routes/session/lifecycle.ts` and `web-ui/src/lib/session-presentation.ts`.
+- [D1 authority and cutover](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority): `migrations/usage/0002_runtime_sessions.sql`, `src/lib/session-repository.ts`, and `src/lib/session-cutover.ts`.
+- [Runtime recovery](../../sdd/spec/session-lifecycle.md#req-session-021-complete-transport-failure-opens-one-unreachable-incident): `src/lib/session-runtime-policy.ts` and `src/container/container-metrics.ts`.
+- [Status and presentation](../../sdd/spec/session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection): `src/routes/session/lifecycle.ts` and `web-ui/src/lib/session-presentation.ts`.
 
-## Related documentation
+## Related Documentation
 
 - [Container](container.md)
 - [API Reference](api-reference.md)

@@ -1281,7 +1281,7 @@ None.
 
 ---
 
-### REQ-TERM-036: Local terminal presence presents ACTIVE or IDLE
+### REQ-TERM-045: Local terminal presence presents ACTIVE or IDLE
 
 **Intent:** Terminal status describes this device's socket while preserving the shared D1 lifecycle and mounted workspace through uncertainty.
 
@@ -1289,13 +1289,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Backend `running` with this device's terminal WebSocket connected renders green ACTIVE.
-2. Backend `running` without this device's terminal WebSocket connected renders blue IDLE.
-3. ACTIVE and IDLE are never persisted or inferred for another device; devices may differ while agreeing on backend lifecycle.
-4. Backend `starting` and `unreachable` render yellow starting/recovery presentation, and `stopped` renders gray.
-5. During `unreachable`, retries use bounded jitter and terminal objects, buffers, tabs, tiling, selection and scrollback remain mounted.
-6. Countdown expiry changes recovery messaging only; disposal requires newer authoritative `stopping`/`stopped` or deletion evidence.
-7. D1 status failure retains the last ordered view and mounted workspace and presents a distinct status-unavailable notice.
+1. Backend `running` with this device's terminal WebSocket connected renders green ACTIVE. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+2. Backend `running` without this device's terminal WebSocket connected renders blue IDLE. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+3. ACTIVE and IDLE are never persisted or inferred for another device; devices may differ while agreeing on backend lifecycle. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+4. Backend `starting` and `unreachable` render yellow starting/recovery presentation, and `stopped` renders gray. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+5. During `unreachable`, retries use bounded jitter and terminal objects, buffers, tabs, tiling, selection and scrollback remain mounted. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+6. Countdown expiry changes recovery messaging only; disposal requires newer authoritative `stopping`/`stopped` or deletion evidence. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+7. D1 status failure retains the last ordered view and mounted workspace and presents a distinct status-unavailable notice. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 
 **Constraints:** Classified input and idle timeout do not use ACTIVE/IDLE or socket presence as activity evidence.
 

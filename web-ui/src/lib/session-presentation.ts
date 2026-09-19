@@ -1,8 +1,8 @@
 export type BackendLifecycle = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
 export interface OrderedProjection {
   lifecycle: BackendLifecycle;
-  generation: number;
-  revision: number;
+  generation?: number;
+  revision?: number;
   editorReady?: boolean;
   incidentDeadlineMs?: number;
   [key: string]: unknown;
@@ -22,10 +22,10 @@ export function terminalPresentation(projection: OrderedProjection, local: { ter
   if (projection.lifecycle === 'running') {
     return { lifecycle: projection.lifecycle, label: local.terminalConnected ? 'ACTIVE' : 'IDLE', color: local.terminalConnected ? 'green' : 'blue', mounted: true, dispose: false };
   }
-  if (projection.lifecycle === 'starting' || projection.lifecycle === 'unreachable') {
+  if (projection.lifecycle === 'starting' || projection.lifecycle === 'unreachable' || projection.lifecycle === 'stopping') {
     return {
       lifecycle: projection.lifecycle,
-      label: projection.lifecycle === 'starting' ? 'STARTING' : 'UNREACHABLE',
+      label: projection.lifecycle === 'starting' ? 'STARTING' : projection.lifecycle === 'unreachable' ? 'UNREACHABLE' : 'STOPPING',
       color: 'yellow', mounted: true, dispose: false,
       deadlineExpired: projection.incidentDeadlineMs !== undefined && local.nowMs !== undefined && local.nowMs >= projection.incidentDeadlineMs,
     };
@@ -34,7 +34,7 @@ export function terminalPresentation(projection: OrderedProjection, local: { ter
 }
 
 export function vscodePresentation(projection: OrderedProjection, local: { transportReachable: boolean }) {
-  const stopped = projection.lifecycle === 'stopped' || projection.lifecycle === 'stopping';
+  const stopped = projection.lifecycle === 'stopped';
   return {
     indicator: projection.lifecycle === 'starting' ? 'yellow' : stopped ? 'gray' : 'green',
     mounted: !stopped,
@@ -43,9 +43,19 @@ export function vscodePresentation(projection: OrderedProjection, local: { trans
 }
 
 export function applyOrderedProjection(current: OrderedProjection, incoming: OrderedProjection): OrderedProjection {
-  if (incoming.generation < current.generation) return current;
-  if (incoming.generation === current.generation && incoming.revision < current.revision) return current;
+  if (current.generation !== undefined && incoming.generation !== undefined) {
+    if (incoming.generation < current.generation) return current;
+    if (incoming.generation === current.generation
+      && current.revision !== undefined
+      && incoming.revision !== undefined
+      && incoming.revision < current.revision) return current;
+  }
   return incoming;
+}
+
+/** Lifecycle states whose workspace remains mounted and selectable. */
+export function isMountedLifecycle(lifecycle: BackendLifecycle): boolean {
+  return lifecycle !== 'stopped';
 }
 
 export function applyStatusFailure<T extends OrderedProjection>(current: T, _error: unknown): T & { mounted: true; statusUnavailable: true } {

@@ -8,7 +8,7 @@ import {
 
 const running = { lifecycle: 'running' as const, generation: 4, revision: 12, editorReady: true };
 
-describe('REQ-SESSION-010 / REQ-TERM-036: device-local terminal presentation', () => {
+describe('REQ-SESSION-010 / REQ-TERM-045: device-local terminal presentation', () => {
   it('shows ACTIVE only on the device with a connected terminal socket', () => {
     expect(terminalPresentation(running, { terminalConnected: true })).toMatchObject({ label: 'ACTIVE', color: 'green' });
     expect(terminalPresentation(running, { terminalConnected: false })).toMatchObject({ label: 'IDLE', color: 'blue' });
@@ -33,9 +33,11 @@ describe('REQ-SESSION-010 / REQ-TERM-036: device-local terminal presentation', (
     });
   });
 
-  it('disposes only from newer authoritative stopping or stopped evidence', () => {
-    expect(terminalPresentation({ ...running, lifecycle: 'stopping' as const, revision: 13 }, { terminalConnected: false }).dispose).toBe(true);
-    expect(terminalPresentation({ ...running, lifecycle: 'stopped' as const, revision: 14 }, { terminalConnected: false }).dispose).toBe(true);
+  it('keeps starting, unreachable, and stopping workspaces mounted; only stopped disposes', () => {
+    for (const lifecycle of ['starting', 'unreachable', 'stopping'] as const) {
+      expect(terminalPresentation({ ...running, lifecycle }, { terminalConnected: false })).toMatchObject({ mounted: true, dispose: false });
+    }
+    expect(terminalPresentation({ ...running, lifecycle: 'stopped' as const, revision: 14 }, { terminalConnected: false })).toMatchObject({ mounted: false, dispose: true });
   });
 });
 
@@ -44,6 +46,7 @@ describe('REQ-IDE-049: VS Code lifecycle and connectivity presentation', () => {
     expect(vscodePresentation({ ...running, lifecycle: 'starting', editorReady: false }, { transportReachable: true }).indicator).toBe('yellow');
     expect(vscodePresentation(running, { transportReachable: true }).indicator).toBe('green');
     expect(vscodePresentation({ ...running, lifecycle: 'stopped' }, { transportReachable: false }).indicator).toBe('gray');
+    expect(vscodePresentation({ ...running, lifecycle: 'stopping' }, { transportReachable: false })).toMatchObject({ mounted: true });
   });
 
   it('shows unreachable as a separate accessible notice without yellowing or unmounting the editor', () => {

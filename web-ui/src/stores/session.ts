@@ -6,6 +6,7 @@ import { upgradeAgentConfigs } from '../api/storage';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
+import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
@@ -413,8 +414,30 @@ async function loadSessions(): Promise<void> {
           initializeTerminalsForSession(session.id);
         }
       } else {
+        const current = state.sessions.find((candidate) => candidate.id === session.id);
+        const incomingProjection = {
+          lifecycle: batchStatus.status as BackendLifecycle,
+          generation: batchStatus.generation,
+          revision: batchStatus.revision,
+        };
+        const ordered = applyOrderedProjection(
+          {
+            lifecycle: (current?.lifecycle ?? (current?.status === 'initializing' || current?.status === 'error' ? 'running' : current?.status ?? 'stopped')) as BackendLifecycle,
+            generation: current?.generation,
+            revision: current?.revision,
+          },
+          incomingProjection,
+        );
+        if (ordered !== incomingProjection) continue;
         const wasRunning = existingStatuses.get(session.id) === 'running';
         updateSessionStatus(session.id, batchStatus.status);
+        const latestIndex = state.sessions.findIndex((candidate) => candidate.id === session.id);
+        if (latestIndex !== -1) {
+          setState('sessions', latestIndex, 'lifecycle', batchStatus.lifecycle ?? batchStatus.status);
+          if (batchStatus.generation !== undefined) setState('sessions', latestIndex, 'generation', batchStatus.generation);
+          if (batchStatus.revision !== undefined) setState('sessions', latestIndex, 'revision', batchStatus.revision);
+          if (batchStatus.unreachableDeadlineMs !== undefined) setState('sessions', latestIndex, 'unreachableDeadlineMs', batchStatus.unreachableDeadlineMs);
+        }
         // Container stopped externally (hibernation/crash) — kill WS retry loops
         // so reconnect attempts don't keep waking the DO. Fresh connect() calls
         // are made when the user starts the session again.

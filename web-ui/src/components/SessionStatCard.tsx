@@ -6,6 +6,7 @@ import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
+import { terminalPresentation, vscodePresentation, type BackendLifecycle } from '../lib/session-presentation';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
 
@@ -41,6 +42,14 @@ interface SessionStatCardProps {
 const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
   const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
+  const lifecyclePresentation = createMemo(() => {
+    const lifecycle = (props.session.status === 'initializing' || props.session.status === 'error'
+      ? 'running'
+      : props.session.status) as BackendLifecycle;
+    return props.session.workspace === 'vscode'
+      ? vscodePresentation({ lifecycle, editorReady: props.session.editorReady }, { transportReachable: true })
+      : terminalPresentation({ lifecycle, editorReady: props.session.editorReady }, { terminalConnected: wsState() === 'connected' });
+  });
   const dotVariant = () => {
     if (props.session.workspace === 'vscode') {
       if (props.session.status === 'error' || props.session.editorReadyError === true) return 'error';
@@ -110,7 +119,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           role="status"
           aria-label={props.session.workspace === 'vscode'
             ? `Session ${props.session.status}`
-            : props.session.status === 'running' && wsState() === 'connected' ? 'ACTIVE' : props.session.status === 'running' ? 'IDLE' : `Session ${props.session.status}`}
+            : ('label' in lifecyclePresentation() ? lifecyclePresentation().label : `Session ${props.session.status}`)}
         />
         <Show when={timerInfo()}>
           {(info) => (

@@ -1478,7 +1478,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-049: IDE lifecycle and connectivity are presented separately
+### REQ-IDE-055: IDE lifecycle and connectivity are presented separately
 
 **Intent:** A VS Code workspace reports authoritative lifecycle independently from temporary editor transport uncertainty.
 
@@ -1486,12 +1486,12 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The lifecycle indicator is yellow only while backend lifecycle is `starting`, green while `running` after editor readiness, and gray when `stopped`.
-2. Backend `unreachable` retains the editor object and shows a separate accessible connectivity/recovery notice without changing the running indicator to yellow.
-3. D1 status failure retains the last ordered lifecycle and editor state and shows a distinct status-unavailable notice.
-4. Recovery reconnects to the existing session without invoking Start.
-5. Client countdown expiry changes messaging only; it cannot declare stopped, close the editor or dispose workspace state.
-6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal.
+1. The lifecycle indicator is yellow only while backend lifecycle is `starting`, green while `running` after editor readiness, and gray when `stopped`. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+2. Backend `unreachable` retains the editor object and shows a separate accessible connectivity/recovery notice without changing the running indicator to yellow. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+3. D1 status failure retains the last ordered lifecycle and editor state and shows a distinct status-unavailable notice. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+4. Recovery reconnects to the existing session without invoking Start. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+5. Client countdown expiry changes messaging only; it cannot declare stopped, close the editor or dispose workspace state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
 
 **Constraints:** Editor readiness is separate evidence from process lifecycle and transport reachability.
 

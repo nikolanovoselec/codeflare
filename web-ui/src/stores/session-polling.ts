@@ -5,6 +5,7 @@ import { logger } from '../lib/logger';
 import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../lib/constants';
 import { updateStatsFromBatch } from './storage';
 import { setUsageState } from './session-usage';
+import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
 import type { SessionWithStatus, SessionStatus } from '../types';
 // Type-only imports - erased at runtime, so they do NOT reintroduce the
 // circular dependency that the registerPollingDeps DI pattern guards against.
@@ -251,9 +252,24 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.
-      if (remote.status !== session.status) {
-        updateSessionStatusFn(session.id, remote.status);
-        if (remote.status === 'stopped') terminalStore.disposeSession(session.id);
+      const currentProjection = {
+        lifecycle: (session.lifecycle ?? (session.status === 'initializing' || session.status === 'error' ? 'running' : session.status)) as BackendLifecycle,
+        generation: session.generation,
+        revision: session.revision,
+      };
+      const incomingProjection = {
+        lifecycle: remote.status as BackendLifecycle,
+        generation: remote.generation,
+        revision: remote.revision,
+      };
+      const ordered = applyOrderedProjection(currentProjection, incomingProjection);
+      if (ordered === incomingProjection) {
+        if (remote.status !== session.status) updateSessionStatusFn(session.id, remote.status);
+        setStateRaw('sessions', idx, 'lifecycle', remote.lifecycle ?? remote.status);
+        if (remote.generation !== undefined) setStateRaw('sessions', idx, 'generation', remote.generation);
+        if (remote.revision !== undefined) setStateRaw('sessions', idx, 'revision', remote.revision);
+        if (remote.unreachableDeadlineMs !== undefined) setStateRaw('sessions', idx, 'unreachableDeadlineMs', remote.unreachableDeadlineMs);
+        if (remote.status === 'stopped' && remote.status !== session.status) terminalStore.disposeSession(session.id);
       }
     }
   } catch (err) {

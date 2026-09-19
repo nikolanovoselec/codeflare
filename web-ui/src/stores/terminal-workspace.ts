@@ -9,6 +9,7 @@ import type {
   VisibleTerminalPane,
 } from '../types';
 import { resolveTerminalMode } from '../types';
+import { isMountedLifecycle } from '../lib/session-presentation';
 
 const MULTIVIEW_STORAGE_KEY = 'codeflare:terminalMultiViewWorkspace';
 const MULTIVIEW_ID = 'multiview:1' as const;
@@ -42,7 +43,8 @@ function liveTerminalSessionIds(sessions: SessionWithStatus[]): Set<string> {
     sessions
       .filter((session) =>
         isTerminalSession(session)
-        && (session.status === 'running' || session.status === 'initializing')
+        && (session.status === 'initializing'
+          || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))
       )
       .map((session) => session.id),
   );

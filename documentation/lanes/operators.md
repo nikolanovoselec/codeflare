@@ -30,6 +30,8 @@ The source boundaries identified below have focused behavioral evidence; the req
 - [Independent sync evidence](#independent-sync-evidence)
 - [Consumer contract and dependency inventory](#consumer-contract-and-dependency-inventory)
 - [Verification](#verification)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 ## Verified human context
 
@@ -112,7 +114,9 @@ Implements [REQ-OPERATOR-004](../../sdd/spec/operators.md#req-operator-004-share
 
 `src/operators/interception-policy.ts` is the credential-free decision boundary shared by direct Worker capabilities and container interceptors. The parent supplies a previously validated `OperatorPolicy`; request identity cannot select or widen it. Exact network names and `*.example.test` subdomain rules are matched canonically (the wildcard excludes its apex). Standard and configured GitHub destinations never fall through a general-host allow rule. An operator marker also denies the enterprise Browser administrator-token interceptor outright; listing `api.cloudflare.com` as general egress cannot acquire that specialized credential.
 
-GitHub decisions resolve only canonical REST `/repos/{owner}/{repo}/…` or Smart HTTP `{owner}/{repo}.git/…` paths and require both declared repository and method before `GitHubInterceptor` looks up a token. General egress decisions run before Gateway forwarding. Own-account R2 decisions run before scoped-key lookup/signing: GET/HEAD/list use read prefixes; PUT and multipart writes use write prefixes; copy, delete and unknown controls are denied. Multipart abort additionally requires the parent to identify the upload as activity-owned. Empty declarations deny; these restrictions never create human authority.
+GitHub decisions resolve only canonical REST `/repos/{owner}/{repo}/…` or Smart HTTP `{owner}/{repo}.git/…` paths and require both declared repository and method before `GitHubInterceptor` looks up a token. General egress decisions run before Gateway forwarding.
+
+Own-account R2 decisions run before scoped-key lookup/signing: GET/HEAD/list use read prefixes; PUT and multipart writes use write prefixes; copy, delete and unknown controls are denied. Multipart abort additionally requires the parent to identify the upload as activity-owned. Empty declarations deny; these restrictions never create human authority.
 
 An operator profile forces the catch-all through the existing Egress binding even when the ordinary human strict-egress preference is off. Missing mandatory interception fails operator startup; absence of an operator profile preserves the existing human wiring and behavior.
 
@@ -250,11 +254,17 @@ Enterprise activity list/detail/start/cancel/result routes derive the current si
 
 Implements [REQ-OPERATOR-005](../../sdd/spec/operators.md#req-operator-005-owned-operator-session-lifecycle) and [REQ-OPERATOR-021](../../sdd/spec/operators.md#req-operator-021-structured-owned-pi-conversation).
 
-`src/operators/owned-session.ts` persists parent-owned orchestration under distinct activity, Codeflare session, Pi conversation, and task identities. Creation, configuration, task submission, explicit sync, and stopping are ordered durably. Exact repeats reconcile, changed stable identities conflict, and a lost response is observed rather than converted into a second effect. Stopping fences new work before ending only the restricted owned session.
+`src/operators/owned-session.ts` persists parent-owned orchestration under distinct activity, Codeflare session, Pi conversation, and task identities. Creation, configuration, task submission, explicit sync, and stopping are ordered durably.
+
+Exact repeats reconcile, changed stable identities conflict, and a lost response is observed rather than converted into a second effect. Stopping fences new work before ending only the restricted owned session.
 
 The production Gate 1 composition is deliberately fixed rather than generic. `resolveGate1Resources` accepts only operator `codeflare-gate1-fixture`, session profile `gate1-pi-file-v1`, and storage scope `gate1-output-v1`; it derives the owner bucket, restricted container profile, approved route/model, output prefix, and marker from parent state. `Gate1OperatorCapability` is generation-bound and exposes only one HTTP operation. It orders owned-session readiness, one stable structured-Pi task, explicit upload, independent parent R2 verification, and restricted stop. Direct-only operators retain the deny-by-default capability. <!-- @impl: src/operators/gate1-production.ts::createGate1ProductionCapability --> <!-- @impl: src/operators/gate1-capability.ts::Gate1OperatorCapability -->
 
-The restricted host composes `OperatorPiConversation` beside the ordinary PTY `SessionManager`. Trusted parent configuration fixes the activity/session root, provider, model, reasoning level, system prompt, and tools. The adapter creates once or reopens only the exact recorded JSONL and conversation ID, persists task intent before SDK submission, invokes an active approved Pi tool directly for deterministic tool tasks, permits one pending follow-up and one steer, and awaits abort settlement. Native tool execution uses the SDK session's active tool definitions rather than asking a model to choose a tool. Its 1,024-event/1-MiB memory queue and 100-event/64-KiB cursor pages report gaps instead of claiming complete history. Ordinary PTYs and intentional human root execution are unchanged. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: host/src/operator-pi-service.ts::createOperatorPiService -->
+The restricted host composes `OperatorPiConversation` beside the ordinary PTY `SessionManager`. Trusted parent configuration fixes the activity/session root, provider, model, reasoning level, system prompt, and tools. The adapter creates once or reopens only the exact recorded JSONL and conversation ID, then persists task intent before SDK submission.
+
+It invokes an active approved Pi tool directly for deterministic tool tasks, permits one pending follow-up and one steer, and awaits abort settlement. Native tool execution uses the SDK session's active tool definitions rather than asking a model to choose a tool.
+
+Its 1,024-event/1-MiB memory queue and 100-event/64-KiB cursor pages report gaps instead of claiming complete history. Ordinary PTYs and intentional human root execution are unchanged. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: host/src/operator-pi-service.ts::createOperatorPiService -->
 
 Restricted PID1 startup validates the paired Pi/sync identities, creates the private activity tree plus the human-readable `~/Operators` folder, and skips whole-home restore, managed-policy restore, bisync, Vault, and clone paths. Shutdown can wait for an already accepted upload but never starts persistence. See [Container — Restricted Operator Lifecycle](container.md#restricted-operator-lifecycle) and [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis).
 
@@ -280,7 +290,9 @@ The host upload, activity-owned preparation/sealing/evidence state, private rece
 
 Implements [REQ-OPERATOR-009](../../sdd/spec/operators.md#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures).
 
-`src/operators/consumer-contracts.ts` is the complete Phase-1 generic consumer wire seam. It binds stable consumer/activity/operator/run, source, revision and input digests; at most 16 opaque attachment references; and parent-selected inference/session/storage references. Exact repeats reconcile and changed immutable fields conflict. Nested credential/authority names, path-like attachment names, oversized JSON and recursive operator use of human session admission fail closed. The contract grants no repository history, Review clearance, credentials, resource access or execution authority.
+`src/operators/consumer-contracts.ts` is the complete Phase-1 generic consumer wire seam. It binds stable consumer/activity/operator/run, source, revision and input digests; at most 16 opaque attachment references; and parent-selected inference/session/storage references.
+
+Exact repeats reconcile and changed immutable fields conflict. Nested credential/authority names, path-like attachment names, oversized JSON and recursive operator use of human session admission fail closed. The contract grants no repository history, Review clearance, credentials, resource access or execution authority.
 
 Current consumers and dependency direction are:
 
@@ -298,3 +310,19 @@ Dependencies point from Codeflare adapters to these platform interfaces and from
 ## Verification
 
 Behavioral tests in `src/__tests__/lib/jwt.test.ts` cover signed human identity versus legacy email authentication. `src/__tests__/operators/distribution.test.ts` covers bounded metadata, origin confinement, exact-byte integrity, module restrictions and non-execution. Full live distribution/Worker acceptance remains a separate requirement; parser tests do not prove it.
+
+## Requirement and Source Map
+
+- [Operator identity and distribution](../../sdd/spec/operators.md#req-operator-001-verified-human-access-claims): `src/lib/jwt.ts`, `src/operators/distribution.ts`, and `src/operators/distribution-client.ts`.
+- [Admission and execution](../../sdd/spec/operators.md#req-operator-011-serialized-operator-admission): `src/operators/registry.ts`, `src/operators/activity.ts`, `src/operators/execution-context.ts`, and `src/operators/runtime.ts`.
+- [Owned session and persistence](../../sdd/spec/operators.md#req-operator-005-owned-operator-session-lifecycle): `src/operators/owned-session.ts`, `host/src/operator-pi.ts`, `host/src/operator-sync.ts`, and `src/operators/sync-verification.ts`.
+- [Gate 1 production composition](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration): `src/operators/gate1-production.ts`, `src/operators/gate1-capability.ts`, and `src/operators/gate1-resources.ts`.
+- [Administration, webhook, and consumer seams](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface): `src/operators/administration.ts`, `src/routes/operator-webhook.ts`, and `src/operators/consumer-contracts.ts`.
+
+## Related Documentation
+
+- [Operator Gate 1](operator-gate-1.md)
+- [Container — Restricted Operator Lifecycle](container.md#restricted-operator-lifecycle)
+- [Storage & Sync — Restricted Operator Persistence](storage-and-sync.md#restricted-operator-persistence)
+- [Authentication — Human Access claims](authentication.md#human-access-claims-for-the-operator-interface)
+- [API Reference — Operator APIs](api-reference.md)

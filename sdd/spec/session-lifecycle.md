@@ -373,7 +373,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-### REQ-SESSION-027: Final notification drain precedes shutdown sync
+### REQ-SESSION-032: Final notification drain precedes shutdown sync
 
 **Intent:** Deliberate stop paths give pending away notifications one bounded final attempt before final workspace sync and container stop.
 
@@ -381,13 +381,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Idle, quota, Stop, and Delete invoke one independently bounded final agent-event drain before final sync. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-027 AC1: calls final agent-event drain, then final sync, then stop) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+1. Idle, quota, Stop, and Delete invoke one independently bounded final agent-event drain before final sync. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC1: calls final agent-event drain, then final sync, then stop) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 2. A final drain makes unresolved client decisions eligible for fallback before reading events. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (final drain atomically promotes pending and awaiting-confirmation events) -->
 3. Terminal-convergence recovery attempts no final drain after host transport becomes unavailable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7 + REQ-SESSION-024 AC4: retains exhausted recovery and retries when terminal container stop fails) -->
-4. Teardown preserves the lifecycle Bearer and session ID until the final event request is built, then clears stored state. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
-5. Final event delivery consumes the teardown deadline without reducing the reserved final-sync budget. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
-6. A failed final event drain still permits final sync and container stop. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-027 AC6: an event-drain failure still runs final sync and stop) -->
-7. A failed final sync preserves the completed event attempt and still permits container stop. <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-027 AC7: final-sync failure preserves the event attempt and still stops) -->
+4. Teardown preserves the lifecycle Bearer and session ID until the final event request is built, then clears stored state. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+5. Final event delivery consumes the teardown deadline without reducing the reserved final-sync budget. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+6. A failed final event drain still permits final sync and container stop. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC6: an event-drain failure still runs final sync and stop) -->
+7. A failed final sync preserves the completed event attempt and still permits container stop. <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC7: final-sync failure preserves the event attempt and still stops) -->
 
 **Constraints:**
 
