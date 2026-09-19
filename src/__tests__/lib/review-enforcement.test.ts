@@ -742,9 +742,17 @@ describe('Pi marker-or-dialog review ingress', () => {
       toolCall('bad-review', 'subagent', {
         subagent_type: lane,
         run_in_background: true,
+        inherit_context: false,
+        max_turns: 7,
         prompt: reviewerPrompt(input.head, lane),
       }),
       toolResult('bad-review', 'subagent'),
+      toolCall('bad-inherit', 'subagent', {
+        subagent_type: lane,
+        run_in_background: true,
+        prompt: reviewerPrompt(input.head, lane),
+      }),
+      toolResult('bad-inherit', 'subagent'),
       toolCall('bad-ci', 'subagent', {
         subagent_type: 'ci-monitor',
         run_in_background: true,
@@ -759,12 +767,14 @@ describe('Pi marker-or-dialog review ingress', () => {
       'pr-boundary-launch-plan',
       'pr-boundary-launch-rejection',
       'pr-boundary-launch-rejection',
+      'pr-boundary-launch-rejection',
     ]);
-    expect(app.sent[1]?.content).toContain('inherit_context must be false');
-    expect(app.sent[2]?.content).toContain(`prompt head must equal ${input.head}`);
+    expect(app.sent[1]?.content).toContain('max_turns must be omitted');
+    expect(app.sent[2]?.content).toContain('inherit_context must be false');
+    expect(app.sent[3]?.content).toContain(`prompt head must equal ${input.head}`);
 
     await app.emit('agent_settled');
-    expect(app.sent).toHaveLength(3);
+    expect(app.sent).toHaveLength(4);
 
     appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'corrected');
     await app.emit('agent_settled');

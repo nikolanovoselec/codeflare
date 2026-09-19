@@ -841,6 +841,7 @@ export function reviewTranscriptFacts(input: {
       const problems = [
         ...(call.arguments?.run_in_background === true ? [] : ["run_in_background must be true"]),
         ...(call.arguments?.inherit_context === false ? [] : ["inherit_context must be false"]),
+        ...(call.arguments?.max_turns === undefined ? [] : ["max_turns must be omitted"]),
         ...(assignmentLines.has("scope=diff") ? [] : ["prompt must include exact scope=diff"]),
         ...(assignmentLines.has(expectedScope) ? [] : [`prompt must include exact ${expectedScope}`]),
         ...(assignmentLines.has(expectedOutput) ? [] : [`prompt must include exact ${expectedOutput}`]),
