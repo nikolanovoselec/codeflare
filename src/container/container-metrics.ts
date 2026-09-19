@@ -29,6 +29,7 @@ export interface MetricsState {
   _bucketName: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
+  _containerAuthToken: string | null;
   _usageSeconds: number;
   containerStartedAt: number;
   lastSeenInputAt: number | null;
@@ -148,8 +149,10 @@ function pollContainer(
   port: { fetch: (url: string, init?: RequestInit) => Promise<Response> },
   url: string,
   budgetMs: number,
+  containerAuthToken: string | null,
 ): Promise<Response> {
-  return port.fetch(url, { signal: AbortSignal.timeout(budgetMs) });
+  const headers = containerAuthToken ? { Authorization: `Bearer ${containerAuthToken}` } : undefined;
+  return port.fetch(url, { signal: AbortSignal.timeout(budgetMs), headers });
 }
 
 /**
@@ -1453,7 +1456,12 @@ export async function collectMetrics(
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
   try {
     const port = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
-    const response = await pollContainer(port, 'http://localhost/internal/runtime-observation', CONTAINER_POLL_BUDGET_MS);
+    const response = await pollContainer(
+      port,
+      'http://localhost/internal/runtime-observation',
+      CONTAINER_POLL_BUDGET_MS,
+      state._containerAuthToken,
+    );
     const observation: ProbeObservation = {
       responded: true,
       durationMs: Math.max(0, Date.now() - observationStartedAt),

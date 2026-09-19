@@ -49,6 +49,7 @@ const testState = vi.hoisted(() => ({
   agentAckDrainStatus: 200,
   agentDrainEvents: [] as Array<Record<string, unknown>>,
   agentDrainRequests: [] as Array<{ body: Record<string, unknown>; authorization?: string }>,
+  runtimeObservationAuthorizations: [] as Array<string | null>,
   callOrder: [] as string[],
   storageGetFailures: new Set<string>(),
   storagePutFailures: new Set<string>(),
@@ -112,6 +113,9 @@ vi.mock('@cloudflare/containers', () => {
               }
               testState.hostProbeCalls += 1;
               const runtimeObservation = url.includes('/internal/runtime-observation');
+              if (runtimeObservation) {
+                testState.runtimeObservationAuthorizations.push(new Headers(init?.headers).get('Authorization'));
+              }
               if (testState.tcpFetchShouldFail
                   || ((runtimeObservation || url.includes('/activity')) && testState.activityFetchShouldFail)
                   || ((runtimeObservation || url.includes('/health')) && testState.healthFetchShouldFail)) {
@@ -598,6 +602,13 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(mockKV.put.mock.calls.some(
         ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
       )).toBe(false);
+    });
+
+    it('authenticates the private runtime observation probe', async () => {
+      testState.runtimeObservationAuthorizations = [];
+      await containerInstance.collectMetrics();
+
+      expect(testState.runtimeObservationAuthorizations).toEqual(['Bearer agent-event-token']);
     });
 
     it('REQ-GITHUB-015 AC1: tracks the repositories the container reports in its workspace', async () => {
