@@ -637,6 +637,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
 
       expect(projections).toBe(1);
+      const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session & {
+        lifecycleGeneration?: number;
+        observationSequence?: number;
+      };
+      expect(projected.status).toBe('running');
+      expect(projected.lifecycleGeneration).toBe(0);
+      expect(projected.observationSequence).toBe(0);
+      expect(projected.metrics).toMatchObject({ cpu: '45%', mem: '1024MB', hdd: '2.5GB' });
     });
 
     it('continues without transport recovery when the lifecycle projection fails', async () => {
