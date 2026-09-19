@@ -794,7 +794,6 @@ describe('Pi marker-or-dialog review ingress', () => {
           notification(id),
         ];
       }),
-      triage(),
       toolCall(docId, 'subagent', {
         subagent_type: lanes[2],
         run_in_background: true,
@@ -810,26 +809,34 @@ describe('Pi marker-or-dialog review ingress', () => {
       }),
       toolResult('early-ci', 'subagent'),
       notification('early-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
+      triage(),
     );
 
     await app.emit('agent_settled');
     expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
 
-    append(input.sessionFile, notification(docId));
+    append(input.sessionFile,
+      notification(docId),
+      { type: 'message', id: `unchanged-${sequence += 1}`, message: { role: 'assistant', content: [{ type: 'text', text: 'Triage remains unchanged.' }] } },
+    );
+    await app.emit('agent_settled');
     await app.emit('agent_settled');
     expect(app.sent.map((message) => message.customType)).toEqual([
       'pr-boundary-launch-plan',
       'pr-boundary-triage-correction',
     ]);
     expect(app.sent[1]?.content).toContain('published before the final result');
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).not.toBe('complete');
 
     append(input.sessionFile, triage());
+    await app.emit('agent_settled');
     await app.emit('agent_settled');
     expect(app.sent.map((message) => message.customType)).toEqual([
       'pr-boundary-launch-plan',
       'pr-boundary-triage-correction',
       'pr-boundary-fix-follow-up',
     ]);
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
   });
 
   it('requests one canonical triage correction when a terminal CI failure row is malformed', async () => {
@@ -849,9 +856,11 @@ describe('Pi marker-or-dialog review ingress', () => {
             prompt: reviewerPrompt(input.head, lane),
           }),
           toolResult(id, 'subagent'),
-          notification(id),
+          ...(index === lanes.length - 1 ? [] : [notification(id)]),
         ];
       }),
+      triage(),
+      notification('correct-triage-review-2'),
       toolCall('correct-triage-ci', 'subagent', {
         subagent_type: 'ci-monitor',
         run_in_background: true,
