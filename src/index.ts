@@ -539,7 +539,7 @@ export default {
     // static.cloudflareinsights.com is added to script-src, and its beacon telemetry endpoint
     // cloudflareinsights.com is added to connect-src.
     secureResponse.headers.set('Content-Security-Policy',
-      `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
+      `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com https://www.gravatar.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
     return secureResponse;
   },

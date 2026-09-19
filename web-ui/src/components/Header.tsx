@@ -213,8 +213,10 @@ const Header: Component<HeaderProps> = (props) => {
           </Show>
         </div>
 
-        {/* Enterprise operator activity is intentionally adjacent to account identity. */}
-        <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
+        {/* Dashboard: enterprise operator activity stays adjacent to account identity. */}
+        <Show when={!props.onVscodeOpen}>
+          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
+        </Show>
 
         {/* Sleep timer dropdown */}
         <Show when={timerInfo()}>
@@ -273,6 +275,11 @@ const Header: Component<HeaderProps> = (props) => {
               <Icon path={mdiMicrosoftVisualStudioCode} size={20} />
             </button>
           )}
+        </Show>
+
+        {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}
+        <Show when={props.onVscodeOpen}>
+          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
         </Show>
 
         {/* Storage button */}

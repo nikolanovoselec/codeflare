@@ -50,10 +50,10 @@ const OperatorActivityButton: Component<Props> = (props) => {
       </button>
       <Show when={open()}>
         <section class="operator-activity-panel" role="dialog" aria-label="Operator activity" aria-modal="false">
-          <header><div><strong>Operator activity</strong><small><span>Operators work on tasks in the background.</span><span>Track progress and results here.</span></small></div></header>
+          <header><div><strong>Operator overview</strong><small>Operators are autonomous agents that work in the background. Track progress and results here.</small></div></header>
           <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
             <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>
-              <Show when={(activities()?.items.length ?? 0) > 0} fallback={<div class="operator-activity-state">No operator activity</div>}>
+              <Show when={(activities()?.items.length ?? 0) > 0} fallback={<div class="operator-activity-state operator-activity-state--empty">No activity</div>}>
                 <div class="operator-activity-list"><For each={activities()?.items}>{item => (
                   <article class={`operator-activity-item ${item.attention || stale(item.updatedAt) ? 'needs-attention' : ''}`}>
                     <div><strong>{item.operatorId}</strong><span class="admin-mono">{item.activityId}</span></div>
