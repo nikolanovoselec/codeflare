@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-19
+
+- **Runtime image requires Debian's fixed libevent package** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)). Integration deployment run `35433534086` exposed six fixable HIGH/CRITICAL `libevent-core-2.1-7` findings before image publication. Runtime assembly now installs the package explicitly and fails unless it reaches `2.1.12-stable-8+deb12u1`; no vulnerability exception is added.
+
 ## 2026-09-18
 
 - **Sessions track and restore workspace repositories, and renaming is a user action** ([REQ-GITHUB-015](github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](github.md#req-github-016-tracked-repository-restoration), and [REQ-SESSION-027](session-lifecycle.md#req-session-027-user-can-rename-sessions) new; [REQ-GITHUB-014](github.md#req-github-014-clone-created-session-resume) AC1/AC3 generalized). Tracking and bounded fail-open restoration are separate requirement concerns. Renaming a session, previously API-only, now has a user surface and atomic acceptance criteria.
