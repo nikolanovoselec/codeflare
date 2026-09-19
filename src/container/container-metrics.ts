@@ -1304,7 +1304,7 @@ export async function collectMetrics(
   // Deliberate shutdown owns the generation before probes or projections. This
   // recheck closes the race where shutdown begins while an earlier tick awaits I/O.
   try {
-    if (await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) !== undefined) return;
+    if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
   } catch {
     // Ownership uncertainty fails closed: never project running or re-arm.
     return;
@@ -1480,7 +1480,7 @@ export async function collectMetrics(
       if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {
         logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: snapshot.syncStatus });
       }
-      if (await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) !== undefined) return;
+      if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
       const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
       const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
       if (!sessionId || !bucketName) throw new Error('session identity unavailable');

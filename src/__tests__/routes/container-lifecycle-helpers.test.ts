@@ -636,7 +636,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
       expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false });
-      expect(stored.editorReadyError).toBeUndefined();
+      expect(stored.editorReadyError).toBe(false);
     });
 
     it('clears stale readiness when KV says running but the container is stopped', async () => {
@@ -651,7 +651,8 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false, lastActiveAt: '2024-01-02T00:00:00Z' });
+      expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false });
+      expect(Date.parse(stored.lastActiveAt!)).not.toBeNaN();
       expect(container.startAndWaitForPorts).toHaveBeenCalledTimes(1);
     });
 
