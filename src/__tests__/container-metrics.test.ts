@@ -614,6 +614,55 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.runtimeObservationAuthorizations).toEqual(['Bearer agent-event-token']);
     });
 
+    it('projects one lifecycle observation when no separate clone inventory is reported', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      const d1 = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env.USAGE_DB;
+      const prepare = d1.prepare.bind(d1);
+      let projections = 0;
+      vi.spyOn(d1, 'prepare').mockImplementation((sql: string) => {
+        const statement = prepare(sql);
+        if (sql.includes('observation_sequence=?4')) {
+          const run = statement.run.bind(statement);
+          (statement as unknown as { run: () => Promise<unknown> }).run = async () => {
+            projections += 1;
+            return run();
+          };
+        }
+        return statement;
+      });
+
+      await containerInstance.collectMetrics();
+
+      expect(projections).toBe(1);
+    });
+
+    it('continues without transport recovery when the lifecycle projection fails', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      const d1 = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env.USAGE_DB;
+      const prepare = d1.prepare.bind(d1);
+      vi.spyOn(d1, 'prepare').mockImplementation((sql: string) => {
+        const statement = prepare(sql);
+        if (sql.includes('observation_sequence=?4')) {
+          (statement as unknown as { run: () => Promise<unknown> }).run = async () => {
+            throw new Error('D1 unavailable');
+          };
+        }
+        return statement;
+      });
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
     it('REQ-GITHUB-015 AC1: tracks the repositories the container reports in its workspace', async () => {
       const key = 'session:test-bucket:testsession123456';
       testState.healthResult.workspaceRepos = [
