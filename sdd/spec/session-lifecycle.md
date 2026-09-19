@@ -127,8 +127,6 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) -->
 5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
 6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
-7. For no-input idle timing, enforcement reuses a valid durable container-start reference after coordinator reconstruction; absent or invalid references initialize one durable fallback. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (persists one fallback baseline across a second coordinator reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (replaces non-finite persisted startup baselines) -->
-8. Unreadable or unpersistable no-input timing evidence skips idle termination while observation and polling continue. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not authorize idle stopping when fallback baseline persistence fails) --> <!-- @test: src/__tests__/container-metrics.test.ts (keeps host transport healthy when startup-reference storage cannot be read) -->
 
 **Constraints:**
 
@@ -160,6 +158,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
 4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
+6. For no-input idle timing, enforcement reuses a valid durable container-start reference after coordinator reconstruction; absent or invalid references initialize one durable fallback. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (persists one fallback baseline across a second coordinator reconstruction) --> <!-- @test: src/__tests__/container-metrics.test.ts (replaces non-finite persisted startup baselines) -->
+7. Unreadable or unpersistable no-input timing evidence skips idle termination while observation and polling continue. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not authorize idle stopping when fallback baseline persistence fails) --> <!-- @test: src/__tests__/container-metrics.test.ts (keeps host transport healthy when startup-reference storage cannot be read) -->
 
 **Constraints:**
 
@@ -673,8 +673,6 @@ None.
 5. Every accepted mutation advances a response revision used with generation to order API responses.
 6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed.
 7. Only confirmed process-exit evidence writes `stopped`; transport failure, D1 failure, signal acceptance, or a transient SDK state does not.
-8. A same-generation start callback preserves established lifecycle ownership. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (preserves generation ownership and idle baseline on a duplicate onStart) -->
-9. Stale or stopping start callbacks cannot clear lifecycle ownership or re-arm lifecycle work. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
 
 **Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
 
@@ -685,6 +683,29 @@ None.
 **Verification:** Planned behavioral D1 repository, lifecycle and delayed-callback tests.
 
 **Status:** Planned
+
+---
+
+### REQ-SESSION-033: Start callbacks preserve lifecycle ownership
+
+**Intent:** Repeated or delayed start callbacks cannot disturb the current session lifecycle.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. A replay for an already-running generation preserves established lifecycle ownership. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (preserves generation ownership and idle baseline on a duplicate onStart) -->
+2. Stale or stopping start callbacks cannot clear lifecycle ownership or re-arm lifecycle work. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
+
+**Constraints:** Same-generation replays and rejected stale or stopping callbacks do not project lifecycle transitions.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+
+**Verification:** Automated test ([container metrics](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
 
 ---
 
