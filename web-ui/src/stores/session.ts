@@ -28,8 +28,6 @@ import {
   updateTerminalLabel,
   cleanupTerminalsForSession,
 } from './session-tabs';
-import { updateStatsFromBatch } from './storage';
-import { setUsageState } from './session-usage';
 import {
   registerR2ReadinessDeps,
   startR2Polling,
@@ -45,6 +43,7 @@ import {
   registerPollingDeps,
   sessionMissCounters,
   refreshSessionStatuses,
+  refreshSessionAncillaryStatus,
   startSessionListPolling,
   stopSessionListPolling,
   markSessionStarted,
@@ -82,8 +81,12 @@ export interface SessionMetrics {
 
 /** Batch status entry shape from the backend */
 type BatchStatusEntry = {
-  status: 'running' | 'stopped';
-  ptyActive: boolean;
+  status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  generation?: number;
+  revision?: number;
+  unreachableDeadlineMs?: number;
+  ptyActive?: boolean;
   startupStage?: string;
   lastStartedAt?: string;
   lastActiveAt?: string;
@@ -323,44 +326,19 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus({ includePreseedCheck: true, include: ['storage', 'usage'] }).catch((err) => {
+      api.getBatchSessionStatus().catch((err) => {
         logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
         batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
-        return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };
+        return { statuses: {} as Record<string, BatchStatusEntry> };
+      }),
+      refreshSessionAncillaryStatus().catch((err) => {
+        logger.warn('[SessionStore] ancillary status refresh failed:', err);
       }),
     ]);
     if (thisGen !== loadSessionsGeneration) return;
     if (batchError) setState('error', batchError);
 
     const batchStatuses = batchResponse.statuses;
-    if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
-    if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
-    if ('usage' in batchResponse && batchResponse.usage) {
-      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
-    }
-
-    const managedReleaseStatus = 'managedReleaseStatus' in batchResponse
-      ? batchResponse.managedReleaseStatus
-      : undefined;
-    if (managedReleaseStatus === undefined) {
-      setState('managedReleaseStatus', null);
-      setState('managedReleaseProgress', null);
-    }
-    const preseedNeedsUpgrade = 'preseedNeedsUpgrade' in batchResponse
-      ? batchResponse.preseedNeedsUpgrade
-      : undefined;
-    const managedReleaseProgress = 'managedReleaseProgress' in batchResponse
-      ? batchResponse.managedReleaseProgress
-      : undefined;
-    const preseedUpgradeTarget = 'preseedUpgradeTarget' in batchResponse ? batchResponse.preseedUpgradeTarget : undefined;
-    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade, managedReleaseProgress, preseedUpgradeTarget);
-
-    // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
-    // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every
-    // batch-status poll while migrating also advances a chunk server-side, so keep polling.
-    setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
-    setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
-    setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
 
     const existingSessions = new Map(state.sessions.map(s => [s.id, s]));
     const existingStatuses = new Map(state.sessions.map(s => [s.id, s.status]));
@@ -406,14 +384,12 @@ async function loadSessions(): Promise<void> {
         continue;
       }
 
-      // Propagate per-session fields from batch-status onto SessionWithStatus.
-      // ptyActive/startupStage are frontend-only mirrors of the latest poll —
-      // consumers (e.g. Layout vault-button gate) read them off the session.
+      // Propagate durable fields from batch-status. Terminal connectivity is
+      // device-local and is never overwritten by a backend projection.
       const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
       if (idx !== -1) {
         if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
         if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
-        setState('sessions', idx, 'ptyActive', batchStatus.ptyActive);
         setState('sessions', idx, 'startupStage', batchStatus.startupStage);
         if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
         setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);

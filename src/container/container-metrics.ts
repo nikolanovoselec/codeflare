@@ -7,9 +7,8 @@
 import type { Env, Session } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { toError } from '../lib/error-types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
-import type { ActivityState } from '../lib/activity-policy';
+import { D1SessionRepository } from '../lib/session-repository';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
   AGENT_EVENT_PUSH_BUDGET_MS,
@@ -227,26 +226,38 @@ export async function updateKvStatus(
       logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
       return 'failed';
     }
-    const key = getSessionKey(bucketName, sessionId);
-    const session = await env.KV.get<Session>(key, 'json');
-    if (!session) {
-      logger.info('updateKvStatus: session not found in KV', { key, status, field });
-      return 'absent';
-    }
+    const generation = await ctx.storage.get<number>('lifecycleGeneration');
+    if (typeof generation !== 'number') return 'failed';
     const timestamp = new Date().toISOString();
-    const updated = {
-      ...session,
-      ...(status !== null ? { status } : {}),
-      [field]: timestamp,
-      // A start owns both timestamps. Publishing them from this same snapshot
-      // prevents an immediate second KV read from restoring pre-start status.
-      ...(status === 'running' && field === 'lastStartedAt' ? { lastActiveAt: timestamp } : {}),
-    };
-    await putSessionWithMetadata(env.KV, key, updated);
-    logger.info('updateKvStatus: wrote to KV', { key, status, field });
-    return 'written';
+    if (status === 'stopped') {
+      const repository = new D1SessionRepository(env.USAGE_DB);
+      const session = await repository.getSession(bucketName, sessionId);
+      if (!session || session.lifecycleGeneration !== generation) return 'absent';
+      let intentId = session.terminationIntentId;
+      if (session.lifecycleState !== 'stopping') {
+        intentId = `confirmed-exit-${generation}`;
+        const claimed = await repository.claimStop(bucketName, sessionId, intentId, timestamp);
+        if (!claimed) return 'absent';
+      }
+      if (!intentId) return 'absent';
+      return await repository.confirmStopped(bucketName, sessionId, generation, intentId, timestamp)
+        ? 'written'
+        : 'absent';
+    }
+    const state = status === 'running' ? 'running' : null;
+    const result = await env.USAGE_DB.prepare(`UPDATE runtime_sessions SET
+      lifecycle_state=COALESCE(?4,lifecycle_state),
+      last_started_at=CASE WHEN ?5='lastStartedAt' THEN ?6 ELSE last_started_at END,
+      last_active_at=CASE WHEN ?5='lastActiveAt' OR (?4='running' AND ?5='lastStartedAt') THEN ?6 ELSE last_active_at END,
+      transitioned_at=CASE WHEN ?4 IS NULL THEN transitioned_at ELSE ?6 END,
+      response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+        AND lifecycle_state IN ('starting','running','unreachable')
+        AND termination_intent_id IS NULL`)
+      .bind(bucketName, sessionId, generation, state, field, timestamp).run();
+    return result.meta.changes === 1 ? 'written' : 'absent';
   } catch (err) {
-    logger.error('Failed to update KV status', toError(err));
+    logger.error('Failed to update D1 status', toError(err));
     return 'failed';
   }
 }
@@ -495,9 +506,16 @@ async function loadTrustedTickSession(
   try {
     const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
     const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
-    const session = sessionId && bucketName
-      ? await env.KV.get<Session>(getSessionKey(bucketName, sessionId), 'json')
+    const authoritative = sessionId && bucketName
+      ? await new D1SessionRepository(env.USAGE_DB).getSession(bucketName, sessionId)
       : null;
+    const session: Session | null = authoritative ? {
+      id: authoritative.sessionId, name: authoritative.name, userId: authoritative.ownerKey,
+      createdAt: authoritative.createdAt, lastAccessedAt: authoritative.lastAccessedAt,
+      status: authoritative.lifecycleState === 'running' ? 'running' : 'stopped',
+      agentType: authoritative.agentType, workspace: authoritative.workspace,
+      terminalMode: authoritative.terminalMode, tabConfig: authoritative.tabConfig, clone: authoritative.clone,
+    } : null;
     return { sessionId, bucketName, session };
   } catch (error) {
     return { sessionId: undefined, bucketName: state._bucketName, session: null, error };
@@ -516,8 +534,8 @@ async function deliverRunningAgentEvents(
   state: MetricsState,
   ctx: DurableObjectState,
   env: Env,
-  trusted: TrustedTickSession,
 ): Promise<void> {
+  if (!env.VAPID_SUBJECT || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
   const deliveryState = deliveryStateFor(state);
   const priorAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
   const drained = await drainAgentEvents(ctx, CONTAINER_POLL_BUDGET_MS, {
@@ -531,8 +549,9 @@ async function deliverRunningAgentEvents(
   for (const eventId of priorAckIds) deliveryState.pendingAckIds.delete(eventId);
   const priorAckSet = new Set(priorAckIds);
   const events = drained.events.filter((event) => !priorAckSet.has(event.eventId));
-  if (events.length === 0
-      || trusted.error !== undefined
+  if (events.length === 0) return;
+  const trusted = await loadTrustedTickSession(state, ctx, env);
+  if (trusted.error !== undefined
       || !trusted.sessionId
       || !trusted.bucketName
       || !trusted.session
@@ -1282,9 +1301,18 @@ export async function collectMetrics(
   env: Env,
   callbacks: MetricsCallbacks,
 ): Promise<void> {
+  // Deliberate shutdown owns the generation before probes or projections. This
+  // recheck closes the race where shutdown begins while an earlier tick awaits I/O.
+  try {
+    if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+  } catch {
+    // Ownership uncertainty fails closed: never project running or re-arm.
+    return;
+  }
+
   // Terminal convergence is a durable lifecycle phase, not transport recovery.
-  // Handle it before probes, KV self-healing, or usage accounting so a later
-  // host response cannot resurrect a session whose terminal stop already began.
+  // Handle it before probes or usage accounting so a later host response cannot
+  // resurrect a session whose terminal stop already began.
   let storedRecovery: unknown;
   try {
     storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
@@ -1303,47 +1331,7 @@ export async function collectMetrics(
       return;
     }
 
-    // Upgrade compatibility: the preceding implementation could write KV
-    // stopped and retain only exhausted ownership when its stop request failed. Do not let
-    // a newly responsive probe self-heal that terminal session.
-    if (storedRecovery.status === 'exhausted') {
-      let sessionId: string | undefined;
-      let bucketName: string | null;
-      let session: Session | null;
-      try {
-        sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
-        bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
-        session = sessionId && bucketName
-          ? await env.KV.get<Session>(getSessionKey(bucketName, sessionId), 'json')
-          : null;
-      } catch (err) {
-        logger.warn('collectMetrics: failed to resolve pre-upgrade terminal ownership', {
-          durableObjectId: ctx.id.toString(),
-          error: err instanceof Error ? err.message : String(err),
-        });
-        await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
-        return;
-      }
-      if (sessionId && bucketName
-          && (session?.status === 'stopped' || (!session && ctx.container?.running))) {
-        const terminalRecovery: TransportRecoveryRecord = {
-          ...storedRecovery,
-          status: 'terminal-stop-pending',
-        };
-        try {
-          await persistTransportRecovery(ctx, terminalRecovery);
-        } catch (err) {
-          logger.error('collectMetrics: failed to migrate pre-upgrade terminal ownership', undefined, {
-            durableObjectId: ctx.id.toString(),
-            error: err instanceof Error ? err.message : String(err),
-          });
-          await scheduleTerminalConvergenceRetry(ctx, callbacks);
-          return;
-        }
-        await continueTerminalConvergence(state, ctx, env, callbacks, terminalRecovery);
-        return;
-      }
-    }
+    // D1 incidents are the only terminal-recovery authority; no legacy KV migration path.
   }
 
   // Container reads as not-running. This is EITHER a genuine exit (crash,
@@ -1415,12 +1403,11 @@ export async function collectMetrics(
   // a future transient blip starts a fresh streak.
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
-  // Resolve trusted identity before either host probe for agent delivery. The
-  // metrics write fresh-reads session state after the probes so a slow health
-  // response cannot roll back a concurrent lifecycle or readiness update.
-  const trustedTickSession = await loadTrustedTickSession(state, ctx, env);
+  // Notification delivery owns its exceptional D1 read only when the host
+  // actually offers events. The normal metrics path remains one host snapshot
+  // plus one generation/sequence-fenced D1 update with no pre-read.
   try {
-    await deliverRunningAgentEvents(state, ctx, env, trustedTickSession);
+    await deliverRunningAgentEvents(state, ctx, env);
   } catch {
     // Notification delivery is best-effort and independent from idle, health,
     // usage accounting, and the one-shot schedule re-arm below.
@@ -1460,144 +1447,60 @@ export async function collectMetrics(
     callbacks.setIdleTimeoutPref(idleTimeoutPref);
   }
   const sleepMs = parseSleepAfterMs(idleTimeoutPref);
-  const activityProbeStartedAt = Date.now();
+  const observationStartedAt = Date.now();
   let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
-
   try {
-    const activityPort = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
-    const activityRes = await pollContainer(activityPort, 'http://localhost/activity', CONTAINER_POLL_BUDGET_MS);
-    activityProbe = {
+    const port = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+    const response = await pollContainer(port, 'http://localhost/internal/runtime-observation', CONTAINER_POLL_BUDGET_MS);
+    const observation: ProbeObservation = {
       responded: true,
-      durationMs: Math.max(0, Date.now() - activityProbeStartedAt),
-      status: activityRes.status,
+      durationMs: Math.max(0, Date.now() - observationStartedAt),
+      status: response.status,
     };
-    if (!activityRes.ok) {
-      logger.warn('collectMetrics: /activity returned non-OK', { status: activityRes.status });
+    activityProbe = observation;
+    healthProbe = observation;
+    if (!response.ok) {
+      logger.warn('collectMetrics: runtime observation returned non-OK', { status: response.status });
     } else {
-      const activity = await activityRes.json() as ActivityState;
-
-      state.lastSeenInputAt = activity.lastInputAt;
-
-      // Explicit idle-stop: stop the container when idle exceeds the
-      // user-configured threshold. Fall back to containerStartedAt when
-      // no classified terminal or Browser IDE input has arrived (lastInputAt null).
-      const referenceTime = activity.lastInputAt ?? state.containerStartedAt;
+      const snapshot = await response.json() as {
+        lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
+        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; observedAt: string;
+      };
+      state.lastSeenInputAt = snapshot.lastInputAt;
+      const referenceTime = snapshot.lastInputAt ?? state.containerStartedAt;
       const idleMs = Date.now() - referenceTime;
       if (idleMs > sleepMs) {
-        logger.info('collectMetrics: idle exceeded threshold, stopping', {
-          idleMs, sleepMs, idleTimeoutPref, referenceTime, lastInputAt: activity.lastInputAt,
-        });
-        // Write KV status before stop — DO state can be lost during shutdown
-        await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
-        // Final notification delivery and R2 sync are independent best-effort
-        // drains. Both run while the host is alive and before SIGTERM.
-        await drainAgentEventsBeforeStop(
-          state,
-          ctx,
-          env,
-          CONTAINER_POLL_BUDGET_MS,
-        );
+        logger.info('collectMetrics: idle exceeded threshold, stopping', { idleMs, sleepMs, idleTimeoutPref, referenceTime });
+        await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
         await callbacks.stop('SIGTERM');
         return;
       }
-
-      logger.info('collectMetrics: activity check', {
-        lastInputAt: activity.lastInputAt,
-        lastSeenInputAt: state.lastSeenInputAt,
-        connectedClients: activity.connectedClients,
-        hasActiveConnections: activity.hasActiveConnections,
-        idleMs, sleepMs, idleTimeoutPref,
+      if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {
+        logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: snapshot.syncStatus });
+      }
+      if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+      const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
+      const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
+      if (!sessionId || !bucketName) throw new Error('session identity unavailable');
+      const generation = await ctx.storage.get<number>('lifecycleGeneration');
+      const previousSequence = await ctx.storage.get<number>('observationSequence') ?? -1;
+      if (typeof generation !== 'number') throw new Error('lifecycle generation unavailable');
+      const sequence = previousSequence + 1;
+      const accepted = await new D1SessionRepository(env.USAGE_DB).project(bucketName, sessionId, generation, sequence, {
+        lifecycleState: 'running',
+        lastInputAt: snapshot.lastInputAt === null ? undefined : new Date(snapshot.lastInputAt).toISOString(),
+        cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
+        editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
       });
+      if (accepted) await ctx.storage.put('observationSequence', sequence);
     }
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    if (!activityProbe.responded) {
-      activityProbe = failedProbeObservation(err, activityProbeStartedAt);
-    }
-    logger.warn('collectMetrics: activity check failed', { error });
-  }
-
-  const healthProbeStartedAt = Date.now();
-  try {
-    const tcpPort = ctx.container.getTcpPort(8080);
-    const res = await pollContainer(tcpPort, 'http://localhost/health', CONTAINER_POLL_BUDGET_MS);
-    healthProbe = {
-      responded: true,
-      durationMs: Math.max(0, Date.now() - healthProbeStartedAt),
-      status: res.status,
-    };
-
-    if (!res.ok) {
-      // Health endpoint returned non-200 (e.g. container still booting).
-      // Don't parse — just log and re-arm below.
-      logger.info('collectMetrics: health non-OK', { status: res.status });
-    } else {
-      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; editorReady?: boolean };
-
-      if (health.syncStatus === 'failed' || health.syncStatus === 'timeout') {
-        // Surface in-container bisync failures in Workers logs: the integration
-        // bisync death of 2026-05-31 ran invisible for 11 days because the sync
-        // daemon's state never left the container (sync.log is not shipped
-        // anywhere). One warn per metrics tick (60s) while the condition
-        // persists - cheap, queryable, alertable.
-        logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: health.syncStatus });
-      }
-
-      if (trustedTickSession.error !== undefined) throw trustedTickSession.error;
-      const { sessionId, bucketName } = trustedTickSession;
-
-      if (!sessionId || !bucketName) {
-        logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
-        return; // Don't re-arm schedule — zombie DO, let it die
-      } else if (ctx.container?.running) {
-        const key = getSessionKey(bucketName, sessionId);
-        // Fresh-read after every host probe, then merge only fields owned by
-        // this metrics tick. No concern overlay or prefix scan is introduced.
-        const session = await env.KV.get<Session>(key, 'json');
-        if (session) {
-          const metrics = {
-            cpu: health.cpu,
-            mem: health.mem,
-            hdd: health.hdd,
-            syncStatus: health.syncStatus,
-            updatedAt: new Date().toISOString(),
-          };
-          const lastActiveAt = state.lastSeenInputAt
-            ? new Date(state.lastSeenInputAt).toISOString()
-            : session.lastActiveAt;
-          let nextSession: Session = { ...session, metrics, lastActiveAt };
-          if (session.workspace === 'vscode' && health.editorReady === true) {
-            const { editorReadyError: _staleEditorError, ...withoutEditorError } = nextSession;
-            nextSession = { ...withoutEditorError, editorReady: true };
-          }
-
-          // destroy() persists this marker before draining or deleting the
-          // session. Read it after the awaited primary-record read and directly
-          // before the write, closing the Stop/Delete interleaving without KV
-          // overlays, CAS machinery, or a list-prefix read.
-          const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
-          if (typeof shutdownRequested === 'number') {
-            logger.info('collectMetrics: shutdown in flight, skipping primary session write', { key });
-          } else if (session.status !== 'running') {
-            // Self-heal FALSE stopped and legacy/missing status
-            // (REQ-SESSION-018 AC5): shutdown was ruled out and the container
-            // is alive, so verified liveness converges KV back to running.
-            logger.warn('collectMetrics: container running but KV not running, re-asserting running (self-heal)', { key });
-            await putSessionWithMetadata(env.KV, key, { ...nextSession, status: 'running' as const });
-          } else {
-            await putSessionWithMetadata(env.KV, key, nextSession);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    if (!healthProbe.responded) {
-      healthProbe = failedProbeObservation(err, healthProbeStartedAt);
-    }
-    logger.warn('collectMetrics: fetch/write failed', { error });
+    const failed = failedProbeObservation(err, observationStartedAt);
+    activityProbe = failed;
+    healthProbe = failed;
+    logger.warn('collectMetrics: runtime observation/projection failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
   const transportReconciliation = await reconcileContainerTransport(ctx, {

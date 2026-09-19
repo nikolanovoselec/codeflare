@@ -45,7 +45,8 @@ vi.mock('../../api/client', () => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
   updateSession: vi.fn(),
-  getBatchSessionStatus: vi.fn().mockResolvedValue({ statuses: {}, maxSessions: 3 }),
+  getBatchSessionStatus: vi.fn().mockResolvedValue({ statuses: {} }),
+  getSessionAncillaryStatus: vi.fn().mockResolvedValue({ maxSessions: 3 }),
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
@@ -83,7 +84,8 @@ import {
 const mockGetSessions = vi.mocked(api.getSessions);
 const mockCreateSession = vi.mocked(api.createSession);
 const mockDeleteSession = vi.mocked(api.deleteSession);
-const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
+const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus) as any;
+const mockGetSessionAncillaryStatus = vi.mocked(api.getSessionAncillaryStatus);
 const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);
 const mockRecreateAgentConfigs = vi.mocked(storageApi.recreateAgentConfigs);
@@ -105,7 +107,8 @@ describe('Session Store', () => {
 
     // Default mock implementations
     mockGetSessions.mockResolvedValue([]);
-    mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+    mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+    mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3 });
     mockGetStartupStatus.mockRejectedValue(new Error('Not found'));
     sessionStore.setActiveSession(null);
     sessionStore._resetMissCounters();
@@ -136,8 +139,8 @@ describe('Session Store', () => {
         },
       ];
       mockGetSessions.mockResolvedValue(mockSessions);
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         usage: { dailySeconds: 12, monthlySeconds: 321, monthlyQuotaSeconds: 600, tier: 'advanced' },
       });
@@ -147,10 +150,8 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.length).toBe(2);
       expect(sessionStore.sessions[0].id).toBe('session-1');
       expect(sessionStore.sessions[1].id).toBe('session-2');
-      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({
-        includePreseedCheck: true,
-        include: ['storage', 'usage'],
-      });
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith();
+      expect(mockGetSessionAncillaryStatus).toHaveBeenCalledWith();
       expect(getUsageState()).toEqual({ monthlySeconds: 321, monthlyQuotaSeconds: 600 });
     });
 
@@ -239,8 +240,7 @@ describe('Session Store', () => {
     });
 
     it('REQ-STOR-022 AC2: maps update_pending without invoking reconciliation', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         managedReleaseStatus: 'update_pending',
       } as never);
@@ -256,8 +256,7 @@ describe('Session Store', () => {
       mockUpgradeAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
         resolveUpgrade = resolve;
       }));
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         preseedNeedsUpgrade: true,
         managedReleaseStatus: 'upgrading',
@@ -276,15 +275,15 @@ describe('Session Store', () => {
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
       expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'writing', completed: 61, total: 61 });
 
-      mockGetBatchSessionStatus.mockResolvedValueOnce({
-        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({
+        maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
         managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
       } as never);
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'finalizing', completed: 61, total: 61 });
 
-      mockGetBatchSessionStatus.mockResolvedValueOnce({
-        statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false,
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({
+        maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false,
       } as never);
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.managedReleaseStatus).toBe('current');
@@ -402,14 +401,8 @@ describe('Session Store', () => {
         .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
         .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
       mockGetBatchSessionStatus
-        .mockResolvedValueOnce({
-          statuses: {}, maxSessions: 3,
-          usage: { dailySeconds: 10, monthlySeconds: 100, monthlyQuotaSeconds: 600, tier: 'advanced' },
-        })
-        .mockResolvedValueOnce({
-          statuses: {}, maxSessions: 3,
-          usage: { dailySeconds: 20, monthlySeconds: 200, monthlyQuotaSeconds: 600, tier: 'advanced' },
-        });
+        .mockResolvedValueOnce({ statuses: {} })
+        .mockResolvedValueOnce({ statuses: {} });
 
       const firstCall = sessionStore.loadSessions();
       const secondCall = sessionStore.loadSessions();
@@ -431,7 +424,6 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.some(s => s.id === 'session-old')).toBe(false);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledTimes(1);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledWith(['session-new']);
-      expect(getUsageState()).toEqual({ monthlySeconds: 200, monthlyQuotaSeconds: 600 });
     });
 
     it('REQ-SESSION-029 AC3: stale batch-status failure cannot overwrite latest error state', async () => {
@@ -475,8 +467,7 @@ describe('Session Store', () => {
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
     it('REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         preseedNeedsUpgrade: true,
       });
@@ -488,8 +479,7 @@ describe('Session Store', () => {
     });
 
     it('should not trigger recreateAgentConfigs when preseedNeedsUpgrade is false', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         preseedNeedsUpgrade: false,
       });
@@ -504,8 +494,7 @@ describe('Session Store', () => {
       mockUpgradeAgentConfigs.mockReturnValue(
         new Promise((resolve) => { resolveRecreate = resolve; })
       );
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         preseedNeedsUpgrade: true,
       });
@@ -535,8 +524,7 @@ describe('Session Store', () => {
 
     it('REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable', async () => {
       mockUpgradeAgentConfigs.mockRejectedValue(new Error('Network failure'));
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         preseedNeedsUpgrade: true,
       });
@@ -546,9 +534,9 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
 
-    it('REQ-AGENT-175 AC5: mirrors managed release progress from batch status', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+    it('REQ-AGENT-175 AC5: mirrors managed release progress from ancillary status', async () => {
+      mockGetSessionAncillaryStatus.mockResolvedValue({
+        maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
         managedReleaseProgress: { phase: 'writing', completed: 25, total: 61 },
       } as any);
 
@@ -559,28 +547,28 @@ describe('Session Store', () => {
 
     // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button can disable (reusing the Upgrading affordance) while the bucket re-encrypts.
-    it('reflects bucketMigrating=true from batch-status', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+    it('reflects bucketMigrating=true from ancillary-status', async () => {
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: true });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrating).toBe(true);
     });
 
-    it('clears bucketMigrating when batch-status reports it false / absent', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+    it('clears bucketMigrating when ancillary-status reports it false / absent', async () => {
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: true });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrating).toBe(true);
 
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3 });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrating).toBe(false);
     });
 
     it('reflects bucketMigrationPending so a deferred Governed Mode flip is surfaced (D1)', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrationPending: true });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrationPending: true });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrationPending).toBe(true);
 
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3 });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrationPending).toBe(false);
     });
@@ -591,20 +579,19 @@ describe('Session Store', () => {
   // loads leaves the New Session button stuck on "Migrating" until a manual page reload.
   describe('background poll migration flags (REQ-ENTERPRISE-021 AC3)', () => {
     it('clears bucketMigrating on completion via the background poll — no full reload', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: true });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrating).toBe(true);
 
       // migration finishes; only a background poll runs (NOT loadSessions)
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: false });
       await sessionStore.refreshSessionStatuses();
 
       expect(sessionStore.bucketMigrating).toBe(false);
     });
 
     it('updates usage from the background poll', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         usage: { dailySeconds: 20, monthlySeconds: 456, monthlyQuotaSeconds: 900, tier: 'advanced' },
       });
@@ -615,25 +602,24 @@ describe('Session Store', () => {
     });
 
     it('mirrors the migration percent from the background poll for the button label', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 42 });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 42 });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrating).toBe(true);
       expect(sessionStore.bucketMigrationPercent).toBe(42);
     });
 
     it('resets the percent to null when the background poll no longer reports one', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 60 });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 60 });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBe(60);
 
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3, bucketMigrating: false });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBeNull();
     });
 
     it('REQ-AGENT-175 AC5: mirrors managed release progress on transient polling', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         managedReleaseStatus: 'upgrading',
         managedReleaseProgress: { phase: 'writing', completed: 50, total: 61 },
@@ -645,75 +631,72 @@ describe('Session Store', () => {
     });
 
     it('REQ-STOR-040 AC1: checks for a later managed release while status is current', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         managedReleaseStatus: 'current',
       } as never);
       await sessionStore.loadSessions();
-      mockGetBatchSessionStatus.mockClear();
+      mockGetSessionAncillaryStatus.mockClear();
+      vi.advanceTimersByTime(5 * 60 * 1000);
 
       await sessionStore.refreshSessionStatuses();
 
-      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetSessionAncillaryStatus).toHaveBeenCalledWith();
     });
 
-    it('REQ-STOR-040 AC4: a failed batch-status call does not consume the managed-release check window', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+    it('REQ-STOR-040 AC4: a failed ancillary-status call does not consume the managed-release check window', async () => {
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         managedReleaseStatus: 'current',
       } as never);
       await sessionStore.loadSessions();
-      mockGetBatchSessionStatus.mockClear();
-      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
+      mockGetSessionAncillaryStatus.mockClear();
+      mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('ancillary-status unavailable'));
 
-      await sessionStore.refreshSessionStatuses();
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionStatuses(true);
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(1);
+      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(2);
     });
 
     it('REQ-STOR-040 AC3: retries the managed-release check after the initial batch request fails', async () => {
-      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
+      mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('ancillary-status unavailable'));
       await sessionStore.loadSessions();
 
-      mockGetBatchSessionStatus.mockResolvedValueOnce({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({
         maxSessions: 3,
         managedReleaseStatus: 'update_pending',
       } as never);
       await sessionStore.refreshSessionStatuses();
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(1);
+      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(2);
       expect(sessionStore.managedReleaseStatus).toBe('update_pending');
     });
 
     it('REQ-STOR-040 AC1: an overlapping poll does not duplicate the managed-release check', async () => {
       // A transient status is checked on every poll, so this isolates the in-flight guard
       // from the freshness window and from any stamp an earlier test left behind.
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         managedReleaseStatus: 'update_pending',
       } as never);
       await sessionStore.loadSessions();
-      mockGetBatchSessionStatus.mockClear();
+      mockGetSessionAncillaryStatus.mockClear();
 
       let release: (() => void) | undefined;
-      mockGetBatchSessionStatus.mockImplementationOnce(() => new Promise((resolve) => {
-        release = () => resolve({ statuses: {}, maxSessions: 3, managedReleaseStatus: 'update_pending' } as never);
+      mockGetSessionAncillaryStatus.mockImplementationOnce(() => new Promise((resolve) => {
+        release = () => resolve({ maxSessions: 3, managedReleaseStatus: 'update_pending' } as never);
       }));
 
       const first = sessionStore.refreshSessionStatuses();
       const second = sessionStore.refreshSessionStatuses();
+      await vi.waitFor(() => expect(mockGetSessionAncillaryStatus).toHaveBeenCalledTimes(1));
       release?.();
       await Promise.all([first, second]);
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false, include: ['storage', 'usage'] });
+      expect(mockGetSessionAncillaryStatus).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1160,7 +1143,7 @@ describe('Session Store', () => {
         maxSessions: 3,
       } as never);
       await sessionStore.loadSessions();
-      mockGetBatchSessionStatus.mockClear();
+      mockGetSessionAncillaryStatus.mockClear();
       let rejectStart: ((error: string, code?: string) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, _complete, onError) => {
         rejectStart = onError;
@@ -1171,7 +1154,7 @@ describe('Session Store', () => {
       const rejected = expect(starting).rejects.toThrow(/update is pending/i);
       rejectStart?.('Container start failed: Managed environment update is pending', 'MANAGED_ENVIRONMENT_UPDATE_PENDING');
       await rejected;
-      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] }));
+      await vi.waitFor(() => expect(mockGetSessionAncillaryStatus).toHaveBeenCalledWith());
     });
   });
 
@@ -1237,17 +1220,16 @@ describe('Session Store', () => {
       expect(metrics!.mem).toBe('2GB');
     });
 
-    it('refreshSessionStatuses updates storage stats from batch response', async () => {
+    it('refreshSessionStatuses updates storage stats from ancillary response', async () => {
       // First load sessions
       await sessionStore.loadSessions();
 
-      // Refresh with storageStats in response
-      mockGetBatchSessionStatus.mockResolvedValue({
-        statuses: {},
+      // Force a slower ancillary refresh with cached storage projection.
+      mockGetSessionAncillaryStatus.mockResolvedValue({
         maxSessions: 3,
         storageStats: { totalFiles: 50, totalFolders: 5, totalSizeBytes: 2000 },
       });
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
 
       // Verify storage store stats were updated via updateStatsFromBatch
       const { storageStore } = await import('../../stores/storage');
@@ -1551,9 +1533,9 @@ describe('Session Store', () => {
   });
 
   describe('session limits', () => {
-    it('should set maxSessions from batch-status response', async () => {
+    it('should set maxSessions from ancillary response', async () => {
       mockGetSessions.mockResolvedValue([]);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 5 });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 5 });
 
       await sessionStore.loadSessions();
 
@@ -1985,7 +1967,7 @@ describe('Session Store', () => {
       retryPreseedUpgrade?: () => Promise<void>;
     };
     const http = vi.fn<typeof fetch>();
-    let batch: Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
+    let batch: Awaited<ReturnType<typeof api.getSessionAncillaryStatus>>;
     let nextUpgrade: Promise<Response> | undefined;
     let pendingResponses: Array<(response: Response) => void>;
 
@@ -2005,7 +1987,7 @@ describe('Session Store', () => {
       sessionStore.stopSessionListPolling();
       nextUpgrade = undefined;
       pendingResponses = [];
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       const [client, storage] = await Promise.all([
         vi.importActual<typeof api>('../../api/client'),
         vi.importActual<typeof storageApi>('../../api/storage'),
@@ -2014,15 +1996,14 @@ describe('Session Store', () => {
       // including response validation and upgrade-vs-full-Recreate endpoint selection.
       mockGetSessions.mockImplementation(client.getSessions);
       mockGetBatchSessionStatus.mockImplementation(client.getBatchSessionStatus);
+      mockGetSessionAncillaryStatus.mockImplementation(client.getSessionAncillaryStatus);
       mockUpgradeAgentConfigs.mockReset().mockImplementation(storage.upgradeAgentConfigs);
       mockRecreateAgentConfigs.mockReset().mockImplementation(storage.recreateAgentConfigs);
       http.mockReset().mockImplementation(async (input, init) => {
         const url = new URL(String(input), 'https://codeflare.test');
         if (url.pathname === '/api/sessions' && !init?.method) return json({ sessions: [] });
-        if (url.pathname === '/api/sessions/batch-status' && !init?.method) {
-          return json(url.searchParams.get('includePreseedCheck') === 'true'
-            ? batch : { statuses: batch.statuses, maxSessions: batch.maxSessions });
-        }
+        if (url.pathname === '/api/sessions/batch-status' && !init?.method) return json({ statuses: {} });
+        if (url.pathname === '/api/sessions/ancillary-status' && !init?.method) return json(batch);
         if (url.pathname === upgradeUrl && init?.method === 'POST') {
           const response = nextUpgrade;
           nextUpgrade = undefined;
@@ -2036,17 +2017,18 @@ describe('Session Store', () => {
       http.mockClear();
       mockCreateSession.mockClear();
       mockRecreateAgentConfigs.mockClear();
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: true };
+      batch = { maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: true };
     });
 
     afterEach(async () => {
       // A RED assertion must not leave a deferred request occupying the shared store.
       for (const finish of pendingResponses) finish(json(completedUpgrade));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
       mockGetSessions.mockResolvedValue([]);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3 });
       mockUpgradeAgentConfigs.mockReset().mockResolvedValue(completedUpgrade);
       mockRecreateAgentConfigs.mockReset().mockResolvedValue(completedUpgrade);
       vi.unstubAllGlobals();
@@ -2066,14 +2048,14 @@ describe('Session Store', () => {
         { phase: 'finalizing' as const, completed: 61, total: 61 },
       ]) {
         batch = { ...batch, managedReleaseProgress: progress };
-        await sessionStore.refreshSessionStatuses();
+        await sessionStore.refreshSessionStatuses(true);
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       }
       await sessionStore.loadSessions();
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       expect(upgradeRequests()).toHaveLength(1);
-      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/batch-status'))).toHaveLength(5);
+      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/ancillary-status'))).toHaveLength(5);
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
       expect(sessionStore.managedReleaseProgress).toEqual(batch.managedReleaseProgress);
       expect(mutations()).toEqual([upgradeUrl]);
@@ -2087,7 +2069,7 @@ describe('Session Store', () => {
 
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
       expect(sessionStore.managedReleaseProgress).toBeNull();
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
       expect(sessionStore.managedReleaseStatus).toBe('current');
       expect(upgradeRequests()).toHaveLength(1);
@@ -2100,18 +2082,18 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       for (let poll = 0; poll < 3; poll++) {
-        await sessionStore.refreshSessionStatuses();
+        await sessionStore.refreshSessionStatuses(true);
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       }
 
       expect(upgradeRequests()).toHaveLength(1);
       expect(retryStore.preseedUpgradeFailed).toBe(true);
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
-      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/batch-status'))).toHaveLength(4);
+      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/ancillary-status'))).toHaveLength(4);
     });
 
     it('REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status', async () => {
-      batch = { statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
+      batch = { maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
       finish(json({ error: 'Upgrade unavailable' }, 503));
@@ -2121,7 +2103,7 @@ describe('Session Store', () => {
 
       // Another tab completed the baked upgrade. Its status has no managed fields.
       batch = { ...batch, preseedNeedsUpgrade: false };
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
 
       expect(sessionStore.preseedUpgradeFailed).toBe(false);
       await sessionStore.retryPreseedUpgrade();
@@ -2130,17 +2112,17 @@ describe('Session Store', () => {
     });
 
     it.each(['success', 'failure'] as const)('REQ-AGENT-049: attempts a changed baked target without managed status after target A %s', async (outcome) => {
-      batch = { statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
+      batch = { maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
       const first = deferUpgrade();
       await sessionStore.loadSessions();
       first(outcome === 'success' ? json(completedBakedUpgrade) : json({ error: 'Target A failed' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       expect(upgradeRequests()).toHaveLength(1);
 
       const finishB = deferUpgrade();
       batch = { ...batch, preseedUpgradeTarget: 'baked-b' };
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       expect(sessionStore.preseedUpgrading).toBe(true);
       expect(sessionStore.preseedUpgradeFailed).toBe(false);
       finishB(json(completedBakedUpgrade));
@@ -2148,7 +2130,7 @@ describe('Session Store', () => {
 
       for (const target of ['baked-b', 'baked-a', 'baked-b']) {
         batch = { ...batch, preseedUpgradeTarget: target };
-        await sessionStore.refreshSessionStatuses();
+        await sessionStore.refreshSessionStatuses(true);
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       }
       expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
@@ -2162,17 +2144,17 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
       first(json(completedUpgrade));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
       expect(sessionStore.managedReleaseStatus).toBe('current');
       expect(sessionStore.managedReleaseProgress).toBeNull();
 
       const later = deferUpgrade();
       batch = {
-        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: true,
+        maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: true,
         ...{ preseedUpgradeTarget: target },
       };
       await sessionStore.refreshSessionStatuses(true);
@@ -2191,14 +2173,14 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
       first(outcome === 'success' ? json(completedUpgrade) : json({ error: 'Target A failed' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       const postsAfterStaleA = upgradeRequests().length;
 
       // A release activated while this tab was hidden: no false/current was observed.
       const finishB = deferUpgrade();
       batch = { ...batch, ...{ preseedUpgradeTarget: 'target-b' } };
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       expect(sessionStore.preseedUpgrading).toBe(true);
       expect(retryStore.preseedUpgradeFailed).toBeFalsy();
       finishB(json(completedUpgrade));
@@ -2207,7 +2189,7 @@ describe('Session Store', () => {
       // Out-of-order target observations must not restart either completed attempt.
       for (const target of ['target-b', 'target-a', 'target-b']) {
         batch = { ...batch, ...{ preseedUpgradeTarget: target } };
-        await sessionStore.refreshSessionStatuses();
+        await sessionStore.refreshSessionStatuses(true);
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       }
 
@@ -2219,7 +2201,7 @@ describe('Session Store', () => {
     it.each(['current', 'update_pending'] as const)('ignores a late success after newer %s status', async (status) => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
       expect(sessionStore.managedReleaseStatus).toBe(status);
       expect(sessionStore.managedReleaseProgress).toBeNull();
@@ -2237,7 +2219,7 @@ describe('Session Store', () => {
     it.each(['current', 'update_pending'] as const)('ignores a late failure after newer %s status', async (status) => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
       finish(json({ error: 'Old upgrade failed' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
@@ -2262,13 +2244,13 @@ describe('Session Store', () => {
       expect(sessionStore.preseedUpgrading).toBe(true);
       expect(retryStore.preseedUpgradeFailed).toBeFalsy();
       // Polling and another click cannot dispatch an overlapping attempt.
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       const duplicateRetry = Promise.resolve(retryStore.retryPreseedUpgrade?.()).catch(() => undefined);
       expect(upgradeRequests()).toHaveLength(2);
       finishRetry(json(completedUpgrade));
       await Promise.all([retry, duplicateRetry]);
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
-      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses(true);
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
@@ -2283,7 +2265,7 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
       finish(json({ error: 'Upgrade unavailable' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
-      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
+      batch = { maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
 
       await Promise.resolve(retryStore.retryPreseedUpgrade?.()).catch(() => undefined);

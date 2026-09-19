@@ -773,7 +773,7 @@ initial_sync_from_r2() {
         --checkers 32 \
         --contimeout 10s \
         --timeout 30s \
-        -v 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log; then
+        --stats 30s --stats-one-line 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
@@ -992,7 +992,8 @@ establish_bisync_baseline() {
             --ignore-checksum \
             --max-delete 5000 \
             --retries 3 --retries-sleep 10s \
-            --transfers 32 --checkers 64 -v > "$BASELINE_OUTPUT" 2>&1; then
+            --transfers 32 --checkers 64 \
+            --stats 30s --stats-one-line > "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -1084,7 +1085,7 @@ bisync_with_r2() {
         echo "[sync] Sync blocked by disk space; explicit recovery is required"
         return 1
     fi
-    local verbose_flag="${1:--v}"  # Default to -v (verbose); pass "" for quiet
+    local verbose_flag="${1-}"  # Quiet by default; preserve optional explicit caller verbosity.
     local verbose_args=()
     if [ -n "$verbose_flag" ]; then
         verbose_args=("$verbose_flag")
@@ -1131,7 +1132,8 @@ bisync_with_r2() {
         --ignore-checksum \
         --max-delete 5000 \
         --retries 3 --retries-sleep 10s \
-        --transfers 32 --checkers 64 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
+        --transfers 32 --checkers 64 \
+        --stats 30s --stats-one-line "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0
     else
         RESULT=$?

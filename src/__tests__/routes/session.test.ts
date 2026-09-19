@@ -601,7 +601,7 @@ describe('POST /sessions/:id/stop', () => {
     });
   }
 
-  it('sets session status to stopping in KV', async () => {
+  it('confirms the session stopped after container exit', async () => {
     const app = createLifecycleApp();
     const session: Session = {
       id: 'sessiontostop12345',
@@ -621,7 +621,7 @@ describe('POST /sessions/:id/stop', () => {
 
     // Verify KV was updated with 'stopped' status
     const putCalls = mockKV.put.mock.calls;
-    const sessionPutCall = putCalls.find(
+    const sessionPutCall = [...putCalls].reverse().find(
       (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('sessiontostop12345')
     );
     expect(sessionPutCall).toBeDefined();
@@ -740,11 +740,11 @@ describe('GET /sessions/batch-status', () => {
     const res = await app.request('/sessions/batch-status');
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
+    const body = await res.json() as { statuses: Record<string, { status: string; lifecycle: string }> };
     // Both sessions should have entries in the statuses map
     expect(Object.keys(body.statuses)).toHaveLength(2);
-    expect(body.statuses['batchsession1234abc']).toEqual({ status: 'running', ptyActive: true, lastActiveAt: null, lastStartedAt: null });
-    expect(body.statuses['batchsession5678def']).toEqual({ status: 'running', ptyActive: true, lastActiveAt: null, lastStartedAt: null });
+    expect(body.statuses['batchsession1234abc']).toMatchObject({ status: 'running', lifecycle: 'running' });
+    expect(body.statuses['batchsession5678def']).toMatchObject({ status: 'running', lifecycle: 'running' });
   });
 
   it('returns empty statuses when no sessions exist', async () => {

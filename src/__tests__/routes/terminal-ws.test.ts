@@ -3,6 +3,7 @@ import { handleWebSocketUpgrade, validateWebSocketRoute } from '../../routes/ter
 import { CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../../lib/constants';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // Mock dependencies
 vi.mock('../../lib/logger', () => ({
@@ -77,6 +78,7 @@ describe('handleWebSocketUpgrade', () => {
 
     mockEnv = {
       KV: mockKV as unknown as KVNamespace,
+      USAGE_DB: createMockSessionD1(mockKV),
       CONTAINER: {} as DurableObjectNamespace,
     } as unknown as Env;
 
@@ -384,7 +386,7 @@ describe('handleWebSocketUpgrade', () => {
       const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
         headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
       });
-      const env = { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env;
+      const env = { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env;
       const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
       const routeResult = validateWebSocketRoute(request);
 
@@ -454,7 +456,7 @@ describe('handleWebSocketUpgrade', () => {
 
       const result = await handleWebSocketUpgrade(
         request,
-        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env,
         ctx,
         validateWebSocketRoute(request) as any,
       );
@@ -478,7 +480,7 @@ describe('handleWebSocketUpgrade', () => {
 
       const result = await handleWebSocketUpgrade(
         request,
-        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env,
         { waitUntil: vi.fn() } as unknown as ExecutionContext,
         validateWebSocketRoute(request) as any,
       );
@@ -504,7 +506,7 @@ describe('handleWebSocketUpgrade', () => {
 
       const result = await handleWebSocketUpgrade(
         request,
-        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env,
         { waitUntil: vi.fn() } as unknown as ExecutionContext,
         validateWebSocketRoute(request) as any,
       );
@@ -528,7 +530,7 @@ describe('handleWebSocketUpgrade', () => {
 
       const result = await handleWebSocketUpgrade(
         request,
-        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env,
         { waitUntil: vi.fn() } as unknown as ExecutionContext,
         validateWebSocketRoute(request) as any,
       );

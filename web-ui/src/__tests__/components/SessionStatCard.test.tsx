@@ -111,10 +111,10 @@ describe('SessionStatCard', () => {
       expect(card).toHaveAttribute('data-status', 'running');
     });
 
-    it('shows yellow warning dot when running but WS disconnected', () => {
+    it('shows blue IDLE dot when running but this device has no terminal socket', () => {
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
-      const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--warning');
+      const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--idle');
       expect(dot).toBeInTheDocument();
     });
 
@@ -127,7 +127,7 @@ describe('SessionStatCard', () => {
 
     it.each([
       [{ status: 'running', editorReady: true }, 'success'],
-      [{ status: 'running', editorReady: false }, 'warning'],
+      [{ status: 'running', editorReady: false }, 'default'],
       [{ status: 'stopping', editorReady: true }, 'warning'],
       [{ status: 'stopped', editorReady: true }, 'default'],
       [{ status: 'running', editorReady: false, editorReadyError: true }, 'error'],

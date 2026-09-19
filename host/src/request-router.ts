@@ -211,6 +211,28 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
+    // One authenticated runtime observation for the metrics projection. Keep the
+    // existing /activity and /health endpoints for their established callers.
+    if (pathname === '/internal/runtime-observation' && method === 'GET') {
+      const syncInfo = getSyncStatus();
+      const sysMetrics = await getSystemMetrics(log);
+      const activity = deps.activityTracker.getActivityInfo(sessionManager);
+      const { terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        lastInputAt: activity.lastInputAt ?? null,
+        cpu: sysMetrics.cpu,
+        memory: sysMetrics.mem,
+        disk: sysMetrics.hdd,
+        syncStatus: syncInfo.status,
+        terminalReady: terminalServiceReady,
+        editorReady,
+        editorReadyError: editorReadyTimedOut,
+        observedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
     // Health check with full metrics (consolidates separate health server)
     if (pathname === '/health' && method === 'GET') {
       const syncInfo = getSyncStatus();

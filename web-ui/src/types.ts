@@ -289,8 +289,12 @@ export interface Session {
   name: string;
   createdAt: string;
   lastAccessedAt: string;
-  /** Backend only sends 'stopped' | 'running'. 'stopping' is a client-only ephemeral state managed by SessionStatus, never returned by the API. */
-  status?: 'stopped' | 'running';
+  /** Shared lifecycle projection from D1. ACTIVE/IDLE remains device-local presentation. */
+  status?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+  generation?: number;
+  revision?: number;
+  unreachableDeadlineMs?: number;
   agentType?: AgentType;
   workspace?: SessionWorkspace;
   terminalMode?: TerminalMode;
@@ -303,8 +307,8 @@ export interface Session {
   lastActiveAt?: string;
 }
 
-/** 'initializing' and 'error' are frontend-only ephemeral states, never persisted to KV. Backend uses only 'stopped' | 'running'. */
-export type SessionStatus = 'stopped' | 'initializing' | 'running' | 'stopping' | 'error';
+/** Backend lifecycle plus compatibility aliases for local startup/error presentation. */
+export type SessionStatus = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping' | 'initializing' | 'error';
 
 export interface SessionWithStatus extends Omit<Session, 'status'> {
   status: SessionStatus;

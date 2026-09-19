@@ -162,8 +162,7 @@ describe('Frontend-Backend Contract Tests', () => {
         }
       });
 
-      it('should reject stopping as a backend status (FIX-27)', () => {
-        // 'stopping' is a frontend-only ephemeral state, never returned by the backend API
+      it('REQ-SESSION-018: accepts stopping as a backend lifecycle state', () => {
         const sessionWithStopping = {
           id: 'abc123def456789012345678',
           name: 'Test',
@@ -171,7 +170,7 @@ describe('Frontend-Backend Contract Tests', () => {
           lastAccessedAt: '2024-01-15T10:30:00Z',
           status: 'stopping',
         };
-        expect(() => SessionSchema.parse(sessionWithStopping)).toThrow();
+        expect(() => SessionSchema.parse(sessionWithStopping)).not.toThrow();
       });
     });
   });

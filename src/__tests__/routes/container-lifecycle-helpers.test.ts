@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -141,7 +142,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       } satisfies Partial<Session>);
 
       const result = await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
         bucketName: 'bucket',
         sessionId: 'session1',
         maxSessions: 3,
@@ -166,7 +167,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ]);
 
       await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
         bucketName: 'bucket',
         sessionId: 'session1',
         maxSessions: 3,
@@ -181,7 +182,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
     it('throws NotFoundError when session does not exist', async () => {
       await expect(
         validateSessionAndCheckLimits({
-          env: { KV: mockKV as unknown as KVNamespace } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
           bucketName: 'bucket',
           sessionId: 'nonexistent',
           maxSessions: 3,
@@ -218,7 +219,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       await expect(
         validateSessionAndCheckLimits({
-          env: { KV: mockKV as unknown as KVNamespace } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
           bucketName: 'bucket',
           sessionId: 'newsession1234',
           maxSessions: 3,
@@ -243,7 +244,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockListAllKvKeys.mockResolvedValue(sessionKeys);
 
       const result = await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace, SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
         bucketName: 'bucket',
         sessionId: 'newsession1234',
         maxSessions: 1,
@@ -259,7 +260,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set(getTimekeeperKey('bucket'), { thisMonth: { month: getUtcMonthString(new Date()), seconds: 999_999_999 } });
 
       const result = await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace, SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
         bucketName: 'bucket',
         sessionId: 's1',
         maxSessions: 5,
@@ -273,7 +274,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
   describe('ensureBucketAndSeed', () => {
     it('creates bucket and returns r2Config', async () => {
       const result = await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         logger: mockLogger as any,
@@ -290,7 +291,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       await expect(
         ensureBucketAndSeed({
-          env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
           bucketName: 'test-bucket',
           sessionMode: 'default',
           logger: mockLogger as any,
@@ -302,7 +303,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: true });
 
       await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         codingAgents: 'pi',
@@ -331,7 +332,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'advanced' });
 
       await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         logger: mockLogger as any,
@@ -348,7 +349,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('user-prefs:test-bucket', { gettingStartedSeeded: true });
 
       await ensureBucketAndSeed({
-        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
         logger: mockLogger as any,
@@ -363,7 +364,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       await expect(
         ensureBucketAndSeed({
-          env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CLOUDFLARE_API_TOKEN: 'tok' } as Env,
           bucketName: 'test-bucket',
           sessionMode: 'default',
           logger: mockLogger as any,
@@ -548,6 +549,13 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
   });
 
   describe('startOrRestartContainer', () => {
+    beforeEach(() => {
+      mockKV._set('session:bucket:session1234', {
+        id: 'session1234', userId: 'bucket', name: 'Test', status: 'stopped',
+        createdAt: '2024-01-01T00:00:00Z', lastAccessedAt: '2024-01-01T00:00:00Z',
+      });
+    });
+
     const createMockContainer = (state = 'stopped') => ({
       fetch: vi.fn().mockResolvedValue(new Response('ok')),
       destroy: vi.fn().mockResolvedValue(undefined),
@@ -560,9 +568,9 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       needsBucketUpdate: false,
       setBucketBody: '{}',
       containerId: 'bucket-session1234',
-      sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
+      sessionData: { id: 'session1234', userId: 'bucket', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
-      env: { KV: mockKV as unknown as KVNamespace } as Env,
+      env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
       shortContainerId: 'bucket-ses',
       logger: mockLogger as any,
       waitUntil: vi.fn((p: Promise<void>) => { p.catch(() => {}); }),
@@ -580,7 +588,14 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
     it('destroys and restarts when running but bucket name changed', async () => {
       const container = createMockContainer('running');
-      const params = baseParams(container, { needsBucketUpdate: true });
+      mockKV._set('session:bucket:session1234', {
+        id: 'session1234', userId: 'bucket', name: 'Test', status: 'running',
+        createdAt: '2024-01-01T00:00:00Z', lastAccessedAt: '2024-01-01T00:00:00Z',
+      });
+      const params = baseParams(container, {
+        needsBucketUpdate: true,
+        sessionData: { id: 'session1234', userId: 'bucket', name: 'Test', status: 'running', createdAt: '2024-01-01T00:00:00Z' } as Session,
+      });
 
       const result = await startOrRestartContainer(params);
 
@@ -598,36 +613,36 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(params.waitUntil).toHaveBeenCalled();
     });
 
-    it('marks session as running in KV', async () => {
+    it('claims the D1 lifecycle as starting before process readiness', async () => {
       const container = createMockContainer('stopped');
       const params = baseParams(container);
 
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
-      expect(stored.status).toBe('running');
+      expect(stored.status).toBe('starting');
     });
 
     it('REQ-IDE-049 AC1: clears stale editor readiness before restarting a stopped VS Code session', async () => {
       const container = createMockContainer('stopped');
-      const params = baseParams(container, {
-        sessionData: {
-          id: 'session1234', name: 'Editor', status: 'stopped', workspace: 'vscode',
-          editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
-        } as Session,
-      });
+      const editorSession = {
+        id: 'session1234', userId: 'bucket', name: 'Editor', status: 'stopped', workspace: 'vscode',
+        editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
+      } as Session;
+      mockKV._set('session:bucket:session1234', editorSession);
+      const params = baseParams(container, { sessionData: editorSession });
 
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false });
-      expect(stored.editorReadyError).toBeUndefined();
+      expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false });
+      expect(stored.editorReadyError).toBe(false);
     });
 
     it('clears stale readiness when KV says running but the container is stopped', async () => {
       const container = createMockContainer('stopped');
       const sessionData = {
-        id: 'session1234', name: 'Editor', status: 'running', workspace: 'vscode',
+        id: 'session1234', userId: 'bucket', name: 'Editor', status: 'running', workspace: 'vscode',
         editorReady: true, createdAt: '2024-01-01T00:00:00Z',
       } as Session;
       mockKV._set('session:bucket:session1234', { ...sessionData, lastActiveAt: '2024-01-02T00:00:00Z' });
@@ -636,22 +651,20 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false, lastActiveAt: '2024-01-02T00:00:00Z' });
+      expect(stored).toMatchObject({ status: 'starting', workspace: 'vscode', editorReady: false });
+      expect(Date.parse(stored.lastActiveAt!)).not.toBeNaN();
       expect(container.startAndWaitForPorts).toHaveBeenCalledTimes(1);
     });
 
-    it('handles getState failure gracefully and starts container', async () => {
+    it('does not invent stopped evidence when getState fails', async () => {
       const container = createMockContainer('stopped');
       container.getState.mockRejectedValue(new Error('state unavailable'));
       const params = baseParams(container);
 
-      const result = await startOrRestartContainer(params);
-
-      expect(result.status).toBe('starting');
+      await expect(startOrRestartContainer(params)).rejects.toThrow('Container exit is not confirmed');
     });
 
-    // CF-022: KV rollback on container start failure
-    it('rolls back KV session status to stopped when startAndWaitForPorts throws', async () => {
+    it('retains starting for bounded reconciliation when startAndWaitForPorts throws', async () => {
       const container = createMockContainer('stopped');
       container.startAndWaitForPorts.mockRejectedValue(new Error('Container crashed'));
 
@@ -659,7 +672,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('session:bucket:session1234', {
         id: 'session1234',
         name: 'Test',
-        status: 'running',
+        status: 'stopped',
         createdAt: '2024-01-01T00:00:00Z',
       });
 
@@ -676,9 +689,8 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(capturedPromises.length).toBe(1);
       await capturedPromises[0];
 
-      // After start failure, KV should be rolled back to 'stopped'
       const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
-      expect(stored.status).toBe('stopped');
+      expect(stored.status).toBe('starting');
     });
 
     it('handles KV rollback failure gracefully (does not throw)', async () => {
@@ -689,7 +701,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       mockKV._set('session:bucket:session1234', {
         id: 'session1234',
         name: 'Test',
-        status: 'running',
+        status: 'stopped',
         createdAt: '2024-01-01T00:00:00Z',
       });
 

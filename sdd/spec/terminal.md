@@ -1278,3 +1278,31 @@ None.
 **Status:** Partial
 
 ---
+
+---
+
+### REQ-TERM-036: Local terminal presence presents ACTIVE or IDLE
+
+**Intent:** Terminal status describes this device's socket while preserving the shared D1 lifecycle and mounted workspace through uncertainty.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Backend `running` with this device's terminal WebSocket connected renders green ACTIVE.
+2. Backend `running` without this device's terminal WebSocket connected renders blue IDLE.
+3. ACTIVE and IDLE are never persisted or inferred for another device; devices may differ while agreeing on backend lifecycle.
+4. Backend `starting` and `unreachable` render yellow starting/recovery presentation, and `stopped` renders gray.
+5. During `unreachable`, retries use bounded jitter and terminal objects, buffers, tabs, tiling, selection and scrollback remain mounted.
+6. Countdown expiry changes recovery messaging only; disposal requires newer authoritative `stopping`/`stopped` or deletion evidence.
+7. D1 status failure retains the last ordered view and mounted workspace and presents a distinct status-unavailable notice.
+
+**Constraints:** Classified input and idle timeout do not use ACTIVE/IDLE or socket presence as activity evidence.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)
+
+**Verification:** Planned cross-device, recovery, countdown and D1-outage frontend tests.
+
+**Status:** Planned
