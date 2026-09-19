@@ -714,7 +714,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A normal metrics tick performs one bounded authenticated host observation containing classified input, CPU, memory, disk, sync and editor readiness.
+1. A normal metrics tick performs one bounded authenticated host observation containing classified input, CPU, memory, disk, sync and editor readiness. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (authenticates the private runtime observation probe) -->
 2. After local policy decisions, a normal tick performs one conditional D1 projection update and no normal-path D1 pre-read or readback.
 3. Every awaited external operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed.
 4. Host transport reachability, snapshot validity, readiness and confirmed process exit remain distinct evidence.
@@ -729,7 +729,7 @@ None.
 
 **Verification:** Planned host-observation and metrics operation-budget tests.
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 

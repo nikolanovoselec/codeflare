@@ -606,6 +606,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
     it('authenticates the private runtime observation probe', async () => {
       testState.runtimeObservationAuthorizations = [];
+      await vi.waitFor(() => expect(
+        (containerInstance as unknown as { _containerAuthToken: string | null })._containerAuthToken,
+      ).toBe('agent-event-token'));
       await containerInstance.collectMetrics();
 
       expect(testState.runtimeObservationAuthorizations).toEqual(['Bearer agent-event-token']);
