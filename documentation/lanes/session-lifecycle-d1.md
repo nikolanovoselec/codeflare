@@ -18,7 +18,7 @@
 
 Codeflare stores every complete non-secret session record and shared lifecycle projection in the existing `USAGE_DB` D1 database. KV remains responsible for credentials, provider tokens, preferences, configuration, entitlements, managed-release records, storage caches, Timekeeper data, and unrelated records. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-028](../../sdd/spec/session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-Backend lifecycle states are `stopped`, `starting`, `running`, `unreachable`, and `stopping`. Creating a session inserts `stopped`; Start conditionally advances a lifecycle generation and enters `starting`. The session Durable Object remains the process controller and retains its assigned generation and monotonic observation sequence. Conditional D1 updates reject older generations and delayed same-generation observations. Only confirmed process exit produces `stopped`. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.start --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.project --> [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+Backend lifecycle states are `stopped`, `starting`, `running`, `unreachable`, and `stopping`. Creating a session inserts `stopped`; Start conditionally advances a lifecycle generation and enters `starting`. The session Durable Object remains the process controller and retains its assigned generation and monotonic observation sequence. Conditional D1 updates reject older generations and delayed same-generation observations. Only confirmed process exit produces `stopped`. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
 ## Runtime recovery and status
 
@@ -34,7 +34,7 @@ Cutover is clean-slate and one-time. After migration, an operator confirms quies
 
 ## Schema and mutation design
 
-The concrete schema and conditional mutation design are owned by the additive migration and repository implementation. The design below records the D1 authority boundary without making SQL shape an acceptance criterion. <!-- @impl: migrations/usage/0002_runtime_sessions.sql --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority)
+The concrete schema and conditional mutation design are owned by the additive migration and repository implementation. The design below records the D1 authority boundary without making SQL shape an acceptance criterion. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority)
 
 `runtime_sessions` columns:
 
