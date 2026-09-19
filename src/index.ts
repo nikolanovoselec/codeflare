@@ -543,6 +543,7 @@ export default {
 // Export container class for Durable Objects
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
+export { OperatorRegistry, OperatorActivity } from './legacy-operator-objects';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +
