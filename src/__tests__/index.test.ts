@@ -232,6 +232,20 @@ describe('Edge-level setup redirect', () => {
     expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(self), geolocation=()');
   });
 
+  it.each([
+    ['/app', new Response('SPA content', { status: 200, headers: { 'Content-Type': 'text/plain' } })],
+    ['/app', new Response('SPA content', { status: 500, headers: { 'Content-Type': 'text/html' } })],
+    ['/login', new Response('SPA content', { status: 200, headers: { 'Content-Type': 'text/html' } })],
+  ])('keeps microphone denied outside successful app HTML responses at %s', async (path, assetResponse) => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    mockKV.get.mockResolvedValue('true');
+    mockAssets.fetch.mockResolvedValue(assetResponse);
+
+    const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
+
+    expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
+  });
+
   it('REQ-LANDING-008: marks the public login response noindex without blocking the asset', async () => {
     const { env, mockKV, mockAssets } = createMockEnv();
     env.SAAS_MODE = 'active';
