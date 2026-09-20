@@ -17,6 +17,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
     catch { setLoadError(true); return null; }
   });
   const working = createMemo(() => (activities()?.items ?? []).filter(item => workingStates.has(item.executionStatus)).length);
+  const hasActivities = createMemo(() => (activities()?.items.length ?? 0) > 0);
   let control: HTMLDivElement | undefined;
   const close = () => setOpen(false);
   const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape' && open()) close(); };
@@ -49,7 +50,11 @@ const OperatorActivityButton: Component<Props> = (props) => {
         <Show when={working() > 0}><span class="operator-activity-badge">{working()}</span></Show>
       </button>
       <Show when={open()}>
-        <section class="operator-activity-panel" role="dialog" aria-label="Operator activity" aria-modal="false">
+        <section class="operator-activity-panel" classList={{
+          'operator-activity-panel--active': working() > 0,
+          'operator-activity-panel--compact': working() === 0,
+          'operator-activity-panel--empty': !activities.loading && !loadError() && !hasActivities(),
+        }} role="dialog" aria-label="Operator activity" aria-modal="false">
           <header><div><strong>Operator overview</strong><small>Operators are autonomous agents that work in the background. Track progress and results here.</small></div></header>
           <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
             <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>

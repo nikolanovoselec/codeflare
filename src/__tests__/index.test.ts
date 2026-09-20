@@ -216,15 +216,34 @@ describe('Edge-level setup redirect', () => {
     expect(mockAssets.fetch).toHaveBeenCalled();
   });
 
-  it('permits the SPA Vault bootstrap frame and Gravatar existence probe', async () => {
-    const { env, mockKV } = createMockEnv();
+  it.each(['/app', '/app/'])('permits the SPA Vault bootstrap frame, Gravatar probe, and same-origin microphone at %s', async (path) => {
+    const { env, mockKV, mockAssets } = createMockEnv();
     mockKV.get.mockResolvedValue('true');
+    mockAssets.fetch.mockResolvedValue(new Response('SPA content', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    }));
 
-    const response = await worker.fetch(new Request('https://example.com/app/'), env, createMockCtx());
+    const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
     const csp = response.headers.get('Content-Security-Policy');
 
     expect(csp).toContain("frame-src 'self' https://challenges.cloudflare.com");
     expect(csp).toContain('connect-src \'self\' wss: https://cloudflareinsights.com https://www.gravatar.com');
+    expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(self), geolocation=()');
+  });
+
+  it.each([
+    ['/app', new Response('SPA content', { status: 200, headers: { 'Content-Type': 'text/plain' } })],
+    ['/app', new Response('SPA content', { status: 500, headers: { 'Content-Type': 'text/html' } })],
+    ['/login', new Response('SPA content', { status: 200, headers: { 'Content-Type': 'text/html' } })],
+  ])('keeps microphone denied outside successful app HTML responses at %s', async (path, assetResponse) => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    mockKV.get.mockResolvedValue('true');
+    mockAssets.fetch.mockResolvedValue(assetResponse);
+
+    const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
+
+    expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
   });
 
   it('REQ-LANDING-008: marks the public login response noindex without blocking the asset', async () => {

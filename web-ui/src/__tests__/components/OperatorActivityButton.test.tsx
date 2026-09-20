@@ -7,7 +7,7 @@ vi.mock('../../api/operator-activities', () => ({
   listOperatorActivities: (...args: unknown[]) => listMock(...args),
   cancelOperatorActivity: (...args: unknown[]) => cancelMock(...args),
 }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'running' as const,
   cleanupStatus: 'pending' as const, collectionStatus: 'unavailable' as const,
@@ -32,6 +32,8 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(view.getByText('Needs attention')).toBeTruthy();
     expect(view.getByRole('link', { name: 'Open session' }).getAttribute('href')).toContain('session-1');
     expect(view.getByRole('button', { name: 'Cancel activity-1' })).toBeTruthy();
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--active');
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--compact');
   });
 
   it('REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls', async () => {
@@ -42,8 +44,35 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(view.getByText('Operator overview')).toBeTruthy();
     expect(view.getByText('Operators are autonomous agents that work in the background. Track progress and results here.')).toBeTruthy();
     expect(view.getByText('No activity').className).toContain('operator-activity-state--empty');
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--empty');
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--compact');
     expect(view.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(view.queryByRole('button', { name: /close operator activity/i })).toBeNull();
+  });
+
+  it('uses compact sizing for completed-only history', async () => {
+    listMock.mockResolvedValue({ items: [{ ...active, executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const }] });
+    const view = render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(view.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(view.getByText('Execution: completed')).toBeTruthy());
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--compact');
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--active');
+  });
+
+  it('uses compact sizing for completed history and returns to it when work completes', async () => {
+    vi.useFakeTimers();
+    const completed = { ...active, executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const };
+    listMock.mockResolvedValueOnce({ items: [active] }).mockResolvedValueOnce({ items: [completed] });
+    const view = render(() => <OperatorActivityButton enabled />);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(view.getByText('1')).toBeTruthy();
+    await fireEvent.click(view.getByRole('button', { name: /operator activity/i }));
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--active');
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(view.getByText('Execution: completed')).toBeTruthy();
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--compact');
+    expect(view.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--active');
   });
 
   it('does not present request failures as empty and supports retry, outside-click and Escape dismissal', async () => {

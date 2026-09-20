@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-20
+
+- **Pi FIX handoff owns accepted-fix delivery** ([REQ-AGENT-104](agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict)). After accepted corrections are complete, Pi explicitly pushes them without renewed consent while retaining no-merge, no-op and clean-triage protections.
+
+- **Operator overview adapts to activity state** ([REQ-OPERATOR-040](operators.md#req-operator-040-owned-activity-control-presentation), [REQ-OPERATOR-042](operators.md#req-operator-042-activity-overview-sizing-follows-working-state)). Empty and completed-only overviews stay compact, while working activities expand the overview to a bounded scrollable panel.
+
 ## 2026-09-19
 
 - **Idle startup references survive coordinator reconstruction** ([REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-008](session-lifecycle.md#req-session-008-container-restart-preserves-r2-bucket), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-033](session-lifecycle.md#req-session-033-start-callbacks-preserve-lifecycle-ownership), [REQ-SESSION-034](session-lifecycle.md#req-session-034-durable-idle-baseline-survives-coordinator-reconstruction)). Idle enforcement reuses a valid durable startup reference across coordinator reconstruction and fails open when timing evidence is missing, invalid, or unavailable; valid expired references still stop. Only a fresh lifecycle generation arms polling and clears lifecycle ownership; same-generation start callbacks validate and preserve it.

@@ -2,8 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { rememberActiveRepo } from '../../../preseed/agents/pi/extensions/active-repo-memory';
 import { completionPath, readCompletion, writeCompletion, type ReviewIdentity } from '../../../preseed/agents/pi/extensions/review-completion-state';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
@@ -28,6 +29,8 @@ type TestContext = {
 
 const roots: string[] = [];
 let sequence = 0;
+const activeRepoMemory = globalThis as { [key: symbol]: string | undefined };
+const activeRepoKey = Symbol.for('codeflare.activeRepo');
 
 function tempRoot(prefix: string): string {
   const value = mkdtempSync(join(tmpdir(), prefix));
@@ -190,13 +193,13 @@ function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewL
   );
 }
 
-function boundary(command: string, id = `boundary-${sequence += 1}`) {
+function boundary(command: string, id = `boundary-${sequence += 1}`, output = 'ok') {
   return {
     toolName: 'bash',
     toolCallId: id,
     input: { command },
     args: { command },
-    result: { isError: false, content: [{ type: 'text', text: 'ok' }] },
+    result: { isError: false, content: [{ type: 'text', text: output }] },
   };
 }
 
@@ -294,8 +297,17 @@ function optionsHeader(input: ReturnType<typeof fixture>): { parentSession?: str
   return header.parentSession ? { parentSession: header.parentSession } : {};
 }
 
+let savedActiveRepo: string | undefined;
+
+beforeEach(() => {
+  savedActiveRepo = activeRepoMemory[activeRepoKey];
+  delete activeRepoMemory[activeRepoKey];
+});
+
 afterEach(() => {
   delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
+  if (savedActiveRepo === undefined) delete activeRepoMemory[activeRepoKey];
+  else activeRepoMemory[activeRepoKey] = savedActiveRepo;
   for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -559,6 +571,157 @@ describe('Pi marker-or-dialog review ingress', () => {
 
   it('automatically emits the exact review plan after successful PR creation without requiring UI', async () => {
     await expectAutomaticDeliveryPlan('gh pr create --base main', false);
+  });
+
+  it('uses the exact created PR URL with the remembered checkout from a workspace CWD', async () => {
+    const input = fixture();
+    const queryPr = vi.fn(async () => input.pr);
+    const app = await harness(input, [], { queryPr });
+    const workspace = dirname(input.repo);
+    app.ctx.cwd = workspace;
+    rememberActiveRepo(input.repo);
+
+    await app.emit('tool_result', boundary(
+      'gh pr create --repo owner/repo --base main --head feature',
+      'workspace-pr-create',
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+
+    expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
+    expect(app.sent[0]?.details).toMatchObject({
+      prNumber: 42,
+      head: input.head,
+      boundaryToolUseId: 'workspace-pr-create',
+      ciEvent: 'pr-create',
+    });
+    expect(queryPr).toHaveBeenCalledTimes(2);
+    expect(queryPr).toHaveBeenNthCalledWith(1, input.repo, 'https://github.com/owner/repo/pull/42');
+    expect(queryPr).toHaveBeenNthCalledWith(2, input.repo, 'https://github.com/owner/repo/pull/42');
+
+    await app.emit('tool_result', boundary(
+      'gh pr create --repo owner/repo --base main --head feature',
+      'workspace-pr-create-repeat',
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+    expect(app.sent).toHaveLength(1);
+  });
+
+  it.each([
+    ['no created PR URL', 'ok'],
+    ['multiple created PR URLs', 'https://github.com/owner/repo/pull/42\nhttps://github.com/owner/repo/pull/43\n'],
+    ['a malformed created PR URL', 'https://[/owner/repo/pull/42\n'],
+    ['a different host', 'https://other.example/owner/repo/pull/42\n'],
+    ['a different repository', 'https://github.com/other/repo/pull/42\n'],
+  ])('does not use the remembered checkout for workspace PR creation with %s', async (_case, output) => {
+    const input = fixture();
+    const app = await harness(input, []);
+    app.ctx.cwd = dirname(input.repo);
+    rememberActiveRepo(input.repo);
+
+    await app.emit('tool_result', boundary(
+      'gh pr create --repo owner/repo --base main --head feature',
+      `workspace-pr-create-${output.length}`,
+      output,
+    ));
+
+    expect(app.sent).toHaveLength(0);
+  });
+
+  it('does not fall back when a workspace PR creation has no remembered checkout', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    app.ctx.cwd = dirname(input.repo);
+
+    await app.emit('tool_result', boundary(
+      'gh pr create --repo owner/repo --base main --head feature',
+      'workspace-pr-create-no-memory',
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+
+    expect(app.sent).toHaveLength(0);
+  });
+
+  it('does not replace an explicit checkout with remembered memory', async () => {
+    const input = fixture();
+    const other = fixture();
+    const queryRepository = vi.fn(async (repo: string) => ({
+      gitHost: 'github.com',
+      repository: repo === other.repo ? 'other/repo' : 'owner/repo',
+    }));
+    const queryPr = vi.fn(async () => input.pr);
+    const app = await harness(input, [], { queryRepository, queryPr });
+    app.ctx.cwd = dirname(input.repo);
+    rememberActiveRepo(input.repo);
+
+    await app.emit('tool_result', boundary(
+      `cd ${other.repo} && gh pr create --repo owner/repo --base main --head feature`,
+      'workspace-pr-create-explicit-checkout',
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+
+    expect(queryRepository).toHaveBeenCalledWith(other.repo);
+    expect(queryPr).not.toHaveBeenCalled();
+    expect(app.sent).toHaveLength(0);
+  });
+
+  it.each([
+    ['a different branch', (input: ReturnType<typeof fixture>) => ({ ...input.pr, headRefName: 'other' })],
+    ['a different head', (input: ReturnType<typeof fixture>) => ({ ...input.pr, headRefOid: input.base })],
+  ])('does not emit a plan when the exact created PR has %s', async (_case, result) => {
+    const input = fixture();
+    const queryPr = vi.fn(async () => result(input));
+    const app = await harness(input, [], { queryPr, headRetryDelaysMs: [0] });
+    app.ctx.cwd = dirname(input.repo);
+    rememberActiveRepo(input.repo);
+
+    await app.emit('tool_result', boundary(
+      'gh pr create --repo owner/repo --base main --head feature',
+      `workspace-pr-create-${_case}`,
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+
+    expect(queryPr).toHaveBeenCalledWith(input.repo, 'https://github.com/owner/repo/pull/42');
+    expect(app.sent).toHaveLength(0);
+  });
+
+  it('does not fall back after an ambiguous cd path', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    app.ctx.cwd = dirname(input.repo);
+    rememberActiveRepo(input.repo);
+
+    await app.emit('tool_result', boundary(
+      'cd "$unknown" && gh pr create --repo owner/repo --base main --head feature',
+      'workspace-pr-create-ambiguous-cd',
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+
+    expect(app.sent).toHaveLength(0);
+  });
+
+  it('retains the exact created PR target through completion lookup', async () => {
+    const input = fixture();
+    const queryPr = vi.fn(async () => input.pr);
+    const app = await harness(input, [], { queryPr });
+    app.ctx.cwd = dirname(input.repo);
+    rememberActiveRepo(input.repo);
+
+    await app.emit('tool_result', boundary(
+      'gh pr create --repo owner/repo --base main --head feature',
+      'workspace-pr-create-completion',
+      'https://github.com/owner/repo/pull/42\n',
+    ));
+    await app.emit('agent_end');
+    appendSuccessfulRound(input, ['code-reviewer', 'spec-reviewer', 'doc-updater'], 'workspace-completion');
+    await app.emit('agent_end');
+
+    expect(queryPr).toHaveBeenCalledTimes(3);
+    expect(queryPr).toHaveBeenNthCalledWith(3, input.repo, 'https://github.com/owner/repo/pull/42');
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-fix-follow-up',
+    ]);
   });
 
   it('automatically emits the exact review plan after successful PR reopen without requiring UI', async () => {
