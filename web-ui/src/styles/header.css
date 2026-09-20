@@ -513,6 +513,10 @@
   box-sizing: border-box; height: 168px; min-height: 168px; overflow: hidden; padding: var(--space-3); border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg); background: var(--color-bg-elevated); box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
 }
+/* Portalled variant: the panel renders at document level, so it is positioned against the
+   viewport with coordinates measured from the trigger instead of against the control box.
+   Mirrors .header-user-dropdown--portal. */
+.operator-activity-panel--portal { position: fixed; top: auto; right: auto; }
 .operator-activity-panel--active { height: min(60vh, calc(100vh - 84px)); min-height: 0; max-height: min(60vh, calc(100vh - 84px)); }
 .operator-activity-panel > header { flex-shrink: 0; }
 .operator-activity-panel > header, .operator-activity-item > div,
@@ -529,7 +533,7 @@
 .operator-activity-state { display: grid; flex: 1; min-height: 0; gap: var(--space-2); padding: var(--space-4) var(--space-2); overflow-y: auto; text-align: center; }
 .operator-activity-state--empty { flex: 1; place-content: center; }
 @media (max-width: 640px) {
-  .operator-activity-panel { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75vh;
+  .operator-activity-panel, .operator-activity-panel--portal { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75vh;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0; }
   .operator-activity-panel--active { height: min(60vh, calc(100vh - 84px)); max-height: min(60vh, calc(100vh - 84px)); }
   .operator-activity-item dl { grid-template-columns: 1fr; }
