@@ -712,8 +712,6 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 4. The panel explains that operators are autonomous agents that work in the background. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
 5. Desktop and tablet render the activity control as an anchored popover. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @manual: Owner verifies the opened overview remains anchored at desktop and tablet widths. -->
 6. Mobile renders the activity control as a bottom sheet. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @manual: Owner verifies the opened overview is bottom-fixed at mobile width. -->
-7. An empty or completed-only overview uses a compact 168px height. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Owner verifies the 168px compact height at desktop, tablet, and mobile viewports. -->
-8. An overview with working activities occupies up to 60vh and scrolls its activity list. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height and list scrolling at desktop, tablet, and mobile viewports. -->
 
 **Constraints:**
 
@@ -724,6 +722,31 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
 **Verification:** Placement and copy are covered by adjacent component tests. Browser-level responsive viewport coverage is not yet available.
+
+**Status:** Partial
+
+---
+
+### REQ-OPERATOR-042: Activity overview sizing follows working state
+
+**Intent:** Users can inspect operator activity without an oversized idle overview or losing access to active history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An empty or completed-only overview uses a compact 168px height. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Owner verifies the 168px compact height at desktop, tablet, and mobile viewports. -->
+2. An overview with working activities occupies up to 60vh and scrolls its activity list. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height and list scrolling at desktop, tablet, and mobile viewports. -->
+
+**Constraints:**
+
+- The responsive presentation rules of REQ-OPERATOR-040 remain authoritative.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
+
+**Verification:** Component tests cover state-driven sizing classes. Browser-level responsive viewport and scroll coverage is not yet available.
 
 **Status:** Partial
 

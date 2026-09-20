@@ -4,7 +4,9 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-20
 
-- **Operator overview adapts to activity state** ([REQ-OPERATOR-040](operators.md#req-operator-040-owned-activity-control-presentation)). Empty and completed-only overviews stay compact, while working activities expand the overview to a bounded scrollable panel.
+- **Pi FIX handoff owns accepted-fix delivery** ([REQ-AGENT-104](agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict)). After accepted corrections are complete, Pi explicitly pushes them without renewed consent while retaining no-merge, no-op and clean-triage protections.
+
+- **Operator overview adapts to activity state** ([REQ-OPERATOR-040](operators.md#req-operator-040-owned-activity-control-presentation), [REQ-OPERATOR-042](operators.md#req-operator-042-activity-overview-sizing-follows-working-state)). Empty and completed-only overviews stay compact, while working activities expand the overview to a bounded scrollable panel.
 
 ## 2026-09-19
 
