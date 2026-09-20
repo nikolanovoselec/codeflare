@@ -111,14 +111,24 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     }
   });
 
-  it('closes on viewport resize so a measured layout cannot outlive the viewport it was measured in', async () => {
+  it('closes on a width change so a measured layout cannot outlive the width it was measured at, but survives height-only resizes', async () => {
     listMock.mockResolvedValue({ items: [] });
-    render(() => <OperatorActivityButton enabled />);
-    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
+    const width = window.innerWidth;
+    try {
+      render(() => <OperatorActivityButton enabled />);
+      await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+      await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
 
-    window.dispatchEvent(new Event('resize'));
-    await waitFor(() => expect(screen.queryByText('No activity')).toBeNull());
+      // Height-only resize: on-screen keyboard or URL bar, nothing measured changed.
+      window.dispatchEvent(new Event('resize'));
+      expect(screen.getByText('No activity')).toBeTruthy();
+
+      Object.defineProperty(window, 'innerWidth', { value: 480, configurable: true, writable: true });
+      window.dispatchEvent(new Event('resize'));
+      await waitFor(() => expect(screen.queryByText('No activity')).toBeNull());
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
+    }
   });
 
   it('REQ-OPERATOR-033 AC3: moves focus into the portalled panel and returns it to the trigger on dismissal', async () => {

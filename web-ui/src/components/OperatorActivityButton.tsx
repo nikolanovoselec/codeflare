@@ -23,8 +23,10 @@ const OperatorActivityButton: Component<Props> = (props) => {
   let trigger: HTMLButtonElement | undefined;
   let panel: HTMLElement | undefined;
   const [position, setPosition] = createSignal({ top: 0, right: 0 });
-  // Focus returns to the trigger only when it was inside the panel, so dismissing by clicking
-  // elsewhere on the page does not steal focus from whatever the user clicked.
+  let openedWidth = 0;
+  // Focus returns to the trigger when focus is still inside the panel, which is what keyboard
+  // dismissal needs. On outside-click dismissal the browser's own mousedown focus handling runs
+  // after this listener and takes precedence, so the user's click target keeps focus.
   const close = () => {
     const held = !!panel && !!document.activeElement && panel.contains(document.activeElement);
     setOpen(false);
@@ -41,13 +43,15 @@ const OperatorActivityButton: Component<Props> = (props) => {
       const rect = trigger.getBoundingClientRect();
       setPosition({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
     }
+    if (!open()) openedWidth = window.innerWidth;
     setOpen(value => !value);
     if (open()) queueMicrotask(() => panel?.focus());
   };
-  // Coordinates and the layout branch are measured once per open, so the panel cannot outlive
-  // the viewport it was measured in: a width crossing while open would otherwise leave desktop
-  // offsets on a bottom sheet, or a fixed box with no offsets at all.
-  const closeOnResize = () => { if (open()) close(); };
+  // Coordinates and the layout branch are measured once per open, so the panel cannot outlive the
+  // width it was measured at: a crossing while open would otherwise leave desktop offsets on a
+  // bottom sheet, or a fixed box with no offsets at all. Only width invalidates the measurement,
+  // so height-only resizes (on-screen keyboard, URL bar) must not dismiss the panel.
+  const closeOnResize = () => { if (open() && window.innerWidth !== openedWidth) close(); };
   onMount(() => {
     document.addEventListener('keydown', keydown);
     document.addEventListener('mousedown', clickOutside);
