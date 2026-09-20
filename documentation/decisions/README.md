@@ -4259,6 +4259,6 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 
 **Context:** Pi acknowledges a reviewed exact head before a separate FIX turn applies accepted findings. Leaving its delivery implicit caused completed corrections to stop locally and require another user prompt even though the reviewed workflow already authorized delivery. AD123 remains authoritative for Claude's distinct hook directive.
 
-**Decision:** Pi's FIX directive orders an automatic push after accepted corrections are complete. The instruction does not authorize merge, deployment, an empty commit, or a push when no accepted file change exists. The resulting push remains a new review boundary for the corrected head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp -->
+**Decision:** Pi's FIX directive orders an automatic push after accepted corrections are complete. The instruction does not authorize merge, deployment, or an empty commit. The resulting push remains a new review boundary for the corrected head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp -->
 
 **Consequences:** Accepted Pi corrections proceed through commit and push without renewed consent, and the next exact head receives a fresh review and CI round. A clean triage performs no Git write. Pi delivery ownership is explicit in the directive rather than inferred from lower-precedence standing rules.
