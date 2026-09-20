@@ -6,6 +6,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from "./graphify-helpers";
 import {
   findGitRoot,
+  recallActiveRepo,
   rememberActiveRepoFromToolResult,
   resolveShellInvocationRepo,
   shellInvocations,
@@ -239,12 +240,20 @@ function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+type CreatedPrTarget = {
+  url: string;
+  gitHost: string;
+  repository: string;
+  number: number;
+};
+
 type CurrentReview = {
   repo: string;
   file: string;
   pr: PrState;
   identity: ReviewIdentity;
   repository: string;
+  createdPr?: CreatedPrTarget;
 };
 
 async function currentReview(
@@ -253,6 +262,7 @@ async function currentReview(
   repo: string,
   ciEvent?: ReviewBoundaryEvent,
   command?: string,
+  createdPr?: CreatedPrTarget,
 ): Promise<CurrentReview | undefined> {
   const file = rootSessionFile(ctx);
   const root = findGitRoot(repo);
@@ -261,15 +271,18 @@ async function currentReview(
   const head = await (dependencies.queryHead ?? queryHead)(root, "HEAD");
   const repositoryIdentity = await (dependencies.queryRepository ?? queryRepository)(root);
   if (!branch || !head || !repositoryIdentity) return undefined;
+  if (createdPr && (repositoryIdentity.gitHost !== createdPr.gitHost
+    || repositoryIdentity.repository !== createdPr.repository)) return undefined;
   const delays = ciEvent
     ? dependencies.headRetryDelaysMs ?? [0, 1_000, 3_000, 5_000, 10_000, 15_000]
     : [0];
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delay of delays) {
     if (delay > 0) await sleep(delay);
-    const pr = await dependencies.queryPr(root, branch);
+    const pr = await dependencies.queryPr(root, createdPr?.url ?? branch);
     if (pr === PR_LOOKUP_FAILED) return undefined;
     if (!isEnforcedPr(pr) || pr.headRefName !== branch) return undefined;
+    if (createdPr && pr.number !== createdPr.number) return undefined;
     if (ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
       branch: pr.headRefName,
       pr: pr.number,
@@ -284,6 +297,7 @@ async function currentReview(
       file,
       pr,
       repository: repositoryIdentity.repository,
+      createdPr,
       identity: {
         ...repositoryIdentity,
         pr: pr.number,
@@ -311,6 +325,30 @@ function resultText(value: unknown): string {
   const record = value as Record<string, unknown>;
   return ["text", "content", "message", "stdout", "stderr", "error", "result"]
     .map((key) => resultText(record[key])).filter(Boolean).join("\n");
+}
+
+function createdPrTarget(event: unknown): CreatedPrTarget | undefined {
+  const urls = [...new Set(
+    resultText(event)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/[1-9]\d*\/?$/.test(line)),
+  )];
+  if (urls.length !== 1) return undefined;
+
+  try {
+    const url = new URL(urls[0]!);
+    if (url.username || url.password || url.port || url.search || url.hash) return undefined;
+    const [, owner, repository, , number] = url.pathname.split("/");
+    return {
+      url: url.href,
+      gitHost: url.hostname.toLowerCase(),
+      repository: `${owner}/${repository}`.toLowerCase(),
+      number: Number(number),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | undefined {
@@ -556,6 +594,7 @@ type ActiveRound = {
   pr: PrState;
   identity: ReviewIdentity;
   repository: string;
+  createdPr?: CreatedPrTarget;
   boundaryToolUseId: string;
   range?: string;
   ackHead?: string;
@@ -619,8 +658,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     boundaryToolUseId: string,
     ciEvent?: ReviewBoundaryEvent,
     command?: string,
+    createdPr?: CreatedPrTarget,
   ): Promise<void> => {
-    const review = await currentReview(ctx, dependencies, repo, ciEvent, command);
+    const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
     if (!review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
@@ -642,7 +682,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
     }
-    const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent);
+    const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
     if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
     if (readCompletion(refreshed.identity).status === "complete") return;
     if (decision === MARK_COMPLETE) {
@@ -747,9 +787,25 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = latestBoundary(event, ctx.cwd);
     if (boundary) {
       if (boundary.cloneTargetPreexisted) return;
-      const repo = boundary.repo ?? resolveShellInvocationRepo(boundary.invocation);
-      if (!repo) return;
-      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, boundary.invocation.command);
+      const invocation = boundary.invocation;
+      const createdPr = boundary.classification.kind === "pr-create"
+        ? createdPrTarget(event)
+        : undefined;
+      let repo = boundary.repo ?? resolveShellInvocationRepo(invocation);
+      if (!repo && createdPr
+        && invocation.certain
+        && invocation.cwd === ctx.cwd
+        && !findGitRoot(invocation.cwd)
+        && /^gh\s+pr\s+create(?:\s|$)/.test(invocation.command)) {
+        repo = recallActiveRepo();
+      }
+      if (!repo) {
+        if (boundary.classification.kind === "pr-create") {
+          ctx.ui?.notify("PR review boundary unresolved: run PR commands from the checkout.", "warning");
+        }
+        return;
+      }
+      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, invocation.command, createdPr);
       return;
     }
     if (!beforePromise || typeof toolUseId !== "string") return;
@@ -801,7 +857,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       return;
     }
-    const refreshed = await currentReview(ctx, dependencies, round.repo);
+    const refreshed = await currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
       await clearRound(ctx);
       return;
