@@ -736,17 +736,18 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. An empty or completed-only overview uses a compact 168px height. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Owner verifies the 168px compact height at desktop, tablet, and mobile viewports. -->
-2. An overview with working activities occupies up to 60vh and scrolls its activity list. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height and list scrolling at desktop, tablet, and mobile viewports. -->
+2. An overview with working activities occupies up to 60vh. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
+3. The working overview scrolls its activity list within the bounded panel. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-list --> <!-- @manual: Owner verifies list scrolling at desktop, tablet, and mobile viewports. -->
 
 **Constraints:**
 
-- The responsive presentation rules of REQ-OPERATOR-040 remain authoritative.
+- The responsive presentation rules of [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation) remain authoritative.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
 
-**Verification:** Component tests cover state-driven sizing classes. Browser-level responsive viewport and scroll coverage is not yet available.
+**Verification:** Manual check.
 
 **Status:** Partial
 
