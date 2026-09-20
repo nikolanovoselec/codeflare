@@ -582,6 +582,7 @@ async function sendFixFollowUp(
       `- Scope: ${scopeSummary(round.pr, round.range)}`,
       "- Review completion: saved", "",
       "Apply only accepted minimal decisions from the preceding triage.",
+      "Once complete, push the fixes automatically.",
     ].join("\n"),
     display: true,
     details: { head: round.identity.head, reviewRange: round.range, boundaryToolUseId: round.boundaryToolUseId },
