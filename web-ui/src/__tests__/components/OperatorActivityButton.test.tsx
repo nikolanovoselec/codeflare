@@ -114,12 +114,14 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
   it('closes on a width change so a measured layout cannot outlive the width it was measured at, but survives height-only resizes', async () => {
     listMock.mockResolvedValue({ items: [] });
     const width = window.innerWidth;
+    const height = window.innerHeight;
     try {
       render(() => <OperatorActivityButton enabled />);
       await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
       await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
 
       // Height-only resize: on-screen keyboard or URL bar, nothing measured changed.
+      Object.defineProperty(window, 'innerHeight', { value: height - 260, configurable: true, writable: true });
       window.dispatchEvent(new Event('resize'));
       expect(screen.getByText('No activity')).toBeTruthy();
 
@@ -128,6 +130,7 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
       await waitFor(() => expect(screen.queryByText('No activity')).toBeNull());
     } finally {
       Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
+      Object.defineProperty(window, 'innerHeight', { value: height, configurable: true, writable: true });
     }
   });
 
