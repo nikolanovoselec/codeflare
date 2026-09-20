@@ -216,15 +216,16 @@ describe('Edge-level setup redirect', () => {
     expect(mockAssets.fetch).toHaveBeenCalled();
   });
 
-  it('permits the SPA Vault bootstrap frame and Gravatar existence probe', async () => {
+  it.each(['/app', '/app/'])('permits the SPA Vault bootstrap frame, Gravatar probe, and same-origin microphone at %s', async (path) => {
     const { env, mockKV } = createMockEnv();
     mockKV.get.mockResolvedValue('true');
 
-    const response = await worker.fetch(new Request('https://example.com/app/'), env, createMockCtx());
+    const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
     const csp = response.headers.get('Content-Security-Policy');
 
     expect(csp).toContain("frame-src 'self' https://challenges.cloudflare.com");
     expect(csp).toContain('connect-src \'self\' wss: https://cloudflareinsights.com https://www.gravatar.com');
+    expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(self), geolocation=()');
   });
 
   it('REQ-LANDING-008: marks the public login response noindex without blocking the asset', async () => {

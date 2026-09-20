@@ -247,7 +247,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 3. `X-Content-Type-Options: nosniff` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008: Security headers on every worker response) -->
 4. Normal responses use `X-Frame-Options: DENY`; authenticated SilverBullet and Browser IDE proxy responses may use `SAMEORIGIN`. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001: security headers on pre-Hono early-return responses) -->
 5. `Referrer-Policy: strict-origin-when-cross-origin` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008: Security headers on every worker response) -->
-6. `Permissions-Policy` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC6: Permissions-Policy is set) -->
+6. The authenticated SPA permits microphone input only to the same origin while camera and geolocation remain denied; other Worker responses deny microphone access. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (permits the SPA Vault bootstrap frame, Gravatar probe, and same-origin microphone at %s) -->
 7. `X-Powered-By` header is absent. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC7: X-Powered-By header is absent) -->
 
 **Constraints:**

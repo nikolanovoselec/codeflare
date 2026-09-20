@@ -541,6 +541,14 @@ export default {
     secureResponse.headers.set('Content-Security-Policy',
       `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com https://www.gravatar.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
+    // The terminal voice control uses the browser microphone only from the
+    // authenticated SPA. Keep every other Worker response microphone-denied.
+    const isSpaDocument = assetResponse.status === 200
+      && secureResponse.headers.get('Content-Type')?.startsWith('text/html') === true
+      && (path === '/app' || path.startsWith('/app/'));
+    if (isSpaDocument) {
+      secureResponse.headers.set('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
+    }
     return secureResponse;
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

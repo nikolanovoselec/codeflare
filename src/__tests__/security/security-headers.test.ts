@@ -96,11 +96,9 @@ describe('REQ-SEC-008: Security headers on every worker response', () => {
     expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
   });
 
-  it('REQ-SEC-008 AC6: Permissions-Policy is set', async () => {
+  it('Permissions-Policy denies microphone outside the SPA', async () => {
     const res = await fetchHealth();
-    const pp = res.headers.get('Permissions-Policy');
-    expect(pp).not.toBeNull();
-    expect(pp!.length).toBeGreaterThan(0);
+    expect(res.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
   });
 
   it('REQ-SEC-008 AC7: X-Powered-By header is absent', async () => {
