@@ -4498,7 +4498,8 @@ None.
 - A verdict requires the stacked table header, divider, and data row in assistant text; an inline quoted header is insufficient.
 - A terminal record may precede notification delivery; first Stop ends silently so queued reports reach root before triage.
 - Result retrieval may use `Read` or `TaskOutput`; only the final verdict is tool-free and ends the turn.
-- The Pi fix directive orders an automatic push after accepted fixes are complete; it never merges or creates a no-op commit. A successful fix push remains automatic review consent.
+- The Pi fix directive orders an automatic push after accepted fixes are complete; it never merges or creates a no-op commit.
+- A successful fix push remains automatic review consent.
 - The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 - The mid-turn refusal never writes acknowledgement or counter state, reads the bypass sentinel without consuming it, and releases after five refused calls; a lane still in flight or ended without success never triggers it.
