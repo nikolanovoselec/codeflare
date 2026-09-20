@@ -75,6 +75,29 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(view.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--active');
   });
 
+  it('REQ-OPERATOR-040 AC6: portals the panel out of the control so a filtered ancestor cannot contain it', async () => {
+    listMock.mockResolvedValue({ items: [] });
+    const view = render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(view.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(view.getByText('No activity')).toBeTruthy());
+
+    const panel = view.getByRole('dialog', { name: /operator activity/i });
+    const control = view.container.querySelector('.operator-activity-control');
+    expect(control).not.toBeNull();
+    expect(control!.contains(panel)).toBe(false);
+    expect(panel.className).toContain('operator-activity-panel--portal');
+  });
+
+  it('REQ-OPERATOR-040 AC6: keeps the portalled panel open when its own content is clicked', async () => {
+    listMock.mockResolvedValue({ items: [] });
+    const view = render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(view.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(view.getByText('No activity')).toBeTruthy());
+
+    await fireEvent.mouseDown(view.getByRole('dialog', { name: /operator activity/i }));
+    expect(view.getByText('No activity')).toBeTruthy();
+  });
+
   it('does not present request failures as empty and supports retry, outside-click and Escape dismissal', async () => {
     listMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ items: [] });
     const view = render(() => <OperatorActivityButton enabled />);

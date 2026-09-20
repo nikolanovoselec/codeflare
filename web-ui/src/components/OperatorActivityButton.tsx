@@ -1,4 +1,5 @@
 import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { mdiDeveloperBoard } from '@mdi/js';
 import Icon from './Icon';
 import { cancelOperatorActivity, listOperatorActivities } from '../api/operator-activities';
@@ -19,10 +20,22 @@ const OperatorActivityButton: Component<Props> = (props) => {
   const working = createMemo(() => (activities()?.items ?? []).filter(item => workingStates.has(item.executionStatus)).length);
   const hasActivities = createMemo(() => (activities()?.items.length ?? 0) > 0);
   let control: HTMLDivElement | undefined;
+  let trigger: HTMLButtonElement | undefined;
+  let panel: HTMLElement | undefined;
+  const [position, setPosition] = createSignal({ top: 0, right: 0 });
   const close = () => setOpen(false);
   const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape' && open()) close(); };
+  // The panel is portalled, so it is not a descendant of the control: both boxes count as inside.
   const clickOutside = (event: MouseEvent) => {
-    if (open() && event.target instanceof Node && !control?.contains(event.target)) close();
+    if (!open() || !(event.target instanceof Node)) return;
+    if (!control?.contains(event.target) && !panel?.contains(event.target)) close();
+  };
+  const toggle = () => {
+    if (!open() && trigger) {
+      const rect = trigger.getBoundingClientRect();
+      setPosition({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+    setOpen(value => !value);
   };
   onMount(() => {
     document.addEventListener('keydown', keydown);
@@ -44,17 +57,25 @@ const OperatorActivityButton: Component<Props> = (props) => {
 
   return <Show when={props.enabled}>
     <div ref={control} class="operator-activity-control">
-      <button type="button" class="header-icon-button operator-activity-trigger" aria-label="Operator activity"
-        aria-expanded={open()} onClick={() => setOpen(value => !value)}>
+      <button ref={trigger} type="button" class="header-icon-button operator-activity-trigger" aria-label="Operator activity"
+        aria-expanded={open()} onClick={toggle}>
         <Icon path={mdiDeveloperBoard} size={22} />
         <Show when={working() > 0}><span class="operator-activity-badge">{working()}</span></Show>
       </button>
+      {/* Portalled so the panel escapes the dashboard panel's backdrop-filter, which would
+          otherwise make that card the containing block for position: fixed and inset the
+          mobile bottom sheet. Same pattern as the account dropdown (REQ-OPERATOR-040 AC6).
+          Desktop anchors to the trigger via measured coordinates; mobile leaves them unset
+          so the bottom-sheet media query applies. */}
+      <Portal>
       <Show when={open()}>
-        <section class="operator-activity-panel" classList={{
+        <section ref={panel} class="operator-activity-panel operator-activity-panel--portal" classList={{
           'operator-activity-panel--active': working() > 0,
           'operator-activity-panel--compact': working() === 0,
           'operator-activity-panel--empty': !activities.loading && !loadError() && !hasActivities(),
-        }} role="dialog" aria-label="Operator activity" aria-modal="false">
+        }} style={window.innerWidth > 640
+          ? { top: `${position().top}px`, right: `${position().right}px` }
+          : undefined} role="dialog" aria-label="Operator activity" aria-modal="false">
           <header><div><strong>Operator overview</strong><small>Operators are autonomous agents that work in the background. Track progress and results here.</small></div></header>
           <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
             <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>
@@ -79,6 +100,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
           </Show>
         </section>
       </Show>
+      </Portal>
     </div>
   </Show>;
 };
