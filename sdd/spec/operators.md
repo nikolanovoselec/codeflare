@@ -706,7 +706,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. The dashboard header places the operator control after the user control. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
+1. The dashboard header places the operator control after the user control and before Settings. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-OPERATOR-040 AC1: dashboard operator control) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
 2. Terminal headers place the operator control between VS Code and Storage. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
 3. The panel is called “Operator overview.” <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
 4. The panel explains that operators are autonomous agents that work in the background. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
@@ -721,7 +721,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Placement and copy are covered by adjacent component tests. Browser-level responsive viewport coverage is not yet available.
+**Verification:** Placement and copy are covered by adjacent component tests; dashboard placement (AC1) is covered by `Dashboard.test.tsx` against the dashboard's own panel header, which is the surface actually rendered when the dashboard is shown. Browser-level responsive viewport coverage (AC5, AC6) is not yet available.
 
 **Status:** Partial
 

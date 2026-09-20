@@ -28,6 +28,7 @@ import { githubStore } from '../stores/github';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import { MULTIVIEW_ICON } from '../lib/terminal-config';
 import UsageInlineBadge from './UsageInlineBadge';
+import OperatorActivityButton from './OperatorActivityButton';
 import '../styles/dashboard.css';
 
 interface DashboardProps {
@@ -411,6 +412,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </div>
               </Show>
             </Portal>
+            {/* Dashboard: enterprise operator activity stays adjacent to account identity,
+                before Settings (REQ-OPERATOR-040 AC1). The dashboard draws its own header,
+                so Header.tsx's dashboard branch never renders here. */}
+            <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
             <button type="button" class="header-settings-button" data-testid="dashboard-settings-button" title="Settings" onClick={() => props.onSettingsClick?.()}>
               <Icon path={mdiCogOutline} size={20} />
             </button>
