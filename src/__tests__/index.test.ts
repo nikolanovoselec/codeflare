@@ -217,8 +217,12 @@ describe('Edge-level setup redirect', () => {
   });
 
   it.each(['/app', '/app/'])('permits the SPA Vault bootstrap frame, Gravatar probe, and same-origin microphone at %s', async (path) => {
-    const { env, mockKV } = createMockEnv();
+    const { env, mockKV, mockAssets } = createMockEnv();
     mockKV.get.mockResolvedValue('true');
+    mockAssets.fetch.mockResolvedValue(new Response('SPA content', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    }));
 
     const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
     const csp = response.headers.get('Content-Security-Policy');
