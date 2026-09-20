@@ -23,7 +23,13 @@ const OperatorActivityButton: Component<Props> = (props) => {
   let trigger: HTMLButtonElement | undefined;
   let panel: HTMLElement | undefined;
   const [position, setPosition] = createSignal({ top: 0, right: 0 });
-  const close = () => setOpen(false);
+  // Focus returns to the trigger only when it was inside the panel, so dismissing by clicking
+  // elsewhere on the page does not steal focus from whatever the user clicked.
+  const close = () => {
+    const held = !!panel && !!document.activeElement && panel.contains(document.activeElement);
+    setOpen(false);
+    if (held) trigger?.focus();
+  };
   const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape' && open()) close(); };
   // The panel is portalled, so it is not a descendant of the control: both boxes count as inside.
   const clickOutside = (event: MouseEvent) => {
@@ -36,14 +42,21 @@ const OperatorActivityButton: Component<Props> = (props) => {
       setPosition({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
     }
     setOpen(value => !value);
+    if (open()) queueMicrotask(() => panel?.focus());
   };
+  // Coordinates and the layout branch are measured once per open, so the panel cannot outlive
+  // the viewport it was measured in: a width crossing while open would otherwise leave desktop
+  // offsets on a bottom sheet, or a fixed box with no offsets at all.
+  const closeOnResize = () => { if (open()) close(); };
   onMount(() => {
     document.addEventListener('keydown', keydown);
     document.addEventListener('mousedown', clickOutside);
+    window.addEventListener('resize', closeOnResize);
   });
   onCleanup(() => {
     document.removeEventListener('keydown', keydown);
     document.removeEventListener('mousedown', clickOutside);
+    window.removeEventListener('resize', closeOnResize);
   });
   const interval = setInterval(() => { if (props.enabled) void refetch(); }, 15_000);
   onCleanup(() => clearInterval(interval));
@@ -64,9 +77,10 @@ const OperatorActivityButton: Component<Props> = (props) => {
       </button>
       {/* Portalled so the panel escapes the dashboard panel's backdrop-filter, which would
           otherwise make that card the containing block for position: fixed and inset the
-          mobile bottom sheet. Same pattern as the account dropdown (REQ-OPERATOR-040 AC6).
-          Desktop anchors to the trigger via measured coordinates; mobile leaves them unset
-          so the bottom-sheet media query applies. */}
+          mobile bottom sheet. Same pattern as the account dropdown. Desktop anchors to the
+          trigger via measured coordinates; mobile leaves them unset so the bottom-sheet
+          media query applies. Focus moves into the panel on open and back to the trigger on
+          close, because the portal detaches it from the trigger's tab order. */}
       <Portal>
       <Show when={open()}>
         <section ref={panel} class="operator-activity-panel operator-activity-panel--portal" classList={{
@@ -75,7 +89,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
           'operator-activity-panel--empty': !activities.loading && !loadError() && !hasActivities(),
         }} style={window.innerWidth > 640
           ? { top: `${position().top}px`, right: `${position().right}px` }
-          : undefined} role="dialog" aria-label="Operator activity" aria-modal="false">
+          : undefined} tabindex="-1" role="dialog" aria-label="Operator activity" aria-modal="false">
           <header><div><strong>Operator overview</strong><small>Operators are autonomous agents that work in the background. Track progress and results here.</small></div></header>
           <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
             <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button></div>}>
