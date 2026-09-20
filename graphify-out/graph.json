@@ -6930,7 +6930,7 @@
       "file_type": "code",
       "norm_label": "props",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L6"
+      "source_location": "L7"
     },
     {
       "id": "openvscode_agent_sidebar_src_pi_rpc_client_pijsonllimits",
@@ -51769,7 +51769,7 @@
       "file_type": "code",
       "norm_label": "operatoractivitybutton()",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L10"
+      "source_location": "L11"
     },
     {
       "id": "web_ui_src_tests_api_fetch_helper_401_redirect_test_accesshtml",
@@ -115506,7 +115506,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-009: reusable platform interfaces and bounded consumer fixtures",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L811"
+      "source_location": "L812"
     },
     {
       "id": "sdd_spec_operators_req_operator_010_bounded_operator_discovery_document",
@@ -115518,7 +115518,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-010: bounded operator discovery document",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L928"
+      "source_location": "L929"
     },
     {
       "id": "sdd_spec_operators_req_operator_011_serialized_operator_admission",
@@ -115734,7 +115734,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-028: access jwt stamping configuration",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L955"
+      "source_location": "L956"
     },
     {
       "id": "sdd_spec_operators_req_operator_029_capability_authenticated_webhook_edge",
@@ -115746,7 +115746,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-029: capability-authenticated webhook edge",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L979"
+      "source_location": "L980"
     },
     {
       "id": "sdd_spec_operators_req_operator_030_immutable_approved_bundle_validation",
@@ -115758,7 +115758,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-030: immutable approved bundle validation",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1005"
+      "source_location": "L1006"
     },
     {
       "id": "sdd_spec_operators_req_operator_031_non_consuming_webhook_observation",
@@ -115770,7 +115770,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-031: non-consuming webhook observation",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1037"
+      "source_location": "L1038"
     },
     {
       "id": "sdd_spec_operators_req_operator_032_secret_safe_administration_readback",
@@ -115782,7 +115782,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-032: secret-safe administration readback",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1060"
+      "source_location": "L1061"
     },
     {
       "id": "sdd_spec_operators_req_operator_033_activity_surface_resilience",
@@ -115794,7 +115794,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-033: activity surface resilience",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1085"
+      "source_location": "L1086"
     },
     {
       "id": "sdd_spec_operators_req_operator_034_authenticated_discovery_transport",
@@ -115806,7 +115806,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-034: authenticated discovery transport",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1112"
+      "source_location": "L1113"
     },
     {
       "id": "sdd_spec_operators_req_operator_035_approved_artifact_transport",
@@ -115818,7 +115818,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-035: approved artifact transport",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1140"
+      "source_location": "L1141"
     },
     {
       "id": "sdd_spec_operators_req_operator_036_owned_activity_user_mutations",
@@ -115830,7 +115830,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-036: owned activity user mutations",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L783"
+      "source_location": "L784"
     },
     {
       "id": "sdd_spec_operators_req_operator_037_bounded_operator_consumer_inputs",
@@ -115842,7 +115842,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-037: bounded operator consumer inputs",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L842"
+      "source_location": "L843"
     },
     {
       "id": "sdd_spec_operators_req_operator_038_bounded_operator_consumer_fixtures",
@@ -115854,7 +115854,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-038: bounded operator consumer fixtures",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L870"
+      "source_location": "L871"
     },
     {
       "id": "sdd_spec_operators_req_operator_039_gate_1_fixture_deployment",
@@ -115866,7 +115866,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-039: gate 1 fixture deployment",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L900"
+      "source_location": "L901"
     },
     {
       "id": "sdd_spec_operators_req_operator_040_owned_activity_control_presentation",
@@ -115890,7 +115890,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-041: owned activity browser reads",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L756"
+      "source_location": "L757"
     },
     {
       "id": "sdd_spec_operators_req_operator_042_activity_overview_sizing_follows_working_state",
@@ -115902,7 +115902,7 @@
       "node_kind": "heading",
       "norm_label": "req-operator-042: activity overview sizing follows working state",
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L730"
+      "source_location": "L731"
     },
     {
       "id": "web_ui_src_lib_terminal_wheel",
@@ -128831,7 +128831,7 @@
       "file_type": "code",
       "norm_label": "workingstates",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L7"
+      "source_location": "L8"
     },
     {
       "id": "web_ui_src_tests_api_fetch_helper_401_redirect_test",
@@ -297488,7 +297488,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -297500,7 +297500,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L42",
+      "source_location": "L72",
       "weight": 1.0
     },
     {
@@ -369396,7 +369396,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L3",
+      "source_location": "L4",
       "weight": 1.0
     },
     {
@@ -369408,7 +369408,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L4",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -369420,7 +369420,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L4",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -416568,7 +416568,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L2",
+      "source_location": "L3",
       "weight": 1.0
     },
     {
@@ -416580,7 +416580,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L3",
+      "source_location": "L4",
       "weight": 1.0
     },
     {
@@ -416592,7 +416592,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L4",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -499966,7 +499966,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1005",
+      "source_location": "L1006",
       "weight": 1.0
     },
     {
@@ -499977,7 +499977,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1037",
+      "source_location": "L1038",
       "weight": 1.0
     },
     {
@@ -499988,7 +499988,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1060",
+      "source_location": "L1061",
       "weight": 1.0
     },
     {
@@ -499999,7 +499999,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1085",
+      "source_location": "L1086",
       "weight": 1.0
     },
     {
@@ -500010,7 +500010,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1112",
+      "source_location": "L1113",
       "weight": 1.0
     },
     {
@@ -500021,7 +500021,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L1140",
+      "source_location": "L1141",
       "weight": 1.0
     },
     {
@@ -500307,7 +500307,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L730",
+      "source_location": "L731",
       "weight": 1.0
     },
     {
@@ -500318,7 +500318,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L756",
+      "source_location": "L757",
       "weight": 1.0
     },
     {
@@ -500329,7 +500329,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L783",
+      "source_location": "L784",
       "weight": 1.0
     },
     {
@@ -500340,7 +500340,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L811",
+      "source_location": "L812",
       "weight": 1.0
     },
     {
@@ -500351,7 +500351,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L842",
+      "source_location": "L843",
       "weight": 1.0
     },
     {
@@ -500362,7 +500362,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L870",
+      "source_location": "L871",
       "weight": 1.0
     },
     {
@@ -500373,7 +500373,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L900",
+      "source_location": "L901",
       "weight": 1.0
     },
     {
@@ -500384,7 +500384,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L928",
+      "source_location": "L929",
       "weight": 1.0
     },
     {
@@ -500395,7 +500395,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L955",
+      "source_location": "L956",
       "weight": 1.0
     },
     {
@@ -500417,7 +500417,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "sdd/spec/operators.md",
-      "source_location": "L979",
+      "source_location": "L980",
       "weight": 1.0
     },
     {
@@ -541810,7 +541810,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -541821,7 +541821,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L6",
+      "source_location": "L7",
       "weight": 1.0
     },
     {
@@ -541832,7 +541832,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "web-ui/src/components/OperatorActivityButton.tsx",
-      "source_location": "L7",
+      "source_location": "L8",
       "weight": 1.0
     },
     {
@@ -595899,5 +595899,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "d87ead0b8da4fb857122bdeab617c403ba7507a8"
+  "built_at_commit": "9b19b2aa414a129346b7f70cfa939018c4e1a2ab"
 }
