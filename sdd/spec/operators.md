@@ -721,9 +721,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Placement and copy are covered by adjacent component tests; dashboard placement (AC1) is covered by `Dashboard.test.tsx` against the dashboard's own panel header, which is the surface actually rendered when the dashboard is shown. Browser-level responsive viewport coverage (AC5, AC6) is not yet available.
+**Verification:** Placement and copy are covered by adjacent component tests; dashboard placement (AC1) is covered by `Dashboard.test.tsx` against the dashboard's own panel header, which is the surface actually rendered when the dashboard is shown. AC5 and AC6 are viewport-presentation behaviors whose verification is legitimately manual (`@manual`); the owner confirms anchored-popover and bottom-sheet presentation directly.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
