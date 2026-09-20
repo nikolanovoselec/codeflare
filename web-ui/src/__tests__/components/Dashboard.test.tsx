@@ -196,6 +196,11 @@ vi.mock('../../lib/vault-cache', () => ({
   sweepOrphanVaultCaches: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../api/operator-activities', () => ({
+  listOperatorActivities: vi.fn().mockResolvedValue({ items: [] }),
+  cancelOperatorActivity: vi.fn(),
+}));
+
 vi.mock('../../components/TipsRotator', () => ({
   default: () => <div data-testid="tips-card" />
 }));
@@ -467,6 +472,35 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} />);
 
     expect(screen.getByTestId('dashboard-settings-button')).toBeInTheDocument();
+  });
+
+  // === REQ-OPERATOR-040 AC1: dashboard operator control ===
+
+  it('REQ-OPERATOR-040 AC1: places the operator control between the user menu and settings in enterprise mode', () => {
+    (sessionStore as any)._setEnterpriseMode(true);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const user = screen.getByTestId('header-user-menu');
+    const operator = screen.getByRole('button', { name: 'Operator activity' });
+    const settings = screen.getByTestId('dashboard-settings-button');
+    expect(user.compareDocumentPosition(operator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(operator.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('REQ-OPERATOR-040 AC1: opens the operator overview panel from the dashboard control', async () => {
+    (sessionStore as any)._setEnterpriseMode(true);
+    render(() => <Dashboard {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Operator activity' })).toBeInTheDocument());
+    expect(screen.getByText('Operator overview')).toBeInTheDocument();
+  });
+
+  it('REQ-OPERATOR-040 AC1: hides the operator control outside enterprise mode', () => {
+    (sessionStore as any)._setEnterpriseMode(false);
+    render(() => <Dashboard {...defaultProps} />);
+
+    expect(screen.queryByRole('button', { name: 'Operator activity' })).not.toBeInTheDocument();
   });
 
   it('renders user dropdown menu when avatar clicked', () => {
