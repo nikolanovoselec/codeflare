@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-21
 
+- **Runtime image requires Debian's fixed libde265 package** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)). Integration and Enterprise Integration deployment runs `35638988737` and `35638988821` exposed fixable HIGH `CVE-2026-33164` in cached `libde265-0` `1.0.11-1+deb12u2` before image publication. Runtime assembly now installs the package explicitly and fails unless it reaches `1.0.11-1+deb12u3`; no vulnerability exception is added.
+
 - **Native Gateway requests have Worker-owned timeout authority** ([REQ-ENTERPRISE-087](enterprise-mode.md#req-enterprise-087-native-ai-gateway-request-timeout-authority)). Authorized Native Bedrock dispatch receives a 120-second first-byte timeout, while container overrides are removed from Dynamic Route traffic so its deployed AI Gateway graph remains authoritative.
 
 - **Stale Stop bookkeeping resets on dashboard status read** ([REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](session-lifecycle.md#req-session-035-stale-stopping-records-reset-on-owner-status-read)). An owner batch-status read force-resets its `stopping` rows older than three minutes to `stopped`, clears lifecycle ownership fields and records the timeout reason. This explicit bookkeeping exception does not claim process-exit evidence; recent stops, other states and other owners remain unchanged.

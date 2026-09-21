@@ -336,9 +336,12 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
             set -eu
-            version=$(dpkg-query -W -f="\${Version}" libevent-core-2.1-7)
-            dpkg --compare-versions "$version" ge "2.1.12-stable-8+deb12u1"
-            printf "libevent-core-2.1-7=%s\n" "$version"
+            libde265_version=$(dpkg-query -W -f="\${Version}" libde265-0)
+            dpkg --compare-versions "$libde265_version" ge "1.0.11-1+deb12u3"
+            printf "libde265-0=%s\n" "$libde265_version"
+            libevent_version=$(dpkg-query -W -f="\${Version}" libevent-core-2.1-7)
+            dpkg --compare-versions "$libevent_version" ge "2.1.12-stable-8+deb12u1"
+            printf "libevent-core-2.1-7=%s\n" "$libevent_version"
           '
 
       - name: Verify packaged native Pi Chat and official Claude
