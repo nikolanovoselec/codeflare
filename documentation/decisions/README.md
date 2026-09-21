@@ -4247,7 +4247,9 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 
 ### AD155: D1 owns complete session lifecycle authority
 
-**Decision.** Reuse `USAGE_DB` for complete non-secret session rows and shared lifecycle truth. Keep process identity and generation-local scheduling in the per-session Durable Object. Retire session KV records through a guarded clean-slate cutover rather than migration or dual write. Model host transport uncertainty as one absolute-deadline `unreachable` incident; require confirmed exit for `stopped`. Keep terminal ACTIVE/IDLE device-local.
+**Status:** Accepted (2026-09-19); amended 2026-09-21 by [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-records-reset-on-owner-status-read).
+
+**Decision.** Reuse `USAGE_DB` for complete non-secret session rows and shared lifecycle truth. Keep process identity and generation-local scheduling in the per-session Durable Object. Retire session KV records through a guarded clean-slate cutover rather than migration or dual write. Model host transport uncertainty as one absolute-deadline `unreachable` incident; require confirmed exit for `stopped` except for the bounded stale-stop reset in REQ-SESSION-035. Keep terminal ACTIVE/IDLE device-local.
 
 **2026-09-21 amendment.** An owner batch-status read force-resets `stopping` rows strictly older than three minutes to `stopped`, clears termination and unreachable ownership, and records `stop_timeout_forced_reset` ([REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-records-reset-on-owner-status-read)). This deliberately bounded bookkeeping exception prevents an interrupted Stop request from retaining lifecycle ownership indefinitely; it does not claim process-exit evidence. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired -->
 
