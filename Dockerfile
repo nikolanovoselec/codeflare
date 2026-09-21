@@ -223,9 +223,9 @@ COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
-RUN HERDR_VERSION="0.9.0" && \
-    HERDR_COMMIT="b99002ac99b09e00b4ca692436cb15a6b0d676f1" && \
-    HERDR_SHA256="4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f" && \
+RUN HERDR_VERSION="0.9.1" && \
+    HERDR_COMMIT="065ef9d6a531c49fb8bee7e818ef837065b21ee9" && \
+    HERDR_SHA256="2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
       -o /tmp/herdr && \
