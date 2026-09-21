@@ -139,14 +139,14 @@ describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () =>
     expect(lastFetch?.url).toBe(`${REST_BASE}/v1/models?limit=5`);
   });
 
-  it('AC2: forwards the gateway id (from AIG_GATEWAY_URL) as cf-aig-gateway-id', async () => {
+  it('AC2: forwards the gateway id (from AIG_GATEWAY_URL) without overriding Dynamic Route timeout', async () => {
     await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', {
       method: 'POST', body: '{}', headers: { 'cf-aig-request-timeout': '1' },
     }));
     expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('gw');
-    // The intercepted container cannot choose a shorter provider first-byte
-    // deadline. This covers Dynamic Routes on the account REST transport.
-    expect(lastFetch?.headers.get('cf-aig-request-timeout')).toBe('120000');
+    // Dynamic Routes own the timeout on their deployed AIGW model nodes. A
+    // container-supplied override is removed rather than forwarded.
+    expect(lastFetch?.headers.get('cf-aig-request-timeout')).toBeNull();
   });
 
   it('AC2: a trailing slash on AIG_GATEWAY_URL is tolerated (account/gateway still parse)', async () => {

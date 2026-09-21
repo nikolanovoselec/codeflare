@@ -73,11 +73,9 @@ import { resolveOperatorInference, type EffectiveOperatorInference } from './ope
 export const INTERCEPTED_LLM_HOSTS: readonly string[] = ['api.openai.com'];
 
 // AI Gateway measures request timeout until the provider returns its first
-// response bytes. Bedrock can legitimately take longer than the former 3 s
-// Dynamic Route setting before it starts a tool, reasoning, or long-context
-// stream. Stamp one Worker-owned value on every outbound Gateway transport so
-// Native Bedrock, Dynamic Routes, and REST-to-compat fallback all get the same
-// first-byte allowance. A container must not be able to lower this value.
+// response bytes. Native Bedrock has no Dynamic Route model-node setting, so
+// the Worker owns its first-byte allowance. Dynamic Routes instead own their
+// timeout in the deployed AIGW graph and must not be overridden here.
 const AIG_REQUEST_TIMEOUT_MS = '120000';
 
 /**
@@ -384,7 +382,6 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // added per attempt below.
     const baseHeaders = new Headers(request.headers);
     for (const h of STRIPPED_HEADERS) baseHeaders.delete(h);
-    baseHeaders.set('cf-aig-request-timeout', AIG_REQUEST_TIMEOUT_MS);
     const user = props?.user;
     if (!user) {
       // Attribution degrades to 'unknown'; log it so a gap in the gateway's
@@ -578,6 +575,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               if (nativeBedrockTransport === 'eventstream') compatHeaders.set('accept', 'application/vnd.amazon.eventstream');
             }
             if (native.byokAlias) compatHeaders.set('cf-aig-byok-alias', native.byokAlias);
+            // Native targets bypass Dynamic Route model nodes. Stamp this only
+            // after target authorization so an intercepted client cannot choose
+            // a shorter timeout and Dynamic Routes retain their AIGW settings.
+            compatHeaders.set('cf-aig-request-timeout', AIG_REQUEST_TIMEOUT_MS);
             nativeRequest = true;
             effectiveAdapter = native.adapter;
           } else if (url.pathname.endsWith('/chat/completions')) {
