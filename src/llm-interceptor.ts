@@ -72,6 +72,14 @@ import { resolveOperatorInference, type EffectiveOperatorInference } from './ope
  */
 export const INTERCEPTED_LLM_HOSTS: readonly string[] = ['api.openai.com'];
 
+// AI Gateway measures request timeout until the provider returns its first
+// response bytes. Bedrock can legitimately take longer than the former 3 s
+// Dynamic Route setting before it starts a tool, reasoning, or long-context
+// stream. Stamp one Worker-owned value on every outbound Gateway transport so
+// Native Bedrock, Dynamic Routes, and REST-to-compat fallback all get the same
+// first-byte allowance. A container must not be able to lower this value.
+const AIG_REQUEST_TIMEOUT_MS = '120000';
+
 /**
  * Request headers stripped before forwarding upstream. The agent sends a
  * NON-SECRET placeholder Authorization (the provider key entrypoint.sh sets to
@@ -93,6 +101,7 @@ const STRIPPED_HEADERS: readonly string[] = [
   'cf-aig-gateway-id',
   'cf-aig-authorization',
   'cf-aig-byok-alias',
+  'cf-aig-request-timeout',
 ];
 
 /**
@@ -375,6 +384,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // added per attempt below.
     const baseHeaders = new Headers(request.headers);
     for (const h of STRIPPED_HEADERS) baseHeaders.delete(h);
+    baseHeaders.set('cf-aig-request-timeout', AIG_REQUEST_TIMEOUT_MS);
     const user = props?.user;
     if (!user) {
       // Attribution degrades to 'unknown'; log it so a gap in the gateway's
