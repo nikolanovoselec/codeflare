@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-21
 
+- **Stopped-session resume stays locked throughout managed seed updates** ([REQ-AGENT-175](agents.md#req-agent-175-environment-update-ui-lockdown)). Session cards now remain disabled from the pending phase through active reconciliation, including after the update request returns but before status polling confirms completion.
+
 - **Packaged runtime execution replaces Dockerfile text matching** ([REQ-OPS-011](operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim)). The image smoke now executes each required developer tool from the assembled runtime, while source-text assertions that could pass without proving a working image are removed.
 
 - **Runtime image requires Debian's fixed libde265 package** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)). Integration and Enterprise Integration deployment runs `35638988737` and `35638988821` exposed fixable HIGH `CVE-2026-33164` in cached `libde265-0` `1.0.11-1+deb12u2` before image publication. Runtime assembly now installs the package explicitly and fails unless it reaches `1.0.11-1+deb12u3`; no vulnerability exception is added.

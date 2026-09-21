@@ -73,8 +73,13 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || props.session.status === 'error'
     || props.session.editorReadyError === true
     || (props.session.status === 'running' && props.session.editorReady === true);
+  const managedSeedUpdateActive = () => sessionStore.preseedUpgrading
+    || sessionStore.managedReleaseStatus === 'update_pending'
+    || sessionStore.managedReleaseStatus === 'upgrading';
+  const isStoppedForManagedSeedUpdate = () => managedSeedUpdateActive()
+    && props.session.status === 'stopped';
   const isSelectionEnabled = () => isActionable()
-    && !(sessionStore.preseedUpgrading && props.session.status === 'stopped');
+    && !isStoppedForManagedSeedUpdate();
   const select = () => {
     if (!isSelectionEnabled()) return;
     props.onSelect();
@@ -102,7 +107,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={props.session.status}
-      style={sessionStore.preseedUpgrading && props.session.status === 'stopped' ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
+      style={isStoppedForManagedSeedUpdate() ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
     >
       <Show when={isSelectionEnabled()}>
         <button
