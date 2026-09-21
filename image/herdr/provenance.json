@@ -1,8 +1,8 @@
 {
   "name": "Herdr",
-  "version": "0.9.0",
-  "commit": "b99002ac99b09e00b4ca692436cb15a6b0d676f1",
+  "version": "0.9.1",
+  "commit": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
   "asset": "herdr-linux-x86_64",
-  "sha256": "4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f",
+  "sha256": "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7",
   "license": "Apache-2.0"
 }
