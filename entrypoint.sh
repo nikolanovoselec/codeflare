@@ -2986,7 +2986,7 @@ const required = [
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.9.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.9.0',
-  'npm:@juicesharp/rpiv-todo@2.9.0',
+  'npm:@juicesharp/rpiv-todo@2.10.1',
   'npm:pi-web-access@0.28.0',
   'npm:pi-mcp-adapter@2.32.1',
   'npm:pi-evaluate@0.1.5',
