@@ -1,7 +1,7 @@
 {
   "zizmor": {
-    "version": "1.29.0",
-    "sha256": "dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839"
+    "version": "1.30.0",
+    "sha256": "ec8c95cd800845abb9bbc5f377ec7c57d2eb8e2386a00a201d3a74ee4092e5ed"
   },
   "actionlint": {
     "version": "1.7.12",
