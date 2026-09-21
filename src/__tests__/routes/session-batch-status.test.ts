@@ -28,8 +28,16 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
   beforeEach(() => {
     kv = createMockKV();
     all = vi.fn(async () => ({ results: [row] }));
-    const statement = { bind: vi.fn().mockReturnThis(), all };
-    db = { prepare: vi.fn(() => statement) } as unknown as D1Database;
+    db = {
+      prepare: vi.fn((_sql: string) => {
+        const statement = {
+          bind: vi.fn().mockReturnThis(),
+          all,
+          run: vi.fn(async () => ({ success: true, meta: { changes: 0 } })),
+        };
+        return statement;
+      }),
+    } as unknown as D1Database;
   });
 
   function app() {
@@ -40,10 +48,10 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     });
   }
 
-  it('uses one owner-indexed D1 query and performs no session or ancillary KV operations', async () => {
+  it('resets stale stops then uses one owner-indexed read and performs no session or ancillary KV operations', async () => {
     const response = await app().request('/sessions/batch-status?include=storage,usage&includePreseedCheck=true');
     expect(response.status).toBe(200);
-    expect(db.prepare).toHaveBeenCalledTimes(1);
+    expect(db.prepare).toHaveBeenCalledTimes(2);
     expect(all).toHaveBeenCalledTimes(1);
     expect(kv.list).not.toHaveBeenCalled();
     expect(kv.get).not.toHaveBeenCalled();

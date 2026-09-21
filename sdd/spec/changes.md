@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-21
+
+- **Stale Stop bookkeeping resets on dashboard status read** ([REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](session-lifecycle.md#req-session-035-stale-stopping-records-reset-on-owner-status-read)). An owner batch-status read force-resets its `stopping` rows older than three minutes to `stopped`, clears lifecycle ownership fields and records the timeout reason. This explicit bookkeeping exception does not claim process-exit evidence; recent stops, other states and other owners remain unchanged.
+
 ## 2026-09-20
 
 - **Pi FIX handoff owns accepted-fix delivery** ([REQ-AGENT-104](agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict)). After accepted corrections are complete, Pi explicitly pushes them without renewed consent while retaining no-merge, no-op and clean-triage protections.

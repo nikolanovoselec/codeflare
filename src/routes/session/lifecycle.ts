@@ -48,6 +48,7 @@ const sessionsSyncRateLimiter = createRateLimiter({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+const STOPPING_RESET_AFTER_MS = 3 * 60 * 1000;
 
 /**
  * GET /api/sessions/batch-status
@@ -58,7 +59,9 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
  */
 app.get('/batch-status', async (c) => {
   const ownerKey = c.get('bucketName');
-  const sessions = await new D1SessionRepository(c.env.USAGE_DB).listSessions(ownerKey);
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  await repository.forceStopExpired(ownerKey, new Date(Date.now() - STOPPING_RESET_AFTER_MS).toISOString());
+  const sessions = await repository.listSessions(ownerKey);
   const statuses = Object.fromEntries(sessions.map((session) => [session.sessionId, {
     status: session.lifecycleState,
     lifecycle: session.lifecycleState,

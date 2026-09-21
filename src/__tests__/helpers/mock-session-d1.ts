@@ -30,8 +30,12 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     unreachable_incident_id: session.unreachableIncidentId ?? null,
     unreachable_first_observed_at: session.unreachableFirstObservedAt ?? null,
     unreachable_deadline_ms: session.unreachableDeadlineMs ?? null,
+    transitioned_at: session.transitionedAt ?? session.createdAt ?? new Date(0).toISOString(),
+    lifecycle_reason: session.lifecycleReason ?? null,
     termination_intent_id: session.terminationIntentId ?? null,
     termination_generation: session.terminationGeneration ?? null,
+    termination_claimed_at: session.terminationClaimedAt ?? null,
+    termination_signal_accepted_at: session.terminationSignalAcceptedAt ?? null,
   };
 }
 
@@ -71,6 +75,24 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           return { results: [] };
         },
         async run() {
+          if (sql.includes("lifecycle_reason='stop_timeout_forced_reset'")) {
+            const found = await kv.list({ prefix: `session:${String(args[0])}:` });
+            let changes = 0;
+            for (const item of found.keys) {
+              const session = await kv.get(item.name, 'json') as Record<string, any> | null;
+              if (!session || session.status !== 'stopping' || String(session.transitionedAt) >= String(args[1])) continue;
+              session.status = 'stopped';
+              session.responseRevision = (session.responseRevision ?? 0) + 1;
+              session.lifecycleReason = 'stop_timeout_forced_reset';
+              session.editorReady = false; session.editorReadyError = false;
+              session.unreachableIncidentId = undefined; session.unreachableFirstObservedAt = undefined; session.unreachableDeadlineMs = undefined;
+              session.terminationIntentId = undefined; session.terminationGeneration = undefined; session.terminationClaimedAt = undefined;
+              session.terminationSignalAcceptedAt = undefined;
+              await put(args[0], session);
+              changes += 1;
+            }
+            return { success: true, meta: { changes } };
+          }
           if (sql.includes('INSERT INTO runtime_sessions')) {
             const session = { id: args[1], userId: args[0], name: args[2], createdAt: args[3], lastAccessedAt: args[4], agentType: args[5] ?? undefined, workspace: args[6], terminalMode: args[7], tabConfig: args[8] ? JSON.parse(String(args[8])) : undefined, clone: args[9] ? JSON.parse(String(args[9])) : undefined, clones: args[10] ? JSON.parse(String(args[10])) : undefined, status: 'stopped' };
             await put(args[0], session); return { success: true, meta: { changes: 1 } };

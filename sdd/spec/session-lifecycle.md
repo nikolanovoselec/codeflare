@@ -670,7 +670,7 @@ None.
 4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row.
 5. Every accepted mutation advances a response revision used with generation to order API responses.
 6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed.
-7. Only confirmed process-exit evidence writes `stopped`; transport failure, D1 failure, signal acceptance, or a transient SDK state does not.
+7. Only confirmed process-exit evidence or the explicit stale-stop reset in [REQ-SESSION-035](#req-session-035-stale-stopping-records-reset-on-owner-status-read) writes `stopped`; transport failure, D1 failure, signal acceptance, or a transient SDK state does not.
 
 **Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
 
@@ -702,6 +702,30 @@ None.
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
 **Verification:** Automated test ([container metrics](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-035: Stale stopping records reset on owner status read
+
+**Intent:** An interrupted Stop request cannot leave its owner permanently blocked by stale lifecycle bookkeeping.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. An owner batch-status read changes that owner's `stopping` sessions with transitions strictly older than three minutes to `stopped` before returning status. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/routes/session.test.ts (forces an owner session stuck stopping for over three minutes to stopped before responding) -->
+2. The reset clears termination and unreachable ownership, resets editor readiness, increments the response revision and records `stop_timeout_forced_reset` without fabricating process-exit timing. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (forces only owner-scoped stopping rows older than three minutes to stopped) -->
+3. Recent `stopping` sessions, other lifecycle states and other owners remain unchanged. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (forces only owner-scoped stopping rows older than three minutes to stopped) -->
+
+**Constraints:** This is a bounded bookkeeping exception to confirmed-exit authority; it does not assert process-exit evidence.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+
+**Verification:** Automated D1 repository and route tests.
 
 **Status:** Implemented
 
