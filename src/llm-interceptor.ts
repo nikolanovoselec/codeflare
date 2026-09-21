@@ -72,6 +72,12 @@ import { resolveOperatorInference, type EffectiveOperatorInference } from './ope
  */
 export const INTERCEPTED_LLM_HOSTS: readonly string[] = ['api.openai.com'];
 
+// AI Gateway measures request timeout until the provider returns its first
+// response bytes. Native Bedrock has no Dynamic Route model-node setting, so
+// the Worker owns its first-byte allowance. Dynamic Routes instead own their
+// timeout in the deployed AIGW graph and must not be overridden here.
+const AIG_REQUEST_TIMEOUT_MS = '120000';
+
 /**
  * Request headers stripped before forwarding upstream. The agent sends a
  * NON-SECRET placeholder Authorization (the provider key entrypoint.sh sets to
@@ -93,6 +99,7 @@ const STRIPPED_HEADERS: readonly string[] = [
   'cf-aig-gateway-id',
   'cf-aig-authorization',
   'cf-aig-byok-alias',
+  'cf-aig-request-timeout',
 ];
 
 /**
@@ -568,6 +575,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               if (nativeBedrockTransport === 'eventstream') compatHeaders.set('accept', 'application/vnd.amazon.eventstream');
             }
             if (native.byokAlias) compatHeaders.set('cf-aig-byok-alias', native.byokAlias);
+            // Native targets bypass Dynamic Route model nodes. Stamp this only
+            // after target authorization so an intercepted client cannot choose
+            // a shorter timeout and Dynamic Routes retain their AIGW settings.
+            compatHeaders.set('cf-aig-request-timeout', AIG_REQUEST_TIMEOUT_MS);
             nativeRequest = true;
             effectiveAdapter = native.adapter;
           } else if (url.pathname.endsWith('/chat/completions')) {
