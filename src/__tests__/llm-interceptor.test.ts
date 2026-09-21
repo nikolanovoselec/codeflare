@@ -139,9 +139,14 @@ describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () =>
     expect(lastFetch?.url).toBe(`${REST_BASE}/v1/models?limit=5`);
   });
 
-  it('AC2: forwards the gateway id (from AIG_GATEWAY_URL) as cf-aig-gateway-id', async () => {
-    await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
+  it('AC2: forwards the gateway id (from AIG_GATEWAY_URL) without overriding Dynamic Route timeout', async () => {
+    await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: '{}', headers: { 'cf-aig-request-timeout': '1' },
+    }));
     expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('gw');
+    // Dynamic Routes own the timeout on their deployed AIGW model nodes. A
+    // container-supplied override is removed rather than forwarded.
+    expect(lastFetch?.headers.get('cf-aig-request-timeout')).toBeNull();
   });
 
   it('AC2: a trailing slash on AIG_GATEWAY_URL is tolerated (account/gateway still parse)', async () => {
@@ -985,6 +990,7 @@ describe('native provider authorization and compat dispatch', () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; const body = JSON.parse(await request.text());
       expect(request.url).toContain('/eu.anthropic.claude-synthetic-future-2099-v1%3A0/invoke-with-response-stream');
+      expect(request.headers.get('cf-aig-request-timeout')).toBe('120000');
       expect(body).not.toHaveProperty('thinking'); expect(body).not.toHaveProperty('output_config');
       expect(body.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
       return bedrockToolResponse([{ type: 'text', text: 'Synthetic result' }], 'eventstream');

@@ -180,7 +180,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Network tools
     curl \
     openssh-client \
-    # Require Debian's fixed libevent build before image publication.
+    # Require Debian's fixed media and event builds before image publication.
+    libde265-0 \
     libevent-core-2.1-7 \
     # Process utilities
     procps \
@@ -203,6 +204,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     iptables \
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libde265-0)" ge '1.0.11-1+deb12u3' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libevent-core-2.1-7)" ge '2.1.12-stable-8+deb12u1' \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries

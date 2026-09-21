@@ -48,17 +48,21 @@ const sessionsSyncRateLimiter = createRateLimiter({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+const STOPPING_RESET_AFTER_MS = 3 * 60 * 1000;
 
 /**
  * GET /api/sessions/batch-status
  * Get status for all sessions in a single call (eliminates N+1 on page load)
- * Returns the owner-scoped D1 lifecycle projection in one primary-consistent query.
+ * First resets owner-scoped stopping records older than three minutes, then
+ * returns the fresh D1 lifecycle projection in one primary-consistent read.
  * Ancillary usage, storage, entitlement, release, and migration polling is owned
  * separately and is intentionally absent from this frequent endpoint.
  */
 app.get('/batch-status', async (c) => {
   const ownerKey = c.get('bucketName');
-  const sessions = await new D1SessionRepository(c.env.USAGE_DB).listSessions(ownerKey);
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  await repository.forceStopExpired(ownerKey, new Date(Date.now() - STOPPING_RESET_AFTER_MS).toISOString());
+  const sessions = await repository.listSessions(ownerKey);
   const statuses = Object.fromEntries(sessions.map((session) => [session.sessionId, {
     status: session.lifecycleState,
     lifecycle: session.lifecycleState,

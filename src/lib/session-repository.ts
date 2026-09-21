@@ -98,6 +98,18 @@ export class D1SessionRepository implements SessionAuthority {
     return result.results.map(fromRow);
   }
 
+  async forceStopExpired(ownerKey: string, transitionedBefore: string): Promise<number> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET
+      lifecycle_state='stopped', response_revision=response_revision+1,
+      lifecycle_reason='stop_timeout_forced_reset', editor_ready=0, editor_ready_error=0,
+      unreachable_incident_id=NULL, unreachable_first_observed_at=NULL, unreachable_deadline_ms=NULL,
+      termination_intent_id=NULL, termination_generation=NULL, termination_claimed_at=NULL,
+      termination_signal_accepted_at=NULL
+      WHERE owner_key=?1 AND lifecycle_state='stopping' AND transitioned_at<?2`)
+      .bind(ownerKey, transitionedBefore).run();
+    return result.meta.changes;
+  }
+
   async start(ownerKey: string, sessionId: string, transitionedAt: string): Promise<D1Session | null> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,

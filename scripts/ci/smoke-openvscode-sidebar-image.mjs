@@ -196,6 +196,25 @@ export async function verifyContainerRuntime({
   return { nodeVersion, distribution: 'debian', codename: 'bookworm' };
 }
 
+export function verifyDeveloperTools({ exec = execFileSync } = {}) {
+  const commands = [
+    ['git', ['--version']],
+    ['rg', ['--version']],
+    ['nvim', ['--version']],
+    ['tmux', ['-V']],
+    ['fzf', ['--version']],
+    ['jq', ['--version']],
+    ['python3', ['--version']],
+    ['python', ['--version']],
+    ['fd', ['--version']],
+  ];
+  return Object.fromEntries(commands.map(([command, args]) => {
+    const output = exec(command, args, { encoding: 'utf8', timeout: 10_000 }).trim();
+    assert.ok(output, `${command} must execute in the packaged runtime`);
+    return [command, output.split('\n')[0]];
+  }));
+}
+
 export async function verifyJsYamlRuntime({
   runtimePath = '/opt/code-server/node_modules/js-yaml',
   expectedVersion = '5.4.1',
@@ -285,6 +304,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 
 async function main() {
   const containerRuntime = await verifyContainerRuntime();
+  const developerTools = verifyDeveloperTools();
   const codeServerRuntime = await verifyCodeServerRuntime();
   const jsYamlRuntime = await verifyJsYamlRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
@@ -369,6 +389,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
     containerRuntime,
+    developerTools,
     extensionHash,
     nativeChat,
     officialClaude,
@@ -419,15 +440,20 @@ async function verifyCodeServerRuntime() {
   assert.equal(product.codeServerVersion, expected.codeServerVersion);
   assert.equal(product.commit, expected.codeServerCommit);
   assert.equal(await readlink('/usr/local/bin/code-server'), '/opt/code-server/bin/code-server');
-  const libeventVersion = execFileSync('dpkg-query', ['-W', '-f=${Version}', 'libevent-core-2.1-7'], {
-    encoding: 'utf8',
-    timeout: 10_000,
-  }).trim();
-  assert.equal(
-    spawnSync('dpkg', ['--compare-versions', libeventVersion, 'ge', '2.1.12-stable-8+deb12u1']).status,
-    0,
-    `libevent-core-2.1-7 must be patched; found ${libeventVersion}`,
-  );
+  for (const [packageName, minimumVersion] of [
+    ['libde265-0', '1.0.11-1+deb12u3'],
+    ['libevent-core-2.1-7', '2.1.12-stable-8+deb12u1'],
+  ]) {
+    const version = execFileSync('dpkg-query', ['-W', '-f=${Version}', packageName], {
+      encoding: 'utf8',
+      timeout: 10_000,
+    }).trim();
+    assert.equal(
+      spawnSync('dpkg', ['--compare-versions', version, 'ge', minimumVersion]).status,
+      0,
+      `${packageName} must be patched; found ${version}`,
+    );
+  }
   await assert.rejects(lstat('/usr/local/bin/openvscode-server'), { code: 'ENOENT' });
   await assert.rejects(lstat('/opt/openvscode-server'), { code: 'ENOENT' });
   await assert.rejects(

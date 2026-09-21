@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { createTestApp } from '../helpers/test-app';
 import lifecycleRoutes from '../../routes/session/lifecycle';
 import type { Env } from '../../types';
@@ -28,8 +29,16 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
   beforeEach(() => {
     kv = createMockKV();
     all = vi.fn(async () => ({ results: [row] }));
-    const statement = { bind: vi.fn().mockReturnThis(), all };
-    db = { prepare: vi.fn(() => statement) } as unknown as D1Database;
+    db = {
+      prepare: vi.fn((_sql: string) => {
+        const statement = {
+          bind: vi.fn().mockReturnThis(),
+          all,
+          run: vi.fn(async () => ({ success: true, meta: { changes: 0 } })),
+        };
+        return statement;
+      }),
+    } as unknown as D1Database;
   });
 
   function app() {
@@ -40,10 +49,42 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     });
   }
 
-  it('uses one owner-indexed D1 query and performs no session or ancillary KV operations', async () => {
+  it('resets a stale stopping session before returning the fresh owner projection', async () => {
+    const sessionId = 'stale001';
+    await kv.put(`session:test-bucket:${sessionId}`, JSON.stringify({
+      id: sessionId,
+      name: 'Stale stop',
+      status: 'stopping',
+      createdAt: '2027-01-01T00:00:00.000Z',
+      lastAccessedAt: '2027-01-01T00:00:00.000Z',
+      transitionedAt: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
+      lifecycleGeneration: 2,
+      responseRevision: 9,
+      editorReady: true,
+      editorReadyError: true,
+      terminationIntentId: 'intent-1',
+      terminationGeneration: 2,
+    }));
+    db = createMockSessionD1(kv);
+
+    const response = await app().request('/sessions/batch-status');
+    expect(response.status).toBe(200);
+    const body = await response.json() as { statuses: Record<string, unknown> };
+    expect(body.statuses[sessionId]).toMatchObject({
+      status: 'stopped', lifecycle: 'stopped', revision: 10,
+      editorReady: false, editorReadyError: false,
+    });
+    expect(await kv.get(`session:test-bucket:${sessionId}`, 'json')).toMatchObject({
+      status: 'stopped', responseRevision: 10,
+      lifecycleReason: 'stop_timeout_forced_reset',
+      editorReady: false, editorReadyError: false,
+    });
+  });
+
+  it('uses one owner-indexed read and performs no session or ancillary KV operations', async () => {
     const response = await app().request('/sessions/batch-status?include=storage,usage&includePreseedCheck=true');
     expect(response.status).toBe(200);
-    expect(db.prepare).toHaveBeenCalledTimes(1);
+    expect(db.prepare).toHaveBeenCalledTimes(2);
     expect(all).toHaveBeenCalledTimes(1);
     expect(kv.list).not.toHaveBeenCalled();
     expect(kv.get).not.toHaveBeenCalled();

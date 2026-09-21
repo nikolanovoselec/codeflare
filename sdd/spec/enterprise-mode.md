@@ -2627,3 +2627,26 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Status:** Implemented
 
 ---
+
+### REQ-ENTERPRISE-087: Native AI Gateway request timeout authority
+
+**Intent:** Enterprise Native Bedrock requests receive a bounded first-byte allowance without overriding administrator-owned Dynamic Route timeout policy.
+
+**Applies To:** Enterprise native Bedrock targets
+
+**Acceptance Criteria:**
+
+1. Authorized Native Bedrock dispatch sets the AI Gateway first-byte request timeout to 120 seconds. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-074: authorized synthetic future model normalizes %s through the shared native boundary) -->
+2. Dynamic Route dispatch removes a container-supplied request-timeout override and retains its deployed AI Gateway graph as timeout authority. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC2: forwards the gateway id (from AIG_GATEWAY_URL) without overriding Dynamic Route timeout) -->
+
+**Constraints:** The timeout header is Worker-owned and applies only after Native target authorization.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-077](#req-enterprise-077-provider-native-bedrock-transport-dispatch)
+
+**Verification:** Automated interceptor tests.
+
+**Status:** Implemented
+
+---
