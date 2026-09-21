@@ -302,11 +302,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.137.0" && \
-    CODE_SERVER_SHA256="9303165b7fd43532091922f77e2f119ff2fa109c6b6f1c3c966fb02f3d6d9c8b" && \
-    CODE_SERVER_COMMIT="b11dabdaca0d3369986975be285db92c8795cea5" && \
-    CODE_SERVER_CODE_VERSION="1.137.0" && \
-    CODE_SERVER_VSCODE_COMMIT="645f29cc3176500b4b5762ba887cf2a7f0ffdf2c" && \
+RUN CODE_SERVER_VERSION="4.138.0" && \
+    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_COMMIT="59c988c744a240b05b039f57b856a5312f19d5b1" && \
+    CODE_SERVER_CODE_VERSION="1.138.0" && \
+    CODE_SERVER_VSCODE_COMMIT="7debcd0e2acdea1c52de81bf9ee1620444407dda" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     PACOTE_VERSION="21.5.1" && \
