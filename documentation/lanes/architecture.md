@@ -138,7 +138,7 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Does not own:** Provider keys, Access policy, per-group configuration, or agent model selection UI.
 
-**Timeout authority:** Authorized Native Bedrock dispatch receives a 120-second first-byte allowance; Dynamic Routes retain the timeout policy deployed in their AI Gateway graph.
+**Timeout authority:** Authorized Native Bedrock dispatch receives a 120-second first-byte allowance; Dynamic Routes retain the timeout policy deployed in their AI Gateway graph ([REQ-ENTERPRISE-087](../../sdd/spec/enterprise-mode.md#req-enterprise-087-native-ai-gateway-request-timeout-authority)).
 
 **Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates -->
 
