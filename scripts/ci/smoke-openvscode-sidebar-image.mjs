@@ -196,6 +196,25 @@ export async function verifyContainerRuntime({
   return { nodeVersion, distribution: 'debian', codename: 'bookworm' };
 }
 
+export function verifyDeveloperTools({ exec = execFileSync } = {}) {
+  const commands = [
+    ['git', ['--version']],
+    ['rg', ['--version']],
+    ['nvim', ['--version']],
+    ['tmux', ['-V']],
+    ['fzf', ['--version']],
+    ['jq', ['--version']],
+    ['python3', ['--version']],
+    ['python', ['--version']],
+    ['fd', ['--version']],
+  ];
+  return Object.fromEntries(commands.map(([command, args]) => {
+    const output = exec(command, args, { encoding: 'utf8', timeout: 10_000 }).trim();
+    assert.ok(output, `${command} must execute in the packaged runtime`);
+    return [command, output.split('\n')[0]];
+  }));
+}
+
 export async function verifyJsYamlRuntime({
   runtimePath = '/opt/code-server/node_modules/js-yaml',
   expectedVersion = '5.4.1',
@@ -285,6 +304,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 
 async function main() {
   const containerRuntime = await verifyContainerRuntime();
+  const developerTools = verifyDeveloperTools();
   const codeServerRuntime = await verifyCodeServerRuntime();
   const jsYamlRuntime = await verifyJsYamlRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
@@ -369,6 +389,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
     containerRuntime,
+    developerTools,
     extensionHash,
     nativeChat,
     officialClaude,
