@@ -53,7 +53,8 @@ const STOPPING_RESET_AFTER_MS = 3 * 60 * 1000;
 /**
  * GET /api/sessions/batch-status
  * Get status for all sessions in a single call (eliminates N+1 on page load)
- * Returns the owner-scoped D1 lifecycle projection in one primary-consistent query.
+ * First resets owner-scoped stopping records older than three minutes, then
+ * returns the fresh D1 lifecycle projection in one primary-consistent read.
  * Ancillary usage, storage, entitlement, release, and migration polling is owned
  * separately and is intentionally absent from this frequent endpoint.
  */

@@ -184,7 +184,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. An accepted Start advances generation once, writes `starting`, and assigns that generation to the Durable Object before process work begins.
 2. Start fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it.
-3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after confirmed exit.
+3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after confirmed exit or the bounded bookkeeping exception in [REQ-SESSION-035](#req-session-035-stale-stopping-records-reset-on-owner-status-read).
 4. Restart preserves the same D1 session row, workspace and storage identity while applying current preferences in a new generation.
 5. Delete uses the same confirmed graceful destruction path and hard-deletes the D1 row only after exit; delayed writers cannot recreate it.
 6. Failed or ambiguous destruction retains retryable authoritative state and does not report stopped or deleted.
@@ -897,7 +897,7 @@ None.
 3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it.
 4. Immediately before signalling, execution rechecks generation ownership and cannot signal a replacement generation.
 5. Stop signalling uses the low-level SIGTERM path even when the SDK `running` flag is transiently false; retries are bounded and duplicate-safe.
-6. Signal acceptance retains `stopping`; only confirmed exit transitions to `stopped`.
+6. Signal acceptance retains `stopping`; only confirmed exit or the bounded bookkeeping exception in [REQ-SESSION-035](#req-session-035-stale-stopping-records-reset-on-owner-status-read) transitions to `stopped`.
 
 **Constraints:** Exactly-once external signalling is not promised. Established final-event, final-sync and teardown deadlines are unchanged.
 

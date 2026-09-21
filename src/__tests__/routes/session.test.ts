@@ -774,11 +774,18 @@ describe('GET /sessions/batch-status', () => {
     expect(body.statuses.expiredstop1234).toMatchObject({ status: 'stopped', revision: 8 });
     expect(body.statuses.recentstop12345).toMatchObject({ status: 'stopping' });
     expect(body.statuses.expiredstop5678).toBeUndefined();
-    expect(await mockKV.get('session:test-bucket:expiredstop1234', 'json')).toMatchObject({
+    const stored = await mockKV.get('session:test-bucket:expiredstop1234', 'json') as Record<string, unknown>;
+    expect(stored).toMatchObject({
       status: 'stopped', lifecycleReason: 'stop_timeout_forced_reset', responseRevision: 8,
       editorReady: false, editorReadyError: false,
-      unreachableIncidentId: undefined, terminationIntentId: undefined,
     });
+    expect(stored.unreachableIncidentId).toBeUndefined();
+    expect(stored.unreachableFirstObservedAt).toBeUndefined();
+    expect(stored.unreachableDeadlineMs).toBeUndefined();
+    expect(stored.terminationIntentId).toBeUndefined();
+    expect(stored.terminationGeneration).toBeUndefined();
+    expect(stored.terminationClaimedAt).toBeUndefined();
+    expect(stored.terminationSignalAcceptedAt).toBeUndefined();
     expect(await mockKV.get('session:other-bucket:expiredstop5678', 'json')).toMatchObject({ status: 'stopping' });
   });
 
