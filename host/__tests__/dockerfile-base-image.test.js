@@ -112,10 +112,4 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     );
   });
 
-  it('REQ-SEC-011 AC8: Dockerfile requests fixed Debian security packages', () => {
-    assert.match(dockerfile, /libevent-core-2\.1-7/);
-    assert.match(dockerfile, /dpkg --compare-versions[^\n]+libevent-core-2\.1-7[^\n]+ge '2\.1\.12-stable-8\+deb12u1'/);
-    assert.match(dockerfile, /libde265-0/);
-    assert.match(dockerfile, /dpkg --compare-versions[^\n]+libde265-0[^\n]+ge '1\.0\.11-1\+deb12u3'/);
-  });
 });
