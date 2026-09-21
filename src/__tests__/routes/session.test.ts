@@ -747,6 +747,41 @@ describe('GET /sessions/batch-status', () => {
     expect(body.statuses['batchsession5678def']).toMatchObject({ status: 'running', lifecycle: 'running' });
   });
 
+  it('forces an owner session stuck stopping for over three minutes to stopped before responding', async () => {
+    mockKV._set('session:test-bucket:expiredstop1234', {
+      id: 'expiredstop1234', name: 'Expired stop', userId: 'test-bucket', status: 'stopping',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      transitionedAt: '2024-01-15T09:56:59.999Z', lifecycleGeneration: 2, responseRevision: 7,
+      editorReady: true, editorReadyError: true,
+      unreachableIncidentId: 'incident', unreachableFirstObservedAt: '2024-01-15T09:55:00.000Z', unreachableDeadlineMs: 60_000,
+      terminationIntentId: 'intent', terminationGeneration: 2, terminationClaimedAt: '2024-01-15T09:56:59.999Z',
+      terminationSignalAcceptedAt: '2024-01-15T09:57:00.000Z',
+    });
+    mockKV._set('session:test-bucket:recentstop12345', {
+      id: 'recentstop12345', name: 'Recent stop', userId: 'test-bucket', status: 'stopping',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      transitionedAt: '2024-01-15T09:57:00.000Z', terminationIntentId: 'recent-intent',
+    });
+    mockKV._set('session:other-bucket:expiredstop5678', {
+      id: 'expiredstop5678', name: 'Other owner', userId: 'other-bucket', status: 'stopping',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      transitionedAt: '2024-01-15T09:00:00.000Z', terminationIntentId: 'other-intent',
+    });
+
+    const res = await createBatchStatusApp().request('/sessions/batch-status');
+    const body = await res.json() as { statuses: Record<string, { status: string; revision: number }> };
+
+    expect(body.statuses.expiredstop1234).toMatchObject({ status: 'stopped', revision: 8 });
+    expect(body.statuses.recentstop12345).toMatchObject({ status: 'stopping' });
+    expect(body.statuses.expiredstop5678).toBeUndefined();
+    expect(await mockKV.get('session:test-bucket:expiredstop1234', 'json')).toMatchObject({
+      status: 'stopped', lifecycleReason: 'stop_timeout_forced_reset', responseRevision: 8,
+      editorReady: false, editorReadyError: false,
+      unreachableIncidentId: undefined, terminationIntentId: undefined,
+    });
+    expect(await mockKV.get('session:other-bucket:expiredstop5678', 'json')).toMatchObject({ status: 'stopping' });
+  });
+
   it('returns empty statuses when no sessions exist', async () => {
     const app = createBatchStatusApp();
 

@@ -47,6 +47,46 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);
   });
 
+  it('forces only owner-scoped stopping rows older than three minutes to stopped', async () => {
+    const repository = new D1SessionRepository(db);
+    await createSession('owner-a', 'expired01');
+    await createSession('owner-a', 'recent001');
+    await createSession('owner-a', 'running01');
+    await createSession('owner-b', 'expired02');
+    await db.prepare(`UPDATE runtime_sessions SET
+      lifecycle_state='stopping', lifecycle_generation=2, response_revision=4,
+      transitioned_at=?3, lifecycle_reason=NULL,
+      editor_ready=1, editor_ready_error=1,
+      unreachable_incident_id='incident', unreachable_first_observed_at=?3, unreachable_deadline_ms=60000,
+      termination_intent_id='intent', termination_generation=2, termination_claimed_at=?3,
+      termination_signal_accepted_at=?3
+      WHERE owner_key=?1 AND session_id=?2`)
+      .bind('owner-a', 'expired01', '2027-01-01T00:00:00.000Z').run();
+    await db.prepare(`UPDATE runtime_sessions SET lifecycle_state='stopping', transitioned_at=?3,
+      termination_intent_id='intent', termination_generation=0, termination_claimed_at=?3
+      WHERE owner_key=?1 AND session_id=?2`)
+      .bind('owner-a', 'recent001', '2027-01-01T00:02:00.001Z').run();
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', transitioned_at='2027-01-01T00:00:00.000Z' WHERE owner_key='owner-a' AND session_id='running01'").run();
+    await db.prepare(`UPDATE runtime_sessions SET lifecycle_state='stopping', transitioned_at=?3,
+      termination_intent_id='intent', termination_generation=0, termination_claimed_at=?3
+      WHERE owner_key=?1 AND session_id=?2`)
+      .bind('owner-b', 'expired02', '2027-01-01T00:00:00.000Z').run();
+
+    expect(await repository.forceStopExpired('owner-a', '2027-01-01T00:03:00.001Z')).toBe(1);
+
+    const expired = await db.prepare("SELECT * FROM runtime_sessions WHERE owner_key='owner-a' AND session_id='expired01'").first<Record<string, unknown>>();
+    expect(expired).toMatchObject({
+      lifecycle_state: 'stopped', response_revision: 5, lifecycle_reason: 'stop_timeout_forced_reset',
+      editor_ready: 0, editor_ready_error: 0,
+      unreachable_incident_id: null, unreachable_first_observed_at: null, unreachable_deadline_ms: null,
+      termination_intent_id: null, termination_generation: null, termination_claimed_at: null,
+      termination_signal_accepted_at: null,
+    });
+    expect((await db.prepare("SELECT lifecycle_state FROM runtime_sessions WHERE owner_key='owner-a' AND session_id='recent001'").first())?.lifecycle_state).toBe('stopping');
+    expect((await db.prepare("SELECT lifecycle_state FROM runtime_sessions WHERE owner_key='owner-a' AND session_id='running01'").first())?.lifecycle_state).toBe('running');
+    expect((await db.prepare("SELECT lifecycle_state FROM runtime_sessions WHERE owner_key='owner-b' AND session_id='expired02'").first())?.lifecycle_state).toBe('stopping');
+  });
+
   it('creates stopped and accepts one conditional Start generation claim', async () => {
     await createSession();
     const start = await db.prepare(`UPDATE runtime_sessions SET
