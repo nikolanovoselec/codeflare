@@ -15,7 +15,7 @@ import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../ope
 // Real pinned Wrangler/workerd, executed only in the Node CI suite. No deploy,
 // provider requests, secrets, production config or production fixture exports.
 let worker: Unstable_DevWorker | undefined;
-beforeAll(async () => {
+async function startWorker() {
   console.info('[native-loader] wrangler startup begin');
   worker = await unstable_dev(fileURLToPath(new URL('./fixtures/loader-worker.ts', import.meta.url)), {
     config: fileURLToPath(new URL('./fixtures/wrangler.toml', import.meta.url)),
@@ -23,7 +23,8 @@ beforeAll(async () => {
     experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
   });
   console.info('[native-loader] wrangler startup complete');
-}, 60_000);
+}
+beforeAll(startWorker, 60_000);
 afterAll(async () => {
   console.info('[native-loader] wrangler shutdown begin');
   await worker?.stop();
@@ -79,6 +80,7 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
 registerNativeDispatcherCases({
   fetch: async (path, init): Promise<Response> =>
     (await worker!.fetch(path, init as unknown as Parameters<Unstable_DevWorker['fetch']>[1])) as unknown as Response,
+  reset: async () => { await worker?.stop(); await startWorker(); },
   queuedActivity,
   activity,
 });

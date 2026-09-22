@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { OperatorActivityPreparation } from '../../../operators/activity';
 import type { ActivityFixtureCommand } from './loader-worker';
 import type { ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery } from './flue-native-fixture';
@@ -20,6 +20,7 @@ type Snapshot = {
 };
 type Harness = {
   fetch(path: string, init?: RequestInit): Promise<Response>;
+  reset(): Promise<void>;
   queuedActivity(patch?: Partial<OperatorActivityPreparation>): Promise<OperatorActivityPreparation>;
   activity(id: string, command: ActivityFixtureCommand): Promise<unknown>;
 };
@@ -116,6 +117,8 @@ export function registerNativeDispatcherCases(harness: Harness) {
   }
 
   describe('REQ-OPERATOR-048/051: pinned generated Flue in native workerd', () => {
+    beforeEach(() => harness.reset(), 60_000);
+
     it('executes a real model/tool submission through root alarms and records read-only Renovate evidence without a session', async () => {
       const { id } = await prepare();
       const submission = await send(id, delivery(id, { mode: 'hold' }));
@@ -292,6 +295,8 @@ export function registerNativeDispatcherCases(harness: Harness) {
   });
 
   describe('REQ-OPERATOR-047/048: captured generation native Flue authority', () => {
+    beforeEach(() => harness.reset(), 60_000);
+
     it.each(['stale', 'expiry', 'cancel'] as const)('rejects a warmed %s caller before its protected operation and result commitment', async reason => {
       await positiveControl();
       const { id, intent } = await prepare(reason === 'expiry' ? { deadline: Date.now() + 5_000 } : {});
