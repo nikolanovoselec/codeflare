@@ -96,8 +96,11 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     return this.facet ??= (async () => {
       const artifact = await this.artifact();
       const digest = await this.ctx.storage.get<string>('fixture:digest');
-      const binding = await this.facetBridgeBinding();
-      if (binding.status !== 'current') throw new Error('Native facet bridge generation is not current');
+      // Rehydrate the exact persisted facet generation for read-only state
+      // observation even after that generation reached `waiting`. The bound
+      // transport still checks live `running` authority before every effect.
+      const binding = await this.activityBinding();
+      if (!binding || binding.deadline <= Date.now()) throw new Error('Native facet bridge identity is unavailable');
       const { exports } = this.ctx as unknown as { exports: {
         FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
       } };
@@ -120,9 +123,13 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     })();
   }
 
+  private activityBinding() {
+    return this.env.ACTIVITY.getByName(this.name).facetBridgeBinding();
+  }
+
   /** The owner is the sole source for the generation captured by a new facet. */
   async facetBridgeBinding(generation?: number): Promise<FacetBridgeBinding> {
-    const current = await this.env.ACTIVITY.getByName(this.name).facetBridgeBinding();
+    const current = await this.activityBinding();
     if (!current || current.deadline <= Date.now() || current.status !== 'running') {
       return { generation: current?.generation ?? 0, status: 'denied' };
     }
