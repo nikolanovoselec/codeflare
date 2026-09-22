@@ -15,6 +15,7 @@ import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
 import { nativePromptCacheSupported, nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
 import { connectionFingerprint, verificationMatches } from './reasoning-verification';
+import { readBoundedResponse } from './bounded-stream';
 
 const logger = createLogger('access');
 const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
@@ -172,9 +173,108 @@ export async function requireOperatorHumanContext(
   for (const audience of config.accessAudList) {
     const human = await verifyHumanAccessJWT(accessJwt, config.authDomain, audience);
     if (human && human.email.trim().toLowerCase() === authenticatedEmail.trim().toLowerCase()
-      && human.expiresAt * 1000 > Date.now()) return { human, accessJwt };
+      && human.expiresAt * 1000 > Date.now()) return { human: await resolveOperatorGroupIdentity(human, accessJwt), accessJwt };
   }
   throw new ForbiddenError('Human Access authentication required');
+}
+
+/**
+ * Current operator membership uses the existing Access identity transport. Signed
+ * JWT group claims may outlive revocation, so they are replaced, never merged.
+ * This is deliberately separate from legacy display-name based enterprise gates.
+ * Only the verified issuer receives the credential; redirects are never followed.
+ */
+export async function resolveOperatorGroupIdentity(
+  human: VerifiedHumanAccessClaims, accessJwt: string,
+): Promise<VerifiedHumanAccessClaims> {
+  const denied = { ...human, groups: [] as string[] };
+  if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)
+    || !accessJwt || human.expiresAt * 1000 <= Date.now()) return denied;
+  try {
+    const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
+      method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
+      redirect: 'manual', signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok || !response.body) return denied;
+    const bytes = await readBoundedResponse(response, 65536, 'Access identity');
+    const identity: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return denied;
+    const record = identity as Record<string, unknown>;
+    const subject = record.user_uuid ?? record.id;
+    if (subject !== human.subject || (record.id !== undefined && record.id !== human.subject)
+      || typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)
+      || !Array.isArray(record.groups) || record.groups.length > 1024) return denied;
+    const groups: string[] = [];
+    for (const value of record.groups) {
+      // Names and bare strings are not stable identifiers in this transport.
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return denied;
+      const id = (value as { id?: unknown }).id;
+      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return denied;
+      groups.push(id);
+    }
+    return { ...human, groups: [...new Set(groups)] };
+  } catch { return denied; }
+}
+
+/** A persisted operator ACL. It is data, never an asserted current identity. */
+export interface OperatorGrant {
+  users: string[];
+  groups: Array<{ issuer: string; id: string }>;
+}
+
+export interface OperatorGrants {
+  managers: OperatorGrant;
+  invokers: OperatorGrant;
+}
+
+export type OperatorGrantKind = 'manager' | 'invoker';
+
+/**
+ * Resolve one current, cryptographically verified human against exactly one ACL.
+ * Management and invocation have no hierarchy: a management grant never implies
+ * invocation and vice versa. Missing/malformed persisted ACL data or unavailable
+ * group claims deny rather than falling back to a cached identity or a role.
+ */
+export function resolveOperatorGrant(
+  human: VerifiedHumanAccessClaims,
+  grants: Partial<OperatorGrants> | null | undefined,
+  kind: OperatorGrantKind,
+): boolean {
+  if (!human.email.trim() || !human.subject || human.expiresAt * 1000 <= Date.now()) return false;
+  const grant = kind === 'manager' ? grants?.managers : grants?.invokers;
+  if (!grant || !Array.isArray(grant.users) || !Array.isArray(grant.groups)) return false;
+  const email = normalizeEmail(human.email);
+  if (grant.users.some(candidate => typeof candidate === 'string' && normalizeEmail(candidate) === email)) return true;
+
+  // The Access issuer binds a group ID to its identity-provider namespace. Do
+  // not accept group IDs from a different issuer, and do not infer membership
+  // when Access omitted the signed group claim for this request.
+  if (!Array.isArray(human.groups)) return false;
+  const memberships = new Set(human.groups.filter(group => typeof group === 'string' && group.length > 0));
+  return grant.groups.some(group => group !== null
+    && typeof group === 'object'
+    && typeof group.issuer === 'string'
+    && typeof group.id === 'string'
+    && group.issuer === human.issuer
+    && memberships.has(group.id));
+}
+
+/** Both independent gates must pass. Platform-admin bypass belongs to the route's verified admin boundary. */
+export function canManageOperator(
+  human: VerifiedHumanAccessClaims, grants: Partial<OperatorGrants> | null | undefined,
+  eligibility: OperatorGrant | null | undefined,
+): boolean {
+  return resolveOperatorGrant(human, { managers: eligibility ?? undefined }, 'manager')
+    && resolveOperatorGrant(human, grants, 'manager');
+}
+
+/** Registration may use global eligibility, but must not derive it from a submitted operator ACL. */
+export function hasOperatorManagementEligibility(human: VerifiedHumanAccessClaims, eligibility: OperatorGrant | null | undefined): boolean {
+  return resolveOperatorGrant(human, { managers: eligibility ?? undefined }, 'manager');
+}
+
+export function canInvokeOperator(human: VerifiedHumanAccessClaims, grants: Partial<OperatorGrants> | null | undefined): boolean {
+  return resolveOperatorGrant(human, grants, 'invoker');
 }
 
 /** Auth config derived from the module-level cache after {@link loadAuthConfig}. */

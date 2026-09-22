@@ -277,8 +277,23 @@ export interface VerifiedHumanAccessClaims {
   readonly email: string;
   readonly issuer: string;
   readonly audiences: readonly string[];
+  /** Stable group IDs. Signed claims alone are not fresh revocation evidence;
+   * operator request authorization replaces them using the live Access identity. */
+  readonly groups?: readonly string[];
   readonly issuedAt: number;
   readonly expiresAt: number;
+}
+
+/**
+ * Group grants only consume stable string IDs from the signed Access token.
+ * Unknown group shapes deliberately become no membership rather than a best-effort
+ * identity match.
+ */
+function verifiedGroupIds(value: unknown): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 1024
+    || !value.every(group => typeof group === 'string' && group.length > 0 && group.length <= 256 && group.trim() === group)) return [];
+  return [...new Set(value as string[])];
 }
 
 /**
@@ -306,6 +321,7 @@ export async function verifyHumanAccessJWT(
     email: payload.email,
     issuer: payload.iss,
     audiences: [...payload.aud],
+    groups: verifiedGroupIds(payload.groups),
     issuedAt: payload.iat,
     expiresAt: payload.exp,
   };
