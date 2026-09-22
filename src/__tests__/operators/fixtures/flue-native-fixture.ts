@@ -52,6 +52,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private readonly instance = crypto.randomUUID();
   private facet?: Promise<Facet>;
   private releaseBarrier?: () => void;
+  private reboundGeneration?: number;
 
   constructor(ctx: DurableObjectState, env: NativeEnv) {
     super(ctx, env);
@@ -101,6 +102,10 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       // transport still checks live `running` authority before every effect.
       const binding = await this.activityBinding();
       if (!binding || binding.deadline <= Date.now()) throw new Error('Native facet bridge identity is unavailable');
+      // This root instance was reconstructed for this exact Activity generation.
+      // A persisted facet may still hold the prior static RPC object; only this
+      // fresh root can rebind it, so an old warm root cannot self-upgrade.
+      this.reboundGeneration = binding.generation;
       const { exports } = this.ctx as unknown as { exports: {
         FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
       } };
@@ -137,7 +142,8 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     if (!current || current.deadline <= Date.now() || current.status !== 'running') {
       return { generation: current?.generation ?? 0, status: 'denied' };
     }
-    return { generation: current.generation, status: generation === undefined || generation === current.generation ? 'current' : 'stale' };
+    return { generation: current.generation, status: generation === undefined || generation === current.generation
+      || this.reboundGeneration === current.generation ? 'current' : 'stale' };
   }
 
   async send(delivery: NativeDelivery) {
