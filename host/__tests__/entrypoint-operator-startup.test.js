@@ -53,6 +53,7 @@ function runAttachmentRestore({ portBound, nodeResult = 0 }) {
     'RCLONE_CONFIG_RESULT=0',
     'FLAG=$(mktemp -u)',
     'CODEFLARE_INIT_FLAG_FILE=$FLAG',
+    "trap 'rc=$?; if [ -e \"$CODEFLARE_INIT_FLAG_FILE\" ]; then printf \"ready-present\"; else printf \"ready-absent\"; fi; exit \"$rc\"' EXIT",
     'LOG=""',
     `node() { LOG="${'${LOG}'}restore-start,"; [ ! -e "$CODEFLARE_INIT_FLAG_FILE" ] || return 90; sleep 0.1; return ${nodeResult}; }`,
     'run_operator_startup() { LOG="${LOG}ready,"; touch "$CODEFLARE_INIT_FLAG_FILE"; }',
@@ -70,11 +71,11 @@ test('REQ-OPERATOR-052: attachment restore requires confirmed early bind and kee
   assert.match(unbound.stderr, /requires a bound terminal port/);
   const delayed = runAttachmentRestore({ portBound: 1 });
   assert.equal(delayed.status, 0, delayed.stderr);
-  assert.equal(delayed.stdout, 'restore-start,ready,');
+  assert.equal(delayed.stdout, 'restore-start,ready,ready-present');
 });
 
 test('REQ-OPERATOR-052: failed attachment restore cannot open readiness', () => {
   const failed = runAttachmentRestore({ portBound: 1, nodeResult: 7 });
   assert.equal(failed.status, 7, failed.stderr);
-  assert.equal(failed.stdout, '');
+  assert.equal(failed.stdout, 'ready-absent');
 });

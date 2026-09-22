@@ -497,8 +497,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       strategy: { matrix: { include: Array<{ shards: string }> } };
     };
     expect(host.strategy.matrix.include.map((leg) => leg.shards)).toEqual([
-      '1/5 2/5',
-      '3/5 4/5 5/5',
+      '1/5', '2/5', '3/5', '4/5', '5/5',
     ]);
     const partitions = host.strategy.matrix.include.flatMap((leg) => leg.shards.split(' ')).sort();
     expect(partitions).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
