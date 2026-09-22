@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 
 const getSetupStatus = vi.fn();
 const getUser = vi.fn();
@@ -61,6 +61,26 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.getByRole('button', { name: /register operator/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: new RegExp(`manage ${longName}`, 'i') })).toBeInTheDocument();
     expect(screen.queryByTestId('workspace')).not.toBeInTheDocument();
+  });
+
+  it('switches catalog and activity views through the router without a reload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url, 'https://operators.example.test').pathname;
+      if (path === '/api/operator-management/operators') return response({ items: [], cursor: null });
+      if (path === '/api/operator-activities') return response({ items: [] });
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'My activity' }));
+    expect(window.location.search).toBe('?view=activity');
+    expect(await screen.findByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Operator catalog' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Catalog' }));
+    expect(window.location.search).toBe('');
+    expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'My activity', level: 2 })).not.toBeInTheDocument();
   });
 
   it('keeps a denied catalog non-enumerating and presents a recoverable access state without operator details', async () => {

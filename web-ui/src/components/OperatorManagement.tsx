@@ -127,12 +127,19 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   const filter = (key: keyof api.CatalogQuery, value: string) => { setQuery({ ...query(), [key]: value, cursor: '' }); syncUrl(); };
   const register = () => { setRegistering(true); setPat(''); queueMicrotask(() => sourceInput?.focus()); };
   const closeRegistration = () => { setRegistering(false); setPat(''); queueMicrotask(() => registerButton?.focus()); };
+  const showSection = (activity: boolean) => {
+    setActivityView(activity); setSelected(''); setInvocationId(''); setRegistering(false); setPat('');
+    if (!activity) {
+      setQuery({ query: '', cursor: '', profile: '', realm: '', state: '' });
+      setSearch('');
+    }
+  };
 
   return <main class="operator-management">
     <div class="admin-page">
       <header class="admin-page-header"><div><p class="admin-eyebrow">Codeflare</p><h1 ref={heading} tabindex="-1">Operators</h1>
         <p>Manage exact releases and named installations. Invocation and activity remain personal.</p></div>
-        <nav class="operator-actions" aria-label="Operators navigation"><a href="/app">Back to workspace</a><a href="/operators">Catalog</a><a href="/operators?view=activity">My activity</a></nav>
+        <nav class="operator-actions" aria-label="Operators navigation"><a href="/app">Back to workspace</a><a href="/operators" onClick={() => showSection(false)}>Catalog</a><a href="/operators?view=activity" onClick={() => showSection(true)}>My activity</a></nav>
       </header>
       <Show when={!activityView()} fallback={<OperatorManagementActivity installationId={invocationId() || undefined} />}>
       <Show when={error()}><div class="operator-message" role="alert" aria-atomic="true"><p>{error()}</p>
