@@ -405,8 +405,8 @@ jobs:
     needs: changes
     env:
       DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
-      DISPATCHER_NATIVE_SHA256: f8a322cf5d9c81787fd540dca35fb6e0788dabb5e20e422fe26d7d4f284259a9
-      DISPATCHER_NATIVE_SOURCE_SHA: c6f137df63a16956b41e5ca05dcc69456f1cb2ab
+      DISPATCHER_NATIVE_SHA256: c7d9966471a755b3f06c9e29b5e3e581b2b8a021f967f22d47cb0df7a2e1e50e
+      DISPATCHER_NATIVE_SOURCE_SHA: 6028021aab62a6032f74f746723b38ec79a70e97
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
@@ -468,8 +468,8 @@ jobs:
     needs: changes
     env:
       DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
-      DISPATCHER_NATIVE_SHA256: f8a322cf5d9c81787fd540dca35fb6e0788dabb5e20e422fe26d7d4f284259a9
-      DISPATCHER_NATIVE_SOURCE_SHA: c6f137df63a16956b41e5ca05dcc69456f1cb2ab
+      DISPATCHER_NATIVE_SHA256: c7d9966471a755b3f06c9e29b5e3e581b2b8a021f967f22d47cb0df7a2e1e50e
+      DISPATCHER_NATIVE_SOURCE_SHA: 6028021aab62a6032f74f746723b38ec79a70e97
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
