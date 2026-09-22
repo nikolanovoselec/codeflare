@@ -2738,17 +2738,6 @@ else
     RCLONE_CONFIG_RESULT=1
 fi
 
-# Restore activity-owned opaque Operator attachments through the already-bound
-# owner bucket. The parent supplies only digest/size-bound locator metadata;
-# destinations stay beneath the fixed non-synced Operator resource root.
-if [ -n "${CODEFLARE_OPERATOR_ATTACHMENTS:-}" ]; then
-    if [ "$RCLONE_CONFIG_RESULT" -ne 0 ]; then
-        echo "[entrypoint] Operator attachment restore requires R2 configuration" >&2
-        exit 1
-    fi
-    node /opt/codeflare/scripts/restore-operator-attachments.mjs
-fi
-
 # Initialize sync log
 init_sync_log
 
@@ -2798,6 +2787,17 @@ elif kill -0 "$TERMINAL_PID" 2>/dev/null; then
     echo "[entrypoint] WARNING: Terminal server alive (PID $TERMINAL_PID) but port 8080 not bound after 5s"
 else
     echo "[entrypoint] WARNING: Terminal server process died before binding port 8080!"
+fi
+
+# Restore activity-owned opaque Operator attachments only after the early port
+# bind. Readiness remains closed until this digest/size-verified restore and the
+# remaining startup work complete.
+if [ -n "${CODEFLARE_OPERATOR_ATTACHMENTS:-}" ]; then
+    if [ "$RCLONE_CONFIG_RESULT" -ne 0 ]; then
+        echo "[entrypoint] Operator attachment restore requires R2 configuration" >&2
+        exit 1
+    fi
+    node /opt/codeflare/scripts/restore-operator-attachments.mjs
 fi
 
 # ============================================================================

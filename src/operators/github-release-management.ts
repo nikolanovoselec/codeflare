@@ -20,7 +20,7 @@ const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const commit = z.string().regex(/^[0-9a-f]{40}$/);
 const workflowPath = '.github/workflows/release.yml';
 const provenanceSchema = z.strictObject({
-  repositoryId: positive, sourceCommit: commit, manifestDigest: sha, bundleDigest: sha,
+  repositoryId: positive, sourceCommit: commit, compilerCommit: commit, manifestDigest: sha, bundleDigest: sha,
   workflow: z.strictObject({ id: positive, ref: z.string().min(1).max(512), runId: positive, runAttempt: positive }),
 });
 // GitHub adds fields to REST envelopes. Only package-authored documents are strict;
@@ -271,8 +271,9 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
     coreVersion: manifest.coreVersion, intentVersion: manifest.intentVersion,
     requestedCapabilities: [...manifest.requiredCapabilities], approved: false,
     assets: FILES.map(name => { const asset = remote.assets.find(candidate => candidate.name === name)!; return { id: asset.id, name, digest: digests.get(name)! }; }),
-    provenance: { workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref, runId: run.id, runAttempt: run.run_attempt,
-      artifactId: artifact.id, artifactDigest: artifact.digest.slice('sha256:'.length) },
+    provenance: { compilerCommit: provenance.compilerCommit, workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref,
+      runId: run.id, runAttempt: run.run_attempt, artifactId: artifact.id,
+      artifactDigest: artifact.digest.slice('sha256:'.length) },
   } };
 }
 

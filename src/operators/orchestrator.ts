@@ -78,7 +78,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   const usesConsumerContract = (!installationId && operatorId === GATE1_OPERATOR_ID)
-    || managementSelection?.release.manifest.profile === 'conductor';
+    || managementSelection?.operator.profile === 'conductor';
   const invocation = usesConsumerContract
     ? (() => {
       const consumer = parseOperatorConsumerInvocation(bounded);

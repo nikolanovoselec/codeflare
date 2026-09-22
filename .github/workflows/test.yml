@@ -464,8 +464,8 @@ jobs:
     needs: changes
     env:
       DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/.dispatcher-native/operator-bundle.json
-      DISPATCHER_NATIVE_SHA256: 12a3578018b4ffe6ca096470450259c2afaba373c963c3ce8f31d26a3094d2ad
-      DISPATCHER_NATIVE_SOURCE_SHA: 6e6430367439c52f48039462a515d0fc788899e8
+      DISPATCHER_NATIVE_SHA256: 79f16d941a1ce5e5232f2a468591cc678c95586a6b588e531f557d4932e30239
+      DISPATCHER_NATIVE_SOURCE_SHA: e0839d102f0640737f4d4f851f3781eab68fe0f5
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -496,8 +496,8 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           repository: nikolanovoselec/codeflare-operator-dispatcher
-          run-id: 35765139534
-          name: dispatcher-native-6e6430367439c52f48039462a515d0fc788899e8
+          run-id: 35772745326
+          name: operator-package
           path: .dispatcher-native
           github-token: ${{ github.token }}
 
@@ -505,8 +505,8 @@ jobs:
         if: matrix.group == 'native'
         run: |
           test "$(find .dispatcher-native -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ')" = 'operator-bundle.json operator-manifest.json operator-provenance.json '
-          echo '12a3578018b4ffe6ca096470450259c2afaba373c963c3ce8f31d26a3094d2ad  .dispatcher-native/operator-bundle.json' | sha256sum --check --strict
-          grep -F '"sourceCommit":"6e6430367439c52f48039462a515d0fc788899e8"' .dispatcher-native/operator-provenance.json
+          echo '79f16d941a1ce5e5232f2a468591cc678c95586a6b588e531f557d4932e30239  .dispatcher-native/operator-bundle.json' | sha256sum --check --strict
+          grep -F '"sourceCommit":"e0839d102f0640737f4d4f851f3781eab68fe0f5"' .dispatcher-native/operator-provenance.json
 
       - uses: ./.github/actions/install-deps
         with:

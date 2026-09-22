@@ -280,6 +280,12 @@ Its 1,024-event/1-MiB memory queue and 100-event/64-KiB cursor pages report gaps
 
 Restricted PID1 startup validates the paired Pi/sync identities, creates the private activity tree plus the human-readable `~/Operators` folder, and skips whole-home restore, managed-policy restore, bisync, Vault, and clone paths. Shutdown can wait for an already accepted upload but never starts persistence. See [Container — Restricted Operator Lifecycle](container.md#restricted-operator-lifecycle) and [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis).
 
+## Opaque package attachment restore
+
+Implements [REQ-OPERATOR-052](../../sdd/spec/operator-registry.md#req-operator-052-opaque-package-resources).
+
+At admission the parent owns attachment locator metadata, canonical relative paths, exact sizes and SHA-256 digests; package code receives no bucket credentials or arbitrary destination. The activity persists this bounded projection, and owned-session configuration exposes it only to restricted startup. After port 8080 is bound with readiness still closed, PID1 restores at most 16 attachments and 8 MiB beneath `/run/codeflare/operator-resources/input/`, rejects symlinks and path escapes, and verifies every restored file before initialization completes. Missing R2 configuration, unavailable bytes, or an identity mismatch fails closed before Operator work starts. These inputs remain outside synchronized human storage; packages alone interpret their contents. <!-- @impl: src/operators/attachments.ts --> <!-- @impl: src/container/index.ts::configureOperatorResources --> <!-- @impl: scripts/restore-operator-attachments.mjs --> <!-- @impl: entrypoint.sh -->
+
 ## Explicit scoped persistence
 
 Also implements [REQ-OPERATOR-022](../../sdd/spec/operators.md#req-operator-022-restricted-operator-container-lifecycle) and [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization).

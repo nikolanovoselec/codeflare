@@ -96,7 +96,7 @@ export interface ManagementRelease {
   repositoryId: number; sourceRevision: number; coreVersion: string; intentVersion: string;
   requestedCapabilities: string[];
   assets: Array<{ id: number; name: string; digest: string }>;
-  provenance: { workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
+  provenance: { compilerCommit: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
 export interface ManagementReleaseCandidate { release: ManagementRelease; manifestJson: string; bundleBytes: Uint8Array }
 export interface ManagementControls {
@@ -690,7 +690,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!row) return { ok: false, reason: 'not-found' };
       const release = JSON.parse(row.data) as ManagementRelease;
       if (!release.requestedCapabilities.every(capability => installation.policy.capabilities.includes(capability))
-        || !release.requestedCapabilities.every(capability => this.controls().ceiling.capabilities.includes(capability))) {
+        || !release.requestedCapabilities.every(capability => this.managementControls().ceiling.capabilities.includes(capability))) {
         throw new ValidationError('Release capabilities exceed installation policy');
       }
       if (release.sourceRevision !== state!.sourceRevision || !this.ctx.storage.sql.exec('SELECT part FROM operator_bytes WHERE digest=? LIMIT 1', release.bundleDigest).toArray().length) return { ok: false, reason: 'artifact-unapproved' };
@@ -717,7 +717,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         if (!row) return { ok: false, reason: 'artifact-unapproved' };
         const release = JSON.parse(row.data) as ManagementRelease;
         if (!release.requestedCapabilities.every(capability => installation.policy.capabilities.includes(capability))
-          || !release.requestedCapabilities.every(capability => this.controls().ceiling.capabilities.includes(capability))) {
+          || !release.requestedCapabilities.every(capability => this.managementControls().ceiling.capabilities.includes(capability))) {
           throw new ValidationError('Release capabilities exceed installation policy');
         }
         if (!release.approved || !this.ctx.storage.sql.exec('SELECT part FROM operator_bytes WHERE digest=? LIMIT 1', release.bundleDigest).toArray().length) return { ok: false, reason: 'artifact-unapproved' };

@@ -49,7 +49,7 @@ function archive(files: Array<{ name: string; bytes: Uint8Array }>): Uint8Array 
   return output;
 }
 
-export type GitHubFixtureFault = 'provenance-repository' | 'mutable-release' | 'failed-run' | 'build-bytes' | 'unsafe-redirect';
+export type GitHubFixtureFault = 'provenance-repository' | 'provenance-compiler' | 'mutable-release' | 'failed-run' | 'build-bytes' | 'unsafe-redirect';
 
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
@@ -74,7 +74,7 @@ export async function createOperatorGitHubFixture(options: {
     artifact: { path: '/operator-bundle.json', sha256: bundleDigest } }));
   const manifestDigest = await sha256(manifest);
   const provenance = encoder.encode(JSON.stringify({ repositoryId: options.fault === 'provenance-repository' ? 418 : repositoryId,
-    sourceCommit, manifestDigest, bundleDigest,
+    sourceCommit, compilerCommit: options.fault === 'provenance-compiler' ? 'invalid' : 'c'.repeat(40), manifestDigest, bundleDigest,
     workflow: { id: workflowId, ref: '.github/workflows/release.yml@refs/heads/main', runId, runAttempt: 1 } }));
   const files = [
     { id: 91, name: 'operator-manifest.json', bytes: manifest },

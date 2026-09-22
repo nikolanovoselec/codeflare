@@ -56,7 +56,7 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(refreshed.status).toBe(200);
     expect(await refreshed.json()).toMatchObject({ items: [expect.objectContaining({ operatorId: operator.operatorId, githubReleaseId: 81,
       sourceCommit: 'a'.repeat(40), manifestDigest: expect.stringMatching(/^[0-9a-f]{64}$/), bundleDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-      interfaceVersion: 1, approved: false })] });
+      interfaceVersion: 1, approved: false, provenance: expect.objectContaining({ compilerCommit: 'c'.repeat(40) }) })] });
   }));
 
   it('REQ-OPERATOR-048: acquires only the strict generated Dispatcher artifact and binds its source to provenance', async () => withManagementApi(async request => {
@@ -87,7 +87,7 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     await expect(detail.json()).resolves.toMatchObject({ releases: [] });
   }));
 
-  it.each(['provenance-repository', 'mutable-release', 'failed-run', 'build-bytes', 'unsafe-redirect'] as const)(
+  it.each(['provenance-repository', 'provenance-compiler', 'mutable-release', 'failed-run', 'build-bytes', 'unsafe-redirect'] as const)(
     'rejects %s without admitting release bytes or disclosing the PAT', async fault => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ fault });
     vi.stubGlobal('fetch', fixture.fetcher);

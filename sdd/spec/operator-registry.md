@@ -13,12 +13,10 @@ This release extends the existing Operator foundation with GitHub package instal
 1. Operators, immutable releases and named installations have separate stable identities. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
 2. Catalog search and cursor pages are authorization-filtered before return, with a default page size of 50 and maximum of 100. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
 3. A release or configuration change in one installation does not change another installation. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
-4. An admitted package may optionally declare generic text resources; packages without resources retain existing behavior. <!-- @impl: src/operators/package-resources.ts --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
-5. The parent projects only digest-and-size-verified resource bytes from declared canonical paths beneath its fixed non-synced resource root. <!-- @impl: src/operators/package-resources.ts --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
-6. Resource persistence is inert and non-authoritative. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
-7. Wake restores resource restrictions before context configuration or startup. <!-- @impl: src/container/index.ts::configureOperatorResources --> <!-- @impl: entrypoint.sh --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 
-**Constraints:** Package resources grant no authority and do not enter synchronized storage.
+**Notes:** Implementation is present, but exact-head CI and deployed restore evidence are incomplete.
+
+**Constraints:** Catalog and installation projections contain no stored source credential or hidden unauthorized count.
 
 **Priority:** P0
 
@@ -27,8 +25,6 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Adjacent catalog and package-resource tests cover the delivered behavior; exact-head CI and deployed restore evidence remain outstanding.
 
 **Status:** Partial
-
-**Notes:** Implementation is present, but exact-head CI and deployed restore evidence are incomplete.
 
 ---
 
@@ -46,6 +42,8 @@ This release extends the existing Operator foundation with GitHub package instal
 4. The shared package compiler deterministically emits the approved bundle schema, exact resource digests and sizes, and a matching discovery manifest. <!-- @impl: scripts/operator-package/compiler.mjs::compileOperatorPackage --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
 5. The package compiler rejects unsafe paths and package-supplied authority rather than inferring policy or bindings. <!-- @impl: scripts/operator-package/compiler.mjs::compileOperatorPackage --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
 
+**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+
 **Constraints:** Source credentials remain write-only; packages cannot grant capabilities.
 
 **Priority:** P0
@@ -55,8 +53,6 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Adjacent acquisition and compiler tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
-
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
 
 ---
 
@@ -72,6 +68,8 @@ This release extends the existing Operator foundation with GitHub package instal
 2. Invocation is a separate grant; managers do not gain another user's activities and invokers cannot mutate management state. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045) -->
 3. Stable verified group membership, revocation and resolver failure are enforced server-side. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045) -->
 
+**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+
 **Constraints:** Request bodies cannot grant global eligibility or execution identity.
 
 **Priority:** P0
@@ -81,8 +79,6 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Adjacent access tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
-
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
 
 ---
 
@@ -98,6 +94,8 @@ This release extends the existing Operator foundation with GitHub package instal
 2. Mutations require the current revision and persist exact approved release and configuration bytes. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 3. A source or trust change disables subsequent starts, and a retained approved release can be selected for rollback. <!-- @impl: src/operators/registry.ts --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 
+**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+
 **Constraints:** Promotion never expands installation policy or caller authority.
 
 **Priority:** P0
@@ -107,8 +105,6 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Adjacent promotion tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
-
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
 
 ---
 
@@ -127,6 +123,8 @@ This release extends the existing Operator foundation with GitHub package instal
 5. Completed output is bounded and durable before delivery; unknown completion is fenced. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 6. Parent-composed profiles may confine SDK filesystem tools to exact approved inputs and outputs without broader host access. <!-- @impl: host/src/operator-pi-review.ts::createOperatorPiReviewTools --> <!-- @test: host/__tests__/operator-pi-review.test.js (REQ-OPERATOR-021: parent-composed Pi filesystem sandbox) -->
 
+**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+
 **Constraints:** Profile admission can only narrow verified human authority.
 
 **Priority:** P0
@@ -136,8 +134,6 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Adjacent admission and production-composition tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
-
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
 
 ---
 
@@ -149,13 +145,15 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. Native Worker proof executes the pinned generated Flue artifact with delegated recovery, isolated storage for two activities, and bounded continuation after eviction. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
+1. The child runtime executes the pinned generated Flue artifact through the delegated Loader capability. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 2. One durable execution lease remains bound to its original generation, submission, input, release and expiry. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 3. Admission and status observation neither create a waiting checkpoint nor renew authority. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 4. Only exact completed settlement with no outstanding or unknown protected operation may commit waiting. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 5. Cancellation, expiry, revocation and stale warmed callers deny subsequent protected work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 6. The Dispatcher receives only bounded parent-authorized reads, inference and continuation scheduling, and cannot access sessions, containers, credentials or direct networking. <!-- @impl: src/operators/distribution.ts::parseDispatcherBundle --> <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-048: production Dispatcher bundle boundary) --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-048: production Dispatcher Loader host) -->
 7. Existing activity identity, storage, Gate 1 and default-entrypoint behavior remain compatible. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018) -->
+
+**Notes:** Production composition exists, but exact-head CI and production native eviction and alarm evidence are incomplete.
 
 **Constraints:** Uncertain external effects are fenced, not replayed; execution cannot outlive verified human authority.
 
@@ -166,8 +164,6 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Production-composition tests are instrumented rather than native. The existing native Loader fixture proves generated-artifact compatibility, not production eviction and alarm composition; exact-head CI and that native composition proof remain outstanding.
 
 **Status:** Partial
-
-**Notes:** Production composition exists, but exact-head CI and production native eviction and alarm evidence are incomplete.
 
 ---
 
@@ -183,6 +179,8 @@ This release extends the existing Operator foundation with GitHub package instal
 2. Catalog, registration, promotion, installation, grants and activity states expose no stored secrets. <!-- @impl: src/routes/operator-management.ts --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 3. Desktop, tablet and mobile retain usable controls, focus and scrolling for long names and errors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 
+**Notes:** Implementation is present, but exact-head CI and responsive browser evidence are incomplete.
+
 **Constraints:** The management surface cannot grant authority beyond server-side policy.
 
 **Priority:** P0
@@ -193,7 +191,34 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Status:** Partial
 
-**Notes:** Implementation is present, but exact-head CI and responsive browser evidence are incomplete.
+---
+
+### REQ-OPERATOR-050: Generic Conductor capability
+
+**Intent:** Any admitted Conductor package can use a profile-neutral owned session without receiving parent authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The parent binds the Conductor to the exact activity generation, installation revisions, human expiry and cancellation state before every protected effect. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic Conductor capability) -->
+2. The parent selects and owns the restricted session profile, bucket and fixed attachment destination; package input cannot replace them. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic Conductor capability) -->
+3. Opaque attachments are restored only from the admitted digest-and-size-bound projection before Conductor work starts. <!-- @impl: src/operators/attachments.ts --> <!-- @test: src/__tests__/operators/attachments.test.ts (generic Operator attachment projection) -->
+4. Structured Pi tasks run through the existing bounded host API and expose no credential or unrestricted filesystem capability. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic Conductor capability) -->
+5. Synchronization seals exact declared outputs and requires independent verification before completion. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic Conductor capability) -->
+6. Storage inspection is owner-scoped, canonical-path bounded and read-only. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic Conductor capability) -->
+
+**Notes:** Review packet, lane, finding, history and publication semantics remain package-owned.
+
+**Constraints:** The interface contains no Review-specific route or policy and grants no GitHub publisher credential.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-005](operators.md#req-operator-005-owned-operator-session-lifecycle)
+
+**Verification:** Adjacent capability, attachment and owned-session tests cover the delivered generic boundary; exact-head CI remains outstanding.
+
+**Status:** Partial
 
 ---
 
@@ -205,9 +230,11 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. Only the authorized repository, approved Renovate bot and bounded pull-request, check and diff inputs are read. <!-- @impl: src/operators/gate1-production.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
+1. The parent permits reads only for the admitted repository and bounded pull-request, check and diff inputs; package-owned policy determines which bot-authored requests qualify for assessment. <!-- @impl: src/operators/gate1-production.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
 2. Recommendations bind exact observed heads and make stale, truncated, rate-limited or insufficient evidence explicit. <!-- @impl: src/operators/gate1-production.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
 3. The parent denies repository mutation, session or container creation, and unattended reruns. <!-- @impl: src/operators/gate1-production.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
+
+**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
 
 **Constraints:** Assessment is read-only and remains bound to the admitted activity.
 
@@ -219,4 +246,56 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Status:** Partial
 
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+---
+
+### REQ-OPERATOR-052: Opaque package resources
+
+**Intent:** Admitted packages may receive inert resources without gaining storage or path authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An admitted package may declare bounded generic resources; packages without resources retain existing behavior. <!-- @impl: src/operators/package-resources.ts --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
+2. The parent projects only digest-and-size-verified bytes from canonical declared paths. <!-- @impl: src/operators/package-resources.ts --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
+3. Activity-owned resource persistence remains inert and non-authoritative. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
+4. Startup restores resources beneath the fixed non-synced root after port binding and before readiness opens. <!-- @impl: src/container/index.ts::configureOperatorResources --> <!-- @impl: entrypoint.sh --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
+5. Missing, oversized, path-escaping, symlinked or digest-mismatched resources fail closed before package work starts. <!-- @impl: scripts/restore-operator-attachments.mjs --> <!-- @test: host/__tests__/operator-attachment-restore.test.js (opaque Operator attachment restore) -->
+
+**Notes:** Package code interprets resource contents; Codeflare stores only opaque locator and integrity metadata.
+
+**Constraints:** Package resources grant no authority and never enter synchronized user storage.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-030](operators.md#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability)
+
+**Verification:** Adjacent package, attachment and startup tests cover the delivered behavior; exact-head CI remains outstanding.
+
+**Status:** Partial
+
+---
+
+### REQ-OPERATOR-053: Native Dispatcher recovery
+
+**Intent:** A generated Dispatcher preserves exact durable work across native Worker eviction.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An admitted generated Dispatcher resumes its original generation after native Worker eviction. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-048: production Dispatcher Loader host) -->
+2. Two activities retain isolated durable Dispatcher storage across recovery. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-048: production Dispatcher Loader host) -->
+3. Post-eviction continuation is bounded and does not repeat an already completed protected operation. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
+
+**Notes:** Generated-artifact and native-fixture details belong to Verification rather than the product behavior.
+
+**Constraints:** Recovery cannot renew identity, generation, release, input or expiry.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
+
+**Verification:** Native Loader and production continuation tests cover generated-artifact compatibility and bounded recovery; exact-head CI remains outstanding.
+
+**Status:** Partial

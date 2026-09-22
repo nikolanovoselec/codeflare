@@ -79,6 +79,7 @@ describe('deployment container image input hash', () => {
       'COPY entrypoint.sh /entrypoint.sh',
       'COPY transcript-retention.mjs /transcript-retention.mjs',
       'COPY scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs',
+      'COPY --chmod=0555 scripts/restore-operator-attachments.mjs /opt/codeflare/scripts/restore-operator-attachments.mjs',
       '',
     ].join('\n'));
     for (const path of [
@@ -98,6 +99,7 @@ describe('deployment container image input hash', () => {
       'scripts/browser-ide-ui-state.py',
       'scripts/browser-ide-extensions.py',
       'scripts/materialize-agent-seed.mjs',
+      'scripts/restore-operator-attachments.mjs',
       'scripts/patch-impeccable-engine.py',
       'scripts/ci/impeccable-engine.py',
       'scripts/patch-rclone-bisync.py',
