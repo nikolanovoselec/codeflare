@@ -26,8 +26,9 @@ async function withActivity(
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
     const activityEnv = {
+      ...env,
       OPERATOR_REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
-    };
+    } as ConstructorParameters<typeof OperatorActivity>[1];
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
     if (admitted) {

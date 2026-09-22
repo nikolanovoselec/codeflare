@@ -54,7 +54,7 @@ export async function parseDispatcherOperation(request: Request): Promise<Dispat
 export async function readDispatcherBody(message: Request | Response): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let size = 0;
   let value = '';
   try {

@@ -54,8 +54,8 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
   reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
 };
 
-interface ActivityEnv {
-  OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string;
+interface ActivityEnv extends Env {
+  OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
   OPERATOR_ACTIVITY?: DurableObjectNamespace<OperatorActivity>;
   LOADER?: Parameters<typeof loadOperatorDispatcherClass>[0];
 }
