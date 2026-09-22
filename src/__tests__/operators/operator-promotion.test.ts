@@ -41,7 +41,7 @@ async function withManagementApi(test: (request: (path: string, method?: string,
 describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
   it('keeps discovery and promotion disabled, rejects a stale mutation, and preserves an independent installation', async () => withManagementApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
-    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+    const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
     expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);

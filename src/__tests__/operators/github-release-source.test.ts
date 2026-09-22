@@ -42,7 +42,7 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
   it('stores a canonical repository identity without returning its acquisition-only PAT, then discovers a matching immutable release without enabling it', async () => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture();
     vi.stubGlobal('fetch', fixture.fetcher);
-    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+    const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
     expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
@@ -63,7 +63,7 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     'rejects %s without admitting release bytes or disclosing the PAT', async fault => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ fault });
     vi.stubGlobal('fetch', fixture.fetcher);
-    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+    const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
     expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
@@ -81,7 +81,7 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
   it('REQ-OPERATOR-044: release CDN transport succeeds without forwarding acquisition credentials', async () => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ useCdn: true });
     vi.stubGlobal('fetch', fixture.fetcher);
-    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+    const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
     expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
