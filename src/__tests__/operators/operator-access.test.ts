@@ -113,8 +113,11 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id })], cursor: null });
 
+    const detail = await request(`/api/operator-management/operators/${operator.id}`);
+    expect(detail.status).toBe(200);
+    const current = await detail.json() as { operator: { revision: number } };
     const transferred = await request(`/api/operator-management/operators/${operator.id}/grants`, 'POST', {
-      managers: { users: ['other-manager@example.test'], groups: [] }, invokers: registration.invokers, revision: operator.revision,
+      managers: { users: ['other-manager@example.test'], groups: [] }, invokers: registration.invokers, revision: current.operator.revision,
     });
     expect(transferred.status).toBe(200);
     const revised = await transferred.json() as { revision: number };

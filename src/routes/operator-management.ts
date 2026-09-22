@@ -50,10 +50,8 @@ app.use('*', authMiddleware);
 app.use('*', async (c, next) => {
   if (!c.env.OPERATOR_REGISTRY) throw new AppError('UNAVAILABLE', 503, 'Operator management unavailable');
   c.set('registry', c.env.OPERATOR_REGISTRY.getByName('registry'));
-  c.set('operatorHuman', await managementContext(c));
   return next();
 });
-app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
 function requireMutationCsrf(c: Context<RouteEnv>): void {
   if (c.req.header('x-requested-with') !== 'XMLHttpRequest') {
     throw new AppError('FORBIDDEN', 403, 'CSRF validation failed');
@@ -67,6 +65,11 @@ app.use('*', async (c, next) => {
   }
   return next();
 });
+app.use('*', async (c, next) => {
+  c.set('operatorHuman', await managementContext(c));
+  return next();
+});
+app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
 
 function denied(): never { throw new AppError('NOT_FOUND', 404, 'Operator not found'); }
 function result<T>(value: { ok: true; value: T } | { ok: false; reason: string }): T {
