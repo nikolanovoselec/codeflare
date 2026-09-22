@@ -113,7 +113,8 @@ export function registerNativeDispatcherCases(harness: Harness) {
     it('executes a real model/tool submission through root alarms and records read-only Renovate evidence without a session', async () => {
       const { id } = await prepare();
       const submission = await send(id, delivery(id, { mode: 'hold' }));
-      const running = await observe(id, value => value.barrierReached);
+      const running = await observe(id, value => value.barrierReached
+        && value.facet?.fibers.some(fiber => fiber.status === 'running') === true);
       expect(running.facet?.fibers).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'running' })]));
       await command(id, { action: 'release' });
       const value = await settle(id, submission);
