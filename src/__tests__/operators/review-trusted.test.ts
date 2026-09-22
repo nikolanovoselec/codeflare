@@ -20,7 +20,9 @@ async function fixture() {
     readApprovedResources: async () => resources,
     runCanonicalPacket: async (input: { lane: string; args: readonly string[]; script: string; maxBytes: number }) => {
       // Canonical CLI wire contract: a missing evidence flag must not produce usable evidence.
-      if (!input.args.includes('--with-evidence') || !input.script.endsWith('/build-review-packet.mjs')) throw Error('canonical CLI required');
+      if (input.script !== 'preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs'
+        || JSON.stringify(input.args) !== JSON.stringify(['--scope', 'diff', '--range', `${context.mergeBase}..${context.head}`,
+          '--lane', input.lane, '--with-evidence'])) throw Error('canonical CLI wire contract required');
       return encode({ scope: 'diff', workSet: 'changed-hunks-and-direct-invalidations', lane: input.lane,
         range: `${context.mergeBase}..${context.head}`, files: ['src/a.ts'], changedInputs: [], patch: '+change',
         evidence: { lane: input.lane, adrs: [], config: 'transition: false',
@@ -87,14 +89,15 @@ describe('REQ-OPERATOR-050: trusted canonical preparation', () => {
   });
 });
 
-async function resultFixture(options: { missing?: boolean; tamper?: boolean; cleanup?: boolean } = {}) {
+async function resultFixture(options: { missing?: boolean; tamper?: boolean; cleanup?: boolean; duplicate?: boolean } = {}) {
   const { prepared } = await preparedFixture();
   const objects = new Map<string, Uint8Array>();
   const files = [];
   for (const lane of REVIEW_LANES) {
     if (options.missing && lane === 'doc-updater') continue;
     const bytes = encode({ schemaVersion: 1, lane, packetDigest: prepared.packetDigest, head: context.head,
-      generation: 2, complete: true, omissions: [], findings: [] });
+      generation: 2, complete: true, omissions: [], findings: options.duplicate ? [{ id: 'duplicate', severity: 'HIGH',
+        path: 'src/a.ts', line: 1, evidence: 'evidence', message: 'finding' }] : [] });
     const path = `reports/${lane}.json`;
     files.push({ path, size: bytes.length, sha256: await reviewDigest(bytes) });
     objects.set(`output/${path}`, bytes);
@@ -119,6 +122,7 @@ describe('REQ-OPERATOR-050: independent persistence and cleanup', () => {
   it('requires independently verified bytes for every lane', async () => {
     expect((await resultFixture()).result).toMatchObject({ status: 'complete', cleanup: 'stopped', reports: expect.any(Array) });
     expect((await resultFixture({ missing: true })).result.status).toBe('incomplete');
+    expect((await resultFixture({ duplicate: true })).result.status).toBe('incomplete');
     const tampered = await resultFixture({ tamper: true });
     expect(tampered.result.status).toBe('incomplete'); expect(tampered.cleanup).toBe('stopped');
   });
@@ -191,6 +195,7 @@ describe('REQ-OPERATOR-050: independent publisher uncertainty and fencing', () =
   });
   it('never clears stale/partial rounds or republishes an ambiguous accepted write', async () => {
     const f = await publisherFixture();
+    expect((await publishReview(f.prepared, { ...f.result, cleanup: 'unknown' }, f.history, f.authority)).status).toBe('incomplete');
     const stale = await publishReview(f.prepared, f.result, f.history, { ...f.authority,
       readCurrent: async () => ({ ...context, activityId: admission.activityId, generation: 3 }) });
     expect(stale.status).toBe('stale'); expect(f.published).toEqual([]);
