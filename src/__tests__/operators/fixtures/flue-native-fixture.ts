@@ -104,7 +104,11 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       const { exports } = this.ctx as unknown as { exports: {
         FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
       } };
-      const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}`, async () => ({
+      // A continuation generation receives a newly bound dynamic class while
+      // retaining the same activity-private facet identity/SQLite. Reusing the
+      // old Loader key would retain generation one's RPC props and make a valid
+      // generation-two continuation indistinguishable from a stale warm caller.
+      const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}:${binding.generation}`, async () => ({
         compatibilityDate: artifact.compatibilityDate, compatibilityFlags: artifact.compatibilityFlags,
         mainModule: artifact.mainModule, modules: artifact.modules,
         // The facet receives only this direct, activity-private RPC target.
