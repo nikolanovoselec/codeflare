@@ -416,9 +416,10 @@ jobs:
       fail-fast: false
       max-parallel: 13
       matrix:
-        # Run 33339769228 supplies current per-file durations. With the calibrated
-        # 1.6-second per-file Workers startup cost, longest-first assignment targets
-        # twelve roughly 35-second groups plus Node to shorten the backend critical path.
+        # The twelve completed Workers artifacts from run 35723895426 supply the
+        # current per-file durations. Longest-first assignment uses their measured
+        # timings plus the calibrated per-file startup cost; the Node runtime is
+        # separate from this Workers-only weighted population.
         include:
           # Generated seed files are committed and drift-checked in Quality. Running
           # npm's `test` lifecycle here would regenerate them in all twelve isolated
