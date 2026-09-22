@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-22
 
+- **Dispatcher hosting is refined, not deferred** ([REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution)). The planned host reuses the existing Activity namespace and an isolated dynamic Flue facet with SDK-delegated alarm/fiber support, bounded non-renewing generation leases and restricted read/inference capabilities. Flue executes inside the package, not as a parent-side Renovate substitute. No container, per-operator deployment, copied scheduler or platform-wide Vite conversion is added. Real workerd compatibility and legacy regressions are required before production integration; current mocked capability tests are not native proof.
+
 - **Directed Operator Registry is specified for implementation** ([REQ-OPERATOR-043](operator-registry.md#req-operator-043-catalog-and-installations) through [REQ-OPERATOR-051](operator-registry.md#req-operator-051-renovate-dispatcher-assessment)). The release adds GitHub immutable package acquisition, delegated Operator Management, generic directed profile admission, Conductor Review, and read-only Dispatcher Renovate assessment while retaining Gate 1, legacy sources and local reviews. Implementation remains planned until behavior tests and deployment evidence pass.
 
 ## 2026-09-21

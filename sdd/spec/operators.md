@@ -1,6 +1,6 @@
 # Operators
 
-Enterprise-only Codeflare Operator Interface, registration, activity execution and administration. This domain specifies the Codeflare foundation only. Private Flue implementation, operational Remote Reviews adapters/publisher and required merge-check activation are outside this phase. Root sessions and existing human/local-review behavior remain unchanged.
+Enterprise-only Codeflare Operator Interface, registration, activity execution and administration. This domain specifies the delivered Codeflare foundation. The directed registry release extends its existing owners as specified in [Operator Registry](operator-registry.md), including the planned Flue facet host and Review integration; required merge-check activation remains out of scope. Root sessions and existing human/local-review behavior remain unchanged.
 
 **Domain owner:** Backend (Worker), container host and enterprise frontend
 
@@ -215,7 +215,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Child code inherits neither unrestricted bindings nor durable isolate state. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 4. Native-runtime fixtures prove parent-bound identity and outbound allow/deny behavior, but do not count as deployment acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 
-**Constraints:** Child code receives no unrestricted binding or inherited outbound access.
+**Constraints:** Child code receives no unrestricted binding or inherited outbound access. The fresh default-entrypoint rules above remain the legacy/Gate 1 contract. The planned Dispatcher extension in REQ-OPERATOR-048 may retain only its explicitly activity-private facet SQLite state and approved code; it may not inherit supervisor state or shared authority.
 
 **Priority:** P0
 
@@ -271,7 +271,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 6. Drive begin and commit recheck actual human-authority expiry. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-017: durable drive generation and checkpoint) -->
 7. The owning human explicitly resumes durable waiting work through a protected request. <!-- @impl: src/routes/operator-activities.ts::handleContinue --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
-**Constraints:** Generation transitions do not extend human authority.
+**Constraints:** Generation transitions do not extend human authority. REQ-OPERATOR-048's planned asynchronous facet lease uses the same generation authority: a pending HTTP admission is not a waiting checkpoint, status reads do not drive or renew execution, and a new generation requires safe quiescence plus explicit authorized continuation.
 
 **Priority:** P0
 
@@ -299,7 +299,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 6. Preparation or transport uncertainty fences the drive as unknown. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 7. Request-attached bundle transport and runtime share one 25-second deadline that never exceeds invoking-human authority. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 
-**Constraints:** Runtime deadlines never exceed verified human authority.
+**Constraints:** Runtime deadlines never exceed verified human authority. These request-attached default-entrypoint rules remain unchanged for legacy/Gate 1. The planned Dispatcher lease extension in REQ-OPERATOR-048 separately handles asynchronous Flue admission inside the same execution budget; it does not authorize work merely because a facet alarm fires.
 
 **Priority:** P0
 
