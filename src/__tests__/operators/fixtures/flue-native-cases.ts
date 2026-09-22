@@ -225,7 +225,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
         await command(id, { action: 'evict' });
         const after = await observe(id, value => value.activity.executionStatus === 'unknown');
         expect(after.external).toEqual(before.external);
-        expect(after.externalAttempts).toEqual(before.externalAttempts);
+        expect(after.externalAttempts).toHaveLength(2);
+        expect(after.externalAttempts[1]).toMatchObject({ operationId: input.operationId,
+          requestDigest: input.requestDigest, attempt: 2 });
         expect(after.activity.checkpoint).toBeNull();
         expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
         // Metadata observation must not turn a failed/unknown segment into replay.
