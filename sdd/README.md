@@ -55,7 +55,8 @@ When a public behavior change affects one of these operator contracts, update bo
 | [Agents](spec/agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
 | [GitHub](spec/github.md) | Connect GitHub, repo panel, clone-into-session, enterprise egress-injected git auth | P1 | Active |
 | [Enterprise Mode](spec/enterprise-mode.md) | Deploy-time enterprise instance, subscription bypass, Worker-side LLM proxy | P1 | Active |
-| [Operators](spec/operators.md) | Enterprise operator registration, principal-bound interfaces, activities and webhook capabilities; production orchestration and Gate 1 deployment evidence remain pending | P0 | Planned |
+| [Operators](spec/operators.md) | Enterprise operator foundation, principal-bound interfaces, activities and webhook capabilities | P0 | Active |
+| [Operator Registry](spec/operator-registry.md) | GitHub package installations, delegated management, directed Conductor/Dispatcher profiles, Review and read-only Renovate PoCs | P0 | Planned |
 | [Browser Run](spec/browser-run.md) | Real-browser WebFetch fallback via Cloudflare Browser Run | P2 | Active |
 | [Setup](spec/setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
 | [Landing](spec/landing.md) | Public enterprise landing page, mode-aware serving, contact pipeline | P1 | Active |
@@ -76,6 +77,7 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [changes.md](spec/changes.md) | Current product changelog (user-facing spec changes) |
 | [changes-archive-2026-07.md](spec/changes-archive-2026-07.md) | Archived product changelog through 2026-07-17 |
 | [changes-archive-2026-08.md](spec/changes-archive-2026-08.md) | Safety backup before the 2026-08 SDD cleanup |
+| [operator-registry-contract.md](spec/operator-registry-contract.md) | Frozen shared registry, management API, package and profile-capability contract for REQ-OPERATOR-043–051 |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
 

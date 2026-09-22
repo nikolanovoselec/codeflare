@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-22
+
+- **Directed Operator Registry is specified for implementation** ([REQ-OPERATOR-043](operator-registry.md#req-operator-043-catalog-and-installations) through [REQ-OPERATOR-051](operator-registry.md#req-operator-051-renovate-dispatcher-assessment)). The release adds GitHub immutable package acquisition, delegated Operator Management, generic directed profile admission, Conductor Review, and read-only Dispatcher Renovate assessment while retaining Gate 1, legacy sources and local reviews. Implementation remains planned until behavior tests and deployment evidence pass.
+
 ## 2026-09-21
 
 - **Stopped-session resume stays locked throughout managed seed updates** ([REQ-AGENT-175](agents.md#req-agent-175-environment-update-ui-lockdown)). Session cards now remain disabled from the pending phase through active reconciliation, including after the update request returns but before status polling confirms completion.
