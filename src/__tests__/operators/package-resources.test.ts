@@ -40,8 +40,12 @@ describe('generic admitted Operator package resources', () => {
       { source: 'package/config.md', destination: 'review/config', sha256: '0'.repeat(64), size: 26 },
       { source: 'package/config.md', destination: 'review/config', sha256: await sha('approved package resource\n'), size: 1 },
     ]) {
-      await expect(bundle({ schemaVersion: 1, files: [declared] }).then(value =>
-        projectOperatorPackageResources(value.parsed, value.digest))).rejects.toThrow();
+      let rejected = false;
+      try {
+        const value = await bundle({ schemaVersion: 1, files: [declared] });
+        await projectOperatorPackageResources(value.parsed, value.digest);
+      } catch { rejected = true; }
+      expect(rejected).toBe(true);
     }
   });
 

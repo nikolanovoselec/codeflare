@@ -105,7 +105,8 @@ async function fixture(test: (f: {
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
       deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) }, execution, invocationJson);
     expect(await activity.start('s'.repeat(43))).toEqual({ ok: true, phase: 'queued' });
-    const capability = new OperatorDispatcherCapability({ props: { activityId, generation: 1 } } as unknown as ExecutionContext, environment);
+    const capability = new OperatorDispatcherCapability({ props: { activityId, generation: 1 } } as unknown as ExecutionContext,
+      environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
       await test({ activity, capability, environment, artifactDigest, sent,
         settle: (id = 'submission-1', outcome = 'completed') => { settlements = [{ submissionId: id, outcome }]; },

@@ -13,8 +13,7 @@ import { loadOperatorDispatcherClass } from './loader';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody } from './gate1-production';
 import { z } from 'zod';
-import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt,
-  ManagementAdmissionReceipt } from './registry';
+import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { resolveOperatorGroupIdentity } from '../lib/access';
