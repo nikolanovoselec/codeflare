@@ -350,14 +350,17 @@ export function registerNativeDispatcherCases(harness: Harness) {
         // bound to generation one when the owner created it. Delivery JSON cannot
         // replace that authority with generation two.
         const forged = delivery(id, { generation: 2, marker: 'forged-generation-two' });
-        const rejected = await command<{ status: number; body: unknown }>(id, { action: 'send', delivery: forged });
-        expect(rejected.status).toBe(500);
+        const admitted = await command<{ status: number; body: { submissionId?: string } }>(id, { action: 'send', delivery: forged });
+        expect(admitted).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
         await command(id, { action: 'release' });
         const after = await observe(id, value =>
           value.conversation?.settlements.some(settlement => settlement.submissionId === warmSubmission) === true
-          && results(value).some(result => result.operationId === warm.operationId));
+          && results(value).some(result => result.operationId === warm.operationId)
+          && results(value).some(result => result.operationId === forged.operationId));
         expect(results(after).find(result => result.operationId === warm.operationId))
           .toMatchObject({ generation: 1, result: { status: 409 } });
+        expect(results(after).find(result => result.operationId === forged.operationId))
+          .toMatchObject({ generation: 2, result: { status: 409 } });
         expect(after.external).toEqual([]);
       } finally {
         await command(id, { action: 'release' });
