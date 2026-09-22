@@ -9,6 +9,7 @@ import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture'
 vi.mock('../../middleware/auth', async importOriginal => ({
   ...await importOriginal<typeof import('../../middleware/auth')>(),
   authMiddleware: async (c: any, next: any) => { c.set('user', { email: 'manager@example.test', role: 'admin', authenticated: true }); return next(); },
+  authenticateRequest: async () => ({ user: { email: 'manager@example.test', role: 'admin', authenticated: true }, bucketName: 'manager' }),
   requireAdmin: async (_c: any, next: any) => next(),
 }));
 vi.mock('../../lib/access', async importOriginal => ({
@@ -40,6 +41,9 @@ async function withManagementApi(test: (request: (path: string, method?: string,
 describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
   it('keeps discovery and promotion disabled, rejects a stale mutation, and preserves an independent installation', async () => withManagementApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number };

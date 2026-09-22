@@ -9,6 +9,7 @@ import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture'
 vi.mock('../../middleware/auth', async importOriginal => ({
   ...await importOriginal<typeof import('../../middleware/auth')>(),
   authMiddleware: async (c: any, next: any) => { c.set('user', { email: 'manager@example.test', role: 'admin', authenticated: true }); return next(); },
+  authenticateRequest: async () => ({ user: { email: 'manager@example.test', role: 'admin', authenticated: true }, bucketName: 'manager' }),
   requireAdmin: async (_c: any, next: any) => next(),
 }));
 vi.mock('../../lib/access', async importOriginal => ({
@@ -41,6 +42,9 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
   it('stores a canonical repository identity without returning its acquisition-only PAT, then discovers a matching immutable release without enabling it', async () => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture();
     vi.stubGlobal('fetch', fixture.fetcher);
+    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number };
@@ -59,6 +63,9 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     'rejects %s without admitting release bytes or disclosing the PAT', async fault => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ fault });
     vi.stubGlobal('fetch', fixture.fetcher);
+    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number };
@@ -74,6 +81,9 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
   it('REQ-OPERATOR-044: release CDN transport succeeds without forwarding acquisition credentials', async () => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ useCdn: true });
     vi.stubGlobal('fetch', fixture.fetcher);
+    const controls = await request('/access', 'POST', { revision: 0, managers: { users: [], groups: [] },
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    expect(controls.status).toBe(200);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number };

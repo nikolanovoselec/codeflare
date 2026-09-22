@@ -265,7 +265,8 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   return { manifestJson: JSON.stringify(manifest), bundleBytes, release: {
     id: `${source.id}-${source.sourceRevision}-${remote.id}`, operatorId: source.id, githubReleaseId: remote.id, repositoryId: source.repositoryId,
     sourceRevision: source.sourceRevision, sourceCommit: provenance.sourceCommit, manifestDigest, bundleDigest, interfaceVersion: 1,
-    coreVersion: manifest.coreVersion, intentVersion: manifest.intentVersion, approved: false,
+    coreVersion: manifest.coreVersion, intentVersion: manifest.intentVersion,
+    requestedCapabilities: [...manifest.requiredCapabilities], approved: false,
     assets: FILES.map(name => { const asset = remote.assets.find(candidate => candidate.name === name)!; return { id: asset.id, name, digest: digests.get(name)! }; }),
     provenance: { workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref, runId: run.id, runAttempt: run.run_attempt,
       artifactId: artifact.id, artifactDigest: artifact.digest.slice('sha256:'.length) },

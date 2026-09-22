@@ -29,6 +29,7 @@ const AnalyticsPage = lazy(() => import('./components/admin/AnalyticsPage'));
 const AnalyticsUserDetail = lazy(() => import('./components/admin/AnalyticsUserDetail'));
 const ReportsPage = lazy(() => import('./components/admin/ReportsPage'));
 const ActivityPage = lazy(() => import('./components/admin/ActivityPage'));
+const OperatorManagement = lazy(() => import('./components/OperatorManagement'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -51,6 +52,7 @@ const AppContent: Component = () => {
   const [userSubscriptionTier, setUserSubscriptionTier] = createSignal<SubscriptionTier | undefined>();
   const [onboardingActive, setOnboardingActive] = createSignal<boolean | undefined>();
   const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
+  const [operatorManagementEligible, setOperatorManagementEligible] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<string | null>(null);
   const [redirecting, setRedirecting] = createSignal(false);
@@ -105,6 +107,7 @@ const AppContent: Component = () => {
       setUserSubscriptionTier(user.subscriptionTier);
       setOnboardingActive(user.onboardingActive);
       setEnterpriseMode(user.enterpriseMode);
+      setOperatorManagementEligible(user.operatorManagementEligible === true || user.role === 'admin');
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
       sessionStore.setAllowedAgents(user.allowedAgents
@@ -197,7 +200,7 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} />
+          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} />
         </Show>
       </Show>
     </Show>
@@ -354,6 +357,27 @@ const AdministrationSubscriptions: Component = () => (
   <AdminSubscriptionManagement onBack={() => { window.location.href = '/admin'; }} />
 );
 
+const OperatorManagementRoute: Component = () => {
+  const [user, setUser] = createSignal<{ email: string; role?: 'admin' | 'user' }>();
+  onMount(async () => {
+    try {
+      const current = await getUser();
+      if (current.enterpriseMode !== true || (current.role !== 'admin' && current.operatorManagementEligible !== true)) {
+        window.location.href = '/app/';
+        return;
+      }
+      setUser({ email: current.email, role: current.role });
+    } catch (error) {
+      if (!(error instanceof ApiError && (error.authRedirect || error.status === 401))) redirectExpiredSession();
+    }
+  });
+  return (
+    <Show when={user()} fallback={<div class="app-loading"><div class="app-loading-spinner" /><span>Loading operators...</span></div>}>
+      {(current) => <OperatorManagement userEmail={current().email} isAdmin={current().role === 'admin'} />}
+    </Show>
+  );
+};
+
 const App: Component = () => {
   return (
     <ErrorBoundary
@@ -375,6 +399,7 @@ const App: Component = () => {
       <Route path="/app/subscribe" component={SubscribeGuard} />
       <Route path="/app/onboarding" component={OnboardingPage} />
       <Route path="/app/usage" component={UsagePage} />
+      <Route path="/operators" component={() => <SetupGuard><OperatorManagementRoute /></SetupGuard>} />
       <Route path="/admin" component={AdministrationShell}>
         <Route path="/" component={AdministrationOverview} />
         <Route path="/environment" component={EnvironmentIndex} />

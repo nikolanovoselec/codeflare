@@ -3,7 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { authenticateRequest, requireOperatorHumanContext, resolveAdminAccessGroup, canManageOperator, hasOperatorManagementEligibility } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -61,10 +61,12 @@ function result<T>(value: { ok: true; value: T } | { ok: false; reason: string }
   throw new AppError(hidden ? 'NOT_FOUND' : 'CONFLICT', hidden ? 404 : 409, hidden ? 'Operator not found' : 'Operator management conflict');
 }
 async function managementContext(c: Context<RouteEnv>, fresh = false): Promise<HumanContext> {
-  // Never persist request-scoped group elevation as a user role.
+  // New management authority uses the authenticated platform role or stable,
+  // issuer-bound management grants. Legacy display-name admin groups do not
+  // confer authority on this surface.
   const user = fresh ? (await authenticateRequest(c.req.raw, c.env)).user : c.get('user');
   const context = await requireOperatorHumanContext(c.req.raw, c.env, user.email);
-  const platformAdmin = user.role === 'admin' || (await resolveAdminAccessGroup(c.req.raw, c.env)).length > 0;
+  const platformAdmin = user.role === 'admin';
   const controls = await c.get('registry').getManagementControls();
   if (!platformAdmin && !hasOperatorManagementEligibility(context.human, controls.managers)) denied();
   return { ...context, controls, platformAdmin };

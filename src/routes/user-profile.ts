@@ -10,6 +10,7 @@ import { getOrImportKey } from '../lib/kv-crypto';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { isDownloadsDisabled } from '../lib/downloads-policy';
 import { allowedAgents } from '../lib/agent-allowlist';
+import { hasOperatorManagementEligibility, requireOperatorHumanContext } from '../lib/access';
 
 /**
  * Rate limiter for ensure-r2-token
@@ -44,6 +45,19 @@ app.get('/', async (c) => {
 
   const subscriptionTier = user.subscriptionTier ?? user.accessTier;
   const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
+  let operatorManagementEligible = false;
+  if (isEnterpriseMode(c.env) && c.env.OPERATOR_REGISTRY) {
+    if (user.role === 'admin') operatorManagementEligible = true;
+    else {
+      try {
+        const { human } = await requireOperatorHumanContext(c.req.raw, c.env, user.email);
+        const controls = await c.env.OPERATOR_REGISTRY.getByName('registry').getManagementControls();
+        operatorManagementEligible = hasOperatorManagementEligibility(human, controls.managers);
+      } catch {
+        // Management visibility fails closed; other user-profile fields remain available.
+      }
+    }
+  }
 
   return c.json({
     email: user.email,
@@ -59,6 +73,7 @@ app.get('/', async (c) => {
     hasSubscribed,
     subscribedMode,
     enterpriseMode: isEnterpriseMode(c.env),
+    operatorManagementEligible,
     // View-only storage (enterprise anti-exfil): tells the client to hide the Download
     // action in the Storage Panel. Server-side download.ts is the actual enforcement.
     downloadsDisabled: await isDownloadsDisabled(c.env),

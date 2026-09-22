@@ -94,6 +94,7 @@ export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
   repositoryId: number; sourceRevision: number; coreVersion: string; intentVersion: string;
+  requestedCapabilities: string[];
   assets: Array<{ id: number; name: string; digest: string }>;
   provenance: { workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
