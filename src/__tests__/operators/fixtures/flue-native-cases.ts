@@ -196,8 +196,11 @@ export function registerNativeDispatcherCases(harness: Harness) {
         expect((await snapshot(id)).external).toEqual(before.external);
       } finally {
         // The assertion intentionally leaves an unresolved external response.
-        // Abort the real generated facet after observing that state so its live
-        // fiber cannot keep the native Wrangler process alive after this case.
+        // First resolve the fixture-owned barrier; abort alone cannot settle a
+        // promise deliberately held inside the parent transport. The captured
+        // unknown generation remains denied, then the real generated facet can
+        // release its fiber before Wrangler teardown.
+        await command(id, { action: 'release' });
         await command(id, { action: 'abort' });
       }
     });
@@ -227,7 +230,8 @@ export function registerNativeDispatcherCases(harness: Harness) {
         expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
       } finally {
         // This case also deliberately leaves the model/tool fiber blocked.
-        // Tear down only after the timeout-state observation above.
+        // Resolve its fixture barrier before aborting the generated facet.
+        await command(id, { action: 'release' });
         await command(id, { action: 'abort' });
       }
     });
