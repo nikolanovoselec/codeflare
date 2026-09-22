@@ -183,16 +183,23 @@ export function registerNativeDispatcherCases(harness: Harness) {
     it('does not retry an accepted external effect with a lost result, and never calls unknown work a safe checkpoint', async () => {
       await positiveControl();
       const { id } = await prepare();
-      const input = delivery(id, { mode: 'unknown' });
-      await send(id, input);
-      const before = await observe(id, value => value.barrierReached && value.external.length === 1);
-      await command(id, { action: 'evict' });
-      const after = await observe(id, value => value.activity.executionStatus === 'unknown');
-      expect(after.external).toEqual(before.external);
-      expect(after.activity.checkpoint).toBeNull();
-      expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
-      // Metadata observation must not turn a failed/unknown segment into replay.
-      expect((await snapshot(id)).external).toEqual(before.external);
+      try {
+        const input = delivery(id, { mode: 'unknown' });
+        await send(id, input);
+        const before = await observe(id, value => value.barrierReached && value.external.length === 1);
+        await command(id, { action: 'evict' });
+        const after = await observe(id, value => value.activity.executionStatus === 'unknown');
+        expect(after.external).toEqual(before.external);
+        expect(after.activity.checkpoint).toBeNull();
+        expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
+        // Metadata observation must not turn a failed/unknown segment into replay.
+        expect((await snapshot(id)).external).toEqual(before.external);
+      } finally {
+        // The assertion intentionally leaves an unresolved external response.
+        // Abort the real generated facet after observing that state so its live
+        // fiber cannot keep the native Wrangler process alive after this case.
+        await command(id, { action: 'abort' });
+      }
     });
 
     it('fences a late result after an already-admitted effect without pretending cancellation undid that effect', async () => {
@@ -209,14 +216,20 @@ export function registerNativeDispatcherCases(harness: Harness) {
 
     it('bounds unfinished work without labelling a timed-out live submission a safe waiting checkpoint', async () => {
       const { id } = await prepare();
-      const started = Date.now();
-      await send(id, delivery(id, { mode: 'hold' }));
-      await observe(id, value => value.barrierReached);
-      const timedOut = await observe(id, value => value.activity.executionStatus === 'unknown', 26_000);
-      expect(Date.now() - started).toBeLessThan(30_000);
-      expect(timedOut.activity.checkpoint).toBeNull();
-      expect(timedOut.external).toEqual([]);
-      expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
+      try {
+        const started = Date.now();
+        await send(id, delivery(id, { mode: 'hold' }));
+        await observe(id, value => value.barrierReached);
+        const timedOut = await observe(id, value => value.activity.executionStatus === 'unknown', 26_000);
+        expect(Date.now() - started).toBeLessThan(30_000);
+        expect(timedOut.activity.checkpoint).toBeNull();
+        expect(timedOut.external).toEqual([]);
+        expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
+      } finally {
+        // This case also deliberately leaves the model/tool fiber blocked.
+        // Tear down only after the timeout-state observation above.
+        await command(id, { action: 'abort' });
+      }
     });
 
     it('conflicts changed input under a completed operation ID instead of performing another external read', async () => {
