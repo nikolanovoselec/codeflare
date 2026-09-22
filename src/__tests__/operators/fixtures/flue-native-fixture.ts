@@ -102,10 +102,11 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       // transport still checks live `running` authority before every effect.
       const binding = await this.activityBinding();
       if (!binding || binding.deadline <= Date.now()) throw new Error('Native facet bridge identity is unavailable');
-      // This root instance was reconstructed for this exact Activity generation.
-      // A persisted facet may still hold the prior static RPC object; only this
-      // fresh root can rebind it, so an old warm root cannot self-upgrade.
-      this.reboundGeneration = binding.generation;
+      // Rebinding a persisted facet is permitted only after the Activity owner
+      // recorded a real settled-submission checkpoint. Root reconstruction or
+      // a forced `waiting` state alone must never upgrade an old capability.
+      this.reboundGeneration = binding.generation > 1 && binding.checkpointSubmissionId
+        ? binding.generation : undefined;
       const { exports } = this.ctx as unknown as { exports: {
         FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
       } };

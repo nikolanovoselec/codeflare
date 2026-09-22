@@ -15,7 +15,7 @@ type Snapshot = {
   external: ExternalReceipt[];
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
-  conversation: { messages: Array<{ parts: Array<{ type: string; data?: Assessment }> }>;
+  conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
     settlements: Array<{ submissionId: string; outcome: string }> } | null;
 };
 type Harness = {
@@ -99,9 +99,11 @@ export function registerNativeDispatcherCases(harness: Harness) {
   }
   async function settle(id: string, submissionId: string) {
     return observe(id, value => {
-      const settlements = value.conversation?.settlements ?? [];
-      return settlements.some(settlement => settlement.submissionId === submissionId)
-        && results(value).length >= settlements.length;
+      const settlement = value.conversation?.settlements.find(item => item.submissionId === submissionId);
+      if (!settlement) return false;
+      if (settlement.outcome !== 'completed') return true;
+      return value.conversation?.messages.some(message => message.submissionId === submissionId
+        && message.parts.some(part => part.type === 'data-assessment')) === true;
     });
   }
   async function positiveControl() {
@@ -341,6 +343,7 @@ export function registerNativeDispatcherCases(harness: Harness) {
         await observe(id, value => value.barrierReached);
         expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
           update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'rollover-before-forgery' } } })).toMatchObject({ ok: true });
+        await command(id, { action: 'evict' });
         expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'running' } });
 
         // This submission reaches the existing generated facet, but its bridge was

@@ -18,16 +18,18 @@ export class FixtureActivity extends OperatorActivity {
   private readonly instanceId = crypto.randomUUID();
   getInstanceId(): string { return this.instanceId; }
   /** Fixture-private owner read; this capability is never bound into the child. */
-  async facetBridgeBinding(): Promise<{ generation: number; status: string; deadline: number } | null> {
+  async facetBridgeBinding(): Promise<{ generation: number; status: string; deadline: number; checkpointSubmissionId?: string } | null> {
     const record = await this.ctx.storage.get<unknown>('admission') as {
-      intent?: { deadline?: unknown }; drive?: { generation?: unknown; status?: unknown };
+      intent?: { deadline?: unknown }; drive?: { generation?: unknown; status?: unknown; checkpoint?: unknown };
     } | undefined;
     const generation = record?.drive?.generation;
     const status = record?.drive?.status;
     const deadline = record?.intent?.deadline;
     if (!record || typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1
       || typeof status !== 'string' || typeof deadline !== 'number' || !Number.isFinite(deadline)) return null;
-    return { generation, status, deadline };
+    const checkpoint = record.drive?.checkpoint as { submissionId?: unknown } | null | undefined;
+    return { generation, status, deadline,
+      ...(typeof checkpoint?.submissionId === 'string' ? { checkpointSubmissionId: checkpoint.submissionId } : {}) };
   }
   evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }
