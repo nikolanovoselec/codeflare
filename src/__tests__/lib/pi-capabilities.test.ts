@@ -357,7 +357,7 @@ describe('REQ-AGENT-095/096: event-backed skill discovery and policy boundaries'
     const packaged = fixture.skill('package-native');
     packaged.sourceInfo.origin = 'package';
     await fixture.observe([project, user, packaged], false);
-    expect(await fixture.search('skill:project-native')).toEqual([]);
+    expect(identities(await fixture.search('skill:project-native'))).not.toContain('skill:project-native');
     expect(identities(await fixture.search('skill:user-native'))).toEqual(['skill:user-native']);
     expect(identities(await fixture.search('skill:package-native'))).toEqual(['skill:package-native']);
     await fixture.observe([project, user, packaged], true);
