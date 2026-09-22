@@ -54,6 +54,12 @@ app.use('*', async (c, next) => {
   return next();
 });
 app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
+app.use('*', async (c, next) => {
+  if (c.req.method === 'POST' && c.req.header('x-requested-with') !== 'XMLHttpRequest') {
+    throw new AppError('FORBIDDEN', 403, 'CSRF validation failed');
+  }
+  return next();
+});
 
 function denied(): never { throw new AppError('NOT_FOUND', 404, 'Operator not found'); }
 function result<T>(value: { ok: true; value: T } | { ok: false; reason: string }): T {

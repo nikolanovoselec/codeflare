@@ -26,7 +26,7 @@ vi.mock('../../lib/access', async importOriginal => ({
   }),
 }));
 
-type RequestApi = (path: string, method?: string, body?: unknown) => Promise<Response>;
+type RequestApi = (path: string, method?: string, body?: unknown, csrf?: boolean) => Promise<Response>;
 const registration = {
   repositoryUrl: 'https://github.com/acme/release-operator', githubPat: 'write-only-fixture-pat',
   profile: 'conductor', realm: 'internal',
@@ -39,9 +39,9 @@ async function withApi(test: (request: RequestApi) => Promise<void>) {
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     const kv = createMockKV();
-    const request: RequestApi = (path, method = 'GET', body) => worker.fetch(new Request(`https://operators.example.test${path}`, {
+    const request: RequestApi = (path, method = 'GET', body, csrf = true) => worker.fetch(new Request(`https://operators.example.test${path}`, {
       method, headers: { 'content-type': 'application/json', 'cf-access-authenticated-user-email': actor.email,
-        'x-requested-with': 'XMLHttpRequest', 'cf-access-jwt-assertion': 'verified-access-token' },
+        ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}), 'cf-access-jwt-assertion': 'verified-access-token' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }), { KV: kv, ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: 'active',
       OPERATOR_REGISTRY: { getByName: () => registry },
@@ -87,6 +87,12 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
+  it('rejects a cross-origin simple management mutation before it can self-nominate authority', async () => withApi(async request => {
+    const denied = await request('/api/operator-management/operators', 'POST', registration, false);
+    expect(denied.status).toBe(403);
+    expect((await request('/api/operator-management/operators')).status).toBe(404);
+  }));
+
   it('does not derive global management eligibility from self-nominated registration ACLs', async () => withApi(async request => {
     const denied = await request('/api/operator-management/operators', 'POST', registration);
     expect(denied.status).toBe(404);
