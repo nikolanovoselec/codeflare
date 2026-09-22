@@ -32,7 +32,7 @@ const registration = { repositoryUrl: 'https://github.com/acme/review-operator',
   invokers: { users: ['manager@example.test'], groups: [] }, policy };
 
 async function withManagementApi(test: (request: (path: string, method?: string, body?: unknown) => Promise<Response>) => Promise<void>) {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     const kv = createMockKV();
