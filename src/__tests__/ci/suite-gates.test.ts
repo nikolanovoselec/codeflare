@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import { CLOUDFLARE_TEST_OPTIONS } from '../../../vitest.config';
-import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
+import { NODE_SUITE_FILES, nodeSuiteFiles } from '../../../vitest.node-suite.mjs';
 import { sharedCacheEnabled } from '../../../scripts/ci/container-build-cache-policy.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { assignWeightedFiles } from '../../../scripts/ci/select-weighted-backend-tests.mjs';
@@ -474,13 +474,18 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
       '1/12', '2/12', '3/12', '4/12', '5/12', '6/12',
-      '7/12', '8/12', '9/12', '10/12', '11/12', '12/12', '',
+      '7/12', '8/12', '9/12', '10/12', '11/12', '12/12',
     ]);
-    const workerLegs = backend.strategy.matrix.include.filter((leg) => leg['balance-group']);
-    expect(workerLegs.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '')).toBe(true);
-    expect(backend.strategy.matrix.include.find((leg) => !leg['balance-group'])).toMatchObject({
-      slug: 'node', script: 'test:node', 'pre-run': 'npm run pretest',
-    });
+    expect(backend.strategy.matrix.include.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '')).toBe(true);
+    const node = testWorkflow.jobs['backend-node-tests'] as {
+      strategy: { matrix: { include: Array<Record<string, string>> } };
+    };
+    expect(node.strategy.matrix.include).toEqual([
+      { slug: 'native', group: 'native' }, { slug: 'rest', group: 'rest' },
+    ]);
+    expect(nodeSuiteFiles('native')).toEqual(['src/__tests__/operators/loader-runtime.test.ts']);
+    expect(new Set([...nodeSuiteFiles('native'), ...nodeSuiteFiles('rest')])).toEqual(new Set(NODE_SUITE_FILES));
+    expect(nodeSuiteFiles('native').filter((file) => nodeSuiteFiles('rest').includes(file))).toEqual([]);
     const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
     const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
       steps: Array<{ uses?: string; with?: Record<string, string> }>;

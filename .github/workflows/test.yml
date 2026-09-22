@@ -414,7 +414,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 13
+      max-parallel: 12
       matrix:
         # The twelve completed Workers artifacts from run 35723895426 supply the
         # current per-file durations. Longest-first assignment uses their measured
@@ -437,7 +437,6 @@ jobs:
           - { balance-group: '10/12', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '11/12', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '12/12', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -463,6 +462,52 @@ jobs:
           pre-run: ${{ matrix.pre-run }}
           tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
           coverage: ${{ matrix.coverage }}
+
+  backend-node-tests:
+    name: Backend tests (node-${{ matrix.slug }})
+    needs: changes
+    env:
+      DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
+      DISPATCHER_NATIVE_SHA256: f8a322cf5d9c81787fd540dca35fb6e0788dabb5e20e422fe26d7d4f284259a9
+      DISPATCHER_NATIVE_SOURCE_SHA: c6f137df63a16956b41e5ca05dcc69456f1cb2ab
+      VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.backend == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    # The native workerd group normally completes in about 40 seconds. Bound it
+    # independently so a stuck generated facet does not hold ordinary Node tests
+    # or the complete backend lane for ten minutes.
+    timeout-minutes: 3
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { slug: native, group: native }
+          - { slug: rest, group: rest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        with:
+          key-prefix: root
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        run: mkdir -p web-ui/dist
+
+      - name: Run suite (fail-closed gate)
+        uses: ./.github/actions/vitest-suite
+        with:
+          script: test:node
+          artifact-name: backend-node-${{ matrix.slug }}
+          pre-run: npm run pretest
 
   workflow-audit:
     name: Workflow audit
@@ -1169,6 +1214,7 @@ jobs:
       - coverage-backend
       - coverage-frontend
       - backend-tests
+      - backend-node-tests
       - frontend-tests
       - frontend-build
       - landing-tests

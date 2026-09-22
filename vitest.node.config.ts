@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { NODE_SUITE_FILES } from './vitest.node-suite.mjs';
+import { nodeSuiteFiles } from './vitest.node-suite.mjs';
 
 // The backend test files that run under plain Node, NOT the Workers pool.
 //
@@ -19,7 +19,7 @@ export default defineConfig({
     // under the threads pool. Forks is vitest's current default, so relying on
     // it would make a pool switch or a major bump an opaque suite failure.
     pool: 'forks',
-    include: [...NODE_SUITE_FILES],
+    include: nodeSuiteFiles(process.env.VITEST_NODE_SUITE_GROUP),
     slowTestThreshold: 5000,
     testTimeout: 30000,
     hookTimeout: 30000,
