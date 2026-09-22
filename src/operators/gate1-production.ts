@@ -2,7 +2,11 @@ import { getContainer } from '@cloudflare/containers';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from '../types';
 import { parseOperatorContainerProfile } from '../container/operator-context';
-import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup } from '../lib/access';
+import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
+  resolveOperatorGroupIdentity, canInvokeOperator } from '../lib/access';
+import { getAigConfig } from '../lib/aig-config';
+import { resolveOperatorInference } from './inference-selection';
+import { z } from 'zod';
 import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getR2Config } from '../lib/r2-config';
 import { getSseHeaders } from '../lib/r2-sse';
@@ -20,6 +24,139 @@ import type { OperatorRuntimePlan, OperatorActivity } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 
 type Gate1Activity = DurableObjectStub<OperatorActivity>;
+
+const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
+  resource: z.enum(['pull-request', 'files', 'checks']) });
+const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperationId,
+  input: z.strictObject({
+    messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
+    tool_choice: z.json().optional(), max_tokens: z.number().int().min(1).max(8192).optional(),
+    temperature: z.number().min(0).max(2).optional(), stream: z.boolean().optional(),
+  }) });
+
+export type DispatcherOperation = { operationId: string; path: string; body: unknown };
+
+/** Bounded transport wire: no arbitrary destination, headers, identity, model or resource selection. */
+export async function parseDispatcherOperation(request: Request): Promise<DispatcherOperation> {
+  const url = new URL(request.url);
+  if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
+    || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
+  const value = JSON.parse(await readDispatcherBody(request));
+  const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
+    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema : null;
+  if (!schema) throw new Error('Dispatcher route denied');
+  const body = schema.parse(value);
+  return { operationId: body.operationId, path: url.pathname, body };
+}
+
+/** Shared byte ceiling for requests, child admission/status and persisted effect output. */
+export async function readDispatcherBody(message: Request | Response): Promise<string> {
+  if (!message.body) throw new Error('Dispatcher body unavailable');
+  const reader = message.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let size = 0;
+  let value = '';
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return value + decoder.decode();
+      size += chunk.value.byteLength;
+      if (size > 64 * 1024) throw new Error('Dispatcher body exceeds limit');
+      value += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+
+/** Current management authority is re-opened for each effect; receipt pins are never refreshed. */
+export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: Env) {
+  if (!isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher'
+    || plan.deadline <= Date.now() || !env.OPERATOR_REGISTRY) throw new Error('Dispatcher authority denied');
+  const pinned = plan.receipt.selection;
+  const selected = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
+  if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
+    || selected.value.operator.revision !== pinned.operator.revision
+    || selected.value.controlsRevision !== pinned.controlsRevision
+    || selected.value.release.bundleDigest !== pinned.release.bundleDigest
+    || selected.value.operator.profile !== 'dispatcher') throw new Error('Dispatcher installation changed');
+  const authority = await openOperatorExecutionAccess(plan.executionContext, env);
+  const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
+  if (!canInvokeOperator(human, selected.value.operator)) throw new Error('Dispatcher invoker denied');
+  const parent = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+    pullRequest: z.number().safe().int().positive() }).parse(JSON.parse(plan.invocationJson));
+  // No resource resolver is introduced: only the direct read/inference profile is supported.
+  if (pinned.installation.policy.resourceProfileId !== null) throw new Error('Dispatcher resource profile unavailable');
+  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy };
+}
+
+/** Parent-only composition with the existing credential-injecting interceptors, never direct upstream fetch. */
+export async function createDispatcherOperation(input: {
+  plan: OperatorRuntimePlan; env: Env; exports: Record<string, (options: { props: Record<string, unknown> }) => Fetcher>;
+  operation: DispatcherOperation; current: () => Promise<boolean>;
+}): Promise<() => Promise<Response>> {
+  const { plan, env, operation } = input;
+  const { authority, parent, policy: installationPolicy } = await authorizeDispatcherPlan(plan, env);
+  const current = async () => {
+    await authorizeDispatcherPlan(plan, env);
+    if (!await input.current()) throw new Error('Dispatcher generation changed');
+  };
+  const inference = operation.path === '/v1/dispatcher/inference';
+  if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
+  const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
+    github: { repositories: [parent.repository.toLowerCase()], methods: ['GET'] },
+    storage: { readPrefixes: [], writePrefixes: [] },
+    inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
+  if (inference) {
+    if (!input.exports.LlmInterceptor) throw new Error('LLM interceptor unavailable');
+    const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+    }), env);
+    const routes = await loadEnterpriseRouteConfig(env, groups);
+    // Only the current human default is selected; a child cannot widen or replace it.
+    policy.inference = { routeIds: [routes.defaultRoute], defaultRouteId: routes.defaultRoute,
+      reasoningLevels: [routes.defaultReasoning], defaultReasoningLevel: routes.defaultReasoning, inheritUserDefaults: false };
+    const trusted = resolveOperatorInference({ policy, eligible: { routeIds: routes.routeCatalog,
+      defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
+    const aig = await getAigConfig(env);
+    const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
+      sessionId: `operator-${plan.activityId}`, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
+      operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted } } });
+    const value = dispatcherInferenceSchema.parse(operation.body);
+    return async () => {
+      await current();
+      return transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
+          max_tokens: value.input.max_tokens ?? 8192, model: trusted.routeId, stream: value.input.stream ?? true }) }));
+    };
+  }
+  if (!input.exports.GitHubInterceptor) throw new Error('GitHub interceptor unavailable');
+  const bucket = await resolveBucketName(env, authority.human.email);
+  const transport = input.exports.GitHubInterceptor({ props: { user: authority.human.email, bucket, strict: true, operatorPolicy: policy } });
+  const { resource } = dispatcherReadSchema.parse(operation.body);
+  const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
+  const base = `https://${host}/repos/${parent.repository}`;
+  const get = async (path: string) => {
+    await current();
+    return transport.fetch(new Request(base + path, { headers: { accept: 'application/vnd.github+json' } }));
+  };
+  return async () => {
+    const pull = await get(`/pulls/${parent.pullRequest}`);
+    if (!pull.ok) return pull;
+    const pullBody = await readDispatcherBody(pull);
+    const observed = JSON.parse(pullBody);
+    if (observed?.user?.login !== 'renovate[bot]' || observed?.user?.id !== 29139614
+      || !/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Renovate evidence unavailable');
+    if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
+    const response = await get(resource === 'files' ? `/pulls/${parent.pullRequest}/files?per_page=100&page=1`
+      : `/commits/${observed.head.sha}/check-runs?per_page=100&page=1`);
+    if (!response.ok) return response;
+    const data = JSON.parse(await readDispatcherBody(response));
+    return Response.json({ data, observedHead: observed.head.sha,
+      truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
+  };
+}
+
 interface OperatorRuntimeCapabilityProps { activityId: string; generation: number }
 
 function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt): receipt is ManagementAdmissionReceipt {

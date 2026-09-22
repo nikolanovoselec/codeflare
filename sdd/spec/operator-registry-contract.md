@@ -58,6 +58,13 @@ The platform derives identity, input digest, release, installation and resource 
 | Conductor | `POST /v1/conductor/review`: prepared packet reference; `GET /v1/conductor/review/:operationId`: bounded progress; `POST /v1/conductor/review/:operationId/cancel`: owned cancellation |
 | Dispatcher | Package-owned Flue/Renovate execution receives only activity-scoped GitHub-read and inference primitives. Existing `/v1/dispatcher/renovate` start/progress semantics select the admitted package operation; they are not a parent implementation of the model/tool loop. |
 
+The Dispatcher production primitive wire is deliberately narrow:
+
+- `POST /v1/dispatcher/github/read`: `{ operationId, resource: "pull-request" | "files" | "checks" }`. Repository and PR come only from the persisted invocation. The parent confirms the Renovate login/ID and observed head; file/check reads are limited to the first 100-item page and return `{ data, observedHead, truncated }`. The installation must permit `fetch`.
+- `POST /v1/dispatcher/inference`: `{ operationId, input: { messages, tools?, tool_choice?, max_tokens?, temperature?, stream? } }`. The installation must permit `inference`. The parent selects only the current human default eligible route/reasoning and sends the OpenAI Chat Completions wire through `LlmInterceptor`; no child-selected model, identity, token, URL or headers are forwarded. Token output is capped at 8192; messages/tools are capped at 128/32.
+- Both use `https://operator.internal`, JSON request bodies and a 64 KiB request/response ceiling. An activity retains at most 128 operation records; completed response bodies are separate bounded storage values. Lost/oversized/upstream-uncertain completion fences the lease and is never replayed. A non-null resource profile is rejected until an existing parent resource resolver supports it; this slice adds no resolver or configuration setting.
+- The capability's only RPC methods are the nine pinned Agents facet schedule/list/cancel, keepalive and fiber-registration methods. Paths must name the exact Activity and fixed `dispatcher` facet. Only Flue's `__flueWakeAgentSubmissions` callback is schedulable, with bounded timing/counts; root callbacks and foreign paths are denied. Direct egress is null.
+
 The parent rejects unknown routes, mismatched activity/generation, expired/cancelled authority, changed operation digest and capability/resource requests outside the installed policy. Dispatcher routes never create or expose a session/container. Conductor routes never accept arbitrary session IDs. Both return bounded structured outcomes; network and upstream credentials remain parent-owned.
 
 ## Package release files
