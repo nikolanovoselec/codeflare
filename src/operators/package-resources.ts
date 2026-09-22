@@ -14,7 +14,7 @@ function canonical(value: string, absolute: boolean): boolean {
     && part !== '__proto__' && part !== 'constructor' && part !== 'prototype');
 }
 
-export const packageResourceManifestSchema = z.strictObject({
+const packageResourceManifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   files: z.array(z.strictObject({
     source: z.string().refine(value => canonical(value, false)),

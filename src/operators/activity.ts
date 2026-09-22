@@ -203,11 +203,12 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  * Queued state is the durable execution intent, not proof that work has run.
  */
 export class OperatorActivity extends Agent<ActivityEnv> {
+  declare readonly env: ActivityEnv;
   #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
   #reconciling?: Promise<void>;
 
-  constructor(ctx: DurableObjectState, env: ActivityEnv) {
-    super(ctx, env);
+  constructor(ctx: DurableObjectState, env: AppEnv) {
+    super(ctx, env as ActivityEnv);
     ctx.blockConcurrencyWhile(async () => {
       const lease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (lease?.status === 'admitting') {
@@ -300,9 +301,10 @@ export class OperatorActivity extends Agent<ActivityEnv> {
   async savePackageResources(input: unknown): Promise<void> {
     const projection = parseOperatorPackageResourceProjection(input);
     const plan = await this.getRuntimePlan();
-    const digest = plan && isManagementReceipt(plan.receipt)
-      ? plan.receipt.selection.release.bundleDigest : plan?.receipt.artifactDigest;
-    if (!digest || projection.artifactDigest !== digest) throw new Error('Package resource digest mismatch');
+    if (!plan) throw new Error('Package resource digest mismatch');
+    const digest = isManagementReceipt(plan.receipt)
+      ? plan.receipt.selection.release.bundleDigest : plan.receipt.artifactDigest;
+    if (projection.artifactDigest !== digest) throw new Error('Package resource digest mismatch');
     await this.ctx.storage.put('packageResources', projection);
   }
 
