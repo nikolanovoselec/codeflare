@@ -46,6 +46,7 @@ type AgentsFacetRootBridge = Pick<Agent<NativeEnv>,
 type FacetBridgeBinding = { generation: number; status: 'current' | 'stale' | 'denied' };
 type FixtureFlueRootStub = DurableObjectStub<FixtureFlueRoot>;
 export type ExternalReceipt = NativeDelivery & { sequence: number; path: string };
+export type ExternalAttempt = NativeDelivery & { attempt: number; path: string };
 
 /** Real SDK owns all physical alarms/fiber machinery. No copied scheduler. */
 export class FixtureFlueRoot extends Agent<NativeEnv> {
@@ -101,6 +102,12 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       // transport still checks live `running` authority before every effect.
       const binding = await this.activityBinding();
       if (!binding || binding.deadline <= Date.now()) throw new Error('Native facet bridge identity is unavailable');
+      if (binding.generation > 1) {
+        const settled = await this.ctx.storage.get<{ generation: number; submissionId: string }>('fixture:settled-submission');
+        if (!settled || settled.generation !== binding.generation - 1) {
+          throw new Error('Native facet prior generation is not quiescent');
+        }
+      }
       const { exports } = this.ctx as unknown as { exports: {
         FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
       } };
@@ -172,8 +179,11 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       if (settlement) {
         const activity = this.env.ACTIVITY.getByName(this.name);
         if (settlement.outcome === 'completed') {
-          await activity.commitDrive(active.generation, { schemaVersion: 1, status: 'waiting',
+          const committed = await activity.commitDrive(active.generation, { schemaVersion: 1, status: 'waiting',
             checkpoint: { submissionId: active.submissionId } });
+          if (committed.ok) await this.ctx.storage.put('fixture:settled-submission', {
+            generation: active.generation, submissionId: active.submissionId,
+          });
         } else {
           await activity.interruptDrive(active.generation);
         }
@@ -201,6 +211,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       alarmDeliveries: await this.ctx.storage.get<number>('fixture:alarm-deliveries') ?? 0,
       barrierReached: await this.ctx.storage.get<boolean>('fixture:barrier-reached') ?? false,
       external: await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [],
+      externalAttempts: await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [],
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
       digest: await this.ctx.storage.get('fixture:digest'),
     };
@@ -244,10 +255,16 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       return Response.json({ released: true });
     }
     const external = await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [];
+    const attempts = await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [];
+    attempts.push({ ...delivery, path, attempt: attempts.length + 1 });
+    await this.ctx.storage.put('fixture:external-attempts', attempts);
     const prior = external.find(receipt => receipt.operationId === delivery.operationId);
     if (prior) {
       if (prior.requestDigest !== delivery.requestDigest) {
         return Response.json({ accepted: false, conflict: 'operation-input-mismatch' }, { status: 409 });
+      }
+      if (await this.ctx.storage.get(`fixture:uncertain:${delivery.operationId}`)) {
+        return Response.json({ accepted: false, unknown: true }, { status: 409 });
       }
       return Response.json({ accepted: true, receipt: prior,
         evidence: { repositoryId: 123, botId: 29139614, head: 'a'.repeat(40), checks: ['success'] } });
@@ -256,6 +273,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     external.push(receipt);
     await this.ctx.storage.put('fixture:external', external);
     if (delivery.mode === 'unknown') {
+      await this.ctx.storage.put(`fixture:uncertain:${delivery.operationId}`, true);
       await this.ctx.storage.put('fixture:barrier-reached', true);
       // Accepted externally, response deliberately lost. Recovery must not
       // replay this ledger entry just because ToolStep did not record it.

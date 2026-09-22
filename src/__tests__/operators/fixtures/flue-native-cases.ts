@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { OperatorActivityPreparation } from '../../../operators/activity';
 import type { ActivityFixtureCommand } from './loader-worker';
-import type { ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery } from './flue-native-fixture';
+import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery } from './flue-native-fixture';
 
 type Assessment = NativeDelivery & {
   result: { status: number; body: { accepted?: boolean; evidence?: unknown } };
@@ -12,7 +12,7 @@ type Assessment = NativeDelivery & {
 };
 type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
-  external: ExternalReceipt[];
+  external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
@@ -221,9 +221,11 @@ export function registerNativeDispatcherCases(harness: Harness) {
         const input = delivery(id, { mode: 'unknown' });
         await send(id, input);
         const before = await observe(id, value => value.barrierReached && value.external.length === 1);
+        expect(before.externalAttempts).toHaveLength(1);
         await command(id, { action: 'evict' });
         const after = await observe(id, value => value.activity.executionStatus === 'unknown');
         expect(after.external).toEqual(before.external);
+        expect(after.externalAttempts).toEqual(before.externalAttempts);
         expect(after.activity.checkpoint).toBeNull();
         expect(await harness.activity(id, { action: 'begin-drive' })).toEqual({ ok: false, reason: 'drive-settled' });
         // Metadata observation must not turn a failed/unknown segment into replay.
@@ -335,32 +337,27 @@ export function registerNativeDispatcherCases(harness: Harness) {
       }
     });
 
-    it('rejects a forged newer delivery generation through a warm native facet after rollover', async () => {
+    it('rejects reconstruction when the prior generation has no settled-submission checkpoint', async () => {
       const { id } = await prepare();
       try {
         const warm = delivery(id, { mode: 'hold', marker: 'warm-generation-one' });
-        const warmSubmission = await send(id, warm);
+        await send(id, warm);
         await observe(id, value => value.barrierReached);
         expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
           update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'rollover-before-forgery' } } })).toMatchObject({ ok: true });
+        await command(id, { action: 'evict' });
         expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'running' } });
 
-        // This submission reaches the existing generated facet, but its bridge was
-        // bound to generation one when the owner created it. Delivery JSON cannot
-        // replace that authority with generation two.
         const forged = delivery(id, { generation: 2, marker: 'forged-generation-two' });
-        const rejected = await command<{ status: number; body: unknown }>(id, { action: 'send', delivery: forged });
-        expect(rejected.status).toBe(500);
-        await command(id, { action: 'release' });
-        const after = await observe(id, value =>
-          value.conversation?.settlements.some(settlement => settlement.submissionId === warmSubmission) === true
-          && results(value).some(result => result.operationId === warm.operationId));
-        expect(results(after).find(result => result.operationId === warm.operationId))
-          .toMatchObject({ generation: 1, result: { status: 409 } });
+        const rejected = await command<{ status: number; body: { stage?: string; error?: string } }>(id, { action: 'send', delivery: forged });
+        expect(rejected).toMatchObject({ status: 501, body: {
+          stage: 'native-facet-admission', error: expect.stringContaining('prior generation is not quiescent'),
+        } });
+        const after = await snapshot(id);
         expect(after.external).toEqual([]);
+        expect(after.externalAttempts).toEqual([]);
       } finally {
         await command(id, { action: 'release' });
-        await command(id, { action: 'abort' });
       }
     });
   });
