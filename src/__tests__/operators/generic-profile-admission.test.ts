@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
+import { AppError } from '../../lib/error-types';
 import routes from '../../routes/operator-activities';
 
 const claims = {
@@ -35,6 +36,9 @@ function fixture() {
     OPERATOR_ACTIVITY: { getByName: () => activity },
   } as unknown as Env;
   const app = new Hono<{ Bindings: Env }>();
+  app.onError((error, c) => error instanceof AppError
+    ? c.json(error.toJSON(), error.statusCode as never)
+    : c.json({ error: 'Internal error' }, 500));
   app.route('/api/operator-activities', routes);
   const post = (body: unknown) => app.request('https://enterprise.example.test/api/operator-activities', {
     method: 'POST', headers: {
