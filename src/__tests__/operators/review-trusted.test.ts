@@ -23,7 +23,10 @@ async function fixture() {
       if (!input.args.includes('--with-evidence') || !input.script.endsWith('/build-review-packet.mjs')) throw Error('canonical CLI required');
       return encode({ scope: 'diff', workSet: 'changed-hunks-and-direct-invalidations', lane: input.lane,
         range: `${context.mergeBase}..${context.head}`, files: ['src/a.ts'], changedInputs: [], patch: '+change',
-        evidence: { anchors: { checked: 1, unresolved: [] } } });
+        evidence: { lane: input.lane, adrs: [], config: 'transition: false',
+          anchors: { checked: 1, unresolved: [] }, callSites: [], anchorsCitingChanged: [],
+          indexIntegrity: { unindexed: [], dangling: [] }, dependencyGraph: { reqs: 1, edges: 0, cycles: [] },
+          references: { checked: 1, unresolved: [] }, docsCitingChanged: [] } });
     } };
   return { admitted: { ...admission, resourceDigest }, trusted, resources };
 }
@@ -62,6 +65,17 @@ describe('REQ-OPERATOR-050: trusted canonical preparation', () => {
     expect(incomplete.evidenceComplete).toBe(false);
     expect(new TextDecoder().decode(incomplete.packets[0].bytes)).toContain('resolver failed');
     await expect(prepareReview(admitted, { ...trusted, runCanonicalPacket: async () => new Uint8Array(8 * 1024 * 1024 + 1) })).rejects.toThrow();
+  });
+  it('never treats an evidence resolver error, missing required fields or unknown resolution as complete', async () => {
+    const { admitted, trusted } = await fixture();
+    for (const evidence of [{ error: 'resolver failed' }, { lane: 'code-reviewer' },
+      { lane: 'code-reviewer', callSites: null, anchorsCitingChanged: [] }]) {
+      const prepared = await prepareReview(admitted, { ...trusted, runCanonicalPacket: async input => {
+        const packet = JSON.parse(new TextDecoder().decode(await trusted.runCanonicalPacket(input)));
+        return encode({ ...packet, evidence });
+      } });
+      expect(prepared.evidenceComplete).toBe(false);
+    }
   });
   it('rejects shared-head, merge-queue, wrong repository and moved revision preparation', async () => {
     const { admitted, trusted } = await fixture();
@@ -188,6 +202,15 @@ describe('REQ-OPERATOR-050: independent publisher uncertainty and fencing', () =
     expect(f.published).toHaveLength(1);
     expect((await publishReview(f.prepared, f.result, f.history, { ...authority,
       findPublication: async () => ({ checkId: 123, recordId: 456, digest: f.getReceipt().digest }) })).status).toBe('published');
+  });
+  it('rejects history from another packet and does not clear a report whose findings were dropped', async () => {
+    const f = await publisherFixture();
+    expect((await publishReview({ ...f.prepared, packetDigest: '0'.repeat(64) }, f.result, f.history, f.authority)).status).toBe('incomplete');
+    const red = { ...f.result, reports: f.result.reports.map((r, index) => ({ ...r,
+      findings: index === 0 ? [{ id: finding.id, severity: 'HIGH' as const, path: finding.path,
+        line: finding.line, evidence: finding.evidence, message: finding.message }] : [] })) };
+    expect((await publishReview(f.prepared, red, f.history, f.authority)).status).toBe('incomplete');
+    expect(f.published).toEqual([]);
   });
   it('rechecks current context after a write and never reports stale publication as current', async () => {
     const f = await publisherFixture(); let reads = 0;
