@@ -68,6 +68,9 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     expect(configured.status).toBe(200);
     expect(await configured.json()).toMatchObject({ id: installation.id, revision: 2, enabled: false,
       configuration: { review: { paths: ['src', 'host'], failClosed: true } } });
+    expect((await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: 1, policy, configuration: { review: { paths: ['stale'] } },
+    })).status).toBe(409);
 
     const currentDetail = await request(`/operators/${operator.operatorId}`);
     expect(currentDetail.status).toBe(200);

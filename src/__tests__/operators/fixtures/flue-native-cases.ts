@@ -113,9 +113,13 @@ export function registerNativeDispatcherCases(harness: Harness) {
     it('executes a real model/tool submission through root alarms and records read-only Renovate evidence without a session', async () => {
       const { id } = await prepare();
       const submission = await send(id, delivery(id, { mode: 'hold' }));
-      const running = await observe(id, value => value.barrierReached
-        && value.facet?.fibers.some(fiber => fiber.status === 'running') === true);
-      expect(running.facet?.fibers).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'running' })]));
+      const running = await observe(id, value => value.barrierReached);
+      // The observable contract is a durable Flue tool turn held inside the
+      // parent-authorized operation. Agent.listFibers() is an SDK diagnostic and
+      // Flue 2.1 does not expose its active tool promise there.
+      expect(running.conversation?.messages.at(-1)?.parts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'dynamic-tool' }),
+      ]));
       await command(id, { action: 'release' });
       const value = await settle(id, submission);
       expect(value.conversation?.settlements).toContainEqual({ submissionId: submission, outcome: 'completed' });
