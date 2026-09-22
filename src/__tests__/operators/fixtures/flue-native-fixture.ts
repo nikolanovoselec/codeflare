@@ -42,6 +42,7 @@ type AgentsFacetRootBridge = Pick<Agent<NativeEnv>,
   | '_cf_listSchedulesForFacet' | '_cf_cancelScheduleForFacet' | '_cf_acquireFacetKeepAlive'
   | '_cf_releaseFacetKeepAlive' | '_cf_registerFacetRun' | '_cf_unregisterFacetRun'>;
 type FacetBridgeBinding = { generation: number; status: 'current' | 'stale' | 'denied' };
+type FixtureFlueRootStub = DurableObjectStub<FixtureFlueRoot>;
 export type ExternalReceipt = NativeDelivery & { sequence: number; path: string };
 
 /** Real SDK owns all physical alarms/fiber machinery. No copied scheduler. */
@@ -262,7 +263,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
 }
 
 export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
-  #root(): Promise<FixtureFlueRoot> {
+  #root(): Promise<FixtureFlueRootStub> {
     const { activityId } = this.ctx.props as { activityId: string; generation: number };
     return getAgentByName(this.env.FLUE_ROOT, activityId);
   }
@@ -272,7 +273,7 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
     return (await this.#root()).facetBridgeBinding(generation);
   }
 
-  async #bridge<T>(call: (root: FixtureFlueRoot) => Promise<T>): Promise<T> {
+  async #bridge<T>(call: (root: FixtureFlueRootStub) => Promise<T>): Promise<T> {
     const binding = await this.#current();
     if (binding.status !== 'current') throw new Error(`Facet bridge generation ${binding.status}`);
     return call(await this.#root());
