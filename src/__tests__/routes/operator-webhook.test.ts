@@ -58,20 +58,28 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
     expect(activity.redeemWebhookResult).toHaveBeenCalledWith(capability);
   });
 
-  it('continues only the already-started activity through a bounded POST capability and keeps status metadata-only', async () => {
+  it('REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority', async () => {
     const { env, activity } = environment();
     const continuing = activity as typeof activity & { continueWebhook?: ReturnType<typeof vi.fn> };
-    continuing.continueWebhook = vi.fn(async (token: string) => ({ ok: true, phase: 'queued', continuation: token }));
+    continuing.continueWebhook = vi.fn(async () => ({ ok: true, phase: 'queued' }));
     const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST'), env as never,
       { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {
         OperatorRuntimeCapability: vi.fn(() => ({ fetch: vi.fn() })),
       } });
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, phase: 'queued', continuation: capability });
-    expect(continuing.continueWebhook).toHaveBeenCalledWith(capability);
-    expect(activity.startWebhook).not.toHaveBeenCalled();
-    expect(activity.getWebhookStatus).not.toHaveBeenCalled();
-    expect(orchestration.run).toHaveBeenCalledTimes(1);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    await expect(response.json()).resolves.toEqual({ ok: true, phase: 'queued' });
+  });
+
+  it('REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes', async () => {
+    const { env, activity } = environment();
+    const terminal = activity as unknown as { getWebhookStatus: () => Promise<unknown> };
+    terminal.getWebhookStatus = async () => ({ ok: true, terminal: true, status: 'completed',
+      result: { report: 'private-review-report-canary' } });
+    const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/status`, 'GET'), env as never);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    await expect(response.json()).resolves.toEqual({ ok: true, terminal: true, status: 'completed' });
   });
 
   it('rejects non-enterprise, missing capability, unknown paths, wrong methods and request bodies before activity RPC', async () => {
