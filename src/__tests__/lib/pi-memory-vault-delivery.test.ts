@@ -520,21 +520,23 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       successQualifies: () => false,
     }).state).toBe('failed');
 
-    const turnLimited = [...entries, notification('exact-call', 'Wrapped up (turn limit)')];
-    expect(extractionTranscriptFacts({
-      entries: turnLimited,
-      requestId: UUIDS[0],
-      job: 'memory-capture',
-      now: NOW,
-      successQualifies: () => true,
-    }).state).toBe('succeeded');
-    expect(extractionTranscriptFacts({
-      entries: turnLimited,
-      requestId: UUIDS[0],
-      job: 'memory-capture',
-      now: NOW,
-      successQualifies: () => false,
-    }).state).toBe('failed');
+    for (const status of ['Wrapped up (turn limit)', 'Wrapped up (reached turn limit)']) {
+      const turnLimited = [...entries, notification('exact-call', status)];
+      expect(extractionTranscriptFacts({
+        entries: turnLimited,
+        requestId: UUIDS[0],
+        job: 'memory-capture',
+        now: NOW,
+        successQualifies: () => true,
+      }).state).toBe('succeeded');
+      expect(extractionTranscriptFacts({
+        entries: turnLimited,
+        requestId: UUIDS[0],
+        job: 'memory-capture',
+        now: NOW,
+        successQualifies: () => false,
+      }).state).toBe('failed');
+    }
   });
 
   it('uses actual public attempts for reminders zero through five and then latches GIVEUP', () => {
