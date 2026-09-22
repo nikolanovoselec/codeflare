@@ -53,6 +53,14 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private facet?: Promise<Facet>;
   private releaseBarrier?: () => void;
 
+  constructor(ctx: DurableObjectState, env: NativeEnv) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      const active = await ctx.storage.get<{ submissionId: string; generation: number; expiresAt: number }>('fixture:active-submission');
+      if (active) ctx.waitUntil(this.reconcileSubmission(active));
+    });
+  }
+
   override async alarm() {
     await this.ctx.storage.put('fixture:alarm-deliveries', (await this.ctx.storage.get<number>('fixture:alarm-deliveries') ?? 0) + 1);
     return super.alarm();
@@ -127,10 +135,43 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: 'user', body: JSON.stringify(delivery) }),
       }));
-      return { status: response.status, body: await response.json() };
+      const body = await response.json() as { submissionId?: string };
+      if (response.status === 202 && typeof body.submissionId === 'string') {
+        const binding = await this.facetBridgeBinding();
+        if (binding.status === 'current') {
+          const active = { submissionId: body.submissionId, generation: binding.generation, expiresAt: Date.now() + 25_000 };
+          await this.ctx.storage.put('fixture:active-submission', active);
+          this.ctx.waitUntil(this.reconcileSubmission(active));
+        }
+      }
+      return { status: response.status, body };
     } catch (error) {
       return { status: 501, body: { stage: 'native-facet-admission', error: String(error) } };
     }
+  }
+
+  private async reconcileSubmission(active: { submissionId: string; generation: number; expiresAt: number }): Promise<void> {
+    while (Date.now() < active.expiresAt) {
+      const current = await this.ctx.storage.get<typeof active>('fixture:active-submission');
+      if (!current || current.submissionId !== active.submissionId || current.generation !== active.generation) return;
+      const response = await (await this.child()).fetch(new Request('https://flue.internal/dispatcher'));
+      const conversation = await response.json() as { settlements?: Array<{ submissionId?: string; outcome?: string }> };
+      const settlement = conversation.settlements?.find(item => item.submissionId === active.submissionId);
+      if (settlement) {
+        const activity = this.env.ACTIVITY.getByName(this.name);
+        if (settlement.outcome === 'completed') {
+          await activity.commitDrive(active.generation, { schemaVersion: 1, status: 'waiting',
+            checkpoint: { submissionId: active.submissionId } });
+        } else {
+          await activity.interruptDrive(active.generation);
+        }
+        await this.ctx.storage.delete('fixture:active-submission');
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    await this.env.ACTIVITY.getByName(this.name).interruptDrive(active.generation);
+    await this.ctx.storage.delete('fixture:active-submission');
   }
 
   async snapshot() {
