@@ -7,6 +7,7 @@ import { fileURLToPath, URL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { unstable_dev, type Unstable_DevWorker } from 'wrangler';
 import { createHash } from 'node:crypto';
+import { registerNativeDispatcherCases } from './fixtures/flue-native-cases';
 import type { RegistryFixtureCommand, ActivityFixtureCommand } from './fixtures/loader-worker';
 import type { OperatorActivityPreparation } from '../../operators/activity';
 import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../operators/registry';
@@ -64,6 +65,13 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     expect(malformed.status).toBe(500);
     expect(await malformed.json()).toEqual({ error: expect.any(String) });
   });
+});
+
+// Same Wrangler instance and canonical Backend tests (node) lane as Gate 1.
+registerNativeDispatcherCases({
+  fetch: (path, init) => worker!.fetch(path, init),
+  queuedActivity,
+  activity,
 });
 
 const ARTIFACT = 'a'.repeat(64);

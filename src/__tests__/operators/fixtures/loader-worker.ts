@@ -4,6 +4,8 @@
  * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { flueFixture } from './flue-native-fixture';
+export { FixtureFlueRoot, FixtureFlueTransport } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
@@ -118,6 +120,9 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      if (url.pathname === '/flue') {
+        return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
+      }
       if (url.pathname === '/activity') {
         const activity = env.ACTIVITY.getByName(url.searchParams.get('activity') ?? 'default');
         const command = await request.json<ActivityFixtureCommand>();

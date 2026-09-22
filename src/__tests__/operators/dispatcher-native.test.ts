@@ -28,13 +28,15 @@ function fixture(planOverrides: Partial<RuntimePlan> = {}) {
   const request = (path = '/v1/dispatcher/renovate', method = 'POST', body: unknown = {
     repository: 'owner/repository', pullRequest: 17, headSha,
   }) => new Request(`https://operator.internal${path}`, {
-    method, headers: { 'content-type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined,
+    method,
+    ...(method === 'POST' ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
   });
   return { capability, request };
 }
 
-describe('REQ-OPERATOR-048: Dispatcher native capability contract', () => {
-  it('runs approved Dispatcher work through the activity- and generation-bound native capability without a session', async () => {
+// Mock capability coverage only. Native Flue proof lives in loader-runtime.test.ts.
+describe('REQ-OPERATOR-048: Dispatcher mocked capability contract', () => {
+  it('runs approved Dispatcher work through the activity- and generation-bound capability without a session', async () => {
     const { capability, request } = fixture();
 
     const response = await capability.fetch(request());
@@ -44,7 +46,7 @@ describe('REQ-OPERATOR-048: Dispatcher native capability contract', () => {
       result: expect.objectContaining({ activityId, generation, repository: 'owner/repository', pullRequest: 17, headSha }) });
   });
 
-  it('denies profile substitutions, session/container requests, and mutation paths at the native capability boundary', async () => {
+  it('denies profile substitutions, session/container requests, and mutation paths at the mocked capability boundary', async () => {
     const { capability, request } = fixture();
     const attempts = [
       request('/v1/dispatcher/renovate', 'POST', { repository: 'owner/repository', pullRequest: 17, headSha, profile: 'conductor' }),
