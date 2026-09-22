@@ -54,7 +54,7 @@ const packageResourcesSchema = z.strictObject({
   schemaVersion: z.literal(1),
   files: z.array(z.strictObject({
     source: relativePath,
-    destination: artifactPath,
+    destination: relativePath,
     sha256: z.string().regex(SHA256),
     size: z.number().int().min(0).max(1024 * 1024),
   })).max(64).refine(files => new Set(files.map(file => file.destination)).size === files.length),

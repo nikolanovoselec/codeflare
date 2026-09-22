@@ -308,15 +308,9 @@ async function createGate1ProductionCapability(input: {
       routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
       defaultReasoningLevel: routes.defaultReasoning,
     } });
-  const packageResources = await activity.getPackageResources();
-  const admittedDigest = isManagementReceipt(receipt)
-    ? receipt.selection.release.bundleDigest : receipt.artifactDigest;
-  if (packageResources && packageResources.artifactDigest !== admittedDigest) {
-    throw new Error('Pinned package resources changed');
-  }
   const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket,
     sessionId: resources.profile.sessionId, userEmail: authority.human.email.toLowerCase(), userGroups: groups,
-    routes, bootstrap, packageResources,
+    routes, bootstrap,
     resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as Gate1ContainerStub });
   const service = new OwnedOperatorSessionService(activityStore(activity), runtime);
   const requestDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.invocationJson));
