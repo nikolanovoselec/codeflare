@@ -293,10 +293,6 @@ export function searchCapabilities(input: {
   }).filter((item) => (
     item.score >= 6
     && (item.strong > 0 || item.matched >= 2 || item.strongestRarity >= 2)
-    // Short, identity-like queries must match every term. This prevents an
-    // unavailable/untrusted exact skill from suggesting unrelated peers that
-    // merely share a generic suffix such as "native".
-    && (terms.length > 2 || item.matched === terms.length)
   ));
   const best = Math.max(0, ...scored.map(({ score }) => score));
   const ranked = scored
