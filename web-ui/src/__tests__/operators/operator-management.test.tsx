@@ -78,6 +78,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     fireEvent.click(activity, { metaKey: true });
     expect(screen.getByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
     fireEvent.click(activity);
+    await waitFor(() => expect(window.location.search).toBe('?view=activity'));
     expect(await screen.findByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Operator catalog' })).not.toBeInTheDocument();
     const catalog = screen.getByRole('link', { name: 'Catalog' });
@@ -85,6 +86,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     fireEvent.click(catalog, { ctrlKey: true });
     expect(screen.getByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
     fireEvent.click(catalog);
+    await waitFor(() => expect(window.location.search).toBe(''));
     expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'My activity', level: 2 })).not.toBeInTheDocument();
   });
