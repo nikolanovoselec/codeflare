@@ -44,6 +44,18 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
     expect(screen.queryByText('s'.repeat(43))).not.toBeInTheDocument();
   });
+  it('switches between activity and catalog when their navigation links change the route without a reload', async () => {
+    serve = url => url.pathname === '/api/operator-management/operators'
+      ? json({ items: [], cursor: null }) : json({ items: [summary] });
+    render(() => <OperatorManagement />);
+    expect(await screen.findByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Catalog' }));
+    expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'My activity', level: 2 })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'My activity' }));
+    expect(await screen.findByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Operator catalog' })).not.toBeInTheDocument();
+  });
   it('denies independent invocation and does not expose activity details on a denied list', async () => {
     serve = () => json({ error: 'Not found' }, 404);
     render(() => <OperatorManagement />);
