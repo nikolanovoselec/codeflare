@@ -89,7 +89,7 @@ app.post('/:activityId/start', async c => {
   if (installationId) {
     const selected: OperatorRegistryResult<ManagementExecutionSelection> =
       await c.get('registry').resolveManagementExecution(installationId);
-    if (!selected.ok || !('value' in selected)) {
+    if (selected.ok !== true) {
       throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
     }
     if (!canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) {

@@ -77,7 +77,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   if (installationId) {
     const management: OperatorRegistryResult<ManagementExecutionSelection> =
       await registry.resolveManagementExecution(installationId);
-    if (!management.ok || !('value' in management)) {
+    if (management.ok !== true) {
       throw new AppError('CONFLICT', 409, 'Operator installation is not available for execution');
     }
     const selection = management.value;
