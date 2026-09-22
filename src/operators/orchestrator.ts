@@ -2,9 +2,10 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
+import { canInvokeOperator } from '../lib/access';
 import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
 import { openOperatorSecret } from './protected-secrets';
-import { parseOperatorManifest } from './distribution';
+import { parseOperatorBundle, parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveOperatorRuntime } from './runtime';
 import { createOperatorIntentDigest } from './activity';
@@ -12,7 +13,10 @@ import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { GATE1_OPERATOR_ID } from './gate1-resources';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
-const preparationSchema = z.strictObject({ operatorId: ID, invocation: z.json() });
+const preparationSchema = z.union([
+  z.strictObject({ operatorId: ID, invocation: z.json() }),
+  z.strictObject({ installationId: ID, invocation: z.json() }),
+]);
 const MAX_INVOCATION_BYTES = 64 * 1024;
 
 async function digest(value: string): Promise<string> {
@@ -49,30 +53,44 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   const activityId = crypto.randomUUID();
   const bounded = boundedInvocation(parsed.data.invocation);
-  const invocation = parsed.data.operatorId === GATE1_OPERATOR_ID
+  const registry = env.OPERATOR_REGISTRY.getByName('registry');
+  const installed = 'installationId' in parsed.data;
+  const management = installed ? await registry.resolveManagementExecution(parsed.data.installationId) : null;
+  if (management && !management.ok) throw new AppError('CONFLICT', 409, 'Operator installation is not available for execution');
+  if (management?.ok && !canInvokeOperator(authority.human, management.value.operator)) {
+    throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
+  }
+  const operatorId = management?.ok ? management.value.operator.operatorId : (parsed.data as { operatorId: string }).operatorId;
+  const invocation = !installed && operatorId === GATE1_OPERATOR_ID
     ? (() => {
       const gate1 = parseOperatorConsumerInvocation(bounded);
-      if (gate1.operatorId !== parsed.data.operatorId) throw new ValidationError('Invalid operator invocation');
-      return parseOperatorConsumerInvocation({ ...gate1, operatorId: parsed.data.operatorId, activityId });
+      if (gate1.operatorId !== operatorId) throw new ValidationError('Invalid operator invocation');
+      return parseOperatorConsumerInvocation({ ...gate1, operatorId, activityId });
     })()
     : bounded;
-  const registry = env.OPERATOR_REGISTRY.getByName('registry');
-  const resolved = await registry.resolveForExecution(parsed.data.operatorId);
-  if (!resolved.ok) throw new AppError('CONFLICT', 409, 'Operator is not available for execution');
+  const legacy = installed ? null : await registry.resolveForExecution(operatorId);
+  if (legacy && !legacy.ok) throw new AppError('CONFLICT', 409, 'Operator is not available for execution');
   const startCapability = capability();
   const startVerifier = await digest(startCapability);
   const deadline = authority.human.expiresAt * 1000;
   const startExpiresAt = Math.min(deadline, Date.now() + 5 * 60_000);
-  const policyDigest = await digest(resolved.value.policyJson);
+  const artifactDigest = management?.ok ? management.value.release.bundleDigest : legacy!.value.artifactDigest;
+  const policyJson = management?.ok ? JSON.stringify(management.value.installation.policy) : legacy!.value.policyJson;
+  const policyDigest = await digest(policyJson);
   const invocationJson = JSON.stringify(invocation);
-  const intentDigest = await createOperatorIntentDigest(parsed.data.operatorId, activityId, invocationJson);
-  const executionContext = await createOperatorExecutionContext({ activityId, operatorId: parsed.data.operatorId,
-    artifactDigest: resolved.value.artifactDigest, policyDigest, human: authority.human,
-    accessJwt: authority.accessJwt }, env);
-  const prepared = await env.OPERATOR_ACTIVITY.getByName(activityId).prepareAuthorized({
-    operatorId: parsed.data.operatorId, activityId, intentDigest, expectedRevision: resolved.value.revision,
+  const intentDigest = await createOperatorIntentDigest(operatorId, activityId, invocationJson);
+  const executionContext = await createOperatorExecutionContext({ activityId, operatorId,
+    artifactDigest, policyDigest, human: authority.human, accessJwt: authority.accessJwt }, env);
+  const intent = management?.ok ? {
+    operatorId, installationId: parsed.data.installationId, activityId, intentDigest,
+    expectedRevision: management.value.operator.revision,
+    expectedInstallationRevision: management.value.installation.revision,
+    expectedControlsRevision: management.value.controlsRevision,
     deadline, startExpiresAt, startVerifier,
-  }, executionContext, invocationJson);
+  } : { operatorId, activityId, intentDigest, expectedRevision: legacy!.value.revision,
+    deadline, startExpiresAt, startVerifier };
+  const prepared = await env.OPERATOR_ACTIVITY.getByName(activityId).prepareAuthorized(
+    intent, executionContext, invocationJson);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
   return { activityId, startCapability, startExpiresAt };
 }
@@ -124,17 +142,24 @@ export async function runOperatorActivity(
   try {
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
-    const distribution = await registry.getPinnedDistribution(activityId);
-    if (!distribution || !plan.receipt.manifestJson) throw new Error('Pinned runtime input unavailable');
-    const authority = await openOperatorExecutionAccess(plan.executionContext, env);
-    const connectionSecret = await openOperatorSecret(distribution.connectionSecretCiphertext, env,
-      { purpose: 'connection', recordId: plan.receipt.operatorId });
-    const manifest = parsePinnedManifest(plan.receipt.manifestJson, distribution.endpoint);
-    if (manifest.id !== plan.receipt.operatorId || manifest.artifact.sha256 !== plan.receipt.artifactDigest) {
-      throw new Error('Pinned runtime identity mismatch');
+    let bundle;
+    if ('selection' in plan.receipt) {
+      const bytes = await registry.getManagementBundle(plan.receipt.selection.release.bundleDigest);
+      if (!bytes) throw new Error('Pinned runtime input unavailable');
+      bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
+    } else {
+      const distribution = await registry.getPinnedDistribution(activityId);
+      if (!distribution || !plan.receipt.manifestJson) throw new Error('Pinned runtime input unavailable');
+      const authority = await openOperatorExecutionAccess(plan.executionContext, env);
+      const connectionSecret = await openOperatorSecret(distribution.connectionSecretCiphertext, env,
+        { purpose: 'connection', recordId: plan.receipt.operatorId });
+      const manifest = parsePinnedManifest(plan.receipt.manifestJson, distribution.endpoint);
+      if (manifest.id !== plan.receipt.operatorId || manifest.artifact.sha256 !== plan.receipt.artifactDigest) {
+        throw new Error('Pinned runtime identity mismatch');
+      }
+      bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
+        attemptDeadline);
     }
-    const bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
-      attemptDeadline);
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
       invocation,

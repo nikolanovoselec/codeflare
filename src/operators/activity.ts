@@ -7,9 +7,11 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
-import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt } from './registry';
+import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt,
+  ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
+import { resolveOperatorGroupIdentity } from '../lib/access';
 import { projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
 import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
@@ -17,10 +19,10 @@ import { parseOperatorContainerProfile } from '../container/operator-context';
 import type { OwnedOperatorSessionState } from './owned-session';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
-export interface OperatorActivityPreparation extends OperatorAdmissionRequest {
-  startVerifier: string;
-  startExpiresAt: number;
-}
+export type OperatorActivityPreparation = (OperatorAdmissionRequest | {
+  operatorId: string; installationId: string; activityId: string; intentDigest: string;
+  expectedRevision: number; expectedInstallationRevision: number; expectedControlsRevision: number; deadline: number;
+}) & { startVerifier: string; startExpiresAt: number };
 
 export type ActivityAdmissionResult = { ok: true; phase: 'prepared' | 'queued' } | {
   ok: false;
@@ -31,7 +33,7 @@ export type ActivityAdmissionResult = { ok: true; phase: 'prepared' | 'queued' }
 export interface ActivityAdmissionProjection {
   activityId: string;
   phase: 'prepared' | 'admitting' | 'queued';
-  receipt: OperatorAdmissionReceipt | null;
+  receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null;
 }
 
 interface OperatorDriveState {
@@ -72,14 +74,14 @@ export interface OperatorRuntimePlan {
   activityId: string;
   deadline: number;
   invocationJson: string;
-  receipt: OperatorAdmissionReceipt;
+  receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt;
   executionContext: OperatorExecutionContext;
 }
 
 interface AdmissionState {
   intent: OperatorActivityPreparation;
   phase: ActivityAdmissionProjection['phase'];
-  receipt: OperatorAdmissionReceipt | null;
+  receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null;
   executionContext?: OperatorExecutionContext;
   invocationJson?: string;
   drive?: OperatorDriveState;
@@ -189,7 +191,8 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     if (!record?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
     const previous = record.executionContext;
-    const replacement = await reauthenticateOperatorExecution(previous, human, accessJwt, this.env);
+    const currentHuman = await resolveOperatorGroupIdentity(human, accessJwt);
+    const replacement = await reauthenticateOperatorExecution(previous, currentHuman, accessJwt, this.env);
     await this.ctx.storage.transaction(async tx => {
       const current = await tx.get<AdmissionState>('admission');
       if (!current?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
@@ -208,6 +211,12 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     if (!syncDigest.safeParse(ownerKey).success) return false;
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
+  }
+
+  /** Parent-safe discriminator used to require live installation authorization at start. */
+  async getPreparedInstallationId(): Promise<string | null> {
+    const intent = (await this.ctx.storage.get<AdmissionState>('admission'))?.intent;
+    return intent && 'installationId' in intent ? intent.installationId : null;
   }
 
   /** Parent-safe activity identity read; no credential ciphertext or token. */
@@ -301,18 +310,26 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     });
     if (!pending.ok) return pending;
     const { activityId, operatorId, intentDigest, expectedRevision, deadline } = pending.intent;
-    let receipt: OperatorAdmissionReceipt;
+    let receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt;
     try {
-      const admitted = await this.env.OPERATOR_REGISTRY.getByName('registry').admit({
-        activityId, operatorId, intentDigest, expectedRevision, deadline,
-      });
+      const admitted = 'installationId' in pending.intent
+        ? await this.env.OPERATOR_REGISTRY.getByName('registry').admitManagement({
+          installationId: pending.intent.installationId, activityId, intentDigest,
+          expectedInstallationRevision: pending.intent.expectedInstallationRevision,
+          expectedOperatorRevision: expectedRevision,
+          expectedControlsRevision: pending.intent.expectedControlsRevision, deadline,
+        })
+        : await this.env.OPERATOR_REGISTRY.getByName('registry').admit({
+          activityId, operatorId, intentDigest, expectedRevision, deadline,
+        });
       if (!admitted.ok) return { ok: false, reason: 'admission-denied' };
       receipt = admitted.value;
     } catch {
       return { ok: false, reason: 'admission-uncertain' };
     }
-    const receiptPolicyDigest = receipt.policyJson
-      ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(receipt.policyJson))))
+    const receiptPolicyJson = 'selection' in receipt ? null : receipt.policyJson;
+    const receiptPolicyDigest = receiptPolicyJson
+      ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(receiptPolicyJson))))
         .map(byte => byte.toString(16).padStart(2, '0')).join('')
       : null;
     const readCapability = issueRead ? randomCapability() : null;
@@ -323,11 +340,20 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       const denied = checkStart(state, verifier);
       if (denied) return denied;
       const intent = state.intent;
-      if (receipt.activityId !== intent.activityId || receipt.operatorId !== intent.operatorId
-        || receipt.intentDigest !== intent.intentDigest || receipt.expectedRevision !== intent.expectedRevision
-        || receipt.deadline !== intent.deadline
-        || (state.executionContext && (receipt.artifactDigest !== state.executionContext.artifactDigest
-          || receiptPolicyDigest !== state.executionContext.policyDigest))) {
+      const managementValid = 'installationId' in intent && 'selection' in receipt
+        && receipt.installationId === intent.installationId
+        && receipt.expectedInstallationRevision === intent.expectedInstallationRevision
+        && receipt.expectedOperatorRevision === intent.expectedRevision
+        && receipt.expectedControlsRevision === intent.expectedControlsRevision
+        && receipt.selection.operator.operatorId === intent.operatorId
+        && (!state.executionContext || (receipt.selection.release.bundleDigest === state.executionContext.artifactDigest
+          && await sha256(JSON.stringify(receipt.selection.installation.policy)) === state.executionContext.policyDigest));
+      const legacyValid = !('installationId' in intent) && !('selection' in receipt)
+        && receipt.operatorId === intent.operatorId && receipt.expectedRevision === intent.expectedRevision
+        && (!state.executionContext || (receipt.artifactDigest === state.executionContext.artifactDigest
+          && receiptPolicyDigest === state.executionContext.policyDigest));
+      if (receipt.activityId !== intent.activityId || receipt.intentDigest !== intent.intentDigest
+        || receipt.deadline !== intent.deadline || (!managementValid && !legacyValid)) {
         return { ok: false, reason: 'admission-denied' };
       }
       await tx.put<AdmissionState>('admission', {
