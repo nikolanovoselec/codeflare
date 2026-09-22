@@ -77,6 +77,15 @@ function result<T>(value: { ok: true; value: T } | { ok: false; reason: string }
   const hidden = value.reason === 'not-found' || value.reason === 'authority-expired';
   throw new AppError(hidden ? 'NOT_FOUND' : 'CONFLICT', hidden ? 404 : 409, hidden ? 'Operator not found' : 'Operator management conflict');
 }
+function presentInstallation(installation: ManagementInstallation): Record<string, unknown> {
+  let configurationValue: unknown;
+  try { configurationValue = JSON.parse(installation.configurationJson); }
+  catch { throw new AppError('UNAVAILABLE', 503, 'Operator installation configuration unavailable'); }
+  const configurationValueResult = configuration.safeParse(configurationValue);
+  if (!configurationValueResult.success) throw new AppError('UNAVAILABLE', 503, 'Operator installation configuration unavailable');
+  const { configurationJson: _, ...publicInstallation } = installation;
+  return { ...publicInstallation, configuration: configurationValueResult.data };
+}
 async function managementContext(c: Context<RouteEnv>, fresh = false): Promise<HumanContext> {
   // New management authority uses the authenticated platform role or stable,
   // issuer-bound management grants. Legacy display-name admin groups do not
@@ -177,7 +186,7 @@ app.get('/operators/:operatorId', async c => {
   // A concurrent ACL change must not make the earlier authorization a data grant.
   const current = await managed(c, operator.id);
   if (current.revision !== operator.revision) throw new AppError('CONFLICT', 409, 'Operator management conflict');
-  return c.json({ operator: current, releases, installations, grants: { managers: current.managers, invokers: current.invokers } });
+  return c.json({ operator: current, releases, installations: installations.map(presentInstallation), grants: { managers: current.managers, invokers: current.invokers } });
 });
 
 app.post('/operators/:operatorId/releases/refresh', async c => {
@@ -199,7 +208,7 @@ app.post('/operators/:operatorId/installations', async c => {
   const input = await parseJsonBody(c, installationBody);
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), input.policy);
-  return c.json(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), input.configuration)), 201);
+  return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration)))), 201);
 });
 
 app.post('/operators/:operatorId/grants', async c => {
@@ -223,21 +232,26 @@ app.post('/installations/:installationId/promote', async c => {
   const input = await parseJsonBody(c, promoteBody);
   const { installation, operator } = await managedInstallation(c);
   withinCeiling(c.get('operatorHuman'), installation.policy);
-  return c.json(result(await c.get('registry').promoteManagementInstallation(installation.id, input.releaseId, input.revision, authority(c, operator))));
+  const promoted = result(await c.get('registry').promoteManagementInstallation(installation.id, input.releaseId, input.revision, authority(c, operator)));
+  return c.json(presentInstallation(promoted));
 });
 
 app.post('/installations/:installationId/enable', async c => {
   const input = await parseJsonBody(c, enableBody);
   const { installation, operator } = await managedInstallation(c);
   if (input.enabled) withinCeiling(c.get('operatorHuman'), installation.policy);
-  return c.json(result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, input.revision, authority(c, operator))));
+  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, input.revision, authority(c, operator)));
+  return c.json(presentInstallation(enabled));
 });
 
 app.post('/installations/:installationId/configure', async c => {
   const input = await parseJsonBody(c, configureBody);
   const { installation, operator } = await managedInstallation(c);
   withinCeiling(c.get('operatorHuman'), input.policy);
-  return c.json(result(await c.get('registry').configureManagementInstallation(installation.id, input, authority(c, operator))));
+  const configured = result(await c.get('registry').configureManagementInstallation(installation.id, {
+    policy: input.policy, configurationJson: JSON.stringify(input.configuration), revision: input.revision,
+  }, authority(c, operator)));
+  return c.json(presentInstallation(configured));
 });
 
 export default app;

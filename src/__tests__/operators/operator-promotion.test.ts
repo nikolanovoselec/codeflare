@@ -55,10 +55,13 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     expect(discoveredDetail.status).toBe(200);
     const discovered = await discoveredDetail.json() as { operator: { revision: number } };
 
-    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', { name: 'production', policy, revision: discovered.operator.revision });
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', { name: 'production', policy,
+      revision: discovered.operator.revision, configuration: { review: { paths: ['src'], failClosed: true } } });
     expect(created.status).toBe(201);
-    const installation = await created.json() as { id: string; revision: number; enabled: boolean; releaseId: string | null };
-    expect(installation).toMatchObject({ revision: 1, enabled: false, releaseId: null });
+    const installation = await created.json() as { id: string; revision: number; enabled: boolean; releaseId: string | null; configuration: unknown; configurationJson?: unknown };
+    expect(installation).toMatchObject({ revision: 1, enabled: false, releaseId: null,
+      configuration: { review: { paths: ['src'], failClosed: true } } });
+    expect(installation.configurationJson).toBeUndefined();
 
     const currentDetail = await request(`/operators/${operator.operatorId}`);
     expect(currentDetail.status).toBe(200);
@@ -73,6 +76,7 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     const detail = await request(`/operators/${operator.operatorId}`);
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ installations: expect.arrayContaining([
+      expect.objectContaining({ id: installation.id, configuration: { review: { paths: ['src'], failClosed: true } } }),
       expect.objectContaining({ id: untouched.id, revision: untouched.revision, releaseId: null, enabled: false }),
     ]) });
     expect((await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: installation.revision })).status).toBe(409);

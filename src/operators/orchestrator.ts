@@ -83,7 +83,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     const selection = management.value;
     managementSelection = selection;
     if (!canInvokeOperator(authority.human, selection.operator)) {
-      throw new AppError('NOT_FOUND', 404, 'Operator invocation is not authorized');
+      throw new AppError('NOT_FOUND', 404, 'Operator installation is not available for execution');
     }
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;

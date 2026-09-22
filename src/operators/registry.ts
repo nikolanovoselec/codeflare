@@ -90,8 +90,6 @@ export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
 export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null }
-export type ManagementJson = string | number | boolean | null | ManagementJson[] | { [key: string]: ManagementJson };
-export type ManagementConfiguration = Record<string, ManagementJson>;
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
@@ -123,7 +121,8 @@ export interface ManagementCatalogQuery {
 export interface ManagementInstallation {
   id: string; operatorId: string; name: string; releaseId: string | null;
   revision: number; enabled: boolean; policy: ManagementPolicy;
-  configuration: ManagementConfiguration;
+  /** JSON object bytes cross the Durable Object RPC boundary as a string. */
+  configurationJson: string;
   approvedSourceRevision: number | null;
 }
 interface ManagementOperatorState {
@@ -582,13 +581,32 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   async getManagementInstallations(operatorId: string): Promise<ManagementInstallation[]> {
     this.managementSchema();
     return this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
-      .toArray().map(row => JSON.parse(row.data));
+      .toArray().map(row => this.parseManagementInstallation(row.data));
   }
 
   private managementInstallation(id: string): ManagementInstallation | null {
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE id=?', id).toArray()[0];
-    return row ? JSON.parse(row.data) : null;
+    return row ? this.parseManagementInstallation(row.data) : null;
+  }
+
+  private parseManagementInstallation(data: string): ManagementInstallation {
+    const parsed = JSON.parse(data) as ManagementInstallation & { configuration?: unknown };
+    if (typeof parsed.configurationJson === 'string') return parsed;
+    if (!parsed.configuration || typeof parsed.configuration !== 'object' || Array.isArray(parsed.configuration)) {
+      throw new ValidationError('Invalid installation configuration');
+    }
+    const { configuration, ...installation } = parsed;
+    return { ...installation, configurationJson: JSON.stringify(configuration) };
+  }
+
+  private managementConfiguration(input: string): string {
+    if (new TextEncoder().encode(input).byteLength > 64 * 1024) throw new ValidationError('Installation configuration exceeds the size limit');
+    try {
+      const parsed = JSON.parse(input) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+      return JSON.stringify(parsed);
+    } catch { throw new ValidationError('Invalid installation configuration'); }
   }
 
   async getManagementInstallation(installationId: string): Promise<OperatorRegistryResult<ManagementInstallation>> {
@@ -641,7 +659,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       && (policy.resourceProfileId === null || policy.resourceProfileId === ceiling.resourceProfileId);
   }
 
-  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configuration: ManagementConfiguration = {}): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configurationJson = '{}'): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -651,7 +669,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND name=?', operatorId, name.toLowerCase()).toArray().length) return { ok: false, reason: 'already-exists' };
       if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_installations WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Installation limit reached');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
-        enabled: false, policy, configuration, approvedSourceRevision: null };
+        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson), approvedSourceRevision: null };
       this.saveInstallation(value);
       return { ok: true, value };
     });
@@ -702,7 +720,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configuration: ManagementConfiguration; revision: number }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const installation = this.managementInstallation(installationId);
@@ -712,7 +730,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (fence) return fence;
       if (installation.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
       if (!this.restrictivePolicy(input.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
-      const value = { ...installation, policy: input.policy, configuration: input.configuration, revision: installation.revision + 1, enabled: false };
+      const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson), revision: installation.revision + 1, enabled: false };
       this.saveInstallation(value);
       return { ok: true, value };
     });
@@ -810,7 +828,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   async getManagementConfigurationHistory(installationId: string, revision: number): Promise<ManagementInstallation | null> {
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_configuration_history WHERE installation_id=? AND revision=?', installationId, revision).toArray()[0];
-    return row ? JSON.parse(row.data) : null;
+    return row ? this.parseManagementInstallation(row.data) : null;
   }
 
   /** Read-only legacy default-installation adapter; no eager conversion or changed legacy authority. */

@@ -142,11 +142,12 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
       installationId: 'missing-installation', invocation: { repository: 'acme/release-operator' },
     });
     expect(missing.status).toBe(404);
+    const missingBody = await missing.json();
     const unauthorized = await request('/api/operator-activities', 'POST', {
       installationId, invocation: { repository: 'acme/release-operator' },
     });
     expect(unauthorized.status).toBe(missing.status);
-    expect(await unauthorized.text()).not.toContain(installationId);
+    expect(await unauthorized.json()).toEqual(missingBody);
   }));
 
   it('rechecks issuer-bound group eligibility and denies revoked or unavailable membership', async () => withApi(async request => {
