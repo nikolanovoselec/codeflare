@@ -15,10 +15,10 @@ vi.mock('../../middleware/auth', async importOriginal => ({
     c.set('user', { email: actor.email, role: actor.role, authenticated: true });
     return next();
   },
-  authenticateRequest: async () => ({ user: { email: actor.email, role: actor.role, authenticated: true }, bucketName: actor.email }),
 }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
+  authenticateRequest: async () => ({ user: { email: actor.email, role: actor.role, authenticated: true }, bucketName: actor.email }),
   requireOperatorHumanContext: async () => ({
     human: { subject: actor.email, email: actor.email, issuer: 'https://issuer.example.test', audiences: ['operator-management'],
       groups: actor.groups, issuedAt: Math.floor(Date.now() / 1000) - 10, expiresAt: Math.floor(Date.now() / 1000) + 300 },

@@ -359,7 +359,9 @@ const AdministrationSubscriptions: Component = () => (
 
 const OperatorManagementRoute: Component = () => {
   const [user, setUser] = createSignal<{ email: string; role?: 'admin' | 'user' }>();
-  onMount(async () => {
+  const [loadError, setLoadError] = createSignal(false);
+  const load = async () => {
+    setLoadError(false);
     try {
       const current = await getUser();
       if (current.enterpriseMode !== true || (current.role !== 'admin' && current.operatorManagementEligible !== true)) {
@@ -368,12 +370,22 @@ const OperatorManagementRoute: Component = () => {
       }
       setUser({ email: current.email, role: current.role });
     } catch (error) {
-      if (!(error instanceof ApiError && (error.authRedirect || error.status === 401))) redirectExpiredSession();
+      if (error instanceof ApiError && (error.authRedirect || error.status === 401)) {
+        if (!error.authRedirect) redirectExpiredSession();
+        return;
+      }
+      setLoadError(true);
     }
-  });
+  };
+  onMount(() => { void load(); });
   return (
-    <Show when={user()} fallback={<div class="app-loading"><div class="app-loading-spinner" /><span>Loading operators...</span></div>}>
-      {(current) => <OperatorManagement userEmail={current().email} isAdmin={current().role === 'admin'} />}
+    <Show when={!loadError()} fallback={
+      <div class="app-auth-error"><h1>Operator Management unavailable</h1><p>We could not load your access.</p>
+        <button type="button" onClick={() => { void load(); }}>Retry</button></div>
+    }>
+      <Show when={user()} fallback={<div class="app-loading"><div class="app-loading-spinner" /><span>Loading operators...</span></div>}>
+        {(current) => <OperatorManagement userEmail={current().email} isAdmin={current().role === 'admin'} />}
+      </Show>
     </Show>
   );
 };
