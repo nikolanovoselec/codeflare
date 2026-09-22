@@ -67,12 +67,15 @@ describe('REQ-OPERATOR-047: generic directed profile admission', () => {
     });
   });
 
-  it('denies caller-selected profiles, sessions, and resource substitutions before any activity is prepared', async () => {
+  it.each([
+    ['profile', { profile: 'conductor' }],
+    ['session', { sessionId: 'caller-created-session' }],
+    ['resources', { resources: { repository: 'other-owner/other-repository' } }],
+  ])('denies caller-selected %s substitutions before any activity is prepared', async (_field, substitution) => {
     const { post, prepared } = fixture();
 
     const response = await post({ operatorId: 'renovate-dispatcher', invocation: {
-      repository: 'other-owner/other-repository', pullRequest: 99, profile: 'conductor',
-      sessionId: 'caller-created-session', resources: { repository: 'other-owner/other-repository' },
+      repository: 'other-owner/other-repository', pullRequest: 99, ...substitution,
     } });
 
     expect(response.status).toBe(400);

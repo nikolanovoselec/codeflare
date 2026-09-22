@@ -54,9 +54,16 @@ app.use('*', async (c, next) => {
   return next();
 });
 app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
-app.use('*', async (c, next) => {
-  if (c.req.method === 'POST' && c.req.header('x-requested-with') !== 'XMLHttpRequest') {
+function requireMutationCsrf(c: Context<RouteEnv>): void {
+  if (c.req.header('x-requested-with') !== 'XMLHttpRequest') {
     throw new AppError('FORBIDDEN', 403, 'CSRF validation failed');
+  }
+}
+app.use('*', async (c, next) => {
+  // Grant mutations authorize the target before exposing CSRF rejection, so an
+  // unauthorized caller cannot enumerate the operator through this endpoint.
+  if (c.req.method === 'POST' && !/\/operators\/[A-Za-z0-9_-]{1,128}\/grants$/.test(new URL(c.req.raw.url).pathname)) {
+    requireMutationCsrf(c);
   }
   return next();
 });
@@ -193,8 +200,9 @@ app.post('/operators/:operatorId/installations', async c => {
 });
 
 app.post('/operators/:operatorId/grants', async c => {
-  const input = await parseJsonBody(c, grantsBody);
   const operator = await managed(c, c.req.param('operatorId'));
+  requireMutationCsrf(c);
+  const input = await parseJsonBody(c, grantsBody);
   const updated = result(await c.get('registry').setManagementGrants(operator.id, input.managers, input.invokers, authority(c, operator, input.revision)));
   logger.info('Operator grants changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);

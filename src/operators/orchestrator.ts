@@ -21,6 +21,11 @@ const preparationSchema = z.union([
   z.strictObject({ installationId: ID, invocation: invocationSchema }),
 ]);
 const MAX_INVOCATION_BYTES = 64 * 1024;
+const RENOVATE_DISPATCHER_OPERATOR_ID = 'renovate-dispatcher';
+const dispatcherInvocationSchema = z.strictObject({
+  repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  pullRequest: z.number().int().positive(),
+});
 
 function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt): receipt is ManagementAdmissionReceipt {
   return 'selection' in receipt;
@@ -42,6 +47,11 @@ function boundedInvocation(value: unknown): unknown {
     throw new ValidationError('Operator invocation exceeds the size limit');
   }
   return JSON.parse(json) as unknown;
+}
+function parseDispatcherInvocation(value: unknown) {
+  const parsed = dispatcherInvocationSchema.safeParse(value);
+  if (!parsed.success) throw new ValidationError('Invalid operator invocation');
+  return parsed.data;
 }
 
 export interface PreparedOperatorActivity {
@@ -79,7 +89,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
       if (gate1.operatorId !== operatorId) throw new ValidationError('Invalid operator invocation');
       return parseOperatorConsumerInvocation({ ...gate1, operatorId, activityId });
     })()
-    : bounded;
+    : (managementSelection?.operator.profile === 'dispatcher' || operatorId === RENOVATE_DISPATCHER_OPERATOR_ID)
+      ? parseDispatcherInvocation(bounded)
+      : bounded;
   let legacySelection: OperatorExecutionSelection | null = null;
   if (!installationId) {
     const legacy = await registry.resolveForExecution(operatorId);

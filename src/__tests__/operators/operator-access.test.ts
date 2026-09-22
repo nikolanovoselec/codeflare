@@ -113,15 +113,21 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id })], cursor: null });
 
+    const transferred = await request(`/api/operator-management/operators/${operator.id}/grants`, 'POST', {
+      managers: { users: ['other-manager@example.test'], groups: [] }, invokers: registration.invokers, revision: operator.revision,
+    });
+    expect(transferred.status).toBe(200);
+    const revised = await transferred.json() as { revision: number };
+    const deniedMutation = await request(`/api/operator-management/operators/${operator.id}/grants`, 'POST', {
+      managers: registration.managers, invokers: registration.invokers, revision: revised.revision,
+    }, false);
+    expect(deniedMutation.status).toBe(404);
+    expect(await deniedMutation.text()).not.toContain(operator.id);
+
     actor.email = 'invoker@example.test'; actor.groups = [];
     const deniedCatalog = await request('/api/operator-management/operators');
     expect(deniedCatalog.status).toBe(404);
     expect(await deniedCatalog.text()).not.toContain(operator.id);
-    const deniedMutation = await request(`/api/operator-management/operators/${operator.id}/grants`, 'POST', {
-      managers: registration.managers, invokers: registration.invokers, revision: operator.revision,
-    });
-    expect(deniedMutation.status).toBe(404);
-    expect(await deniedMutation.text()).not.toContain(operator.id);
     const invoked = await request('/api/operator-activities', 'POST', {
       installationId, invocation: { repository: 'acme/release-operator' },
     });
