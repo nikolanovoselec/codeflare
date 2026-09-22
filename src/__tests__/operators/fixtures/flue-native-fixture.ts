@@ -42,13 +42,6 @@ type AgentsFacetRootBridge = {
   _cf_releaseFacetKeepAlive(token: string): Promise<void>;
   _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void>;
   _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void>;
-  _cf_cleanupFacetPrefix(ownerPath: FacetPath): Promise<void>;
-  _cf_broadcastToSubAgent(ownerPath: FacetPath, message: unknown, without: readonly string[] | undefined): Promise<void>;
-  _cf_subAgentConnectionMetas(ownerPath: FacetPath): Promise<unknown>;
-  _cf_sendToSubAgentConnection(connectionId: string, message: unknown): Promise<void>;
-  _cf_closeSubAgentConnection(connectionId: string, code: number | undefined, reason: string | undefined): Promise<void>;
-  _cf_setSubAgentConnectionState(connectionId: string, state: unknown): Promise<unknown>;
-  _cf_destroyDescendantFacet(targetPath: FacetPath): Promise<void>;
 };
 type NativeEnv = {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
@@ -267,31 +260,6 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_unregisterFacetRun.call(this, ownerPath, runId);
   }
-  async _cf_cleanupFacetPrefix(ownerPath: FacetPath) {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_cleanupFacetPrefix.call(this, ownerPath);
-  }
-  async _cf_broadcastToSubAgent(ownerPath: FacetPath, message: unknown, without: readonly string[] | undefined) {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_broadcastToSubAgent.call(this, ownerPath, message, without);
-  }
-  async _cf_subAgentConnectionMetas(ownerPath: FacetPath) {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_subAgentConnectionMetas.call(this, ownerPath);
-  }
-  async _cf_sendToSubAgentConnection(connectionId: string, message: unknown) {
-    return this.#agentsRoot()._cf_sendToSubAgentConnection.call(this, connectionId, message);
-  }
-  async _cf_closeSubAgentConnection(connectionId: string, code: number | undefined, reason: string | undefined) {
-    return this.#agentsRoot()._cf_closeSubAgentConnection.call(this, connectionId, code, reason);
-  }
-  async _cf_setSubAgentConnectionState(connectionId: string, state: unknown) {
-    return this.#agentsRoot()._cf_setSubAgentConnectionState.call(this, connectionId, state);
-  }
-  async _cf_destroyDescendantFacet(targetPath: FacetPath) {
-    this.#path(targetPath);
-    return this.#agentsRoot()._cf_destroyDescendantFacet.call(this, targetPath);
-  }
 }
 
 export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
@@ -345,27 +313,6 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
   }
   async _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string) {
     return this.#bridge(root => root._cf_unregisterFacetRun(ownerPath, runId));
-  }
-  async _cf_cleanupFacetPrefix(ownerPath: FacetPath) {
-    return this.#bridge(root => root._cf_cleanupFacetPrefix(ownerPath));
-  }
-  async _cf_broadcastToSubAgent(ownerPath: FacetPath, message: unknown, without: readonly string[] | undefined) {
-    return this.#bridge(root => root._cf_broadcastToSubAgent(ownerPath, message, without));
-  }
-  async _cf_subAgentConnectionMetas(ownerPath: FacetPath) {
-    return this.#bridge(root => root._cf_subAgentConnectionMetas(ownerPath));
-  }
-  async _cf_sendToSubAgentConnection(connectionId: string, message: unknown) {
-    return this.#bridge(root => root._cf_sendToSubAgentConnection(connectionId, message));
-  }
-  async _cf_closeSubAgentConnection(connectionId: string, code: number | undefined, reason: string | undefined) {
-    return this.#bridge(root => root._cf_closeSubAgentConnection(connectionId, code, reason));
-  }
-  async _cf_setSubAgentConnectionState(connectionId: string, state: unknown) {
-    return this.#bridge(root => root._cf_setSubAgentConnectionState(connectionId, state));
-  }
-  async _cf_destroyDescendantFacet(targetPath: FacetPath) {
-    return this.#bridge(root => root._cf_destroyDescendantFacet(targetPath));
   }
 }
 
