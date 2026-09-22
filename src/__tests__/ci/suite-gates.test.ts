@@ -476,6 +476,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       '1/12', '2/12', '3/12', '4/12', '5/12', '6/12',
       '7/12', '8/12', '9/12', '10/12', '11/12', '12/12', '',
     ]);
+    const workerLegs = backend.strategy.matrix.include.filter((leg) => leg['balance-group']);
+    expect(workerLegs.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '')).toBe(true);
+    expect(backend.strategy.matrix.include.find((leg) => !leg['balance-group'])).toMatchObject({
+      slug: 'node', script: 'test:node', 'pre-run': 'npm run pretest',
+    });
     const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
     const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
       steps: Array<{ uses?: string; with?: Record<string, string> }>;
@@ -505,14 +510,20 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         NAME: 'backend-shard-1',
         ARTIFACT_URL: 'https://example.invalid/report',
         DIR: '.',
-        SCRIPT: 'test',
+        SCRIPT: 'test:worker',
         SHARD: '',
         BALANCE_GROUP: '1/12',
       },
     });
     expect(rendered.status, rendered.stderr).toBe(0);
     expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/12');
-    expect(rendered.stdout).toContain('npm run test -- "${tests[@]}"');
+    expect(rendered.stdout).toContain('npm run test:worker -- "${tests[@]}"');
+
+    const frontend = testWorkflow.jobs['frontend-tests'] as { steps: CacheStep[] };
+    expect(frontend.steps.some((step) => step.name === 'Build frontend')).toBe(false);
+    const frontendBuild = testWorkflow.jobs['frontend-build'] as CacheJob;
+    expect(frontendBuild.steps?.some((step) => step.name === 'Build frontend')).toBe(true);
+    expect((testWorkflow.jobs.summary?.needs as string[])).toContain('frontend-build');
   });
 
   it('REQ-OPS-022 AC5: merges affected package coverage only after matrix tests', () => {
