@@ -239,6 +239,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         headers: { 'content-type': 'text/event-stream' },
       });
     }
+    if (path !== '/fixture/barrier' && path !== '/v1/dispatcher/github/read') {
+      return Response.json({ error: 'Dispatcher capability denied' }, { status: 403 });
+    }
     const delivery = await request.json() as NativeDelivery;
     if (path === '/fixture/barrier') {
       await this.ctx.storage.put('fixture:barrier-reached', true);
