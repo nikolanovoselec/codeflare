@@ -33,13 +33,17 @@ describe('shared operator package compiler', () => {
 
   it('emits the existing Dispatcher bundle and provenance digests over exact emitted bytes', async () => {
     const result = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(), provenance: {
-      repositoryId: 7, sourceCommit: 'a'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
+      repositoryId: 7, sourceCommit: 'a'.repeat(40), compilerCommit: 'b'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
     } });
     const parsedManifest = parseOperatorManifest(new TextDecoder().decode(bytes(result, 'operator-manifest.json')), 'https://operators.example.test/');
     await expect(parseDispatcherBundle(bytes(result, 'operator-bundle.json'), parsedManifest.artifact.sha256)).resolves.toMatchObject({ className: 'FlueDispatcherAgent' });
     expect(JSON.parse(new TextDecoder().decode(bytes(result, 'operator-provenance.json')))).toMatchObject({
-      manifestDigest: sha(bytes(result, 'operator-manifest.json')), bundleDigest: sha(bytes(result, 'operator-bundle.json')),
+      compilerCommit: 'b'.repeat(40), manifestDigest: sha(bytes(result, 'operator-manifest.json')),
+      bundleDigest: sha(bytes(result, 'operator-bundle.json')),
     });
+    await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(), provenance: {
+      repositoryId: 7, sourceCommit: 'a'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
+    } })).rejects.toThrow(/Invalid operator package/);
   });
 
   it.each([

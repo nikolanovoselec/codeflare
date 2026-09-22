@@ -55,6 +55,18 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     expect(await response.text()).toBe('denied');
   });
 
+  it('executes the exact compiler-produced Review Conductor through the generic parent capability', async () => {
+    const response = await worker!.fetch('/conductor-bundle');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ schemaVersion: 1, status: 'completed', result: {
+      operationId: 'review-generation-1', cleanup: 'stopped', reports: [
+        { lane: 'code-reviewer', packetDigest: 'a'.repeat(64) },
+        { lane: 'spec-reviewer', packetDigest: 'a'.repeat(64) },
+        { lane: 'doc-updater', packetDigest: 'a'.repeat(64) },
+      ],
+    } });
+  });
+
   it('executes the exact Gate 1 artifact through the native Loader boundary', async () => {
     const direct = await worker!.fetch('/gate1-bundle?case=direct');
     expect(direct.status).toBe(200);

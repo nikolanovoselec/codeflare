@@ -56,6 +56,7 @@ class ConfiguredCoordinator implements OperatorSyncCoordinator {
       manifestPrefix: config.manifestPrefix, deadline: config.deadline,
       store: this.store, files: this.files, uploader: this.uploader });
   }
+  inspect(paths: readonly string[]): Promise<OperatorSyncFile[]> { return this.files.inspect(paths); }
   upload(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }): Promise<OperatorSyncReceipt> {
     return this.service.upload(request);
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Gate1OperatorCapability, type Gate1CapabilityOptions } from '../../operators/gate1-capability';
-import { createOperatorSyncReader, OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { createOperatorSyncReader } from '../../operators/owned-session-production';
 import { resolveGate1Resources, type Gate1Resources } from '../../operators/gate1-resources';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { parseOperatorPolicy } from '../../operators/policy';

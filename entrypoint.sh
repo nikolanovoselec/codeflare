@@ -358,7 +358,7 @@ init_sync_log() {
 }
 
 # Rclone config path (set after create_rclone_config)
-RCLONE_CONFIG="$USER_HOME/.config/rclone/rclone.conf"
+export RCLONE_CONFIG="$USER_HOME/.config/rclone/rclone.conf"
 
 # Shared rclone filter rules (used by all sync functions)
 # SYNC_MODE controls what syncs from workspace/:
@@ -2736,6 +2736,17 @@ if create_rclone_config; then
     RCLONE_CONFIG_RESULT=0
 else
     RCLONE_CONFIG_RESULT=1
+fi
+
+# Restore activity-owned opaque Operator attachments through the already-bound
+# owner bucket. The parent supplies only digest/size-bound locator metadata;
+# destinations stay beneath the fixed non-synced Operator resource root.
+if [ -n "${CODEFLARE_OPERATOR_ATTACHMENTS:-}" ]; then
+    if [ "$RCLONE_CONFIG_RESULT" -ne 0 ]; then
+        echo "[entrypoint] Operator attachment restore requires R2 configuration" >&2
+        exit 1
+    fi
+    node /opt/codeflare/scripts/restore-operator-attachments.mjs
 fi
 
 # Initialize sync log

@@ -97,4 +97,42 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     expect(rollback.status).toBe(200);
     expect(await rollback.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 5, enabled: false });
   }));
+
+  it('rejects release capabilities outside installation policy and the current management ceiling', async () => withManagementApi(async request => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ requiredCapabilities: ['fetch'] })).fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: ['fetch'], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', { ...registration,
+      policy: { capabilities: ['fetch'], resourceProfileId: null } });
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    const release = (await refreshed.json() as { items: Array<{ id: string }> }).items[0]!;
+    const detail = await request(`/operators/${operator.operatorId}`);
+    const revision = (await detail.json() as { operator: { revision: number } }).operator.revision;
+
+    const narrow = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'narrow', policy, revision,
+    });
+    const narrowInstallation = await narrow.json() as { id: string; revision: number };
+    expect((await request(`/installations/${narrowInstallation.id}/promote`, 'POST', {
+      releaseId: release.id, revision: narrowInstallation.revision,
+    })).status).toBe(400);
+
+    const currentDetail = await request(`/operators/${operator.operatorId}`);
+    const currentRevision = (await currentDetail.json() as { operator: { revision: number } }).operator.revision;
+    const matching = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'matching', policy: { capabilities: ['fetch'], resourceProfileId: null }, revision: currentRevision,
+    });
+    const matchingInstallation = await matching.json() as { id: string; revision: number };
+    const promoted = await request(`/installations/${matchingInstallation.id}/promote`, 'POST', {
+      releaseId: release.id, revision: matchingInstallation.revision,
+    });
+    const promotedInstallation = await promoted.json() as { id: string; revision: number };
+    expect(promoted.status).toBe(200);
+    expect((await request('/access', 'POST', { revision: 1, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    expect((await request(`/installations/${promotedInstallation.id}/enable`, 'POST', {
+      revision: promotedInstallation.revision, enabled: true,
+    })).status).toBe(400);
+  }));
 });

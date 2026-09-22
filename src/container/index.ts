@@ -36,6 +36,7 @@ import { wireContainerInterception, type InterceptionHost } from './container-in
 import type { OperatorPolicy } from '../operators/policy';
 import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
   type OperatorPackageResourceProjection } from '../operators/package-resources';
+import { parseOperatorAttachmentProjection, type OperatorAttachmentProjection } from '../operators/attachments';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import {
   bindOperatorAuthority as contextBindOperatorAuthority,
@@ -206,6 +207,7 @@ export class container extends Container<Env> implements ContainerEnvState {
 /** Durable non-secret origin/profile. Raw Access authority remains memory-only. */
   _operatorContainerProfile?: OperatorContainerProfile;
   _operatorPackageResources?: OperatorPackageResourceProjection;
+  _operatorAttachments?: OperatorAttachmentProjection;
   _operatorPolicy?: OperatorPolicy;
   _jwtStamping?: JwtStampingPolicy;
   _jwtAuthority?: JwtStampingAuthority;
@@ -318,10 +320,14 @@ export class container extends Container<Env> implements ContainerEnvState {
 
       // Operator restrictions and package resources are restored before env construction
       // or a later pre-start interception pass. No credential or authority is persisted.
-      const storedPackageResources = await this.ctx.storage.get<unknown>('operatorPackageResources');
+      const [storedPackageResources, storedAttachments] = await Promise.all([
+        this.ctx.storage.get<unknown>('operatorPackageResources'),
+        this.ctx.storage.get<unknown>('operatorAttachments'),
+      ]);
       if (storedPackageResources != null) {
         this._operatorPackageResources = parseOperatorPackageResourceProjection(storedPackageResources);
       }
+      if (storedAttachments != null) this._operatorAttachments = parseOperatorAttachmentProjection(storedAttachments);
       await contextRestoreOperatorContext(this.operatorContextHost);
       if (this._operatorContainerProfile) this.enableInternet = false;
 
@@ -358,6 +364,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     const projection = await verifyOperatorPackageResourceProjection(input);
     await this.ctx.storage.put('operatorPackageResources', projection);
     this._operatorPackageResources = structuredClone(projection);
+    this.updateEnvVars();
+  }
+
+  /** Persist activity-owned opaque attachment declarations before startup. */
+  async configureOperatorAttachments(input: unknown): Promise<void> {
+    const projection = parseOperatorAttachmentProjection(input);
+    await this.ctx.storage.put('operatorAttachments', projection);
+    this._operatorAttachments = structuredClone(projection);
     this.updateEnvVars();
   }
 

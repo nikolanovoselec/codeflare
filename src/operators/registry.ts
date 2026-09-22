@@ -689,6 +689,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', releaseId, installation.operatorId).toArray()[0];
       if (!row) return { ok: false, reason: 'not-found' };
       const release = JSON.parse(row.data) as ManagementRelease;
+      if (!release.requestedCapabilities.every(capability => installation.policy.capabilities.includes(capability))
+        || !release.requestedCapabilities.every(capability => this.controls().ceiling.capabilities.includes(capability))) {
+        throw new ValidationError('Release capabilities exceed installation policy');
+      }
       if (release.sourceRevision !== state!.sourceRevision || !this.ctx.storage.sql.exec('SELECT part FROM operator_bytes WHERE digest=? LIMIT 1', release.bundleDigest).toArray().length) return { ok: false, reason: 'artifact-unapproved' };
       this.ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?', JSON.stringify({ ...release, approved: true }), releaseId);
       const value = { ...installation, releaseId, revision: installation.revision + 1, enabled: false, approvedSourceRevision: state!.sourceRevision };
@@ -712,6 +716,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId, installation.operatorId).toArray()[0];
         if (!row) return { ok: false, reason: 'artifact-unapproved' };
         const release = JSON.parse(row.data) as ManagementRelease;
+        if (!release.requestedCapabilities.every(capability => installation.policy.capabilities.includes(capability))
+          || !release.requestedCapabilities.every(capability => this.controls().ceiling.capabilities.includes(capability))) {
+          throw new ValidationError('Release capabilities exceed installation policy');
+        }
         if (!release.approved || !this.ctx.storage.sql.exec('SELECT part FROM operator_bytes WHERE digest=? LIMIT 1', release.bundleDigest).toArray().length) return { ok: false, reason: 'artifact-unapproved' };
       }
       const value = { ...installation, revision: installation.revision + 1, enabled };

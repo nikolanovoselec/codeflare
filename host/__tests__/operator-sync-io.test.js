@@ -1,6 +1,7 @@
 /** REQ-OPERATOR-023: concrete restricted local/R2 I/O adapters. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -15,6 +16,8 @@ test('REQ-OPERATOR-023: local adapter reads only exact regular non-symlink files
   await writeFile(path.join(root, 'reports/result.txt'), 'result');
   const files = new OwnedOperatorSyncFiles(root);
   assert.equal(new TextDecoder().decode(await files.read('reports/result.txt', 6)), 'result');
+  assert.deepEqual(await files.inspect(['reports/result.txt']), [{ path: 'reports/result.txt', size: 6,
+    sha256: createHash('sha256').update('result').digest('hex') }]);
   await assert.rejects(files.read('../escape', 1), /invalid.*path/i);
   await assert.rejects(files.read('reports/result.txt', 5), /size/i);
   await symlink(path.join(root, 'reports/result.txt'), path.join(root, 'reports/link'));

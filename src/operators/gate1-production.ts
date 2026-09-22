@@ -1,29 +1,27 @@
 import { getContainer } from '@cloudflare/containers';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from '../types';
-import { parseOperatorContainerProfile } from '../container/operator-context';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
   resolveOperatorGroupIdentity, canInvokeOperator } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
-import { createR2Client, getR2Url } from '../lib/r2-client';
-import { getR2Config } from '../lib/r2-config';
-import { getSseHeaders } from '../lib/r2-sse';
 import { openOperatorExecutionAccess } from './execution-context';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
 import { GATE1_OPERATOR_ID, resolveGate1Resources, type Gate1Resources } from './gate1-resources';
-import { ContainerOwnedSessionRuntime, type Gate1ContainerStub, type Gate1SessionBootstrap } from './gate1-runtime';
-import { OwnedOperatorSessionService, type OwnedOperatorSessionState,
-  type OwnedOperatorSessionStore } from './owned-session';
+import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from './owned-session-runtime';
+import { OwnedOperatorSessionService } from './owned-session';
 import { Gate1OperatorCapability } from './gate1-capability';
+import { createConductorProductionCapability } from './conductor-production';
+import { operatorActivitySessionStore, createOperatorSyncReader,
+  type OperatorActivityStub } from './owned-session-production';
 import { bootstrapOperatorSession } from './session-bootstrap';
-import { verifyOperatorSync, type OperatorSyncReader } from './sync-verification';
-import type { OperatorRuntimePlan, OperatorActivity } from './activity';
+import { verifyOperatorSync } from './sync-verification';
+import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 
-type Gate1Activity = DurableObjectStub<OperatorActivity>;
+type Gate1Activity = OperatorActivityStub;
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
@@ -233,6 +231,13 @@ export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
       return parent ? dispatchRenovateAssessment(request, parent, props.activityId, props.generation)
         : deniedCapability(props.activityId, props.generation);
     }
+    if (isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'conductor') {
+      try {
+        const connected = await createConductorProductionCapability({ env: this.env, plan, activity,
+          generation: props.generation });
+        return connected.capability.fetch(request);
+      } catch { return deniedCapability(props.activityId, props.generation); }
+    }
     if (isManagementReceipt(plan.receipt) || plan.receipt.operatorId !== GATE1_OPERATOR_ID) {
       return deniedCapability(props.activityId, props.generation);
     }
@@ -242,45 +247,6 @@ export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
       generation: props.generation });
     return connected.capability.fetch(request);
   }
-}
-
-function activityStore(activity: Gate1Activity): OwnedOperatorSessionStore {
-  return {
-    load: async () => {
-      const state = await activity.getOwnedSession();
-      return state ? { schemaVersion: 1, requestId: state.requestId, requestDigest: state.requestDigest,
-        activityId: state.activityId, ownerBucket: state.ownerBucket, sessionId: state.sessionId,
-        profile: parseOperatorContainerProfile(state.profile), status: state.status } : null;
-    },
-    save: async (state: OwnedOperatorSessionState) => {
-      const result = await activity.saveOwnedSession(state);
-      if (!result.ok) throw new Error(`Owned session state ${result.reason}`);
-    },
-  };
-}
-
-export async function createOperatorSyncReader(
-  env: Env,
-  bucket: string,
-  bootstrap: Gate1SessionBootstrap,
-): Promise<OperatorSyncReader> {
-  const config = await getR2Config(env);
-  const client = createR2Client({
-    R2_ACCESS_KEY_ID: bootstrap.r2AccessKeyId,
-    R2_SECRET_ACCESS_KEY: bootstrap.r2SecretAccessKey,
-  });
-  return async (key, maxBytes) => {
-    const signed = await client.sign(getR2Url(config.endpoint, bucket, key), {
-      headers: getSseHeaders(env, bootstrap.r2SseDisabled === true),
-    });
-    const response = await fetch(signed);
-    if (response.status === 404) return null;
-    const declared = Number(response.headers.get('content-length') ?? 0);
-    if (!response.ok || (declared && declared > maxBytes)) throw new Error('Bounded R2 read failed');
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) throw new Error('Bounded R2 read failed');
-    return bytes;
-  };
 }
 
 /** Compose the single code-owned Gate 1 profile from protected parent state. */
@@ -308,17 +274,18 @@ async function createGate1ProductionCapability(input: {
       routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
       defaultReasoningLevel: routes.defaultReasoning,
     } });
+  const packageResources = await activity.getPackageResources();
   const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket,
     sessionId: resources.profile.sessionId, userEmail: authority.human.email.toLowerCase(), userGroups: groups,
-    routes, bootstrap,
-    resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as Gate1ContainerStub });
-  const service = new OwnedOperatorSessionService(activityStore(activity), runtime);
+    routes, bootstrap, packageResources,
+    resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as OperatorContainerStub });
+  const service = new OwnedOperatorSessionService(operatorActivitySessionStore(activity), runtime);
   const requestDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.invocationJson));
   const digest = Array.from(new Uint8Array(requestDigest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
   const ensure = () => service.ensure({ requestId: 'gate1-session-v1', requestDigest: digest,
     activityId: plan.activityId, ownerBucket, profile: resources.profile, authority });
   const stop = () => service.stop({ activityId: plan.activityId, ownerBucket, drain: false });
-  const container = getContainer(env.CONTAINER, `${ownerBucket}-${resources.profile.sessionId}`) as unknown as Gate1ContainerStub;
+  const container = getContainer(env.CONTAINER, `${ownerBucket}-${resources.profile.sessionId}`) as unknown as OperatorContainerStub;
   const reader = await createOperatorSyncReader(env, ownerBucket, bootstrap);
   const capability = new Gate1OperatorCapability({ activityId: plan.activityId, generation: input.generation,
     deadline: plan.deadline, resources, session: { ensure, stop },

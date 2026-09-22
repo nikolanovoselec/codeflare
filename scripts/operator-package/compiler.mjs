@@ -111,8 +111,9 @@ function buildManifest(raw, bundleDigest, dispatcher) {
 function buildProvenance(raw, manifestDigest, bundleDigest, sourceCommit) {
   if (raw === undefined) return undefined;
   const provenance = { ...object(raw, 'provenance'), manifestDigest, bundleDigest };
-  exactKeys(provenance, ['repositoryId', 'sourceCommit', 'manifestDigest', 'bundleDigest', 'workflow'], 'provenance');
+  exactKeys(provenance, ['repositoryId', 'sourceCommit', 'compilerCommit', 'manifestDigest', 'bundleDigest', 'workflow'], 'provenance');
   if (!Number.isSafeInteger(provenance.repositoryId) || provenance.repositoryId <= 0 || !COMMIT.test(provenance.sourceCommit || '')
+    || !COMMIT.test(provenance.compilerCommit || '')
     || provenance.sourceCommit !== sourceCommit && sourceCommit !== undefined) fail('provenance source is invalid');
   const workflow = object(provenance.workflow, 'provenance.workflow');
   exactKeys(workflow, ['id', 'ref', 'runId', 'runAttempt'], 'provenance.workflow');

@@ -568,6 +568,18 @@ export class OperatorActivity extends Agent {
     return { ok: true };
   }
 
+  /** Read only independently verified objects declared by this activity. */
+  async authorizeSyncRead(key: string, maxBytes: number): Promise<{ ok: true } | { ok: false }> {
+    if (!canonicalSyncKey(key) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 8 * 1024 * 1024) {
+      return { ok: false };
+    }
+    const record = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!record || record.phase !== 'queued' || record.intent.deadline <= Date.now()) return { ok: false };
+    const allowed = Object.values(record.syncOperations ?? {}).some(operation => operation.phase === 'verified'
+      && (key === `${operation.prefix}manifest.json` || operation.keys.includes(key)));
+    return allowed ? { ok: true } : { ok: false };
+  }
+
   /** Recording uploaded bytes seals the namespace before independent reads. */
   async recordSyncUploaded(operationId: string, manifestDigest: string): Promise<OperatorSyncResult> {
     if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(manifestDigest).success) {
@@ -769,6 +781,14 @@ export class OperatorActivity extends Agent {
     });
     if (result.ok) await this.publishBrowserSummary();
     return result;
+  }
+
+  /** Generic child-effect fence for the exact admitted, live generation. */
+  async operatorGenerationCurrent(generation: number): Promise<boolean> {
+    if (!Number.isSafeInteger(generation) || generation < 1) return false;
+    const record = await this.ctx.storage.get<AdmissionState>('admission');
+    return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
+      && record.drive?.status === 'running' && record.drive.generation === generation;
   }
 
   /** Validate bounded child output before committing the current generation only. */

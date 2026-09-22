@@ -5,7 +5,7 @@
  */
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { OperatorSyncFile, OperatorSyncFiles, OperatorSyncReceipt, OperatorSyncStore, OperatorSyncUploader } from './operator-sync.js';
@@ -61,6 +61,26 @@ export class OwnedOperatorSyncFiles implements OperatorSyncFiles {
   constructor(root: string, private readonly openFile: OpenFile = open) {
     if (!path.isAbsolute(root)) throw new Error('Invalid owned output root');
     this.root = path.resolve(root);
+  }
+  async inspect(paths: readonly string[]): Promise<OperatorSyncFile[]> {
+    if (!Array.isArray(paths) || paths.length < 1 || paths.length > 128 || new Set(paths).size !== paths.length) {
+      throw new Error('Invalid operator sync request');
+    }
+    let total = 0;
+    const files: OperatorSyncFile[] = [];
+    for (const relativePath of paths) {
+      if (!canonicalPath(relativePath)) throw new Error('Invalid operator sync request');
+      const lexical = path.resolve(this.root, relativePath);
+      if (!lexical.startsWith(`${this.root}${path.sep}`)) throw new Error('Invalid owned output path');
+      const info = await stat(lexical);
+      if (!info.isFile() || info.size > MAX_BYTES) throw new Error('Invalid operator sync request');
+      total += info.size;
+      if (total > MAX_BYTES) throw new Error('Invalid operator sync request');
+      const bytes = await this.read(relativePath, info.size);
+      files.push({ path: relativePath, size: bytes.byteLength,
+        sha256: createHash('sha256').update(bytes).digest('hex') });
+    }
+    return files;
   }
   async read(relativePath: string, expectedSize: number): Promise<Uint8Array> {
     if (!canonicalPath(relativePath) || !Number.isSafeInteger(expectedSize) || expectedSize < 0 || expectedSize > MAX_BYTES) {

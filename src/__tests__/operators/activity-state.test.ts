@@ -195,9 +195,14 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       .toEqual({ ok: true, phase: 'verified' });
     expect(await secured.getSync('sync-1')).toMatchObject({ phase: 'verified', manifestDigest: 'e'.repeat(64),
       evidence: { filesVerified: 1, bytesVerified: 6 } });
+    expect(await secured.authorizeSyncRead(`${sync.prefix}manifest.json`, 64 * 1024)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncRead(sync.keys[0], 64 * 1024)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncRead('Operators/foreign.txt', 64 * 1024)).toEqual({ ok: false });
     expect(JSON.stringify(await secured.getSync('sync-1'))).not.toContain('private.jwt');
 
     expect(await secured.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await secured.operatorGenerationCurrent(1)).toBe(true);
+    expect(await secured.operatorGenerationCurrent(2)).toBe(false);
     const review = { generation: 1, repositoryId: 12, pullRequest: 34, head: '1'.repeat(40),
       releaseDigest: 'a'.repeat(64), packageDigest: '6'.repeat(64), resourceDigest: '7'.repeat(64),
       packetDigest: '2'.repeat(64), requiredLanes: ['security', 'contract'] };

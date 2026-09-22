@@ -77,11 +77,13 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     }
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
-  const invocation = !installationId && operatorId === GATE1_OPERATOR_ID
+  const usesConsumerContract = (!installationId && operatorId === GATE1_OPERATOR_ID)
+    || managementSelection?.release.manifest.profile === 'conductor';
+  const invocation = usesConsumerContract
     ? (() => {
-      const gate1 = parseOperatorConsumerInvocation(bounded);
-      if (gate1.operatorId !== operatorId) throw new ValidationError('Invalid operator invocation');
-      return parseOperatorConsumerInvocation({ ...gate1, operatorId, activityId });
+      const consumer = parseOperatorConsumerInvocation(bounded);
+      if (consumer.operatorId !== operatorId) throw new ValidationError('Invalid operator invocation');
+      return parseOperatorConsumerInvocation({ ...consumer, operatorId, activityId });
     })()
     : bounded;
   let legacySelection: OperatorExecutionSelection | null = null;

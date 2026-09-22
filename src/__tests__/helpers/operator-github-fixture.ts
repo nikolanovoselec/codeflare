@@ -53,7 +53,7 @@ export type GitHubFixtureFault = 'provenance-repository' | 'mutable-release' | '
 
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
-  profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean;
+  profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
 } = {}) {
   const repositoryName = options.repositoryName ?? 'review-operator';
   const repository = { id: repositoryId, full_name: `acme/${repositoryName}`,
@@ -69,7 +69,8 @@ export async function createOperatorGitHubFixture(options: {
   const bundleDigest = await sha256(bundle);
   const manifest = encoder.encode(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
     id: repositoryName, name: 'Review operator', description: 'Review fixture', coreVersion: '1', intentVersion: '1',
-    profile: options.profile ?? 'conductor', inputSchema: { type: 'object' }, requiredCapabilities: [],
+    profile: options.profile ?? 'conductor', inputSchema: { type: 'object' },
+    requiredCapabilities: options.requiredCapabilities ?? [],
     artifact: { path: '/operator-bundle.json', sha256: bundleDigest } }));
   const manifestDigest = await sha256(manifest);
   const provenance = encoder.encode(JSON.stringify({ repositoryId: options.fault === 'provenance-repository' ? 418 : repositoryId,

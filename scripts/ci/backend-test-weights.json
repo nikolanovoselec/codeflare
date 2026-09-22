@@ -154,7 +154,7 @@
     "src/__tests__/operators/gate1-capability.test.ts": 1,
     "src/__tests__/operators/gate1-fixture-distribution.test.ts": 1995,
     "src/__tests__/operators/gate1-resources.test.ts": 1170,
-    "src/__tests__/operators/gate1-runtime.test.ts": 2262,
+    "src/__tests__/operators/owned-session-runtime.test.ts": 2262,
     "src/__tests__/operators/generic-profile-admission.test.ts": 2039,
     "src/__tests__/operators/github-release-source.test.ts": 2517,
     "src/__tests__/operators/inference-selection.test.ts": 1818,
