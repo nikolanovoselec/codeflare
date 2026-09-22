@@ -47,7 +47,9 @@ function environment(continueResult: unknown = { ok: true, phase: 'queued', gene
 }
 
 async function fetchWebhook(input: Request, env: Record<string, unknown>) {
-  return webhookRoutes.fetch(input, env as never, { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {} });
+  return webhookRoutes.fetch(input, env as never, { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {
+    OperatorRuntimeCapability: vi.fn(() => ({ fetch: vi.fn() })),
+  } });
 }
 
 describe('REQ-OPERATOR-050: Review Conductor continuation', () => {

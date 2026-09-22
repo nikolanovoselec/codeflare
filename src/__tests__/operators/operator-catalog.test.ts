@@ -43,6 +43,8 @@ async function withManagementApi(test: (request: (path: string, method?: string,
       }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
     { KV: kv, ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env,
     { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext);
+    await registry.setManagementControls({ revision: 0, managers: { users: [], groups: [] },
+      ceiling: { capabilities: [], resourceProfileIds: [] } }, { email: identity.email, expiresAt: 2_000_000_000_000 });
     await test(request);
   });
 }

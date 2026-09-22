@@ -69,6 +69,9 @@ export type OperatorSyncResult = { ok: true; phase: OperatorSyncState['phase'] }
 export type WebhookStartResult = { ok: true; phase: 'queued'; readCapability: string } | AdmissionFailure;
 export type WebhookReadResult = { ok: true; terminal: boolean; status: string; result?: unknown } | {
   ok: false; reason: 'invalid-capability' | 'capability-expired' | 'not-ready' | 'consumed' | 'not-prepared' };
+export type WebhookContinueResult = { ok: true; phase: 'queued' }
+  | Extract<WebhookReadResult, { ok: false }>
+  | { ok: false; reason: 'stale-publication' };
 
 export interface OperatorRuntimePlan {
   activityId: string;
@@ -379,6 +382,13 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     if (!checked.ok) return checked;
     return { ok: true, terminal: checked.terminal, status: checked.status,
       ...(checked.terminal ? { result: checked.result } : {}) };
+  }
+
+  /** Re-drive only non-terminal work authenticated by its existing read capability. */
+  async continueWebhook(capability: string): Promise<WebhookContinueResult> {
+    const checked = await this.readWebhook(capability);
+    if (!checked.ok) return checked;
+    return checked.terminal ? { ok: false, reason: 'not-ready' } : { ok: true, phase: 'queued' };
   }
 
   /** A not-ready read is non-consuming; one terminal transaction wins before delivery. */

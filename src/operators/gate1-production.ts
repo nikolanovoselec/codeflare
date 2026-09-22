@@ -33,6 +33,47 @@ function deniedCapability(activityId: string, generation: number): Response {
   });
 }
 
+type DispatcherInvocation = { repository: string; pullRequest: number; headSha: string };
+function dispatcherInvocation(value: unknown): DispatcherInvocation | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.repository === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(record.repository)
+    && Number.isInteger(record.pullRequest) && record.pullRequest > 0
+    && typeof record.headSha === 'string' && /^[0-9a-f]{40}$/.test(record.headSha)
+    ? { repository: record.repository, pullRequest: record.pullRequest, headSha: record.headSha } : null;
+}
+
+async function dispatchRenovateAssessment(request: Request, parent: DispatcherInvocation,
+  activityId: string, generation: number): Promise<Response> {
+  if (request.method !== 'POST' || new URL(request.url).pathname !== '/v1/dispatcher/renovate') {
+    return deniedCapability(activityId, generation);
+  }
+  let value: Record<string, unknown>;
+  try {
+    const parsed = await request.json();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+    value = parsed as Record<string, unknown>;
+  } catch { return deniedCapability(activityId, generation); }
+  const allowed = new Set(['repository', 'pullRequest', 'headSha', 'bot', 'checks', 'diff', 'evidence']);
+  if (Object.keys(value).some(key => !allowed.has(key)) || value.repository !== parent.repository
+    || value.pullRequest !== parent.pullRequest || typeof value.headSha !== 'string' || !/^[0-9a-f]{40}$/.test(value.headSha)
+    || (value.bot !== undefined && value.bot !== 'renovate[bot]')
+    || (value.checks !== undefined && !Array.isArray(value.checks))
+    || (value.diff !== undefined && (!value.diff || typeof value.diff !== 'object' || Array.isArray(value.diff)))
+    || (value.evidence !== undefined && (!value.evidence || typeof value.evidence !== 'object' || Array.isArray(value.evidence)))) {
+    return deniedCapability(activityId, generation);
+  }
+  const diff = value.diff as Record<string, unknown> | undefined;
+  const evidence = value.evidence as Record<string, unknown> | undefined;
+  const truncated = diff?.truncated === true;
+  const rateLimited = evidence?.rateLimited === true;
+  return Response.json({ schemaVersion: 1, status: 'completed', result: {
+    activityId, generation, repository: parent.repository, pullRequest: parent.pullRequest, headSha: value.headSha,
+    observedHead: value.headSha, readOnly: true,
+    evidence: { stale: value.headSha !== parent.headSha, complete: !truncated && !rateLimited, truncated, rateLimited },
+  } }, { headers: { 'cache-control': 'no-store' } });
+}
+
 /** Platform loopback service binding supplied to each dynamically loaded operator Worker. */
 export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
@@ -46,6 +87,13 @@ export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
     const plan = await activity.getRuntimePlan() as OperatorRuntimePlan | null;
     if (!plan || plan.activityId !== props.activityId) {
       return deniedCapability(props.activityId, props.generation);
+    }
+    if (!isManagementReceipt(plan.receipt) && plan.receipt.operatorId === 'renovate-dispatcher'
+      && (plan.receipt as unknown as { profile?: unknown }).profile === 'dispatcher') {
+      let parent: DispatcherInvocation | null = null;
+      try { parent = dispatcherInvocation(JSON.parse(plan.invocationJson)); } catch { /* denied below */ }
+      return parent ? dispatchRenovateAssessment(request, parent, props.activityId, props.generation)
+        : deniedCapability(props.activityId, props.generation);
     }
     if (isManagementReceipt(plan.receipt) || plan.receipt.operatorId !== GATE1_OPERATOR_ID) {
       return deniedCapability(props.activityId, props.generation);
