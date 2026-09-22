@@ -231,12 +231,13 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  * Queued state is the durable execution intent, not proof that work has run.
  */
 export class OperatorActivity extends Agent {
-  declare readonly env: AppEnv;
+  #appEnv: AppEnv & { OPERATOR_REGISTRY: NonNullable<AppEnv['OPERATOR_REGISTRY']> };
   #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
   #reconciling?: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env as unknown as Env);
+    this.#appEnv = env as AppEnv & { OPERATOR_REGISTRY: NonNullable<AppEnv['OPERATOR_REGISTRY']> };
     ctx.blockConcurrencyWhile(async () => {
       const lease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (lease?.status === 'admitting') {
@@ -283,7 +284,7 @@ export class OperatorActivity extends Agent {
     if (!record?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
     const previous = record.executionContext;
     const currentHuman = await resolveOperatorGroupIdentity(human, accessJwt);
-    const replacement = await reauthenticateOperatorExecution(previous, currentHuman, accessJwt, this.env);
+    const replacement = await reauthenticateOperatorExecution(previous, currentHuman, accessJwt, this.#appEnv);
     await this.ctx.storage.transaction(async tx => {
       const current = await tx.get<AdmissionState>('admission');
       if (!current?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
@@ -420,13 +421,13 @@ export class OperatorActivity extends Agent {
     let receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt;
     try {
       const admitted = 'installationId' in pending.intent
-        ? await this.env.OPERATOR_REGISTRY.getByName('registry').admitManagement({
+        ? await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').admitManagement({
           installationId: pending.intent.installationId, activityId, intentDigest,
           expectedInstallationRevision: pending.intent.expectedInstallationRevision,
           expectedOperatorRevision: expectedRevision,
           expectedControlsRevision: pending.intent.expectedControlsRevision, deadline,
         })
-        : await this.env.OPERATOR_REGISTRY.getByName('registry').admit({
+        : await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').admit({
           activityId, operatorId, intentDigest, expectedRevision, deadline,
         });
       if (!admitted.ok) return { ok: false, reason: 'admission-denied' };
@@ -890,12 +891,12 @@ export class OperatorActivity extends Agent {
         || artifactDigest !== plan.receipt.selection.release.bundleDigest
         || artifactDigest !== plan.executionContext.artifactDigest
         || JSON.stringify(invocation) !== plan.invocationJson) throw new Error('Dispatcher pin mismatch');
-      const bytes = await this.env.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(artifactDigest);
+      const bytes = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(artifactDigest);
       if (!bytes) throw new Error('Dispatcher artifact unavailable');
       const approved = await parseDispatcherBundle(bytes, artifactDigest);
       if (JSON.stringify(approved) !== JSON.stringify(bundle)
         || approved.sourceCommit !== plan.receipt.selection.release.sourceCommit) throw new Error('Dispatcher artifact mismatch');
-      await authorizeDispatcherPlan(plan, this.env as Env);
+      await authorizeDispatcherPlan(plan, this.#appEnv);
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
         expiresAt: Math.floor(Math.min(plan.deadline, Date.now() + DISPATCHER_LIMIT_MS) / 1000) * 1000,
         submissionId: null, status: 'admitting' };
@@ -970,11 +971,13 @@ export class OperatorActivity extends Agent {
     if (this.#dispatcher?.generation === lease.generation) return this.#dispatcher.facet;
     const facet = (async () => {
       const plan = await this.getRuntimePlan();
-      if (!plan || !this.env.LOADER || !this.env.OPERATOR_ACTIVITY
+      const loader = this.#appEnv.LOADER;
+      const activities = this.#appEnv.OPERATOR_ACTIVITY;
+      if (!plan || !loader || !activities
         || plan.executionContext.artifactDigest !== lease.artifactDigest) throw new Error('Dispatcher host unavailable');
       let bundle = approved;
       if (!bundle) {
-        const bytes = await this.env.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(lease.artifactDigest);
+        const bytes = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(lease.artifactDigest);
         if (!bytes) throw new Error('Dispatcher artifact unavailable');
         bundle = await parseDispatcherBundle(bytes, lease.artifactDigest);
       }
@@ -983,10 +986,10 @@ export class OperatorActivity extends Agent {
         facets: { get(name: string, init: () => unknown): DispatcherFacet };
       };
       const capability = context.exports.OperatorDispatcherCapability({ props: { activityId: plan.activityId, generation: lease.generation } });
-      const dynamicClass = loadOperatorDispatcherClass(this.env.LOADER, bundle, lease.artifactDigest,
+      const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
         plan.activityId, lease.generation, capability);
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
-        id: this.env.OPERATOR_ACTIVITY!.idFromName('dispatcher') }));
+        id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
       return child;
     })();
@@ -1017,7 +1020,7 @@ export class OperatorActivity extends Agent {
         const settlement = Array.isArray(value?.settlements)
           ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
         if (!settlement) return;
-        await authorizeDispatcherPlan(plan, this.env as Env);
+        await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
           await this.interruptDrive(lease.generation); return;
         }
@@ -1053,7 +1056,7 @@ export class OperatorActivity extends Agent {
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
-      perform = await createDispatcherOperation({ plan, env: this.env as Env, operation,
+      perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation,
         current: () => this.dispatcherGenerationCurrent(generation),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch { return denied(); }
@@ -1233,7 +1236,7 @@ export class OperatorActivity extends Agent {
   private async publishBrowserSummary(): Promise<void> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.ownerKey) return;
-    try { await this.env.OPERATOR_REGISTRY.getByName('registry').upsertOwnedActivity(state.ownerKey, this.browserSummary(state)); }
+    try { await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').upsertOwnedActivity(state.ownerKey, this.browserSummary(state)); }
     catch { /* execution state remains authoritative; the safe index can reconcile later */ }
   }
 
