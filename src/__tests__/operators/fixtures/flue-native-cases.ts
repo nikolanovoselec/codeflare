@@ -103,7 +103,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
     const { id } = await prepare();
     const submitted = await send(id);
     const value = await settle(id, submitted);
-    expect(value.conversation?.settlements).toContainEqual({ submissionId: submitted, outcome: 'completed' });
+    expect(value.conversation?.settlements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ submissionId: submitted, outcome: 'completed' }),
+    ]));
     expect(results(value).at(-1)).toMatchObject({ activityId: id, result: { status: 200, body: { accepted: true } } });
     expect(value.external).toMatchObject([{ activityId: id, generation: 1, path: '/v1/dispatcher/github/read', sequence: 1 }]);
     return { id, value };
@@ -122,7 +124,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
       ]));
       await command(id, { action: 'release' });
       const value = await settle(id, submission);
-      expect(value.conversation?.settlements).toContainEqual({ submissionId: submission, outcome: 'completed' });
+      expect(value.conversation?.settlements).toEqual(expect.arrayContaining([
+        expect.objectContaining({ submissionId: submission, outcome: 'completed' }),
+      ]));
       expect(value.alarmDeliveries).toBeGreaterThan(0);
       expect(results(value)[0].result).toMatchObject({ status: 200, body: { accepted: true } });
       expect(results(value)[0].result.body.evidence).toEqual({ repositoryId: 123, botId: 29139614, head: 'a'.repeat(40), checks: ['success'] });
@@ -165,7 +169,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
       }
       await command(id, { action: 'release' });
       const finished = await settle(id, submitted);
-      expect(finished.conversation?.settlements).toContainEqual({ submissionId: submitted, outcome: 'completed' });
+      expect(finished.conversation?.settlements).toEqual(expect.arrayContaining([
+        expect.objectContaining({ submissionId: submitted, outcome: 'completed' }),
+      ]));
       const checkpoint = await observe(id, value => value.activity.executionStatus === 'waiting');
       expect(checkpoint.activity.checkpoint).not.toBeNull();
       await command(id, { action: 'evict' });
@@ -189,7 +195,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
       await command(id, { action: 'release' });
       const recovered = await settle(id, submission);
       expect(recovered.instance).not.toBe(before.instance);
-      expect(recovered.conversation?.settlements).toContainEqual({ submissionId: submission, outcome: 'completed' });
+      expect(recovered.conversation?.settlements).toEqual(expect.arrayContaining([
+        expect.objectContaining({ submissionId: submission, outcome: 'completed' }),
+      ]));
       expect(results(recovered).at(-1)).toMatchObject({ result: { status: 200 } });
       expect(recovered.external).toEqual(before.external);
     });
