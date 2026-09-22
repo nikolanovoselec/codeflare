@@ -1019,6 +1019,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 5. The platform owns every capability and outbound configuration. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 6. Bundle parsing validates data without evaluating module source. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
 7. Invalid, oversized or incompatible bundles return typed safe errors without source bytes or credentials. <!-- @impl: src/operators/distribution.ts::parseOperatorBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-030: approved bundle boundary) -->
+8. The shared package compiler deterministically emits this existing bundle schema, exact resource digests/sizes and a matching discovery manifest; it rejects unsafe paths and package-supplied authority rather than inferring policy or bindings. <!-- @impl: scripts/operator-package/compiler.mjs::compileOperatorPackage --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
 
 **Constraints:**
 

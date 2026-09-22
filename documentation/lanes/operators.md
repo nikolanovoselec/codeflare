@@ -58,7 +58,9 @@ Implements the distribution and registration boundaries in [REQ-OPERATOR-002](..
 - `parseOperatorManifest(json, endpoint)` validates at most 64 KiB of discovery JSON and resolves a canonical artifact path only against the registered HTTPS origin.
 - `parseOperatorBundle(bytes, approvedSha256)` checks at most 8 MiB of exact artifact bytes, validates compatible JS/text modules and returns data without executing it. The bundle cannot supply environment bindings or outbound configuration.
 
-Both reject invalid input with a safe `ValidationError`. Network callers must still bound responses before buffering, authenticate the invoking human and connection secret, reject redirects/login responses and enforce artifact approval. An advertised digest is integrity metadata, not independent publisher authenticity or user eligibility.
+Both reject invalid input with a safe `ValidationError`. `npm run compile:operator-package -- <configuration.json> <output-directory>` deterministically emits those existing manifest and Operator/Dispatcher bundle shapes, plus optional registry provenance, while deriving exact bundle/resource digests and sizes. The compiler accepts no policy, bindings, credentials, environment, or outbound authority.
+
+Network callers must still bound responses before buffering, authenticate the invoking human and connection secret, reject redirects/login responses and enforce artifact approval. An advertised digest is integrity metadata, not independent publisher authenticity or user eligibility.
 
 ### Authenticated discovery transport
 
