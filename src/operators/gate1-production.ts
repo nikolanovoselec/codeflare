@@ -145,8 +145,9 @@ export async function createDispatcherOperation(input: {
     if (!pull.ok) return pull;
     const pullBody = await readDispatcherBody(pull);
     const observed = JSON.parse(pullBody);
-    if (observed?.user?.login !== 'renovate[bot]' || observed?.user?.id !== 29139614
-      || !/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Renovate evidence unavailable');
+    // Bot identity and assessment semantics belong to the forkable Dispatcher
+    // package. The parent validates only the bounded admitted PR/read scope.
+    if (!/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Pull request evidence unavailable');
     if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
     const response = await get(resource === 'files' ? `/pulls/${parent.pullRequest}/files?per_page=100&page=1`
       : `/commits/${observed.head.sha}/check-runs?per_page=100&page=1`);

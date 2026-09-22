@@ -67,22 +67,24 @@ async function fixture(test: (f: {
         return Response.json({ settlements });
       },
     };
-    const context = { id: native.id, storage: native.storage,
-      blockConcurrencyWhile: (callback: () => Promise<unknown>) => native.blockConcurrencyWhile(callback),
-      waitUntil: (promise: Promise<unknown>) => { pending.push(promise); },
-      getWebSockets: () => [],
-      facets: { get: () => child }, exports: {
+    // Agent validates the native DurableObjectState brand and SQLite capability.
+    // Keep that real owner while replacing only the fixture's child/interceptor seams.
+    Object.defineProperties(native, {
+      facets: { configurable: true, value: { get: () => child } },
+      exports: { configurable: true, value: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) throw new Error('lost response');
-          return Response.json({ number: 17, user: { login: 'renovate[bot]', id: 29139614 }, head: { sha: 'b'.repeat(40) } });
+          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) throw new Error('lost response');
           return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
-      },
-    } as unknown as DurableObjectState;
+      } },
+      waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
+    });
+    const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
     const registry = { getManagementBundle: async () => bytes,
       resolveManagementExecution: async () => revoked ? { ok: false, reason: 'disabled' } : { ok: true, value: selection },

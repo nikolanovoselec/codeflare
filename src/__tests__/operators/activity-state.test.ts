@@ -12,15 +12,15 @@ import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 
-// Native storage/context supplies instrumented state coverage. The separate
-// Wrangler fixture remains the authority for cross-DO RPC, SQLite and eviction.
+// Native SQLite Activity storage/context supplies instrumented state coverage.
+// The separate Wrangler fixture remains the authority for cross-DO RPC and eviction.
 async function withActivity(
   test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
     ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
   admitted = true,
   started = true,
 ): Promise<void> {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const stub = namespace.get(namespace.newUniqueId());
   await runInDurableObject(stub, async (_instance, ctx) => {
     // Registration/admission keys are distinct from the host DO's own storage.
