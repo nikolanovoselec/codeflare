@@ -30,6 +30,8 @@ export type FlueFixtureCommand =
 type FacetPath = readonly Readonly<{ className: string; name: string }>[];
 type Facet = Fetcher & {
   _cf_initAsFacet(name: string, parentPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
+  _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number>;
+  _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean>;
   fixtureSnapshot(): Promise<unknown>;
 };
 type NativeEnv = Cloudflare.Env & {
@@ -259,6 +261,18 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   override _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_unregisterFacetRun.call(this, ownerPath, runId);
+  }
+
+  // The generated class is loaded dynamically, so it cannot appear in this
+  // Worker's static ctx.exports registry. Route only the two root-alarm RPCs
+  // that Agents uses to wake and recover this exact activity-private facet.
+  override async _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean> {
+    this.#path(ownerPath);
+    return (await this.child())._cf_dispatchScheduledCallback(ownerPath, row);
+  }
+  override async _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number> {
+    this.#path(ownerPath);
+    return (await this.child())._cf_checkRunFibersForFacet(ownerPath);
   }
 }
 
