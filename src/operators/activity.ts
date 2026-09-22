@@ -55,10 +55,6 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
   reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
 };
 
-type ActivityEnv = Env & Omit<AppEnv, 'LOADER'> & {
-  LOADER: Env['LOADER'] & NonNullable<AppEnv['LOADER']>;
-  OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
-};
 type DispatcherFacetPath = readonly Readonly<{ className: string; name: string }>[];
 type DispatcherFacet = Fetcher & {
   _cf_initAsFacet(name: string, parentPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
@@ -115,6 +111,29 @@ export interface OperatorRuntimePlan {
   executionContext: OperatorExecutionContext;
 }
 
+export interface OperatorReviewState {
+  generation: number;
+  repositoryId: number;
+  pullRequest: number;
+  head: string;
+  releaseDigest: string;
+  packageDigest: string;
+  resourceDigest: string;
+  packetDigest: string;
+  requiredLanes: string[];
+  lanes: Record<string, { resultDigest: string }>;
+  sealedSyncOperationId: string | null;
+  publication: null | {
+    operationId: string;
+    requestDigest: string;
+    phase: 'reserved' | 'completed' | 'unknown';
+    receipt?: { checkId: number; recordId: number };
+  };
+}
+
+export type OperatorReviewResult = { ok: true; state: OperatorReviewState } | { ok: false; reason:
+  'not-admitted' | 'invalid' | 'conflict' | 'stale-generation' | 'incomplete' | 'not-verified' | 'unknown' };
+
 interface AdmissionState {
   intent: OperatorActivityPreparation;
   phase: ActivityAdmissionProjection['phase'];
@@ -123,6 +142,7 @@ interface AdmissionState {
   invocationJson?: string;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
+  review?: OperatorReviewState;
   webhook?: { readVerifier: string; expiresAt: number; consumed: boolean };
   ownerKey?: string;
   browserCollectionConsumed?: boolean;
@@ -146,6 +166,14 @@ function canonicalSyncKey(value: string): boolean {
   return value.length > 0 && value.length <= 4096 && !/[\\%\x00-\x1f\x7f]/.test(value)
     && value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 }
+
+const reviewLaneIdentity = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
+const reviewPreparationStateSchema = z.strictObject({
+  generation: z.number().int().positive().safe(), repositoryId: z.number().int().positive().safe(),
+  pullRequest: z.number().int().positive().safe(), head: z.string().regex(/^[0-9a-f]{40}$/),
+  releaseDigest: syncDigest, packageDigest: syncDigest, resourceDigest: syncDigest, packetDigest: syncDigest,
+  requiredLanes: z.array(reviewLaneIdentity).min(1).max(64),
+});
 
 const driveUpdateSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -202,13 +230,13 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  * pending intent for same-ID reconciliation; it never creates a new execution.
  * Queued state is the durable execution intent, not proof that work has run.
  */
-export class OperatorActivity extends Agent<ActivityEnv> {
-  declare readonly env: ActivityEnv;
+export class OperatorActivity extends Agent {
+  declare readonly env: AppEnv;
   #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
   #reconciling?: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
-    super(ctx, env as ActivityEnv);
+    super(ctx, env as unknown as Env);
     ctx.blockConcurrencyWhile(async () => {
       const lease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (lease?.status === 'admitting') {
@@ -588,6 +616,132 @@ export class OperatorActivity extends Agent<ActivityEnv> {
     if (!syncIdentity.safeParse(operationId).success) return null;
     const operation = (await this.ctx.storage.get<AdmissionState>('admission'))?.syncOperations?.[operationId];
     return operation ? structuredClone(operation) : null;
+  }
+
+  /** Bind one admitted Review generation to immutable source, package and packet identities. */
+  async prepareReviewState(input: unknown): Promise<OperatorReviewResult> {
+    const parsed = reviewPreparationStateSchema.safeParse(input);
+    if (!parsed.success || new Set(parsed.data.requiredLanes).size !== parsed.data.requiredLanes.length) {
+      return { ok: false, reason: 'invalid' };
+    }
+    const candidate: OperatorReviewState = { ...parsed.data, requiredLanes: [...parsed.data.requiredLanes],
+      lanes: {}, sealedSyncOperationId: null, publication: null };
+    return this.ctx.storage.transaction(async tx => {
+      const record = await tx.get<AdmissionState>('admission');
+      if (!record?.executionContext || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' } as const;
+      if (record.drive?.status !== 'running' || record.drive.generation !== candidate.generation) {
+        return { ok: false, reason: 'stale-generation' } as const;
+      }
+      if (record.executionContext.artifactDigest !== candidate.releaseDigest) return { ok: false, reason: 'invalid' } as const;
+      if (record.review) return JSON.stringify(record.review) === JSON.stringify(candidate)
+        ? { ok: true, state: structuredClone(record.review) } as const : { ok: false, reason: 'conflict' } as const;
+      await tx.put<AdmissionState>('admission', { ...record, review: candidate });
+      return { ok: true, state: structuredClone(candidate) } as const;
+    });
+  }
+
+  /** Accept only a package-declared lane result for the exact current generation and head. */
+  async recordReviewLane(generation: number, head: string, lane: string, resultDigest: string): Promise<OperatorReviewResult> {
+    if (!reviewLaneIdentity.safeParse(lane).success || !syncDigest.safeParse(resultDigest).success) {
+      return { ok: false, reason: 'invalid' };
+    }
+    return this.ctx.storage.transaction(async tx => {
+      const record = await tx.get<AdmissionState>('admission'); const review = record?.review;
+      if (!record || !review) return { ok: false, reason: 'not-admitted' } as const;
+      if (record.drive?.status !== 'running' || record.drive.generation !== generation
+        || review.generation !== generation || review.head !== head) return { ok: false, reason: 'stale-generation' } as const;
+      if (!review.requiredLanes.includes(lane)) return { ok: false, reason: 'invalid' } as const;
+      const prior = review.lanes[lane];
+      if (prior && prior.resultDigest !== resultDigest) return { ok: false, reason: 'conflict' } as const;
+      const next = { ...review, lanes: { ...review.lanes, [lane]: { resultDigest } } };
+      await tx.put<AdmissionState>('admission', { ...record, review: next });
+      return { ok: true, state: structuredClone(next) } as const;
+    });
+  }
+
+  /** Seal Review only after every declared lane and the existing sync operation are verified. */
+  async sealReview(generation: number, head: string, operationId: string): Promise<OperatorReviewResult> {
+    if (!syncIdentity.safeParse(operationId).success) return { ok: false, reason: 'invalid' };
+    return this.ctx.storage.transaction(async tx => {
+      const record = await tx.get<AdmissionState>('admission'); const review = record?.review;
+      if (!record || !review) return { ok: false, reason: 'not-admitted' } as const;
+      if (record.drive?.status !== 'running' || record.drive.generation !== generation
+        || review.generation !== generation || review.head !== head) return { ok: false, reason: 'stale-generation' } as const;
+      if (review.requiredLanes.some(lane => !review.lanes[lane])) return { ok: false, reason: 'incomplete' } as const;
+      if (record.syncOperations?.[operationId]?.phase !== 'verified') return { ok: false, reason: 'not-verified' } as const;
+      if (review.sealedSyncOperationId && review.sealedSyncOperationId !== operationId) return { ok: false, reason: 'conflict' } as const;
+      const next = { ...review, sealedSyncOperationId: operationId };
+      await tx.put<AdmissionState>('admission', { ...record, review: next });
+      return { ok: true, state: structuredClone(next) } as const;
+    });
+  }
+
+  /** Reserve publication before GitHub I/O; changed payloads conflict and unknown work cannot be replayed. */
+  async reserveReviewPublication(generation: number, head: string, operationId: string,
+    requestDigest: string): Promise<OperatorReviewResult> {
+    if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(requestDigest).success) {
+      return { ok: false, reason: 'invalid' };
+    }
+    return this.ctx.storage.transaction(async tx => {
+      const record = await tx.get<AdmissionState>('admission'); const review = record?.review;
+      if (!record || !review) return { ok: false, reason: 'not-admitted' } as const;
+      if (record.drive?.status !== 'running' || record.drive.generation !== generation
+        || review.generation !== generation || review.head !== head) return { ok: false, reason: 'stale-generation' } as const;
+      if (!review.sealedSyncOperationId) return { ok: false, reason: 'incomplete' } as const;
+      const existing = review.publication;
+      if (existing) {
+        if (existing.operationId !== operationId || existing.requestDigest !== requestDigest) return { ok: false, reason: 'conflict' } as const;
+        if (existing.phase === 'unknown') return { ok: false, reason: 'unknown' } as const;
+        return { ok: true, state: structuredClone(review) } as const;
+      }
+      const next = { ...review, publication: { operationId, requestDigest, phase: 'reserved' as const } };
+      await tx.put<AdmissionState>('admission', { ...record, review: next });
+      return { ok: true, state: structuredClone(next) } as const;
+    });
+  }
+
+  async markReviewPublicationUnknown(generation: number, head: string, operationId: string,
+    requestDigest: string): Promise<OperatorReviewResult> {
+    return this.updateReviewPublication(generation, head, operationId, requestDigest, 'unknown');
+  }
+
+  async completeReviewPublication(generation: number, head: string, operationId: string,
+    requestDigest: string, receipt: { checkId: number; recordId: number }): Promise<OperatorReviewResult> {
+    if (!Number.isSafeInteger(receipt?.checkId) || receipt.checkId < 1
+      || !Number.isSafeInteger(receipt?.recordId) || receipt.recordId < 1) return { ok: false, reason: 'invalid' };
+    return this.updateReviewPublication(generation, head, operationId, requestDigest, 'completed', receipt, false);
+  }
+
+  /** Complete an unknown write only from an exact external reconciliation receipt. */
+  async reconcileReviewPublication(generation: number, head: string, operationId: string,
+    requestDigest: string, receipt: { checkId: number; recordId: number }): Promise<OperatorReviewResult> {
+    if (!Number.isSafeInteger(receipt?.checkId) || receipt.checkId < 1
+      || !Number.isSafeInteger(receipt?.recordId) || receipt.recordId < 1) return { ok: false, reason: 'invalid' };
+    return this.updateReviewPublication(generation, head, operationId, requestDigest, 'completed', receipt, true);
+  }
+
+  private async updateReviewPublication(generation: number, head: string, operationId: string, requestDigest: string,
+    phase: 'completed' | 'unknown', receipt?: { checkId: number; recordId: number }, reconcileUnknown = false): Promise<OperatorReviewResult> {
+    return this.ctx.storage.transaction(async tx => {
+      const record = await tx.get<AdmissionState>('admission'); const review = record?.review; const publication = review?.publication;
+      if (!record || !review || !publication) return { ok: false, reason: 'not-admitted' } as const;
+      if (record.drive?.status !== 'running' || record.drive.generation !== generation
+        || review.generation !== generation || review.head !== head) return { ok: false, reason: 'stale-generation' } as const;
+      if (publication.operationId !== operationId || publication.requestDigest !== requestDigest) return { ok: false, reason: 'conflict' } as const;
+      if (publication.phase === 'unknown' && !reconcileUnknown) return { ok: false, reason: 'unknown' } as const;
+      if (publication.phase === 'completed') {
+        return receipt && publication.receipt?.checkId === receipt.checkId && publication.receipt.recordId === receipt.recordId
+          ? { ok: true, state: structuredClone(review) } as const : { ok: false, reason: 'conflict' } as const;
+      }
+      const next = { ...review, publication: { ...publication, phase, ...(receipt ? { receipt } : {}) } };
+      await tx.put<AdmissionState>('admission', { ...record, review: next });
+      return { ok: true, state: structuredClone(next) } as const;
+    });
+  }
+
+  async getReviewState(): Promise<OperatorReviewState | null> {
+    const review = (await this.ctx.storage.get<AdmissionState>('admission'))?.review;
+    return review ? structuredClone(review) : null;
   }
 
   /**
