@@ -69,7 +69,8 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
 
 // Same Wrangler instance and canonical Backend tests (node) lane as Gate 1.
 registerNativeDispatcherCases({
-  fetch: (path, init) => worker!.fetch(path, init),
+  fetch: async (path, init): Promise<Response> =>
+    (await worker!.fetch(path, init as unknown as Parameters<Unstable_DevWorker['fetch']>[1])) as unknown as Response,
   queuedActivity,
   activity,
 });

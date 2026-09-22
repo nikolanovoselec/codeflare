@@ -128,7 +128,7 @@ async function githubBytes(path: string, pat: string, limit: number, deadline: n
 
 async function githubJson(path: string, pat: string, deadline: number): Promise<unknown> {
   const bytes = await githubBytes(path, pat, MAX_JSON_BYTES, deadline);
-  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
 }
 async function digest(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
@@ -173,10 +173,10 @@ function packageArchive(bytes: Uint8Array): Map<string, Uint8Array> {
     if ((flags & ~0x808) !== 0 || (method !== 0 && method !== 8) || u16(cursor + 34) !== 0
       || (attributes & 0x10) !== 0 || (unixType !== 0 && unixType !== 0x8000)
       || size > MAX_BUNDLE_BYTES || cursor + 46 + nameLength + extra + comment > end) throw new Error('Unsafe package archive');
-    const name = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
+    const name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
     if (!(FILES as readonly string[]).includes(name) || files.has(name) || local + 30 > centralStart || u32(local) !== 0x04034b50
       || u16(local + 6) !== flags || u16(local + 8) !== method || u16(local + 26) !== nameLength) throw new Error('Unsafe package archive entry');
-    const localName = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(local + 30, local + 30 + nameLength));
+    const localName = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes.subarray(local + 30, local + 30 + nameLength));
     const start = local + 30 + nameLength + u16(local + 28);
     const finish = start + compressed;
     if (localName !== name || finish > centralStart) throw new Error('Invalid package archive bounds');
@@ -234,11 +234,11 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   const bundleBytes = files.get('operator-bundle.json')!;
   const manifestDigest = digests.get('operator-manifest.json')!;
   const bundleDigest = digests.get('operator-bundle.json')!;
-  const manifestJson = new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes);
+  const manifestJson = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(manifestBytes);
   const manifest = parseOperatorManifest(manifestJson, 'https://github.com/');
   if (manifest.profile !== source.profile || manifest.interfaceVersion !== 1 || manifest.artifact.sha256 !== bundleDigest) throw new Error('GitHub manifest mismatch');
   await parseOperatorBundle(bundleBytes, bundleDigest);
-  const provenance = provenanceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(files.get('operator-provenance.json')!)));
+  const provenance = provenanceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(files.get('operator-provenance.json')!)));
   if (provenance.repositoryId !== source.repositoryId || provenance.manifestDigest !== manifestDigest || provenance.bundleDigest !== bundleDigest
     || provenance.workflow.id !== source.approvedWorkflow.id || provenance.workflow.ref !== source.approvedWorkflow.ref) throw new Error('GitHub provenance mismatch');
   const run = runSchema.parse(await githubJson(`/repositories/${source.repositoryId}/actions/runs/${provenance.workflow.runId}`, pat, deadline));

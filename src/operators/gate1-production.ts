@@ -17,9 +17,14 @@ import { Gate1OperatorCapability } from './gate1-capability';
 import { bootstrapOperatorSession } from './session-bootstrap';
 import { verifyOperatorSync, type OperatorSyncReader } from './sync-verification';
 import type { OperatorRuntimePlan, OperatorActivity } from './activity';
+import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 
 type Gate1Activity = DurableObjectStub<OperatorActivity>;
 interface OperatorRuntimeCapabilityProps { activityId: string; generation: number }
+
+function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt): receipt is ManagementAdmissionReceipt {
+  return 'selection' in receipt;
+}
 
 function deniedCapability(activityId: string, generation: number): Response {
   return new Response(JSON.stringify({ error: 'Capability unavailable',
@@ -38,11 +43,11 @@ export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
       return deniedCapability('', 0);
     }
     const activity = this.env.OPERATOR_ACTIVITY.getByName(props.activityId);
-    const plan = await activity.getRuntimePlan();
+    const plan = await activity.getRuntimePlan() as OperatorRuntimePlan | null;
     if (!plan || plan.activityId !== props.activityId) {
       return deniedCapability(props.activityId, props.generation);
     }
-    if (plan.receipt.operatorId !== GATE1_OPERATOR_ID) {
+    if (isManagementReceipt(plan.receipt) || plan.receipt.operatorId !== GATE1_OPERATOR_ID) {
       return deniedCapability(props.activityId, props.generation);
     }
     const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
@@ -102,15 +107,16 @@ async function createGate1ProductionCapability(input: {
   const { env, plan, activity } = input;
   const authority = await openOperatorExecutionAccess(plan.executionContext, env);
   const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
-  if (!plan.receipt.policyJson) throw new Error('Gate 1 policy unavailable');
-  const policy = parseOperatorPolicy(JSON.parse(plan.receipt.policyJson));
+  const receipt = plan.receipt;
+  if (isManagementReceipt(receipt) || !receipt.policyJson) throw new Error('Gate 1 policy unavailable');
+  const policy = parseOperatorPolicy(JSON.parse(receipt.policyJson));
   const ownerBucket = await resolveBucketName(env, authority.human.email);
   const { bootstrap } = await bootstrapOperatorSession({ env, authority, ownerBucket });
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': authority.accessJwt },
   }), env);
   const routes = await loadEnterpriseRouteConfig(env, groups);
-  const resources = await resolveGate1Resources({ invocation, operatorId: plan.receipt.operatorId,
+  const resources = await resolveGate1Resources({ invocation, operatorId: receipt.operatorId,
     activityId: plan.activityId, ownerBucket, policy, policyDigest: plan.executionContext.policyDigest,
     deadline: plan.deadline, human: authority.human, eligibleInference: {
       routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,

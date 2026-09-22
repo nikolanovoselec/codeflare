@@ -88,7 +88,8 @@ app.post('/:activityId/start', async c => {
   const installationId = await activity.getPreparedInstallationId();
   if (installationId) {
     const selected = await c.get('registry').resolveManagementExecution(installationId);
-    if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) {
+    if (!selected.ok) throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
+    if (!canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) {
       throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
     }
   }

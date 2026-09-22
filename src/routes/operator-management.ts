@@ -8,7 +8,8 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
 import { createLogger } from '../lib/logger';
-import type { OperatorRegistry, ManagementOperatorProjection, ManagementPolicy, ManagementAuthority, ManagementControls } from '../operators/registry';
+import type { OperatorRegistry, ManagementOperatorProjection, ManagementPolicy, ManagementAuthority, ManagementControls,
+  ManagementInstallation } from '../operators/registry';
 import { registerGithubOperator, refreshGithubReleases, updateGithubOperatorSource } from '../operators/github-release-management';
 
 const logger = createLogger('operator-management');
@@ -134,7 +135,7 @@ app.post('/access', async c => {
 
 app.get('/operators', async c => {
   const human = c.get('operatorHuman').human;
-  return c.json(await c.get('registry').listManagementOperators({ ...query(c), email: human.email, issuer: human.issuer, groups: human.groups ?? [], platformAdmin: c.get('operatorHuman').platformAdmin }));
+  return c.json(await c.get('registry').listManagementOperators({ ...query(c), email: human.email, issuer: human.issuer, groups: [...(human.groups ?? [])], platformAdmin: c.get('operatorHuman').platformAdmin }));
 });
 
 app.post('/operators', async c => {
@@ -196,7 +197,7 @@ app.post('/operators/:operatorId/grants', async c => {
 async function managedInstallation(c: Context<RouteEnv>) {
   const id = c.req.param('installationId');
   if (!id || !ID.test(id)) denied();
-  const installation = result(await c.get('registry').getManagementInstallation(id));
+  const installation = result(await c.get('registry').getManagementInstallation(id)) as ManagementInstallation;
   const operator = await managed(c, installation.operatorId);
   return { installation, operator };
 }

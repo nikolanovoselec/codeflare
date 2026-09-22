@@ -43,7 +43,7 @@ export async function reviewDigest(bytes: Uint8Array): Promise<string> {
 export function reviewJson(value: unknown): Uint8Array { return new TextEncoder().encode(JSON.stringify(value)); }
 export function parseReviewJson(bytes: Uint8Array, maxBytes = 64 * 1024): unknown {
   if (bytes.byteLength > maxBytes) throw Error('Review data exceeds bound');
-  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
 }
 export function validReviewContext(value: unknown, admission: Pick<ReviewAdmission, 'repositoryId' | 'pullRequest'>): ReviewContext {
   const context = reviewContextSchema.parse(value);
@@ -89,7 +89,7 @@ export async function prepareReview(input: ReviewAdmission, services: ReviewPrep
       || !reviewDigestSchema.safeParse(resource.digest).success || !(resource.bytes instanceof Uint8Array)
       || resource.bytes.byteLength === 0 || resource.bytes.byteLength > MAX_BYTES - total
       || await reviewDigest(resource.bytes) !== resource.digest) throw Error('Invalid approved Review resource');
-    new TextDecoder('utf-8', { fatal: true }).decode(resource.bytes);
+    new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(resource.bytes);
     total += resource.bytes.byteLength;
   }
   const descriptors = resources.map(({ role, path, digest }) => ({ role, path, digest }));

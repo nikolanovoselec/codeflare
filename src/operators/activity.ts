@@ -119,6 +119,10 @@ const driveUpdateSchema = z.strictObject({
 
 type AdmissionFailure = Extract<ActivityAdmissionResult, { ok: false }>;
 
+function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt): receipt is ManagementAdmissionReceipt {
+  return 'selection' in receipt;
+}
+
 async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -327,7 +331,9 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
     } catch {
       return { ok: false, reason: 'admission-uncertain' };
     }
-    const receiptPolicyJson = 'selection' in receipt ? null : receipt.policyJson;
+    const managementReceipt = isManagementReceipt(receipt) ? receipt : null;
+    const legacyReceipt = isManagementReceipt(receipt) ? null : receipt;
+    const receiptPolicyJson = legacyReceipt?.policyJson ?? null;
     const receiptPolicyDigest = receiptPolicyJson
       ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(receiptPolicyJson))))
         .map(byte => byte.toString(16).padStart(2, '0')).join('')
@@ -340,17 +346,17 @@ export class OperatorActivity extends DurableObject<ActivityEnv> {
       const denied = checkStart(state, verifier);
       if (denied) return denied;
       const intent = state.intent;
-      const managementValid = 'installationId' in intent && 'selection' in receipt
-        && receipt.installationId === intent.installationId
-        && receipt.expectedInstallationRevision === intent.expectedInstallationRevision
-        && receipt.expectedOperatorRevision === intent.expectedRevision
-        && receipt.expectedControlsRevision === intent.expectedControlsRevision
-        && receipt.selection.operator.operatorId === intent.operatorId
-        && (!state.executionContext || (receipt.selection.release.bundleDigest === state.executionContext.artifactDigest
-          && await sha256(JSON.stringify(receipt.selection.installation.policy)) === state.executionContext.policyDigest));
-      const legacyValid = !('installationId' in intent) && !('selection' in receipt)
-        && receipt.operatorId === intent.operatorId && receipt.expectedRevision === intent.expectedRevision
-        && (!state.executionContext || (receipt.artifactDigest === state.executionContext.artifactDigest
+      const managementValid = 'installationId' in intent && managementReceipt !== null
+        && managementReceipt.installationId === intent.installationId
+        && managementReceipt.expectedInstallationRevision === intent.expectedInstallationRevision
+        && managementReceipt.expectedOperatorRevision === intent.expectedRevision
+        && managementReceipt.expectedControlsRevision === intent.expectedControlsRevision
+        && managementReceipt.selection.operator.operatorId === intent.operatorId
+        && (!state.executionContext || (managementReceipt.selection.release.bundleDigest === state.executionContext.artifactDigest
+          && await sha256(JSON.stringify(managementReceipt.selection.installation.policy)) === state.executionContext.policyDigest));
+      const legacyValid = !('installationId' in intent) && legacyReceipt !== null
+        && legacyReceipt.operatorId === intent.operatorId && legacyReceipt.expectedRevision === intent.expectedRevision
+        && (!state.executionContext || (legacyReceipt.artifactDigest === state.executionContext.artifactDigest
           && receiptPolicyDigest === state.executionContext.policyDigest));
       if (receipt.activityId !== intent.activityId || receipt.intentDigest !== intent.intentDigest
         || receipt.deadline !== intent.deadline || (!managementValid && !legacyValid)) {
