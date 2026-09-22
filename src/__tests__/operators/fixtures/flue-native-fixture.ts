@@ -246,6 +246,14 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       return Response.json({ released: true });
     }
     const external = await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [];
+    const prior = external.find(receipt => receipt.operationId === delivery.operationId);
+    if (prior) {
+      if (prior.requestDigest !== delivery.requestDigest) {
+        return Response.json({ accepted: false, conflict: 'operation-input-mismatch' }, { status: 409 });
+      }
+      return Response.json({ accepted: true, receipt: prior,
+        evidence: { repositoryId: 123, botId: 29139614, head: 'a'.repeat(40), checks: ['success'] } });
+    }
     const receipt = { ...delivery, path, sequence: external.length + 1 };
     external.push(receipt);
     await this.ctx.storage.put('fixture:external', external);
