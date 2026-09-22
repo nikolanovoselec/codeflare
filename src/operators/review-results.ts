@@ -3,7 +3,7 @@ import { verifyOperatorSync, type OperatorSyncExpectation, type OperatorSyncRead
 import { REVIEW_LANES, parseReviewJson, reviewDigestSchema, reviewIdSchema, reviewLaneSchema,
   reviewPathSchema, reviewShaSchema, type PreparedReview } from './review-packet';
 
-export const reviewFindingSchema = z.strictObject({
+const reviewFindingSchema = z.strictObject({
   id: reviewIdSchema, severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']), path: reviewPathSchema,
   line: z.number().int().positive().safe(), evidence: z.string().min(1).max(8192), message: z.string().min(1).max(4096),
 });
@@ -15,7 +15,7 @@ export const reviewReportSchema = z.strictObject({
   findings: z.array(reviewFindingSchema).max(100),
 }).refine(report => (!report.complete || report.omissions.length === 0)
   && new Set(report.findings.map(f => f.id)).size === report.findings.length);
-export type ReviewReport = z.infer<typeof reviewReportSchema>;
+type ReviewReport = z.infer<typeof reviewReportSchema>;
 export interface ReviewResults {
   status: 'complete' | 'incomplete'; cleanup: 'stopped' | 'unknown'; reports: ReviewReport[];
   manifestDigest: string | null;

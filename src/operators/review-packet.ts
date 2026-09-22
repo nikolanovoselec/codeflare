@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const REVIEW_LANES = ['code-reviewer', 'spec-reviewer', 'doc-updater'] as const;
 export const reviewLaneSchema = z.enum(REVIEW_LANES);
-export type ReviewLane = typeof REVIEW_LANES[number];
+type ReviewLane = typeof REVIEW_LANES[number];
 export const reviewDigestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const reviewIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const reviewShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
@@ -18,7 +18,7 @@ export const reviewContextSchema = z.strictObject({
   headPullRequests: z.array(positive).max(100), mergeQueue: z.boolean(),
 });
 export type ReviewContext = z.infer<typeof reviewContextSchema>;
-export interface ReviewResource { role: string; path: string; digest: string; bytes: Uint8Array }
+interface ReviewResource { role: string; path: string; digest: string; bytes: Uint8Array }
 export interface PreparedReview {
   admission: ReviewAdmission; context: ReviewContext; packetDigest: string; evidenceComplete: boolean;
   packets: Array<{ lane: ReviewLane; bytes: Uint8Array }>;

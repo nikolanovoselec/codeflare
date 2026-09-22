@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { prepareReview, reviewDigest, REVIEW_LANES } from '../../operators/review-packet';
+import { prepareReview, reviewDigest, REVIEW_LANES, REVIEW_PACKET_SCRIPT } from '../../operators/review-packet';
 import { collectReviewReports } from '../../operators/review-results';
 import { reconcileReviewHistory } from '../../operators/review-history';
 import { publishReview } from '../../operators/review-publication';
@@ -20,8 +20,8 @@ async function fixture() {
     readApprovedResources: async () => resources,
     runCanonicalPacket: async (input: { lane: string; args: readonly string[]; script: string; maxBytes: number }) => {
       // Canonical CLI wire contract: a missing evidence flag must not produce usable evidence.
-      if (input.script !== 'preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs'
-        || JSON.stringify(input.args) !== JSON.stringify(['--scope', 'diff', '--range', `${context.mergeBase}..${context.head}`,
+      expect(REVIEW_PACKET_SCRIPT).toBe('preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs');
+      if (input.script !== REVIEW_PACKET_SCRIPT || JSON.stringify(input.args) !== JSON.stringify(['--scope', 'diff', '--range', `${context.mergeBase}..${context.head}`,
           '--lane', input.lane, '--with-evidence'])) throw Error('canonical CLI wire contract required');
       return encode({ scope: 'diff', workSet: 'changed-hunks-and-direct-invalidations', lane: input.lane,
         range: `${context.mergeBase}..${context.head}`, files: ['src/a.ts'], changedInputs: [], patch: '+change',

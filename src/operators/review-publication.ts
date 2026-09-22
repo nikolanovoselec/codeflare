@@ -9,7 +9,7 @@ const receiptSchema = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('pending'), digest: reviewDigestSchema }),
   z.strictObject({ state: z.literal('published'), digest: reviewDigestSchema, ...idsSchema.shape }),
 ]);
-export type ReviewPublicationReceipt = z.infer<typeof receiptSchema>;
+type ReviewPublicationReceipt = z.infer<typeof receiptSchema>;
 export interface ReviewPublisherAuthority {
   /** Existing root serialization shared with generation admission, keyed by repository/PR.
    * This is NOT a package capability and must run in a separate credential-bearing trusted job. */
@@ -25,7 +25,7 @@ export interface ReviewPublisherAuthority {
    * On partial/ambiguous write, reconciliation must recover both IDs or remain unknown. Never retry blindly. */
   writePublication(record: ReviewPublicationRecord): Promise<unknown>;
 }
-export interface ReviewPublicationRecord {
+interface ReviewPublicationRecord {
   externalId: string; shadow: true; conclusion: 'success' | 'failure'; status: 'complete';
   repositoryId: number; pullRequest: number; activityId: string; generation: number;
   head: string; base: string; mergeBase: string; packetDigest: string; manifestDigest: string;

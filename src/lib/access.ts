@@ -227,7 +227,7 @@ export interface OperatorGrants {
   invokers: OperatorGrant;
 }
 
-export type OperatorGrantKind = 'manager' | 'invoker';
+type OperatorGrantKind = 'manager' | 'invoker';
 
 /**
  * Resolve one current, cryptographically verified human against exactly one ACL.
@@ -235,7 +235,7 @@ export type OperatorGrantKind = 'manager' | 'invoker';
  * invocation and vice versa. Missing/malformed persisted ACL data or unavailable
  * group claims deny rather than falling back to a cached identity or a role.
  */
-export function resolveOperatorGrant(
+function resolveOperatorGrant(
   human: VerifiedHumanAccessClaims,
   grants: Partial<OperatorGrants> | null | undefined,
   kind: OperatorGrantKind,

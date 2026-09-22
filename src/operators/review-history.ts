@@ -5,7 +5,7 @@ import { reviewHistoryFindingSchema, type ReviewFinding, type ReviewResults } fr
 
 const rebuttalSchema = z.strictObject({ id: reviewIdSchema, findingId: reviewIdSchema,
   authorId: z.number().int().positive().safe(), body: z.string().min(1).max(16384), digest: reviewDigestSchema, head: reviewShaSchema });
-export type ReviewRebuttal = z.infer<typeof rebuttalSchema>;
+type ReviewRebuttal = z.infer<typeof rebuttalSchema>;
 const recordSchema = reviewAdmissionSchema.extend(reviewContextSchema.shape).extend({
   packetDigest: reviewDigestSchema, status: z.enum(['complete', 'incomplete', 'failed']),
   findings: z.array(reviewHistoryFindingSchema).max(300), resolvedFindingIds: z.array(reviewIdSchema).max(300),
