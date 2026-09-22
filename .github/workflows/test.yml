@@ -968,14 +968,17 @@ jobs:
     timeout-minutes: 5
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 5
       matrix:
-        # Run 32890939456 measured the five native partitions at 7, 41, 9, 11,
-        # and 28 seconds. These groups retain exact one-pass coverage while
-        # balancing measured work at approximately 49 and 48 seconds.
+        # Run every native partition once in parallel. The slowest measured
+        # partition is 41 seconds; setup plus one partition stays inside the
+        # three-minute CI completion ceiling without reducing test coverage.
         include:
-          - { shards: '1/5 2/5', slug: shard-1 }
-          - { shards: '3/5 4/5 5/5', slug: shard-2 }
+          - { shards: '1/5', slug: shard-1 }
+          - { shards: '2/5', slug: shard-2 }
+          - { shards: '3/5', slug: shard-3 }
+          - { shards: '4/5', slug: shard-4 }
+          - { shards: '5/5', slug: shard-5 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1068,7 +1071,7 @@ jobs:
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
         # here. The file list comes from the audited selection step above. Each
-        # native 1/5 partition appears exactly once across the two measured groups.
+        # native 1/5 partition appears exactly once across the parallel jobs.
         env:
           SHARDS: ${{ matrix.shards }}
         run: |
@@ -1077,7 +1080,7 @@ jobs:
           for shard in $SHARDS; do
             part=$((part + 1))
             xargs -a "$RUNNER_TEMP/host-tests.txt" \
-              node --experimental-test-module-mocks --test --test-timeout=60000 \
+              node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
                 --test-shard="$shard" \
                 --test-reporter=spec --test-reporter-destination=stdout \
                 --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-${part}.xml"

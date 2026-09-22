@@ -2802,10 +2802,8 @@ restore_operator_attachments() {
     node /opt/codeflare/scripts/restore-operator-attachments.mjs
 }
 
-# Restore activity-owned opaque Operator attachments only after the early port
-# bind. Readiness remains closed until this digest/size-verified restore and the
-# remaining startup work complete.
-restore_operator_attachments
+# Restricted startup invokes attachment restoration after this confirmed bind
+# and before it writes the readiness flag.
 
 # ============================================================================
 # R2 SYNC STARTUP
@@ -4625,9 +4623,14 @@ NODE
     echo "[entrypoint] Restricted operator startup ready (no whole-home restore or bisync baseline)"
 }
 
+run_operator_attachment_startup() {
+    restore_operator_attachments
+    run_operator_startup
+}
+
 run_managed_curation_startup() {
     if [ "${CODEFLARE_OPERATOR_SESSION:-}" = "true" ]; then
-        run_operator_startup
+        run_operator_attachment_startup
         return
     fi
     run_initial_r2_restore

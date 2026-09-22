@@ -49,10 +49,16 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     const first = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
     expect(first.status).toBe(200);
     const release = (await first.json() as { items: Array<{ id: string }> }).items[0]!;
+    const legacyFixture = await createOperatorGitHubFixture({ omitCompilerCommit: true });
     const row = ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=?', release.id).one();
-    const legacy = JSON.parse(row.data) as { provenance: { compilerCommit?: string } };
+    const legacy = JSON.parse(row.data) as { assets: Array<{ name: string; digest: string; id: number }>;
+      provenance: { compilerCommit?: string; artifactDigest: string } };
     delete legacy.provenance.compilerCommit;
+    legacy.assets = legacy.assets.map(asset => ({ ...asset,
+      digest: legacyFixture.assets.find(candidate => candidate.name === asset.name)!.digest.slice('sha256:'.length) }));
+    legacy.provenance.artifactDigest = legacyFixture.artifactDigest;
     ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?', JSON.stringify(legacy), release.id);
+    vi.stubGlobal('fetch', legacyFixture.fetcher);
     const detail = await request(`/operators/${operator.operatorId}`);
     const revision = (await detail.json() as { operator: { revision: number } }).operator.revision;
 
@@ -61,6 +67,18 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     expect(refreshed.status).toBe(200);
     await expect(refreshed.json()).resolves.toMatchObject({ items: [expect.objectContaining({ id: release.id,
       provenance: expect.not.objectContaining({ compilerCommit: expect.anything() }) })] });
+  }));
+
+  it('rejects missing compiler provenance for a release that was not previously retained', async () => withManagementApi(async request => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ omitCompilerCommit: true })).fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', registration);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+
+    expect((await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', {
+      revision: operator.revision,
+    })).status).toBe(503);
   }));
 
   it('keeps discovery and promotion disabled, rejects a stale mutation, and preserves an independent installation', async () => withManagementApi(async request => {

@@ -54,6 +54,7 @@ export type GitHubFixtureFault = 'provenance-repository' | 'provenance-compiler'
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
   profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
+  omitCompilerCommit?: boolean;
 } = {}) {
   const repositoryName = options.repositoryName ?? 'review-operator';
   const repository = { id: repositoryId, full_name: `acme/${repositoryName}`,
@@ -74,7 +75,9 @@ export async function createOperatorGitHubFixture(options: {
     artifact: { path: '/operator-bundle.json', sha256: bundleDigest } }));
   const manifestDigest = await sha256(manifest);
   const provenance = encoder.encode(JSON.stringify({ repositoryId: options.fault === 'provenance-repository' ? 418 : repositoryId,
-    sourceCommit, compilerCommit: options.fault === 'provenance-compiler' ? 'invalid' : 'c'.repeat(40), manifestDigest, bundleDigest,
+    sourceCommit, ...(options.omitCompilerCommit ? {} : {
+      compilerCommit: options.fault === 'provenance-compiler' ? 'invalid' : 'c'.repeat(40),
+    }), manifestDigest, bundleDigest,
     workflow: { id: workflowId, ref: '.github/workflows/release.yml@refs/heads/main', runId, runAttempt: 1 } }));
   const files = [
     { id: 91, name: 'operator-manifest.json', bytes: manifest },
@@ -121,5 +124,6 @@ export async function createOperatorGitHubFixture(options: {
     if (path === `/repositories/${repositoryId}/actions/artifacts/${artifactId}/zip`) return new Response(archiveBytes);
     return new Response('Unknown GitHub fixture endpoint', { status: 404 });
   };
-  return { fetcher, requests, bundleDigest, manifestDigest, sourceCommit };
+  return { fetcher, requests, bundleDigest, manifestDigest, sourceCommit, assets,
+    artifactDigest };
 }

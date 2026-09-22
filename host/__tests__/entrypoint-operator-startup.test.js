@@ -20,6 +20,8 @@ function run(operator) {
     'set -euo pipefail',
     'LOG=""',
     'run_operator_startup() { LOG="${LOG}operator,"; }',
+    'restore_operator_attachments() { LOG="${LOG}attachments,"; }',
+    extract('run_operator_attachment_startup'),
     'run_initial_r2_restore() { LOG="${LOG}restore,"; }',
     'run_post_restore_startup() { LOG="${LOG}post,"; }',
     'complete_managed_curation_startup() { LOG="${LOG}complete,"; }',
@@ -34,7 +36,7 @@ function run(operator) {
 test('REQ-OPERATOR-022: operator startup selects only restricted initialization', () => {
   const result = run(true);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, 'operator,');
+  assert.equal(result.stdout, 'attachments,operator,');
 });
 
 test('REQ-OPERATOR-022: ordinary startup retains restore, post-restore and completion flow', () => {
@@ -51,10 +53,13 @@ function runAttachmentRestore({ portBound, nodeResult = 0 }) {
     'RCLONE_CONFIG_RESULT=0',
     'FLAG=$(mktemp -u)',
     'CODEFLARE_INIT_FLAG_FILE=$FLAG',
-    `node() { [ ! -e "$CODEFLARE_INIT_FLAG_FILE" ] || return 90; sleep 0.1; return ${nodeResult}; }`,
+    'LOG=""',
+    `node() { LOG="${'${LOG}'}restore-start,"; [ ! -e "$CODEFLARE_INIT_FLAG_FILE" ] || return 90; sleep 0.1; return ${nodeResult}; }`,
+    'run_operator_startup() { LOG="${LOG}ready,"; touch "$CODEFLARE_INIT_FLAG_FILE"; }',
     extract('restore_operator_attachments'),
-    'restore_operator_attachments',
-    'test ! -e "$CODEFLARE_INIT_FLAG_FILE"',
+    extract('run_operator_attachment_startup'),
+    'run_operator_attachment_startup',
+    'printf "%s" "$LOG"',
   ].join('\n');
   return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 }
@@ -65,9 +70,11 @@ test('REQ-OPERATOR-052: attachment restore requires confirmed early bind and kee
   assert.match(unbound.stderr, /requires a bound terminal port/);
   const delayed = runAttachmentRestore({ portBound: 1 });
   assert.equal(delayed.status, 0, delayed.stderr);
+  assert.equal(delayed.stdout, 'restore-start,ready,');
 });
 
 test('REQ-OPERATOR-052: failed attachment restore cannot open readiness', () => {
   const failed = runAttachmentRestore({ portBound: 1, nodeResult: 7 });
   assert.equal(failed.status, 7, failed.stderr);
+  assert.equal(failed.stdout, '');
 });

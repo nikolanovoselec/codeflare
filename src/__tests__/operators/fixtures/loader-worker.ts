@@ -89,9 +89,10 @@ export class FixtureCapability extends WorkerEntrypoint<FixtureEnv> {
   }
 }
 
+const conductorObjects = new Map<string, Uint8Array>();
+
 /** Deterministic transport fixture: no provider, Internet, credentials or billing. */
 export class ConductorFixtureCapability extends WorkerEntrypoint<FixtureEnv> {
-  private readonly objects = new Map<string, Uint8Array>();
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     const body = await request.json<Record<string, unknown>>();
@@ -108,18 +109,18 @@ export class ConductorFixtureCapability extends WorkerEntrypoint<FixtureEnv> {
           generation: 1, complete: true, omissions: [], findings: [] }));
         const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
           .map(byte => byte.toString(16).padStart(2, '0')).join('');
-        this.objects.set(`Operators/reports/${lane}.json`, bytes);
+        conductorObjects.set(`Operators/reports/${lane}.json`, bytes);
         files.push({ path: `reports/${lane}.json`, size: bytes.byteLength, sha256 });
       }
       const manifest = new TextEncoder().encode(JSON.stringify({ operationId: body.operationId, files }));
       const manifestDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', manifest)))
         .map(byte => byte.toString(16).padStart(2, '0')).join('');
-      this.objects.set('.codeflare/operators/conductor-activity/review-generation-1/manifest.json', manifest);
+      conductorObjects.set('.codeflare/operators/conductor-activity/review-generation-1/manifest.json', manifest);
       return Response.json({ status: 'sealed', manifestDigest,
         prefix: '.codeflare/operators/conductor-activity/review-generation-1/', filePrefix: 'Operators/' });
     }
     if (path === '/v1/storage/read') {
-      const bytes = this.objects.get(String(body.key));
+      const bytes = conductorObjects.get(String(body.key));
       return bytes ? Response.json({ bytes: btoa(String.fromCharCode(...bytes)) })
         : Response.json({ error: 'Not found' }, { status: 404 });
     }
