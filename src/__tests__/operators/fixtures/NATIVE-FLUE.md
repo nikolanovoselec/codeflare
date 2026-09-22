@@ -1,6 +1,6 @@
 # Dispatcher supplemental native RED handoff
 
-This fixture extends `loader-runtime.test.ts` in **Backend tests (node)**. The existing Wrangler process, Gate 1 and legacy Activity cases remain in that suite. No new runner, deployment or production migration is involved. The parent fixture compatibility date remains `2026-02-05`; only the generated child carries `2026-09-22`. Do not increase the parent date without native evidence.
+This fixture extends `loader-runtime.test.ts` in **Backend tests (node)**. The existing Wrangler process, Gate 1 and legacy Activity cases remain in that suite. No new runner, deployment or production migration is involved. The parent fixture compatibility date remains `2026-02-05`; only the generated child carries `2026-09-10` (the newest date supported by the pinned CI workerd). Do not increase the parent date without native evidence.
 
 ## CI prerequisites owned by root
 
