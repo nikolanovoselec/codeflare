@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppError, ValidationError } from '../lib/error-types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { openOperatorSecret } from './protected-secrets';
-import { parseOperatorBundle, parseOperatorManifest } from './distribution';
+import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
 import type {
   ManagementGrant, ManagementOperatorProfile, ManagementOperatorRealm, ManagementPolicy,
   ManagementRelease, ManagementReleaseCandidate, OperatorRegistry,
@@ -237,8 +237,11 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   const manifestJson = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(manifestBytes);
   const manifest = parseOperatorManifest(manifestJson, 'https://github.com/');
   if (manifest.profile !== source.profile || manifest.interfaceVersion !== 1 || manifest.artifact.sha256 !== bundleDigest) throw new Error('GitHub manifest mismatch');
-  await parseOperatorBundle(bundleBytes, bundleDigest);
+  const dispatcherBundle = source.profile === 'dispatcher'
+    ? await parseDispatcherBundle(bundleBytes, bundleDigest) : null;
+  if (!dispatcherBundle) await parseOperatorBundle(bundleBytes, bundleDigest);
   const provenance = provenanceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(files.get('operator-provenance.json')!)));
+  if (dispatcherBundle && dispatcherBundle.sourceCommit !== provenance.sourceCommit) throw new Error('Dispatcher source mismatch');
   if (provenance.repositoryId !== source.repositoryId || provenance.manifestDigest !== manifestDigest || provenance.bundleDigest !== bundleDigest
     || provenance.workflow.id !== source.approvedWorkflow.id || provenance.workflow.ref !== source.approvedWorkflow.ref) throw new Error('GitHub provenance mismatch');
   const run = runSchema.parse(await githubJson(`/repositories/${source.repositoryId}/actions/runs/${provenance.workflow.runId}`, pat, deadline));

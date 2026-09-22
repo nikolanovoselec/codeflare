@@ -62,13 +62,13 @@ This release extends the existing Operator foundation with GitHub package instal
 **Intent:** Dispatcher runs real Flue work under Dynamic Worker authority without a session/container.
 
 **Acceptance Criteria:**
-1. Native Worker tests execute the actual pinned generated Flue class in an activity-private facet, including delegated SDK alarms/fiber recovery, isolated SQLite for two activities and bounded continuation after native eviction. Mock capability responses do not establish native proof.
+1. Native Worker tests execute the actual pinned generated Flue class in an activity-private facet, including delegated SDK alarms/fiber recovery, isolated SQLite for two activities and bounded continuation after native eviction. Mock capability responses do not establish native proof. <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-048/051: pinned generated Flue in native workerd) -->
 2. One durable execution lease remains bound to its original generation/submission/input/release and expiry across asynchronous admission. HTTP completion and status polling neither create a waiting checkpoint nor renew authority. Explicit continuation requires safe quiescence.
 3. Cancellation/expiry/revocation and stale warmed callers deny subsequent protected work. Completed operations reconcile by stable ID/digest; uncertain accepted effects are not replayed. Flue's recovery does not itself establish exactly-once external effects.
-4. Dispatcher runs its own Flue model/tool loop using only restricted parent read/inference primitives. It cannot create/access a session/container, obtain credentials or supervisor storage/stubs, select another facet, schedule arbitrary parent callbacks, or bypass parent egress.
+4. Dispatcher runs its own Flue model/tool loop using only restricted parent read/inference primitives. It cannot create/access a session/container, obtain credentials or supervisor storage/stubs, select another facet, schedule arbitrary parent callbacks, or bypass parent egress. <!-- @impl: src/operators/distribution.ts::parseDispatcherBundle --> <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-048: production Dispatcher bundle boundary) --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-048: production Dispatcher Loader host) -->
 5. Existing OperatorActivity identity/storage and Gate 1/default-entrypoint behavior remain compatible. Reuse SDK scheduling in that owner; no second namespace, per-operator migration, copied scheduler or Codeflare-wide Vite conversion.
 
-**Native verification gate:** extend the existing `src/__tests__/operators/loader-runtime.test.ts` workerd fixture with the real profile-built artifact before production host integration. Supplemental cases and their exact anchors remain pending; `dispatcher-native.test.ts` covers only the mocked capability contract.
+**Native verification gate:** the existing `src/__tests__/operators/loader-runtime.test.ts` workerd fixture executes the real profile-built artifact. Production now has the strict generated-artifact parser and generated-class Loader boundary; the Activity-owned facet/lease/capability integration remains pending, so this requirement is not implemented.
 
 **Status:** Planned
 

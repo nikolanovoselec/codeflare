@@ -59,6 +59,34 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
       interfaceVersion: 1, approved: false })] });
   }));
 
+  it('REQ-OPERATOR-048: acquires only the strict generated Dispatcher artifact and binds its source to provenance', async () => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ profile: 'dispatcher' });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(200);
+    await expect(refreshed.json()).resolves.toMatchObject({ items: [expect.objectContaining({
+      sourceCommit: fixture.sourceCommit, bundleDigest: fixture.bundleDigest,
+    })] });
+  }));
+
+  it('REQ-OPERATOR-048: rejects a generated Dispatcher artifact whose embedded source differs from provenance', async () => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ profile: 'dispatcher', dispatcherSourceMismatch: true });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(503);
+    const detail = await request(`/operators/${operator.operatorId}`);
+    await expect(detail.json()).resolves.toMatchObject({ releases: [] });
+  }));
+
   it.each(['provenance-repository', 'mutable-release', 'failed-run', 'build-bytes', 'unsafe-redirect'] as const)(
     'rejects %s without admitting release bytes or disclosing the PAT', async fault => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ fault });

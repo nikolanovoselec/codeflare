@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
-import { parseOperatorManifest, parseOperatorBundle } from '../../operators/distribution';
+import { parseOperatorManifest, parseOperatorBundle, parseDispatcherBundle } from '../../operators/distribution';
 
 const ENDPOINT = 'https://operator.example.test/discovery';
 const manifest = () => ({
@@ -93,6 +93,38 @@ async function digest(bytes: Uint8Array): Promise<string> {
     expect(() => parseOperatorManifest(JSON.stringify({
       ...manifest(), description: 'é'.repeat(33 * 1024),
     }), ENDPOINT)).toThrow(ValidationError);
+  });
+});
+
+describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
+  const dispatcherBundle = () => ({
+    schemaVersion: 1,
+    sourceCommit: 'a'.repeat(40),
+    versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
+    className: 'FlueDispatcherAgent',
+    compatibilityDate: '2026-09-10',
+    compatibilityFlags: ['nodejs_compat'],
+    mainModule: 'index.js',
+    modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } },
+  });
+
+  it('accepts only the pinned generated Flue class metadata and exact approved bytes', async () => {
+    const input = dispatcherBundle();
+    const bytes = encode(input);
+
+    expect(await parseDispatcherBundle(bytes, await digest(bytes))).toEqual(input);
+  });
+
+  it.each([
+    ['class export', { className: 'OtherAgent' }],
+    ['Agents version', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.24.0' } }],
+    ['Flue runtime', { versions: { runtime: '2.2.0', vitePlugin: '2.1.0', agents: '0.20.1' } }],
+    ['child compatibility date', { compatibilityDate: '2026-02-05' }],
+    ['outbound authority', { globalOutbound: true }],
+  ])('rejects Dispatcher bytes with changed %s', async (_label, patch) => {
+    const input = { ...dispatcherBundle(), ...patch };
+    const bytes = encode(input);
+    await expect(parseDispatcherBundle(bytes, await digest(bytes))).rejects.toThrow(ValidationError);
   });
 });
 

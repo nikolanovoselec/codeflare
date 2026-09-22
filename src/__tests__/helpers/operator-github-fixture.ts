@@ -53,17 +53,23 @@ export type GitHubFixtureFault = 'provenance-repository' | 'mutable-release' | '
 
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
+  profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean;
 } = {}) {
   const repositoryName = options.repositoryName ?? 'review-operator';
   const repository = { id: repositoryId, full_name: `acme/${repositoryName}`,
     html_url: `https://github.com/acme/${repositoryName}`, default_branch: 'main' };
-  const bundle = encoder.encode(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+  const bundle = encoder.encode(JSON.stringify(options.profile === 'dispatcher' ? {
+    schemaVersion: 1, sourceCommit: options.dispatcherSourceMismatch ? 'b'.repeat(40) : sourceCommit,
+    versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
+    className: 'FlueDispatcherAgent', compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
+    mainModule: 'index.js', modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } },
+  } : { schemaVersion: 1, interfaceVersion: 1,
     compatibilityDate: '2026-02-05', compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js',
     modules: { 'index.js': { js: 'export default { fetch() { return new Response("fixture") } }' } } }));
   const bundleDigest = await sha256(bundle);
   const manifest = encoder.encode(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
     id: repositoryName, name: 'Review operator', description: 'Review fixture', coreVersion: '1', intentVersion: '1',
-    profile: 'conductor', inputSchema: { type: 'object' }, requiredCapabilities: [],
+    profile: options.profile ?? 'conductor', inputSchema: { type: 'object' }, requiredCapabilities: [],
     artifact: { path: '/operator-bundle.json', sha256: bundleDigest } }));
   const manifestDigest = await sha256(manifest);
   const provenance = encoder.encode(JSON.stringify({ repositoryId: options.fault === 'provenance-repository' ? 418 : repositoryId,

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
+import type { DispatcherBundle } from '../../operators/distribution';
 import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { loadOperatorDispatcherClass } from '../../operators/loader';
 
 const activityId = 'dispatcher-activity';
 const generation = 4;
@@ -56,5 +58,47 @@ describe('REQ-OPERATOR-048: Dispatcher mocked capability contract', () => {
     ];
 
     for (const attempt of attempts) expect((await capability.fetch(attempt)).status).toBe(403);
+  });
+});
+
+const bundle: DispatcherBundle = {
+  schemaVersion: 1, sourceCommit: 'a'.repeat(40),
+  versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
+  className: 'FlueDispatcherAgent', compatibilityDate: '2026-09-10',
+  compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js',
+  modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } },
+};
+
+describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
+  it('loads the approved generated class with only a generation-bound capability and denied direct outbound', () => {
+    const generatedClass = class {};
+    let codeFactory: (() => Promise<unknown>) | undefined;
+    const getDurableObjectClass = vi.fn(() => generatedClass);
+    const loader = { get: vi.fn((_key: string, factory: () => Promise<unknown>) => {
+      codeFactory = factory;
+      return { getDurableObjectClass };
+    }) };
+    const capability = { fetch: vi.fn() } as unknown as Fetcher;
+
+    const digest = 'b'.repeat(64);
+    const loaded = loadOperatorDispatcherClass(loader, bundle, digest, 'activity-1', 3, capability);
+
+    expect(loaded).toBe(generatedClass);
+    expect(loader.get).toHaveBeenCalledWith(`dispatcher:activity-1:${digest}:3`, expect.any(Function));
+    expect(getDurableObjectClass).toHaveBeenCalledWith('FlueDispatcherAgent');
+    return expect(codeFactory!()).resolves.toEqual({
+      compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
+      mainModule: 'index.js', modules: bundle.modules, env: { OPERATOR: capability }, globalOutbound: null,
+    });
+  });
+
+  it('rejects invalid activity identities and generations before asking Loader for a class', () => {
+    const loader = { get: vi.fn() };
+    const capability = {} as Fetcher;
+
+    expect(() => loadOperatorDispatcherClass(loader, bundle, 'b'.repeat(64), '../other', 1, capability)).toThrow();
+    expect(() => loadOperatorDispatcherClass(loader, bundle, 'b'.repeat(64), 'activity-1', 0, capability)).toThrow();
+    expect(() => loadOperatorDispatcherClass(loader, bundle, 'not-a-digest', 'activity-1', 1, capability)).toThrow();
+    expect(loader.get).not.toHaveBeenCalled();
   });
 });
