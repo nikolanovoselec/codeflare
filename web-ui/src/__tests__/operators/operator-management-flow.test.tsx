@@ -41,16 +41,20 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     expect(await screen.findByText('https://github.com/acme/second')).toBeInTheDocument();
     expect(screen.queryByText(operator.repositoryUrl)).not.toBeInTheDocument();
   });
-  it('keeps submitted source secrets out of error output and clears the password after rejection', async () => {
-    serve = (_url, init) => init?.method === 'POST' ? json({ error: 'fixture-private-pat rejected' }, 400) : json({ items: [], cursor: null });
+  it('keeps a rejected source-edit secret out of the accessible error and clears the password', async () => {
+    serve = (url, init) => url.pathname.endsWith('/source') && init?.method === 'POST'
+      ? json({ error: 'fixture-private-pat rejected' }, 400)
+      : url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
     render(() => <OperatorManagement userEmail="manager@example.test" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
-    fireEvent.input(screen.getByLabelText('GitHub repository URL'), { target: { value: operator.repositoryUrl } });
-    fireEvent.input(screen.getByLabelText('Repository-read PAT'), { target: { value: 'fixture-private-pat' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Register disabled operator' }));
-    await waitFor(() => expect(screen.getByLabelText('Repository-read PAT')).toHaveValue(''));
-    expect(screen.getByRole('alert')).toHaveTextContent(/invalid/i);
-    expect(screen.queryByText(/fixture-private-pat/)).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    fireEvent.click(await screen.findByText('Edit source'));
+    const secret = await screen.findByLabelText('Replacement repository-read PAT');
+    fireEvent.input(secret, { target: { value: 'fixture-private-pat' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace source' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/invalid/i);
+    expect(alert).not.toHaveTextContent('fixture-private-pat');
+    await waitFor(() => expect(secret).toHaveValue(''));
   });
   it('shows distinct discovery, approval and enablement and requires reconciliation after a stale promotion', async () => {
     serve = (url, init) => init?.method === 'POST' ? json({ error: 'Conflict' }, 409)
