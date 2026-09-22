@@ -22,9 +22,12 @@ export class FixtureActivity extends OperatorActivity {
     const record = await this.ctx.storage.get<unknown>('admission') as {
       intent?: { deadline?: unknown }; drive?: { generation?: unknown; status?: unknown };
     } | undefined;
-    if (!record || !Number.isSafeInteger(record.drive?.generation) || (record.drive.generation ?? 0) < 1
-      || typeof record.drive?.status !== 'string' || !Number.isFinite(record.intent?.deadline)) return null;
-    return { generation: record.drive.generation, status: record.drive.status, deadline: record.intent.deadline };
+    const generation = record?.drive?.generation;
+    const status = record?.drive?.status;
+    const deadline = record?.intent?.deadline;
+    if (!record || typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1
+      || typeof status !== 'string' || typeof deadline !== 'number' || !Number.isFinite(deadline)) return null;
+    return { generation, status, deadline };
   }
   evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }

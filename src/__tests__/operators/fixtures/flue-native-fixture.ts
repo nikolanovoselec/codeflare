@@ -6,7 +6,7 @@
  * accepts effects so blanket denial and absent authority checks cannot pass.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { Agent, getAgentByName } from 'agents';
+import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
 
 export type NativeArtifact = {
@@ -32,22 +32,15 @@ type Facet = Fetcher & {
   _cf_initAsFacet(name: string, parentPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
   fixtureSnapshot(): Promise<unknown>;
 };
-type AgentsFacetRootBridge = {
-  _cf_scheduleForFacet(ownerPath: FacetPath, when: unknown, callback: string, payload: unknown, options: unknown): Promise<unknown>;
-  _cf_scheduleEveryForFacet(ownerPath: FacetPath, intervalSeconds: number, callback: string, payload: unknown, options: unknown): Promise<unknown>;
-  _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<unknown>;
-  _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria: unknown): Promise<unknown>;
-  _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<unknown>;
-  _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string>;
-  _cf_releaseFacetKeepAlive(token: string): Promise<void>;
-  _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void>;
-  _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void>;
-};
-type NativeEnv = {
+type NativeEnv = Cloudflare.Env & {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
   LOADER: { get(id: string, code: () => Promise<unknown>): { getDurableObjectClass(name: string): unknown } };
 };
+type AgentsFacetRootBridge = Pick<Agent<NativeEnv>,
+  '_cf_scheduleForFacet' | '_cf_scheduleEveryForFacet' | '_cf_getScheduleForFacet'
+  | '_cf_listSchedulesForFacet' | '_cf_cancelScheduleForFacet' | '_cf_acquireFacetKeepAlive'
+  | '_cf_releaseFacetKeepAlive' | '_cf_registerFacetRun' | '_cf_unregisterFacetRun'>;
 type FacetBridgeBinding = { generation: number; status: 'current' | 'stale' | 'denied' };
 export type ExternalReceipt = NativeDelivery & { sequence: number; path: string };
 
@@ -225,38 +218,44 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     return Agent.prototype as unknown as AgentsFacetRootBridge;
   }
 
-  async _cf_scheduleForFacet(ownerPath: FacetPath, when: unknown, callback: string, payload: unknown, options: unknown) {
+  override _cf_scheduleForFacet<T = string>(
+    ownerPath: FacetPath, when: Date | string | number, callback: string, payload?: T,
+    options?: { retry?: RetryOptions; idempotent?: boolean },
+  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_scheduleForFacet.call(this, ownerPath, when, callback, payload, options);
+    return (this.#agentsRoot()._cf_scheduleForFacet<T>).call(this, ownerPath, when, callback, payload, options);
   }
-  async _cf_scheduleEveryForFacet(ownerPath: FacetPath, intervalSeconds: number, callback: string, payload: unknown, options: unknown) {
+  override _cf_scheduleEveryForFacet<T = string>(
+    ownerPath: FacetPath, intervalSeconds: number, callback: string, payload?: T,
+    options?: { retry?: RetryOptions; _idempotent?: boolean },
+  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_scheduleEveryForFacet.call(this, ownerPath, intervalSeconds, callback, payload, options);
+    return (this.#agentsRoot()._cf_scheduleEveryForFacet<T>).call(this, ownerPath, intervalSeconds, callback, payload, options);
   }
-  async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string) {
+  override _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_getScheduleForFacet.call(this, ownerPath, id);
   }
-  async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria: unknown) {
+  override _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_listSchedulesForFacet.call(this, ownerPath, criteria);
   }
-  async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string) {
+  override _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_cancelScheduleForFacet.call(this, ownerPath, id);
   }
-  async _cf_acquireFacetKeepAlive(ownerPath: FacetPath) {
+  override _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_acquireFacetKeepAlive.call(this, ownerPath);
   }
-  async _cf_releaseFacetKeepAlive(token: string) {
+  override _cf_releaseFacetKeepAlive(token: string): Promise<void> {
     return this.#agentsRoot()._cf_releaseFacetKeepAlive.call(this, token);
   }
-  async _cf_registerFacetRun(ownerPath: FacetPath, runId: string) {
+  override _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_registerFacetRun.call(this, ownerPath, runId);
   }
-  async _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string) {
+  override _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
     return this.#agentsRoot()._cf_unregisterFacetRun.call(this, ownerPath, runId);
   }
@@ -287,31 +286,37 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
     return (await this.#root()).transport(request);
   }
 
-  async _cf_scheduleForFacet(ownerPath: FacetPath, when: unknown, callback: string, payload: unknown, options: unknown) {
+  async _cf_scheduleForFacet<T = string>(
+    ownerPath: FacetPath, when: Date | string | number, callback: string, payload?: T,
+    options?: { retry?: RetryOptions; idempotent?: boolean },
+  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
     return this.#bridge(root => root._cf_scheduleForFacet(ownerPath, when, callback, payload, options));
   }
-  async _cf_scheduleEveryForFacet(ownerPath: FacetPath, intervalSeconds: number, callback: string, payload: unknown, options: unknown) {
+  async _cf_scheduleEveryForFacet<T = string>(
+    ownerPath: FacetPath, intervalSeconds: number, callback: string, payload?: T,
+    options?: { retry?: RetryOptions; _idempotent?: boolean },
+  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
     return this.#bridge(root => root._cf_scheduleEveryForFacet(ownerPath, intervalSeconds, callback, payload, options));
   }
-  async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string) {
+  async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
     return this.#bridge(root => root._cf_getScheduleForFacet(ownerPath, id));
   }
-  async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria: unknown) {
+  async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
     return this.#bridge(root => root._cf_listSchedulesForFacet(ownerPath, criteria));
   }
-  async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string) {
+  async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
     return this.#bridge(root => root._cf_cancelScheduleForFacet(ownerPath, id));
   }
-  async _cf_acquireFacetKeepAlive(ownerPath: FacetPath) {
+  async _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string> {
     return this.#bridge(root => root._cf_acquireFacetKeepAlive(ownerPath));
   }
-  async _cf_releaseFacetKeepAlive(token: string) {
+  async _cf_releaseFacetKeepAlive(token: string): Promise<void> {
     return this.#bridge(root => root._cf_releaseFacetKeepAlive(token));
   }
-  async _cf_registerFacetRun(ownerPath: FacetPath, runId: string) {
+  async _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     return this.#bridge(root => root._cf_registerFacetRun(ownerPath, runId));
   }
-  async _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string) {
+  async _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     return this.#bridge(root => root._cf_unregisterFacetRun(ownerPath, runId));
   }
 }
