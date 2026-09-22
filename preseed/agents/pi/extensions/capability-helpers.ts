@@ -26,7 +26,12 @@ export type CapabilityMatch = {
   name: string;
   description: string;
   filePath?: string;
+  nextAction:
+    | { action: "activate-tool"; name: string }
+    | { action: "read-skill"; path: string };
 };
+
+type CapabilityCandidate = Omit<CapabilityMatch, "nextAction">;
 
 // Pi loads every TypeScript file in the extensions directory. This support
 // module therefore exports a side-effect-free extension as well as its helpers.
@@ -228,41 +233,87 @@ export function searchCapabilities(input: {
   limit?: number;
 }): CapabilityMatch[] {
   const { query, kind } = parseCapabilityQuery(input.query);
-  const candidates: CapabilityMatch[] = [
+  const candidates: CapabilityCandidate[] = [
     ...input.tools.map((tool) => ({ kind: "tool" as const, name: tool.name, description: tool.description ?? "" })),
     ...(input.skills ?? []).map((skill) => ({ kind: "skill" as const, ...skill })),
   ].filter((candidate) => (!kind || kind === candidate.kind) && !DISABLED_TOOL_NAMES.has(candidate.name));
-  const order = (a: CapabilityMatch, b: CapabilityMatch) => {
+  const order = (a: CapabilityCandidate, b: CapabilityCandidate) => {
     const left = `${a.kind}:${a.name}`, right = `${b.kind}:${b.name}`;
     return left < right ? -1 : left > right ? 1 : 0;
   };
+  const limit = Math.max(0, Math.min(input.limit ?? 3, 3));
   const exact = candidates.filter((candidate) => candidate.name.normalize("NFKC").toLowerCase() === query.normalize("NFKC").toLowerCase());
+  const result = (candidate: CapabilityCandidate): CapabilityMatch => ({
+    ...candidate,
+    description: clipCapabilityText(cleanCapabilityText(purpose(candidate.description)), 100),
+    nextAction: candidate.kind === "tool"
+      ? { action: "activate-tool", name: candidate.name }
+      : { action: "read-skill", path: candidate.filePath! },
+  });
+  if (exact.length > 0) return exact.sort(order).slice(0, limit).map(result);
+
   const terms = tokens(query);
-  const scored = candidates.map((candidate) => {
-    const name = tokens(candidate.name), summary = tokens(purpose(candidate.description)), full = tokens(candidate.description);
-    let score = 0, matched = 0, nameHits = 0, strong = 0;
+  if (terms.length === 0) return [];
+  const prepared = candidates.map((candidate) => ({
+    candidate,
+    name: tokens(candidate.name),
+    summary: tokens(purpose(candidate.description)),
+    full: tokens(candidate.description),
+  }));
+  const matches = (term: string, values: string[]): "exact" | "prefix" | undefined => {
+    if (values.includes(term)) return "exact";
+    if (term.length < 4) return undefined;
+    return values.some((value) => value.length >= 4 && (value.startsWith(term) || term.startsWith(value)))
+      ? "prefix"
+      : undefined;
+  };
+  const rarity = new Map(terms.map((term) => {
+    const frequency = prepared.filter(({ full, name }) => matches(term, [...name, ...full])).length;
+    return [term, 1 + Math.log2((prepared.length + 1) / (frequency + 1))];
+  }));
+  const scored = prepared.map(({ candidate, name, summary, full }) => {
+    let score = 0, matched = 0, nameHits = 0, strong = 0, strongestRarity = 0;
     for (const term of terms) {
-      if (name.includes(term)) { score += 12; matched++; nameHits++; strong++; }
-      else if (summary.includes(term)) { score += 6; matched++; strong++; }
-      else if (full.includes(term)) { score++; matched++; }
+      const weight = rarity.get(term)!;
+      const nameMatch = matches(term, name);
+      const summaryMatch = matches(term, summary);
+      const fullMatch = matches(term, full);
+      if (nameMatch) {
+        score += (nameMatch === "exact" ? 12 : 8) * weight;
+        matched++; nameHits++; strong++; strongestRarity = Math.max(strongestRarity, weight);
+      } else if (summaryMatch) {
+        score += (summaryMatch === "exact" ? 6 : 4) * weight;
+        matched++; strong++; strongestRarity = Math.max(strongestRarity, weight);
+      } else if (fullMatch) {
+        score += (fullMatch === "exact" ? 3 : 2) * weight;
+        matched++; strongestRarity = Math.max(strongestRarity, weight);
+      }
     }
-    if (name.some((_, i) => terms.every((term, j) => name[i + j] === term))) score += 8;
-    return { candidate, score, matched, nameHits, strong };
-  }).filter((item) => terms.length > 0 && item.matched * 3 >= terms.length * 2 && item.strong > 0 && item.score >= 6);
-  const best = { tool: 0, skill: 0 };
-  for (const item of scored) best[item.candidate.kind] = Math.max(best[item.candidate.kind], item.score);
-  const ranked = exact.length ? exact.sort(order) : scored
-    .filter((item) => item.score >= Math.ceil(best[item.candidate.kind] * 0.75))
+    return { candidate, score, matched, nameHits, strong, strongestRarity };
+  }).filter((item) => (
+    item.score >= 6
+    && (item.strong > 0 || item.matched >= 2 || item.strongestRarity >= 2)
+  ));
+  const best = Math.max(0, ...scored.map(({ score }) => score));
+  const ranked = scored
+    .filter((item) => item.score >= Math.max(6, best * 0.4))
     .sort((a, b) => b.score - a.score || b.nameHits - a.nameHits || order(a.candidate, b.candidate))
     .map((item) => item.candidate);
-  return ranked.slice(0, Math.max(0, Math.min(input.limit ?? 3, 3))).map((candidate) => ({
-    ...candidate, description: clipCapabilityText(cleanCapabilityText(purpose(candidate.description)), 100),
-  }));
+  return ranked.slice(0, limit).map(result);
 }
 
 export function formatCapabilityMatches(matches: CapabilityMatch[]): string {
   let limit = 100;
-  const render = () => matches.map((match) => `${match.kind}:${cleanCapabilityText(match.name)}${limit ? ` — ${clipCapabilityText(match.description, limit)}` : ""}${match.kind === "skill" ? `; read ${JSON.stringify(match.filePath)}` : ""}`).join("\n");
+  const render = () => matches.map((match, index) => {
+    const label = index === 0 ? "Recommended" : "Alternative";
+    const purposeText = limit ? `: ${clipCapabilityText(match.description, limit)}` : "";
+    const summary = `${label} ${match.kind} ${cleanCapabilityText(match.name)}${purposeText}`;
+    if (index > 0) return summary;
+    const next = match.nextAction.action === "read-skill"
+      ? `read(${JSON.stringify(match.nextAction.path)})`
+      : `capability({name:${JSON.stringify(match.nextAction.name)}}), then use its exposed schema`;
+    return `${summary}\nNext: ${next}`;
+  }).join("\n");
   let text = render();
   while ([...text].length > 600 && limit > 0) { limit--; text = render(); }
   return text;

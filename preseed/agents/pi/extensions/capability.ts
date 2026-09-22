@@ -33,8 +33,8 @@ export function capabilityExtension(pi: ExtensionAPI): void {
   });
   pi.registerTool({
     name: "capability",
-    label: "Tool Search",
-    description: "Search tools and skills; skill results include read paths. name activates an exact tool.",
+    label: "Find tool or skill",
+    description: "Search registered Pi tools and eligible installed skills. query searches by name and description; name activates an exact tool.",
     parameters: Type.Object({
       query: Type.Optional(Type.String({ description: "Search; optional tool: or skill: prefix." })),
       name: Type.Optional(Type.String({ description: "Exact tool name to activate." })),
@@ -72,7 +72,7 @@ export function capabilityExtension(pi: ExtensionAPI): void {
             ? formatCapabilityMatches(matches)
             : `No capabilities found for: ${JSON.stringify(clipCapabilityText(cleanCapabilityText(query), 120))}`,
         }],
-        details: { matches },
+        details: { recommended: matches[0], matches },
       };
     },
   });
