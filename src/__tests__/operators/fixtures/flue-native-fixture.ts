@@ -231,7 +231,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       const body = await request.json() as { input: { messages?: Array<{ role: string }> } };
       const done = body.input.messages?.at(-1)?.role === 'tool';
       const chunks = done ? [{ choices: [{ index: 0, delta: { content: 'Assessment complete' }, finish_reason: 'stop' }] }] : [
-        { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-tool', type: 'function',
+        { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `fixture-tool-${crypto.randomUUID()}`, type: 'function',
           function: { name: 'assess_renovate', arguments: '{}' } }] }, finish_reason: null }] },
         { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
       ];
