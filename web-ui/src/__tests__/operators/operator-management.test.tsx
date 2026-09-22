@@ -35,7 +35,7 @@ beforeEach(() => {
   getSetupStatus.mockResolvedValue({ configured: true });
   getUser.mockResolvedValue({
     email: 'manager@example.test', authenticated: true, bucketName: 'operators', role: 'user',
-    enterpriseMode: true, saasMode: false, onboardingComplete: true, accessTier: 'advanced',
+    enterpriseMode: true, operatorManagementEligible: true, saasMode: false, onboardingComplete: true, accessTier: 'advanced',
   });
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
