@@ -6,7 +6,7 @@ import { canInvokeOperator, requireOperatorHumanContext } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
-import type { OperatorRegistry } from '../operators/registry';
+import type { ManagementExecutionSelection, OperatorRegistry, OperatorRegistryResult } from '../operators/registry';
 import type { OperatorActivity } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
@@ -87,7 +87,8 @@ app.post('/:activityId/start', async c => {
   const body = await parseJsonBody(c, startBody);
   const installationId = await activity.getPreparedInstallationId();
   if (installationId) {
-    const selected = await c.get('registry').resolveManagementExecution(installationId);
+    const selected: OperatorRegistryResult<ManagementExecutionSelection> =
+      await c.get('registry').resolveManagementExecution(installationId);
     if (!selected.ok || !('value' in selected)) {
       throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
     }

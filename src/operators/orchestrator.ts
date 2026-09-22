@@ -10,7 +10,7 @@ import { fetchOperatorBundle } from './distribution-client';
 import { driveOperatorRuntime } from './runtime';
 import { createOperatorIntentDigest, type OperatorRuntimePlan } from './activity';
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
-  OperatorExecutionSelection } from './registry';
+  OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { GATE1_OPERATOR_ID } from './gate1-resources';
 
@@ -75,7 +75,8 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
   let managementSelection: ManagementExecutionSelection | null = null;
   if (installationId) {
-    const management = await registry.resolveManagementExecution(installationId);
+    const management: OperatorRegistryResult<ManagementExecutionSelection> =
+      await registry.resolveManagementExecution(installationId);
     if (!management.ok || !('value' in management)) {
       throw new AppError('CONFLICT', 409, 'Operator installation is not available for execution');
     }
