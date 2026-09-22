@@ -186,7 +186,10 @@ export function registerNativeDispatcherCases(harness: Harness) {
       expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'running' } });
       const b = delivery(id, { generation: 2, marker: 'segment-b' });
       const next = await send(id, b);
-      const final = await settle(id, next);
+      await settle(id, next);
+      const final = await observe(id, value =>
+        results(value).at(-1)?.generation === 2
+        && value.external?.some(receipt => receipt.operationId === b.operationId && receipt.generation === 2) === true);
       expect(next).not.toBe(submitted);
       expect(results(final).at(-1)).toMatchObject({ generation: 2, markers: [{ marker: 'segment-a' }, { marker: 'segment-b' }] });
       expect(final.external).toMatchObject([{ operationId: a.operationId, generation: 1, sequence: 1 }, { operationId: b.operationId, generation: 2, sequence: 2 }]);
