@@ -34,7 +34,11 @@ const manifestSchema = z.strictObject({
   description: z.string().max(4096),
   coreVersion: version,
   intentVersion: version,
+  /** Package-management releases bind this optional declaration to the registered profile. */
+  profile: z.enum(['conductor', 'dispatcher']).optional(),
   inputSchema: z.record(z.string(), z.json()),
+  /** Optional for legacy Gate 1 manifests; managed packages declare it when available. */
+  outputSchema: z.record(z.string(), z.json()).optional(),
   requiredCapabilities: z.array(capability).max(5)
     .refine(values => new Set(values).size === values.length),
   artifact: z.strictObject({ path: artifactPath, sha256: z.string().regex(SHA256) }),
