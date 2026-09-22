@@ -90,6 +90,18 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     cleanup();
   });
 
+  it('shows separate Operator Management navigation only for an eligible enterprise user', async () => {
+    sessionStoreState.enterpriseMode = true;
+    const view = render(() => <Header {...defaultSessionProps} operatorManagementEligible />);
+    await fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.getByTestId('header-user-dropdown-operators')).toHaveAttribute('href', '/operators');
+    view.unmount();
+
+    render(() => <Header {...defaultSessionProps} />);
+    await fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.queryByTestId('header-user-dropdown-operators')).not.toBeInTheDocument();
+  });
+
   describe('Default Rendering', () => {
     it('should render with required elements', () => {
       render(() => <Header sessions={[]} activeSessionId={null} onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} />);
