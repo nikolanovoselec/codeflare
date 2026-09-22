@@ -76,9 +76,12 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   let managementSelection: ManagementExecutionSelection | null = null;
   if (installationId) {
     const management = await registry.resolveManagementExecution(installationId);
-    if (!management.ok) throw new AppError('CONFLICT', 409, 'Operator installation is not available for execution');
-    managementSelection = management.value;
-    if (!canInvokeOperator(authority.human, managementSelection.operator)) {
+    if (!management.ok || !('value' in management)) {
+      throw new AppError('CONFLICT', 409, 'Operator installation is not available for execution');
+    }
+    const selection = management.value;
+    managementSelection = selection;
+    if (!canInvokeOperator(authority.human, selection.operator)) {
       throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
     }
   }
@@ -95,7 +98,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   let legacySelection: OperatorExecutionSelection | null = null;
   if (!installationId) {
     const legacy = await registry.resolveForExecution(operatorId);
-    if (!legacy.ok) throw new AppError('CONFLICT', 409, 'Operator is not available for execution');
+    if (!legacy.ok || !('value' in legacy)) {
+      throw new AppError('CONFLICT', 409, 'Operator is not available for execution');
+    }
     legacySelection = legacy.value;
   }
   const startCapability = capability();

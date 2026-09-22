@@ -38,7 +38,7 @@ function dispatcherInvocation(value: unknown): DispatcherInvocation | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   return typeof record.repository === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(record.repository)
-    && Number.isInteger(record.pullRequest) && record.pullRequest > 0
+    && typeof record.pullRequest === 'number' && Number.isInteger(record.pullRequest) && record.pullRequest > 0
     && typeof record.headSha === 'string' && /^[0-9a-f]{40}$/.test(record.headSha)
     ? { repository: record.repository, pullRequest: record.pullRequest, headSha: record.headSha } : null;
 }
