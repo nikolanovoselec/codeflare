@@ -63,7 +63,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.queryByTestId('workspace')).not.toBeInTheDocument();
   });
 
-  it('switches catalog and activity views through the router without a reload', async () => {
+  it('switches views on ordinary navigation without changing the current tab on modified clicks', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const path = new URL(request.url, 'https://operators.example.test').pathname;
@@ -73,12 +73,18 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     }));
     render(() => <App />);
     expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('link', { name: 'My activity' }));
-    expect(window.location.search).toBe('?view=activity');
+    const activity = screen.getByRole('link', { name: 'My activity' });
+    expect(activity).toHaveAttribute('href', '/operators?view=activity');
+    fireEvent.click(activity, { metaKey: true });
+    expect(screen.getByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
+    fireEvent.click(activity);
     expect(await screen.findByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Operator catalog' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('link', { name: 'Catalog' }));
-    expect(window.location.search).toBe('');
+    const catalog = screen.getByRole('link', { name: 'Catalog' });
+    expect(catalog).toHaveAttribute('href', '/operators');
+    fireEvent.click(catalog, { ctrlKey: true });
+    expect(screen.getByRole('heading', { name: 'My activity', level: 2 })).toBeInTheDocument();
+    fireEvent.click(catalog);
     expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'My activity', level: 2 })).not.toBeInTheDocument();
   });
