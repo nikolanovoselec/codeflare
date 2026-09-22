@@ -78,12 +78,12 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     const management: OperatorRegistryResult<ManagementExecutionSelection> =
       await registry.resolveManagementExecution(installationId);
     if (management.ok !== true) {
-      throw new AppError('CONFLICT', 409, 'Operator installation is not available for execution');
+      throw new AppError('NOT_FOUND', 404, 'Operator installation is not available for execution');
     }
     const selection = management.value;
     managementSelection = selection;
     if (!canInvokeOperator(authority.human, selection.operator)) {
-      throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
+      throw new AppError('NOT_FOUND', 404, 'Operator invocation is not authorized');
     }
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;

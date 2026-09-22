@@ -90,6 +90,8 @@ export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
 export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null }
+export type ManagementJson = string | number | boolean | null | ManagementJson[] | { [key: string]: ManagementJson };
+export type ManagementConfiguration = Record<string, ManagementJson>;
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
@@ -121,7 +123,7 @@ export interface ManagementCatalogQuery {
 export interface ManagementInstallation {
   id: string; operatorId: string; name: string; releaseId: string | null;
   revision: number; enabled: boolean; policy: ManagementPolicy;
-  configuration: Record<string, unknown>;
+  configuration: ManagementConfiguration;
   approvedSourceRevision: number | null;
 }
 interface ManagementOperatorState {
@@ -639,7 +641,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       && (policy.resourceProfileId === null || policy.resourceProfileId === ceiling.resourceProfileId);
   }
 
-  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configuration: Record<string, unknown> = {}): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configuration: ManagementConfiguration = {}): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -700,7 +702,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configuration: Record<string, unknown>; revision: number }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configuration: ManagementConfiguration; revision: number }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const installation = this.managementInstallation(installationId);

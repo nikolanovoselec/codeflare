@@ -26,7 +26,6 @@ const installationSchema = z.object({ id, operatorId: id, name: z.string(), rele
   enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional() });
 const detailSchema = z.object({ operator: operatorSchema, releases: z.array(releaseSchema),
   installations: z.array(installationSchema), grants: z.object({ managers: grantSchema, invokers: grantSchema }) });
-export type ManagementOperator = z.infer<typeof operatorSchema>;
 export type ManagementSummary = z.infer<typeof summarySchema>;
 export type ManagementRelease = z.infer<typeof releaseSchema>;
 export type ManagementInstallation = z.infer<typeof installationSchema>;

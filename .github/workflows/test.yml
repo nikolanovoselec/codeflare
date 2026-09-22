@@ -405,8 +405,8 @@ jobs:
     needs: changes
     env:
       DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
-      DISPATCHER_NATIVE_SHA256: d1d789312ec809505624210511310c6b7f5e16dfc202c108a00060db19105719
-      DISPATCHER_NATIVE_SOURCE_SHA: 7f7cb49b321057b682021f0a966eab0e23df3a9e
+      DISPATCHER_NATIVE_SHA256: f8a322cf5d9c81787fd540dca35fb6e0788dabb5e20e422fe26d7d4f284259a9
+      DISPATCHER_NATIVE_SOURCE_SHA: c6f137df63a16956b41e5ca05dcc69456f1cb2ab
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'

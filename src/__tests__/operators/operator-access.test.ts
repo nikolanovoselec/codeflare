@@ -138,9 +138,15 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(await invoked.json()).toMatchObject({ activityId: expect.any(String), startCapability: expect.any(String) });
 
     actor.email = 'manager@example.test'; actor.groups = ['operators'];
-    expect((await request('/api/operator-activities', 'POST', {
+    const missing = await request('/api/operator-activities', 'POST', {
+      installationId: 'missing-installation', invocation: { repository: 'acme/release-operator' },
+    });
+    expect(missing.status).toBe(404);
+    const unauthorized = await request('/api/operator-activities', 'POST', {
       installationId, invocation: { repository: 'acme/release-operator' },
-    })).status).toBe(404);
+    });
+    expect(unauthorized.status).toBe(missing.status);
+    expect(await unauthorized.text()).not.toContain(installationId);
   }));
 
   it('rechecks issuer-bound group eligibility and denies revoked or unavailable membership', async () => withApi(async request => {
