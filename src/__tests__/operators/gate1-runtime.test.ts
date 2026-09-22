@@ -31,6 +31,28 @@ const bootstrap: Gate1SessionBootstrap = {
 };
 
 describe('REQ-OPERATOR-005: owned container runtime', () => {
+  it('configures package resources before context and prevents start after failed restore', async () => {
+    const order: string[] = [];
+    const packageResources = { schemaVersion: 1 as const, artifactDigest: 'f'.repeat(64), files: [{
+      destination: '/home/user/.config/operator/resource.md', content: 'resource', size: 8, sha256: 'e'.repeat(64),
+    }] };
+    const stub: Gate1ContainerStub = {
+      setBucketName: vi.fn(async () => { order.push('bucket'); }),
+      configureOperatorResources: vi.fn(async () => { order.push('resources'); throw new Error('restore failed'); }),
+      configureOperatorContext: vi.fn(async () => { order.push('context'); }),
+      startAndWaitForPorts: vi.fn(async () => { order.push('start'); }),
+      getState: vi.fn(async () => ({ status: 'stopped' })), fetch: vi.fn(),
+      stopOperatorSession: vi.fn(async () => 'stopped' as const),
+    };
+    const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap,
+      packageResources, resolve: () => stub });
+    await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow(/configuration failed/i);
+    expect(order).toEqual(['bucket', 'resources']);
+    expect(stub.configureOperatorContext).not.toHaveBeenCalled();
+    expect(stub.startAndWaitForPorts).not.toHaveBeenCalled();
+  });
+
   it('uses the exact parent-owned container identity for configure, readiness and restricted stop', async () => {
     let boundSessionId: string | null = null;
     const stub: Gate1ContainerStub = {

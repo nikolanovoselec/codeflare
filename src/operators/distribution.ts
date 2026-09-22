@@ -50,6 +50,15 @@ const moduleSchema = z.union([
 ]);
 const modulesSchema = z.record(relativePath, moduleSchema)
   .refine(modules => Object.keys(modules).length > 0 && Object.keys(modules).length <= 128);
+const packageResourcesSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  files: z.array(z.strictObject({
+    source: relativePath,
+    destination: artifactPath,
+    sha256: z.string().regex(SHA256),
+    size: z.number().int().min(0).max(1024 * 1024),
+  })).max(64).refine(files => new Set(files.map(file => file.destination)).size === files.length),
+});
 const bundleSchema = z.strictObject({
   schemaVersion: z.literal(1),
   interfaceVersion: z.literal(1),
@@ -57,6 +66,7 @@ const bundleSchema = z.strictObject({
   compatibilityFlags: z.tuple([z.literal('nodejs_compat')]),
   mainModule: relativePath,
   modules: modulesSchema,
+  resources: packageResourcesSchema.optional(),
 }).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 

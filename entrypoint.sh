@@ -71,6 +71,43 @@ export CODEFLARE_SYNC_DAEMON_PIDFILE="$SYNC_RUNTIME_DIR/sync-daemon.pid"
 export CODEFLARE_OPENVSCODE_EXTENSIONS_DIR="$OPENVSCODE_RUNTIME_DIR/data/extensions"
 export CODEFLARE_GRAPH_LOCK="$LOCKS_RUNTIME_DIR/graphify-global.lock"
 
+# Restore parent-validated, digest-bound Operator package resources before any
+# agent/context service starts. Package paths are relative beneath this fixed,
+# non-synced parent-owned root; packages cannot select host filesystem paths.
+export CODEFLARE_OPERATOR_RESOURCE_ROOT="$CODEFLARE_RUNTIME_ROOT/operator-resources"
+if [ -n "${CODEFLARE_OPERATOR_PACKAGE_RESOURCES:-}" ]; then
+    node <<'CODEFLARE_PACKAGE_RESOURCES'
+const fs = require('node:fs');
+const pathModule = require('node:path');
+const crypto = require('node:crypto');
+const projection = JSON.parse(process.env.CODEFLARE_OPERATOR_PACKAGE_RESOURCES);
+if (projection.schemaVersion !== 1 || !/^[0-9a-f]{64}$/.test(projection.artifactDigest)
+    || !Array.isArray(projection.files) || projection.files.length > 64) throw new Error('Invalid Operator package resources');
+const base = process.env.CODEFLARE_OPERATOR_RESOURCE_ROOT;
+const root = pathModule.join(base, projection.artifactDigest);
+fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+fs.rmSync(root, { recursive: true, force: true });
+fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+for (const file of projection.files) {
+  const relative = file.destination;
+  const bytes = Buffer.from(file.content, 'utf8');
+  if (typeof relative !== 'string' || relative.length < 2 || relative.length > 2048 || relative.startsWith('/')
+      || /[\\%\x00-\x1f\x7f]/.test(relative)
+      || relative.split('/').some(part => !part || part === '.' || part === '..')
+      || !Number.isInteger(file.size) || file.size < 0 || file.size > 1024 * 1024
+      || bytes.length !== file.size || !/^[0-9a-f]{64}$/.test(file.sha256)
+      || crypto.createHash('sha256').update(bytes).digest('hex') !== file.sha256) {
+    throw new Error('Invalid Operator package resource');
+  }
+  const destination = pathModule.join(root, relative);
+  fs.mkdirSync(pathModule.dirname(destination), { recursive: true, mode: 0o700 });
+  const temporary = `${destination}.codeflare-${process.pid}`;
+  fs.writeFileSync(temporary, bytes, { mode: 0o600 });
+  fs.renameSync(temporary, destination);
+}
+CODEFLARE_PACKAGE_RESOURCES
+fi
+
 # Check R2 environment variables (configured/missing status only)
 echo "[entrypoint] === R2 ENV STATUS ===" | tee $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 echo "R2_BUCKET_NAME: ${R2_BUCKET_NAME:+configured}" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log

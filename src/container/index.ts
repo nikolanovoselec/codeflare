@@ -34,6 +34,8 @@ import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { wireContainerInterception, type InterceptionHost } from './container-interception';
 import type { OperatorPolicy } from '../operators/policy';
+import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
+  type OperatorPackageResourceProjection } from '../operators/package-resources';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import {
   bindOperatorAuthority as contextBindOperatorAuthority,
@@ -203,6 +205,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _gitCloneRef: string | null = null;
 /** Durable non-secret origin/profile. Raw Access authority remains memory-only. */
   _operatorContainerProfile?: OperatorContainerProfile;
+  _operatorPackageResources?: OperatorPackageResourceProjection;
   _operatorPolicy?: OperatorPolicy;
   _jwtStamping?: JwtStampingPolicy;
   _jwtAuthority?: JwtStampingAuthority;
@@ -313,9 +316,12 @@ export class container extends Container<Env> implements ContainerEnvState {
       // byte-identical to today.
       if (this._strictEgress) this.enableInternet = false;
 
-      // Operator restrictions are restored before env construction or a later
-      // pre-start interception pass. Authority is intentionally absent after
-      // wake and must be rebound by the owning activity before protected I/O.
+      // Operator restrictions and package resources are restored before env construction
+      // or a later pre-start interception pass. No credential or authority is persisted.
+      const storedPackageResources = await this.ctx.storage.get<unknown>('operatorPackageResources');
+      if (storedPackageResources != null) {
+        this._operatorPackageResources = parseOperatorPackageResourceProjection(storedPackageResources);
+      }
       await contextRestoreOperatorContext(this.operatorContextHost);
       if (this._operatorContainerProfile) this.enableInternet = false;
 
@@ -345,6 +351,14 @@ export class container extends Container<Env> implements ContainerEnvState {
   async configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void> {
     await contextConfigureOperatorContext(this.operatorContextHost, profile, authority);
     this.enableInternet = false;
+  }
+
+  /** Persist inert, digest-bound package bytes before context/start. */
+  async configureOperatorResources(input: unknown): Promise<void> {
+    const projection = await verifyOperatorPackageResourceProjection(input);
+    await this.ctx.storage.put('operatorPackageResources', projection);
+    this._operatorPackageResources = structuredClone(projection);
+    this.updateEnvVars();
   }
 
   /** Rebind current exact-human authority after wake without persisting the JWT. */

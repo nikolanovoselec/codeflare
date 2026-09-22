@@ -3,6 +3,7 @@ import type { ManagedResourcePolicy, SessionWorkspace, TerminalMode } from '../t
 import { getContainerId } from '../lib/container-helpers';
 import type { JwtStampingAuthority } from './jwt-stamping';
 import type { OwnedOperatorSessionRuntime } from './owned-session';
+import type { OperatorPackageResourceProjection } from './package-resources';
 
 export interface Gate1RouteConfig {
   routeCatalog: string[];
@@ -35,6 +36,7 @@ export interface Gate1SessionBootstrap {
 export interface Gate1ContainerStub {
   setBucketName(name: string, options: { sessionId: string; userEmail: string; userGroups: string[] }
     & Gate1RouteConfig & Gate1SessionBootstrap): Promise<void>;
+  configureOperatorResources?(resources: OperatorPackageResourceProjection): Promise<void>;
   configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void>;
   startAndWaitForPorts(): Promise<void>;
   getState(): Promise<{ status: string }>;
@@ -45,6 +47,7 @@ export interface Gate1ContainerStub {
 export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime {
   constructor(private readonly options: { activityId: string; ownerBucket: string; sessionId: string;
     userEmail: string; userGroups: string[]; routes: Gate1RouteConfig; bootstrap: Gate1SessionBootstrap;
+    packageResources?: OperatorPackageResourceProjection | null;
     resolve: (containerId: string) => Gate1ContainerStub }) {}
 
   private container(sessionId: string): Gate1ContainerStub {
@@ -66,6 +69,10 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
       await container.setBucketName(this.options.ownerBucket, { sessionId,
         userEmail: this.options.userEmail, userGroups: this.options.userGroups,
         ...this.options.routes, ...this.options.bootstrap });
+      if (this.options.packageResources) {
+        if (!container.configureOperatorResources) throw new Error('Operator resource restore unavailable');
+        await container.configureOperatorResources(this.options.packageResources);
+      }
       await container.configureOperatorContext(profile, authority);
     } catch { throw new Error('Gate 1 session configuration failed'); }
   }

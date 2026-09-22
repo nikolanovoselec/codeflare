@@ -13,6 +13,7 @@ import type { ManagementAdmissionReceipt, ManagementExecutionSelection, Operator
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { GATE1_OPERATOR_ID } from './gate1-resources';
+import { projectOperatorPackageResources } from './package-resources';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const invocationSchema = z.json();
@@ -192,6 +193,8 @@ export async function runOperatorActivity(
         return;
       }
       bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
+      const resources = await projectOperatorPackageResources(bundle, plan.receipt.selection.release.bundleDigest);
+      if (resources) await activity.savePackageResources(resources);
     } else {
       const distribution = await registry.getPinnedDistribution(activityId);
       if (!distribution || !plan.receipt.manifestJson) throw new Error('Pinned runtime input unavailable');
@@ -204,6 +207,8 @@ export async function runOperatorActivity(
       }
       bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
         attemptDeadline);
+      const resources = await projectOperatorPackageResources(bundle, plan.receipt.artifactDigest);
+      if (resources) await activity.savePackageResources(resources);
     }
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
