@@ -33,16 +33,6 @@ The source boundaries identified below have focused behavioral evidence; the req
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-## Managed Dispatcher host
-
-Managed receipts selecting `dispatcher` use `driveDispatcherRuntime`: reserve the existing drive once, then admit the pinned generated Flue class into the fixed Activity-private `dispatcher` facet. `OperatorActivity` extends pinned Agents 0.20.1; its constructor resumes the exact lease and its alarm delegates to the SDK before reconciliation. No namespace, migration, container or separate scheduler is introduced. Gate 1 and default-entrypoint dispatch stay unchanged.
-
-The non-renewing lease binds generation, submission, input/release digest and the earlier of human expiry or 30 seconds. Admission/status responses remain running. Only persisted exact completed settlement, with all protected operations completed, commits waiting through `commitDrive`. Cancellation fences before sending Flue abort; uncertain admission/effects interrupt rather than retry.
-
-`OperatorDispatcherCapability` exposes only bounded GitHub reads, inference and the exact pinned facet scheduler/fiber bridge. The parent rechecks human eligibility and pinned installation revisions, then constructs existing `GitHubInterceptor`/`LlmInterceptor` loopbacks with parent-owned props. Credentials, the Activity stub, namespaces and direct networking never enter the child. Read scope is the invocation repository/PR, approved Renovate identity, first-page files/checks and observed head; inference uses the current eligible human default. Non-null resource profiles fail closed. The precise wire/limits live in the [registry contract](../../sdd/spec/operator-registry-contract.md#parent-capability-operations).
-
-Verification: `dispatcher-production.test.ts` adds behavioral coverage using instrumented child/interceptor transports. This implementation batch ran managed TypeScript syntax checks only, not tests or type checking. The existing generated-Flue native fixture is retained unchanged; it does not yet establish production-composition native eviction/alarm acceptance.
-
 ## Verified human context
 
 Implements [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verified-human-access-claims).

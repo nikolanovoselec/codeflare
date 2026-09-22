@@ -5,9 +5,9 @@ import { AppError, ValidationError } from '../lib/error-types';
 import { canInvokeOperator } from '../lib/access';
 import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
 import { openOperatorSecret } from './protected-secrets';
-import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
+import { parseOperatorBundle, parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
-import { driveDispatcherRuntime, driveOperatorRuntime } from './runtime';
+import { driveOperatorRuntime } from './runtime';
 import { createOperatorIntentDigest, type OperatorRuntimePlan } from './activity';
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
@@ -180,17 +180,6 @@ export async function runOperatorActivity(
     if (isManagementReceipt(plan.receipt)) {
       const bytes = await registry.getManagementBundle(plan.receipt.selection.release.bundleDigest);
       if (!bytes) throw new Error('Pinned runtime input unavailable');
-      if (plan.receipt.selection.operator.profile === 'dispatcher') {
-        const artifactDigest = plan.receipt.selection.release.bundleDigest;
-        const dispatcher = await parseDispatcherBundle(bytes, artifactDigest);
-        if (dispatcher.sourceCommit !== plan.receipt.selection.release.sourceCommit) {
-          throw new Error('Pinned Dispatcher source mismatch');
-        }
-        const driven = await driveDispatcherRuntime({ activity, deadline: attemptDeadline,
-          bundle: dispatcher, artifactDigest, invocation: JSON.parse(plan.invocationJson) });
-        if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure();
-        return;
-      }
       bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
     } else {
       const distribution = await registry.getPinnedDistribution(activityId);

@@ -20,7 +20,7 @@ interface OperatorLoaderCode {
 export interface OperatorLoaderBinding {
   load(code: OperatorLoaderCode): { getEntrypoint(): Fetcher };
 }
-export interface OperatorDispatcherLoaderBinding {
+interface OperatorDispatcherLoaderBinding {
   get(id: string, code: () => Promise<OperatorLoaderCode>): { getDurableObjectClass(name: string): unknown };
 }
 

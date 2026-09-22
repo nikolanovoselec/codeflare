@@ -5,13 +5,7 @@
  * are separate transactions. Generation fences reject stale work but do not prove compute cleanup.
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
-import { WorkerEntrypoint } from 'cloudflare:workers';
-import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
-import type { Env } from '../types';
-import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
-import { loadOperatorDispatcherClass } from './loader';
-import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody } from './gate1-production';
+import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { OperatorRegistry, OperatorAdmissionRequest, OperatorAdmissionReceipt,
   ManagementAdmissionReceipt } from './registry';
@@ -54,35 +48,7 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
   reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
 };
 
-interface ActivityEnv {
-  OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string;
-  OPERATOR_ACTIVITY?: DurableObjectNamespace<OperatorActivity>;
-  LOADER?: Parameters<typeof loadOperatorDispatcherClass>[0];
-}
-type DispatcherFacetPath = readonly Readonly<{ className: string; name: string }>[];
-type DispatcherFacet = Fetcher & {
-  _cf_initAsFacet(name: string, parentPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
-  _cf_dispatchScheduledCallback(ownerPath: DispatcherFacetPath, row: unknown): Promise<boolean>;
-  _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number>;
-};
-interface DispatcherLease {
-  generation: number; artifactDigest: string; inputDigest: string; expiresAt: number;
-  submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
-  status: 'admitting' | 'running' | 'settled' | 'unknown';
-}
-interface DispatcherOperationRecord {
-  generation: number; requestDigest: string; phase: 'reserved' | 'completed' | 'unknown';
-  response?: { status: number; contentType: string; body: string };
-}
-const DISPATCHER_LEASE = 'dispatcher:lease';
-const DISPATCHER_OPERATIONS = 'dispatcher:operations';
-const DISPATCHER_LIMIT_MS = 30_000;
-const DISPATCHER_SDK_METHODS = [
-  '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
-  '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
-  '_cf_releaseFacetKeepAlive', '_cf_registerFacetRun', '_cf_unregisterFacetRun',
-] as const;
-type DispatcherSdkMethod = typeof DISPATCHER_SDK_METHODS[number];
+interface ActivityEnv { OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>; ENCRYPTION_KEY?: string }
 
 interface OperatorSyncState {
   operationId: string;
@@ -202,28 +168,7 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  * pending intent for same-ID reconciliation; it never creates a new execution.
  * Queued state is the durable execution intent, not proof that work has run.
  */
-export class OperatorActivity extends Agent<ActivityEnv> {
-  #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
-  #reconciling?: Promise<void>;
-
-  constructor(ctx: DurableObjectState, env: ActivityEnv) {
-    super(ctx, env);
-    ctx.blockConcurrencyWhile(async () => {
-      const lease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease?.status === 'admitting') {
-        // The POST may have reached Flue. Never resubmit when its receipt was lost.
-        ctx.waitUntil(this.interruptDrive(lease.generation));
-      } else if (lease && lease.status !== 'running' && !lease.sdkReleased) {
-        ctx.waitUntil(this.#releaseDispatcherSdk());
-      }
-    });
-  }
-
-  override async alarm(): Promise<void> {
-    await super.alarm();
-    await this.reconcileDispatcherLease();
-  }
-
+export class OperatorActivity extends DurableObject<ActivityEnv> {
   /** Production preparation stores parent-created encrypted human authority. */
   async prepareAuthorized(intent: OperatorActivityPreparation,
     executionContext: OperatorExecutionContext, invocationJson = 'null'): Promise<ActivityAdmissionResult> {
@@ -587,8 +532,6 @@ export class OperatorActivity extends Agent<ActivityEnv> {
       }
       if (record.drive?.status === 'running') return { ok: false, reason: 'drive-active' };
       if (record.drive && record.drive.status !== 'waiting') return { ok: false, reason: 'drive-settled' };
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease && !lease.sdkReleased) return { ok: false, reason: 'drive-active' };
       const state: OperatorDriveState = {
         generation: (record.drive?.generation ?? 0) + 1, status: 'running',
         checkpoint: record.drive?.checkpoint ?? null, result: null,
@@ -623,69 +566,34 @@ export class OperatorActivity extends Agent<ActivityEnv> {
       if (record.drive?.status !== 'running' || record.drive.generation !== generation) {
         return { ok: false, reason: 'stale-drive' };
       }
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease && lease.generation === generation) {
-        const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        if (lease.status !== 'running' || lease.expiresAt <= Date.now()
-          || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
-          || Object.values(operations).some(operation => operation.phase !== 'completed')) {
-          return { ok: false, reason: 'invalid-update' };
-        }
-        await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' ? 'settled' : 'unknown' });
-      }
       const state: OperatorDriveState = {
         generation, status: parsed.status, checkpoint: parsed.checkpoint, result: parsed.result ?? null,
       };
       await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
       return { ok: true, state };
     });
-    if (committed.ok) {
-      await this.#releaseDispatcherSdk();
-      await this.publishBrowserSummary();
-    }
+    if (committed.ok) await this.publishBrowserSummary();
     return committed;
   }
 
   /** Fence future commits; this is not confirmation that owned compute has stopped. */
   async cancelDrive(): Promise<OperatorDriveResult> {
     const result = await this.fenceDrive('cancel-requested');
-    if (result.ok) {
-      await this.#releaseDispatcherSdk();
-      await this.publishBrowserSummary();
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease) {
-        // Fence is durable before any abort delivery. Delivery is not proof of stopped compute.
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await Promise.race([(async () => {
-            const response = await (await this.#dispatcherFacet(lease)).fetch(new Request(
-              'https://flue.internal/agents/Dispatcher/dispatcher/abort', { method: 'POST' }));
-            void response.body?.cancel().catch(() => {});
-          })(), new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); })]);
-        } catch { /* generation remains fenced even when abort delivery is unavailable */ }
-        finally { clearTimeout(timer); }
-      }
-    }
+    if (result.ok) await this.publishBrowserSummary();
     return result;
   }
 
   /** Parent reports an interrupted drive; its uncertain effects cannot be replayed. */
   async interruptDrive(generation: number): Promise<OperatorDriveResult> {
     const result = await this.fenceDrive('unknown', generation);
-    if (result.ok) {
-      await this.#releaseDispatcherSdk();
-      await this.publishBrowserSummary();
-    }
+    if (result.ok) await this.publishBrowserSummary();
     return result;
   }
 
   /** Fence a queued request whose one attached runtime attempt failed before loading code. */
   async fenceRuntimeFailure(): Promise<OperatorDriveResult> {
     const result = await this.fenceDrive('unknown');
-    if (result.ok) {
-      await this.#releaseDispatcherSdk();
-      await this.publishBrowserSummary();
-    }
+    if (result.ok) await this.publishBrowserSummary();
     return result;
   }
 
@@ -704,349 +612,8 @@ export class OperatorActivity extends Agent<ActivityEnv> {
         checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
       };
       await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease && lease.status !== 'settled') await tx.put(DISPATCHER_LEASE, { ...lease, status: 'unknown' });
       return { ok: true, state };
     });
-  }
-
-  /** REQ-OPERATOR-048: bind one already-reserved drive to immutable code/input and one Flue submission. */
-  async admitDispatcher(generation: number, bundle: DispatcherBundle, artifactDigest: string,
-    invocation: unknown): Promise<OperatorDriveResult> {
-    try {
-      const plan = await this.getRuntimePlan();
-      if (!plan || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher'
-        || artifactDigest !== plan.receipt.selection.release.bundleDigest
-        || artifactDigest !== plan.executionContext.artifactDigest
-        || JSON.stringify(invocation) !== plan.invocationJson) throw new Error('Dispatcher pin mismatch');
-      const bytes = await this.env.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(artifactDigest);
-      if (!bytes) throw new Error('Dispatcher artifact unavailable');
-      const approved = await parseDispatcherBundle(bytes, artifactDigest);
-      if (JSON.stringify(approved) !== JSON.stringify(bundle)
-        || approved.sourceCommit !== plan.receipt.selection.release.sourceCommit) throw new Error('Dispatcher artifact mismatch');
-      await authorizeDispatcherPlan(plan, this.env as Env);
-      const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
-        expiresAt: Math.floor(Math.min(plan.deadline, Date.now() + DISPATCHER_LIMIT_MS) / 1000) * 1000,
-        submissionId: null, status: 'admitting' };
-      await this.ctx.storage.transaction(async tx => {
-        const record = await tx.get<AdmissionState>('admission');
-        const previous = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (record?.drive?.status !== 'running' || record.drive.generation !== generation
-          || lease.expiresAt <= Date.now() || (previous && (previous.status !== 'settled' || previous.generation !== generation - 1))) {
-          throw new Error('Dispatcher generation unavailable');
-        }
-        await tx.put(DISPATCHER_LEASE, lease);
-        // Operation identities and cached outputs are generation-scoped. A safely
-        // continued generation must perform and receipt its own protected reads.
-        await tx.put(DISPATCHER_OPERATIONS, {});
-      });
-      // SDK scheduling owns the physical alarm; this is a one-shot deadline, not a new scheduler.
-      await this.schedule(new Date(lease.expiresAt), 'reconcileDispatcherLease', { generation }, { idempotent: true });
-      const admitted = await this.#boundedDispatcher(lease, async () => {
-        const child = await this.#dispatcherFacet(lease, approved);
-        const response = await child.fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ kind: 'user', body: plan.invocationJson }),
-        }));
-        if (response.status !== 202) throw new Error('Dispatcher admission failed');
-        const value = JSON.parse(await readDispatcherBody(response));
-        if (typeof value?.submissionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.submissionId)) {
-          throw new Error('Dispatcher admission receipt invalid');
-        }
-        return value.submissionId as string;
-      });
-      const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
-        const record = await tx.get<AdmissionState>('admission');
-        const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!this.#leaseMatches(record, current, generation) || current!.status !== 'admitting') {
-          return { ok: false, reason: 'stale-drive' };
-        }
-        await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, submissionId: admitted, status: 'running' });
-        return { ok: true, state: record!.drive! };
-      });
-      if (!result.ok) return this.interruptDrive(generation);
-      return result;
-    } catch { return this.interruptDrive(generation); }
-  }
-
-  #leaseMatches(record: AdmissionState | undefined, lease: DispatcherLease | undefined, generation: number): boolean {
-    return !!record?.receipt && !!lease && record.phase === 'queued' && record.drive?.status === 'running'
-      && record.drive.generation === generation && lease.generation === generation
-      && (lease.status === 'admitting' || lease.status === 'running') && lease.expiresAt > Date.now()
-      && record.intent.deadline > Date.now() && lease.inputDigest === record.receipt.intentDigest
-      && lease.artifactDigest === record.executionContext?.artifactDigest;
-  }
-
-  /** Parent-only local fence checked by the restricted binding before every SDK call and effect. */
-  async dispatcherGenerationCurrent(generation: number): Promise<boolean> {
-    if (!Number.isSafeInteger(generation) || generation < 1) return false;
-    const [record, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
-      this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
-    return this.#leaseMatches(record, lease, generation);
-  }
-
-  async #boundedDispatcher<T>(lease: DispatcherLease, run: () => Promise<T>): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      if (lease.expiresAt <= Date.now()) throw new Error('Dispatcher lease expired');
-      return await Promise.race([run(), new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Dispatcher lease expired')), lease.expiresAt - Date.now());
-      })]);
-    } finally { clearTimeout(timer); }
-  }
-
-  async #dispatcherFacet(lease: DispatcherLease, approved?: DispatcherBundle): Promise<DispatcherFacet> {
-    if (this.#dispatcher?.generation === lease.generation) return this.#dispatcher.facet;
-    const facet = (async () => {
-      const plan = await this.getRuntimePlan();
-      if (!plan || !this.env.LOADER || !this.env.OPERATOR_ACTIVITY
-        || plan.executionContext.artifactDigest !== lease.artifactDigest) throw new Error('Dispatcher host unavailable');
-      let bundle = approved;
-      if (!bundle) {
-        const bytes = await this.env.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(lease.artifactDigest);
-        if (!bytes) throw new Error('Dispatcher artifact unavailable');
-        bundle = await parseDispatcherBundle(bytes, lease.artifactDigest);
-      }
-      const context = this.ctx as unknown as {
-        exports: { OperatorDispatcherCapability(options: { props: { activityId: string; generation: number } }): Fetcher };
-        facets: { get(name: string, init: () => unknown): DispatcherFacet };
-      };
-      const capability = context.exports.OperatorDispatcherCapability({ props: { activityId: plan.activityId, generation: lease.generation } });
-      const dynamicClass = loadOperatorDispatcherClass(this.env.LOADER, bundle, lease.artifactDigest,
-        plan.activityId, lease.generation, capability);
-      const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
-        id: this.env.OPERATOR_ACTIVITY!.idFromName('dispatcher') }));
-      await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
-      return child;
-    })();
-    this.#dispatcher = { generation: lease.generation, facet };
-    return facet;
-  }
-
-  /** SDK deadline callback and alarm/reconstruction reconciliation. Only exact persisted settlement can wait. */
-  async reconcileDispatcherLease(expected?: { generation: number }): Promise<void> {
-    if (this.#reconciling) return this.#reconciling;
-    this.#reconciling = (async () => {
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!lease || (expected && expected.generation !== lease.generation)
-        || (lease.status !== 'running' && lease.status !== 'admitting')) return;
-      if (!await this.dispatcherGenerationCurrent(lease.generation)) {
-        await this.interruptDrive(lease.generation);
-        return;
-      }
-      if (lease.status !== 'running' || !lease.submissionId) return;
-      try {
-        const plan = await this.getRuntimePlan();
-        if (!plan) throw new Error('Dispatcher plan unavailable');
-        const value = await this.#boundedDispatcher(lease, async () => {
-          const response = await (await this.#dispatcherFacet(lease)).fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher'));
-          if (!response.ok) throw new Error('Dispatcher status unavailable');
-          return JSON.parse(await readDispatcherBody(response));
-        });
-        const settlement = Array.isArray(value?.settlements)
-          ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
-        if (!settlement) return;
-        await authorizeDispatcherPlan(plan, this.env as Env);
-        if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
-          await this.interruptDrive(lease.generation); return;
-        }
-        // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
-        const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        if (Object.values(operations).some(operation => operation.phase !== 'completed')) {
-          await this.interruptDrive(lease.generation); return;
-        }
-        await this.ctx.storage.transaction(async tx => {
-          const record = await tx.get<AdmissionState>('admission');
-          const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-          if (!this.#leaseMatches(record, current, lease.generation)
-            || current!.submissionId !== lease.submissionId) throw new Error('Stale Dispatcher settlement');
-          await tx.put(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease.submissionId });
-        });
-        const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'waiting',
-          checkpoint: { submissionId: lease.submissionId, inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest } });
-        if (!committed.ok) await this.interruptDrive(lease.generation);
-      } catch { await this.interruptDrive(lease.generation); }
-    })();
-    try { await this.#reconciling; } finally { this.#reconciling = undefined; }
-  }
-
-  /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
-  async dispatcherOperation(generation: number, request: Request): Promise<Response> {
-    const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
-    if (!await this.dispatcherGenerationCurrent(generation)) return denied();
-    let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
-    let perform: () => Promise<Response>;
-    try {
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!lease) return denied();
-      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
-      const plan = await this.getRuntimePlan();
-      if (!plan) return denied();
-      perform = await createDispatcherOperation({ plan, env: this.env as Env, operation,
-        current: () => this.dispatcherGenerationCurrent(generation),
-        exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
-    } catch { return denied(); }
-    const requestDigest = await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
-    const reserved = await this.ctx.storage.transaction(async tx => {
-      const record = await tx.get<AdmissionState>('admission');
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!this.#leaseMatches(record, lease, generation)) return { kind: 'denied' } as const;
-      const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-      const prior = Object.hasOwn(operations, operation.operationId) ? operations[operation.operationId] : undefined;
-      if (prior) {
-        if (prior.requestDigest !== requestDigest) return { kind: 'conflict' } as const;
-        if (prior.phase === 'completed') {
-          const response = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${operation.operationId}`);
-          return response ? { kind: 'completed', response } as const : { kind: 'unknown' } as const;
-        }
-        await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
-        return { kind: 'unknown' } as const;
-      }
-      if (Object.keys(operations).length >= 128) return { kind: 'denied' } as const;
-      await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
-        generation, requestDigest, phase: 'reserved' } satisfies DispatcherOperationRecord });
-      return { kind: 'reserved', lease: lease! } as const;
-    });
-    if (reserved.kind === 'denied') return denied();
-    if (reserved.kind === 'conflict') return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
-    const response = (value: NonNullable<DispatcherOperationRecord['response']>) => new Response(value.body, {
-      status: value.status, headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
-    if (reserved.kind === 'completed') return response(reserved.response);
-    try {
-      if (reserved.kind === 'unknown') throw new Error('Unknown protected operation');
-      // Recheck after asynchronous capability construction/reservation, before external I/O.
-      if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Stale protected operation');
-      const result = await this.#boundedDispatcher(reserved.lease, async () => {
-        const upstream = await perform();
-        if (upstream.status >= 500 || upstream.status < 200 || (upstream.status >= 300 && upstream.status < 400)) {
-          throw new Error('Protected operation did not complete');
-        }
-        return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
-          body: await readDispatcherBody(upstream) };
-      });
-      await this.ctx.storage.transaction(async tx => {
-        const record = await tx.get<AdmissionState>('admission');
-        const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        const prior = operations[operation.operationId];
-        if (!this.#leaseMatches(record, lease, generation) || prior?.phase !== 'reserved'
-          || prior.generation !== generation || prior.requestDigest !== requestDigest) throw new Error('Stale protected result');
-        await tx.put(`dispatcher:response:${operation.operationId}`, result);
-        await tx.put(DISPATCHER_OPERATIONS, { ...operations,
-          [operation.operationId]: { ...prior, phase: 'completed' } });
-      });
-      return response(result);
-    } catch {
-      await this.ctx.storage.transaction(async tx => {
-        const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        const prior = operations[operation.operationId];
-        if (prior?.phase === 'reserved') await tx.put(DISPATCHER_OPERATIONS, {
-          ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
-      });
-      await this.interruptDrive(generation);
-      return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
-    }
-  }
-
-  /** SDK-owned bookkeeping is retired before a settled generation can be continued. */
-  async #releaseDispatcherSdk(): Promise<void> {
-    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (!lease || lease.sdkReleased || lease.status === 'running' || lease.status === 'admitting') return;
-    const admission = await this.ctx.storage.get<AdmissionState>('admission');
-    if (!admission) return;
-    await super._cf_cleanupFacetPrefix([{ className: 'OperatorActivity', name: admission.intent.activityId },
-      { className: 'FlueDispatcherAgent', name: 'dispatcher' }]);
-    const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
-    for (const [token, generation] of Object.entries(tokens)) {
-      if (generation === lease.generation) await super._cf_releaseFacetKeepAlive(token);
-    }
-    await this.ctx.storage.transaction(async tx => {
-      const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (current?.generation === lease.generation) {
-        await tx.put(DISPATCHER_LEASE, { ...current, sdkReleased: true });
-        await tx.delete('dispatcher:keepalive');
-      }
-    });
-  }
-
-  async #dispatcherPath(path: DispatcherFacetPath): Promise<void> {
-    const admission = await this.ctx.storage.get<AdmissionState>('admission');
-    if (!admission || !Array.isArray(path) || path.length !== 2
-      || path.some(segment => !segment || typeof segment !== 'object' || Array.isArray(segment)
-        || Object.keys(segment).length !== 2)
-      || path[0].className !== 'OperatorActivity' || path[0].name !== admission.intent.activityId
-      || path[1].className !== 'FlueDispatcherAgent' || path[1].name !== 'dispatcher') {
-      throw new Error('Dispatcher facet path denied');
-    }
-  }
-
-  /** The exact pinned SDK list, never a general RPC reflector. Original generation is rechecked here. */
-  async dispatcherBridge(generation: number, method: DispatcherSdkMethod, args: unknown[]): Promise<unknown> {
-    if (!DISPATCHER_SDK_METHODS.includes(method) || !Array.isArray(args)
-      || new TextEncoder().encode(JSON.stringify(args)).byteLength > 64 * 1024
-      || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK authority denied');
-    if (method !== '_cf_releaseFacetKeepAlive') await this.#dispatcherPath(args[0] as DispatcherFacetPath);
-    const sdk = Agent.prototype as unknown as Record<DispatcherSdkMethod, (...args: unknown[]) => Promise<unknown>>;
-    if (method === '_cf_releaseFacetKeepAlive') {
-      const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
-      if (typeof args[0] !== 'string' || !Object.hasOwn(tokens, args[0]) || tokens[args[0]] !== generation) {
-        throw new Error('Dispatcher keepalive denied');
-      }
-      await sdk[method].call(this, args[0]);
-      delete tokens[args[0]];
-      await this.ctx.storage.put('dispatcher:keepalive', tokens);
-      return;
-    }
-    if (method === '_cf_scheduleForFacet' || method === '_cf_scheduleEveryForFacet') {
-      const when = args[1];
-      const delay = when instanceof Date ? (when.getTime() - Date.now()) / 1000 : when;
-      if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0 || delay > 30
-        || (method === '_cf_scheduleEveryForFacet' && delay < 1)
-        || args[2] !== '__flueWakeAgentSubmissions' || args[3] !== undefined) {
-        throw new Error('Dispatcher callback denied');
-      }
-      const options = args[4];
-      if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options)
-        || Object.entries(options).some(([key, value]) => !['idempotent', '_idempotent'].includes(key) || typeof value !== 'boolean'))) {
-        throw new Error('Dispatcher schedule options denied');
-      }
-      const schedules = await super._cf_listSchedulesForFacet(args[0] as DispatcherFacetPath);
-      if (schedules.length >= 128) throw new Error('Dispatcher schedule limit');
-    }
-    if (['_cf_getScheduleForFacet', '_cf_cancelScheduleForFacet', '_cf_registerFacetRun', '_cf_unregisterFacetRun'].includes(method)
-      && (typeof args[1] !== 'string' || !/^[A-Za-z0-9:._-]{1,128}$/.test(args[1]))) throw new Error('Dispatcher SDK identity denied');
-    if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK generation changed');
-    if (method === '_cf_acquireFacetKeepAlive') {
-      const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
-      if (Object.keys(tokens).length >= 64) throw new Error('Dispatcher keepalive limit');
-      const token = await sdk[method].call(this, ...args) as string;
-      try {
-        await this.ctx.storage.transaction(async tx => {
-          const record = await tx.get<AdmissionState>('admission');
-          const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-          if (!this.#leaseMatches(record, lease, generation)) throw new Error('Dispatcher SDK generation changed');
-          const current = await tx.get<Record<string, number>>('dispatcher:keepalive') ?? {};
-          await tx.put('dispatcher:keepalive', { ...current, [token]: generation });
-        });
-        return token;
-      } catch (error) { await super._cf_releaseFacetKeepAlive(token); throw error; }
-    }
-    return sdk[method].call(this, ...args);
-  }
-
-  /** SDK alarm dispatch stays on the one dynamically loaded activity-private child. */
-  override async _cf_dispatchScheduledCallback(ownerPath: DispatcherFacetPath, row: unknown): Promise<boolean> {
-    await this.#dispatcherPath(ownerPath);
-    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (!lease || !await this.dispatcherGenerationCurrent(lease.generation)) return false;
-    return (await this.#dispatcherFacet(lease))._cf_dispatchScheduledCallback(ownerPath, row);
-  }
-
-  override async _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number> {
-    await this.#dispatcherPath(ownerPath);
-    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (!lease || !await this.dispatcherGenerationCurrent(lease.generation)) return 0;
-    return (await this.#dispatcherFacet(lease))._cf_checkRunFibersForFacet(ownerPath);
   }
 
   private browserSummary(state: AdmissionState): OperatorBrowserSummary {
@@ -1092,57 +659,5 @@ export class OperatorActivity extends Agent<ActivityEnv> {
   async getAdmission(): Promise<ActivityAdmissionProjection | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state ? { activityId: state.intent.activityId, phase: state.phase, receipt: state.receipt } : null;
-  }
-}
-
-/** REQ-OPERATOR-048: the child receives this fetcher, never an Activity stub or namespace. */
-export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
-  #binding() {
-    const props = this.ctx.props as { activityId?: unknown; generation?: unknown };
-    if (!props || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
-      || typeof props.generation !== 'number' || !Number.isSafeInteger(props.generation) || props.generation < 1
-      || !this.env.OPERATOR_ACTIVITY) throw new Error('Dispatcher binding unavailable');
-    return { activity: this.env.OPERATOR_ACTIVITY.getByName(props.activityId), generation: props.generation };
-  }
-
-  override async fetch(request: Request): Promise<Response> {
-    try {
-      const { activity, generation } = this.#binding();
-      return await activity.dispatcherOperation(generation, request);
-    } catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
-  }
-
-  async #bridge<T>(method: DispatcherSdkMethod, args: unknown[]): Promise<T> {
-    const { activity, generation } = this.#binding();
-    return await activity.dispatcherBridge(generation, method, args) as T;
-  }
-  async _cf_scheduleForFacet<T = string>(ownerPath: DispatcherFacetPath, when: Date | string | number,
-    callback: string, payload?: T, options?: { retry?: RetryOptions; idempotent?: boolean }): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    return this.#bridge('_cf_scheduleForFacet', [ownerPath, when, callback, payload, options]);
-  }
-  async _cf_scheduleEveryForFacet<T = string>(ownerPath: DispatcherFacetPath, intervalSeconds: number,
-    callback: string, payload?: T, options?: { retry?: RetryOptions; _idempotent?: boolean }): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    return this.#bridge('_cf_scheduleEveryForFacet', [ownerPath, intervalSeconds, callback, payload, options]);
-  }
-  async _cf_getScheduleForFacet(ownerPath: DispatcherFacetPath, id: string): Promise<Schedule<unknown> | undefined> {
-    return this.#bridge('_cf_getScheduleForFacet', [ownerPath, id]);
-  }
-  async _cf_listSchedulesForFacet(ownerPath: DispatcherFacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
-    return this.#bridge('_cf_listSchedulesForFacet', [ownerPath, criteria]);
-  }
-  async _cf_cancelScheduleForFacet(ownerPath: DispatcherFacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
-    return this.#bridge('_cf_cancelScheduleForFacet', [ownerPath, id]);
-  }
-  async _cf_acquireFacetKeepAlive(ownerPath: DispatcherFacetPath): Promise<string> {
-    return this.#bridge('_cf_acquireFacetKeepAlive', [ownerPath]);
-  }
-  async _cf_releaseFacetKeepAlive(token: string): Promise<void> {
-    return this.#bridge('_cf_releaseFacetKeepAlive', [token]);
-  }
-  async _cf_registerFacetRun(ownerPath: DispatcherFacetPath, runId: string): Promise<void> {
-    return this.#bridge('_cf_registerFacetRun', [ownerPath, runId]);
-  }
-  async _cf_unregisterFacetRun(ownerPath: DispatcherFacetPath, runId: string): Promise<void> {
-    return this.#bridge('_cf_unregisterFacetRun', [ownerPath, runId]);
   }
 }
