@@ -350,7 +350,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
         const rejected = await command<{ status: number; body: unknown }>(id, { action: 'send', delivery: forged });
         expect(rejected.status).toBe(500);
         await command(id, { action: 'release' });
-        const after = await settle(id, warmSubmission);
+        const after = await observe(id, value =>
+          value.conversation?.settlements.some(settlement => settlement.submissionId === warmSubmission) === true
+          && results(value).some(result => result.operationId === warm.operationId));
         expect(results(after).find(result => result.operationId === warm.operationId))
           .toMatchObject({ generation: 1, result: { status: 409 } });
         expect(after.external).toEqual([]);
