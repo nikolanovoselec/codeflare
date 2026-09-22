@@ -39,6 +39,13 @@ describe('REQ-OPERATOR-050: trusted canonical preparation', () => {
     expect(prepared.evidenceComplete).toBe(true);
     expect(prepared.resources.map(r => r.role)).toEqual(['parent', ...REVIEW_LANES]);
   });
+  it('admits canonical policy attachments larger than a Pi prompt without expanding the 8 MiB aggregate bound', async () => {
+    const { admitted, trusted, resources } = await fixture();
+    resources[2].bytes = new TextEncoder().encode('approved policy\n'.repeat(7000));
+    resources[2].digest = await reviewDigest(resources[2].bytes);
+    admitted.resourceDigest = await reviewDigest(encode(resources.map(({ bytes: _, ...r }) => r)));
+    expect((await prepareReview(admitted, trusted)).resources[2].bytes.length).toBeGreaterThan(65536);
+  });
   it('rejects caller revision/packet labels and unapproved child resources', async () => {
     const { admitted, trusted, resources } = await fixture();
     await expect(prepareReview({ ...admitted, head: context.head } as never, trusted)).rejects.toThrow();
@@ -185,6 +192,6 @@ describe('REQ-OPERATOR-050: independent publisher uncertainty and fencing', () =
   it('rechecks current context after a write and never reports stale publication as current', async () => {
     const f = await publisherFixture(); let reads = 0;
     expect((await publishReview(f.prepared, f.result, f.history, { ...f.authority,
-      readCurrent: async () => ({ ...context, activityId: admission.activityId, generation: ++reads === 1 ? 2 : 3 }) })).status).toBe('stale');
+      readCurrent: async () => ({ ...context, activityId: admission.activityId, generation: ++reads <= 2 ? 2 : 3 }) })).status).toBe('stale');
   });
 });
