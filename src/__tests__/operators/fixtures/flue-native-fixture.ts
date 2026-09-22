@@ -156,7 +156,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       if (response.status === 202 && typeof body.submissionId === 'string') {
         const binding = await this.facetBridgeBinding();
         if (binding.status === 'current') {
-          const active = { submissionId: body.submissionId, generation: binding.generation, expiresAt: Date.now() + 25_000 };
+          const active = { submissionId: body.submissionId, generation: binding.generation, expiresAt: Date.now() + 5_000 };
           await this.ctx.storage.put('fixture:active-submission', active);
           this.ctx.waitUntil(this.reconcileSubmission(active));
         }
