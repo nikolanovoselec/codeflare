@@ -7,7 +7,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
-import type { Env } from '../types';
+import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
@@ -23,6 +23,7 @@ import { projectOperatorExecution, reauthenticateOperatorExecution,
 import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import type { OwnedOperatorSessionState } from './owned-session';
+import { parseOperatorPackageResourceProjection, type OperatorPackageResourceProjection } from './package-resources';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export type OperatorActivityPreparation = (OperatorAdmissionRequest | {
@@ -54,10 +55,10 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
   reason: 'not-admitted' | 'authority-expired' | 'drive-active' | 'drive-settled' | 'stale-drive' | 'invalid-update';
 };
 
-interface ActivityEnv extends Env {
-  LOADER: NonNullable<Env['LOADER']>;
+type ActivityEnv = Env & Omit<AppEnv, 'LOADER'> & {
+  LOADER: Env['LOADER'] & NonNullable<AppEnv['LOADER']>;
   OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
-}
+};
 type DispatcherFacetPath = readonly Readonly<{ className: string; name: string }>[];
 type DispatcherFacet = Fetcher & {
   _cf_initAsFacet(name: string, parentPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
@@ -293,6 +294,21 @@ export class OperatorActivity extends Agent<ActivityEnv> {
     return { activityId: state.intent.activityId, deadline: state.intent.deadline,
       invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
       executionContext: structuredClone(state.executionContext) };
+  }
+
+  /** Persist only the projection derived from the exact admitted bundle digest. */
+  async savePackageResources(input: unknown): Promise<void> {
+    const projection = parseOperatorPackageResourceProjection(input);
+    const plan = await this.getRuntimePlan();
+    const digest = plan && isManagementReceipt(plan.receipt)
+      ? plan.receipt.selection.release.bundleDigest : plan?.receipt.artifactDigest;
+    if (!digest || projection.artifactDigest !== digest) throw new Error('Package resource digest mismatch');
+    await this.ctx.storage.put('packageResources', projection);
+  }
+
+  async getPackageResources(): Promise<OperatorPackageResourceProjection | null> {
+    const value = await this.ctx.storage.get<unknown>('packageResources');
+    return value == null ? null : structuredClone(parseOperatorPackageResourceProjection(value));
   }
 
   /** Activity-owned session state; immutable identity and profile, monotonic finite transitions. */
