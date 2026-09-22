@@ -148,6 +148,7 @@ describe('User Profile Routes', () => {
         hasSubscribed: true,
         subscribedMode: 'advanced',
         enterpriseMode: false,
+        operatorManagementEligible: false,
         // View-only storage: non-enterprise default is OFF (no KV read).
         downloadsDisabled: false,
         // REQ-ENTERPRISE-003: non-enterprise delivers the full agent enum.
