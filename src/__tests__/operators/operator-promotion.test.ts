@@ -62,6 +62,12 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     expect(installation).toMatchObject({ revision: 1, enabled: false, releaseId: null,
       configuration: { review: { paths: ['src'], failClosed: true } } });
     expect(installation.configurationJson).toBeUndefined();
+    const configured = await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: 1, policy, configuration: { review: { paths: ['src', 'host'], failClosed: true } },
+    });
+    expect(configured.status).toBe(200);
+    expect(await configured.json()).toMatchObject({ id: installation.id, revision: 2, enabled: false,
+      configuration: { review: { paths: ['src', 'host'], failClosed: true } } });
 
     const currentDetail = await request(`/operators/${operator.operatorId}`);
     expect(currentDetail.status).toBe(200);
@@ -70,22 +76,22 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     expect(isolated.status).toBe(201);
     const untouched = await isolated.json() as { id: string; revision: number; releaseId: string | null; enabled: boolean };
 
-    const promoted = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: installation.revision });
+    const promoted = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: 2 });
     expect(promoted.status).toBe(200);
-    expect(await promoted.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 2, enabled: false });
+    expect(await promoted.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 3, enabled: false });
     const detail = await request(`/operators/${operator.operatorId}`);
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ installations: expect.arrayContaining([
-      expect.objectContaining({ id: installation.id, configuration: { review: { paths: ['src'], failClosed: true } } }),
+      expect.objectContaining({ id: installation.id, configuration: { review: { paths: ['src', 'host'], failClosed: true } } }),
       expect.objectContaining({ id: untouched.id, revision: untouched.revision, releaseId: null, enabled: false }),
     ]) });
     expect((await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: installation.revision })).status).toBe(409);
 
-    const enabled = await request(`/installations/${installation.id}/enable`, 'POST', { revision: 2, enabled: true });
+    const enabled = await request(`/installations/${installation.id}/enable`, 'POST', { revision: 3, enabled: true });
     expect(enabled.status).toBe(200);
-    expect(await enabled.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 3, enabled: true });
-    const rollback = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: 3 });
+    expect(await enabled.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 4, enabled: true });
+    const rollback = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: 4 });
     expect(rollback.status).toBe(200);
-    expect(await rollback.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 4, enabled: false });
+    expect(await rollback.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 5, enabled: false });
   }));
 });

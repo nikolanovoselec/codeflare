@@ -278,48 +278,58 @@ export function registerNativeDispatcherCases(harness: Harness) {
     it.each(['stale', 'expiry', 'cancel'] as const)('rejects a warmed %s caller before its protected operation and result commitment', async reason => {
       await positiveControl();
       const { id, intent } = await prepare(reason === 'expiry' ? { deadline: Date.now() + 5_000 } : {});
-      const input = delivery(id, { mode: 'hold' });
-      const submission = await send(id, input);
-      const held = await observe(id, value => value.barrierReached);
-      expect(held.external).toEqual([]);
-      if (reason === 'stale') {
-        // Adversarial rollover fault: change parent generation while an OLD
-        // captured closure is still warm. This is not a safe-continuation claim.
-        expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
-          update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'forced-rollover' } } })).toMatchObject({ ok: true });
-        expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2 } });
-      } else if (reason === 'cancel') {
-        expect(await harness.activity(id, { action: 'cancel-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
-      } else {
-        await new Promise(resolve => setTimeout(resolve, Math.max(0, intent.deadline - Date.now()) + 25));
+      try {
+        const input = delivery(id, { mode: 'hold' });
+        const submission = await send(id, input);
+        const held = await observe(id, value => value.barrierReached);
+        expect(held.external).toEqual([]);
+        if (reason === 'stale') {
+          // Adversarial rollover fault: change parent generation while an OLD
+          // captured closure is still warm. This is not a safe-continuation claim.
+          expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
+            update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'forced-rollover' } } })).toMatchObject({ ok: true });
+          expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2 } });
+        } else if (reason === 'cancel') {
+          expect(await harness.activity(id, { action: 'cancel-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+        } else {
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, intent.deadline - Date.now()) + 25));
+        }
+        await command(id, { action: 'release' });
+        const after = await settle(id, submission);
+        expect(results(after).at(-1)).toMatchObject({ generation: 1, result: { status: reason === 'stale' ? 409 : 403 } });
+        expect(after.external).toEqual([]);
+        expect(after.activity.result).toBeNull();
+        if (reason === 'cancel') expect(after.activity.executionStatus).toBe('cancel-requested');
+      } finally {
+        await command(id, { action: 'release' });
+        await command(id, { action: 'abort' });
       }
-      await command(id, { action: 'release' });
-      const after = await settle(id, submission);
-      expect(results(after).at(-1)).toMatchObject({ generation: 1, result: { status: reason === 'stale' ? 409 : 403 } });
-      expect(after.external).toEqual([]);
-      expect(after.activity.result).toBeNull();
-      if (reason === 'cancel') expect(after.activity.executionStatus).toBe('cancel-requested');
     });
 
     it('rejects a forged newer delivery generation through a warm native facet after rollover', async () => {
       const { id } = await prepare();
-      const warm = delivery(id, { mode: 'hold', marker: 'warm-generation-one' });
-      await send(id, warm);
-      await observe(id, value => value.barrierReached);
-      expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
-        update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'rollover-before-forgery' } } })).toMatchObject({ ok: true });
-      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'running' } });
+      try {
+        const warm = delivery(id, { mode: 'hold', marker: 'warm-generation-one' });
+        await send(id, warm);
+        await observe(id, value => value.barrierReached);
+        expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
+          update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'rollover-before-forgery' } } })).toMatchObject({ ok: true });
+        expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'running' } });
 
-      // This submission reaches the existing generated facet, but its bridge was
-      // bound to generation one when the owner created it. Delivery JSON cannot
-      // replace that authority with generation two.
-      const forged = delivery(id, { generation: 2, marker: 'forged-generation-two' });
-      const forgedSubmission = await send(id, forged);
-      await command(id, { action: 'release' });
-      const after = await settle(id, forgedSubmission);
-      const output = results(after).find(result => result.operationId === forged.operationId);
-      expect(output).toMatchObject({ generation: 2, result: { status: 409 } });
-      expect(after.external).toEqual([]);
+        // This submission reaches the existing generated facet, but its bridge was
+        // bound to generation one when the owner created it. Delivery JSON cannot
+        // replace that authority with generation two.
+        const forged = delivery(id, { generation: 2, marker: 'forged-generation-two' });
+        const forgedSubmission = await send(id, forged);
+        await command(id, { action: 'release' });
+        const after = await settle(id, forgedSubmission);
+        const output = results(after).find(result => result.operationId === forged.operationId);
+        expect(output).toMatchObject({ generation: 2, result: { status: 409 } });
+        expect(after.external).toEqual([]);
+      } finally {
+        await command(id, { action: 'release' });
+        await command(id, { action: 'abort' });
+      }
     });
   });
 }
