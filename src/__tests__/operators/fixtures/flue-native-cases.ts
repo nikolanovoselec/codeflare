@@ -97,7 +97,11 @@ export function registerNativeDispatcherCases(harness: Harness) {
     return outcome.body.submissionId;
   }
   async function settle(id: string, submissionId: string) {
-    return observe(id, value => value.conversation?.settlements.some(s => s.submissionId === submissionId) === true);
+    return observe(id, value => {
+      const settlements = value.conversation?.settlements ?? [];
+      return settlements.some(settlement => settlement.submissionId === submissionId)
+        && results(value).length >= settlements.length;
+    });
   }
   async function positiveControl() {
     const { id } = await prepare();
@@ -142,8 +146,8 @@ export function registerNativeDispatcherCases(harness: Harness) {
       const beforeB = await settle(b.id, sb);
       await command(a.id, { action: 'evict' });
       await command(b.id, { action: 'evict' });
-      const afterA = await snapshot(a.id);
-      const afterB = await snapshot(b.id);
+      const afterA = await observe(a.id, value => results(value).length > 0);
+      const afterB = await observe(b.id, value => results(value).length > 0);
       expect(afterA.instance).not.toBe(beforeA.instance);
       expect(afterB.instance).not.toBe(beforeB.instance);
       expect(afterA.facet?.instance).not.toBe(beforeA.facet?.instance);
