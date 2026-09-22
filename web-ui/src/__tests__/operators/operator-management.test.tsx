@@ -57,7 +57,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
 
     expect(await screen.findByRole('heading', { name: /operators/i })).toBeInTheDocument();
-    expect(screen.getByText(longName)).toBeInTheDocument();
+    expect(await screen.findByText(longName)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /register operator/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: new RegExp(`manage ${longName}`, 'i') })).toBeInTheDocument();
     expect(screen.queryByTestId('workspace')).not.toBeInTheDocument();
