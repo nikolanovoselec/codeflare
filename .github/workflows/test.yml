@@ -90,27 +90,6 @@ env:
   NODE_COMPILE_CACHE: /tmp/node-compile-cache
 
 jobs:
-  operator-lock:
-    name: Generate operator package lock
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.1.0
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm install --package-lock-only --ignore-scripts
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: operator-package-lock-${{ github.sha }}
-          path: package-lock.json
-          if-no-files-found: error
-          retention-days: 1
-
   changes:
     name: Detect changed areas
     runs-on: ubuntu-latest
@@ -424,6 +403,10 @@ jobs:
   backend-tests:
     name: Backend tests (${{ matrix.slug }})
     needs: changes
+    env:
+      DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
+      DISPATCHER_NATIVE_SHA256: 7ca8502b56aab599141938ea106ce87d85ff162595ba074487fd650c0870bf0e
+      DISPATCHER_NATIVE_SOURCE_SHA: 503a6862b8ad36e48af528552ee4f3ebea5d6205
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
