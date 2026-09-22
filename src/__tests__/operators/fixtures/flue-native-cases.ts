@@ -273,7 +273,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
       const input = delivery(id);
       const first = await settle(id, await send(id, input));
       expect(results(first).at(-1)?.result.status).toBe(200);
-      const changed = delivery(id, { operationId: input.operationId, marker: 'different-request' });
+      await command(id, { action: 'evict' });
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2 } });
+      const changed = delivery(id, { generation: 2, operationId: input.operationId, marker: 'different-request' });
       const second = await settle(id, await send(id, changed));
       expect(results(second).at(-1)?.result.status).toBe(409);
       expect(second.external).toEqual(first.external);
