@@ -1,6 +1,6 @@
 {
   "sourceRun": 35723895426,
-  "fileOverheadMs": 1600,
+  "fileOverheadMs": 300,
   "weights": {
     "src/__tests__/api/client.test.ts": 94,
     "src/__tests__/api/contract.test.ts": 38,

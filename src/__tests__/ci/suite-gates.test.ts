@@ -395,7 +395,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const summary = testWorkflow.jobs.summary as { needs?: string[]; steps?: Array<{ name?: string; run?: string; uses?: string }> };
     expect(summary.needs).toEqual(expect.arrayContaining([
-      'backend-tests', 'frontend-tests', 'host-tests', 'pi-prompt',
+      'backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests', 'pi-prompt',
       'coverage-backend', 'coverage-frontend',
     ]));
     const names = summary.steps?.map((step) => step.name) ?? [];
@@ -413,14 +413,14 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const directWorkloads = [
       'quality', 'typecheck', 'workflow-audit', 'bundle-size',
-      'backend-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'host-tests', 'browser-ide',
+      'backend-tests', 'backend-node-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'host-tests', 'browser-ide',
     ];
     for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
   });
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 13], ['frontend-tests', 4], ['host-tests', 2]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 12], ['backend-node-tests', 2], ['frontend-tests', 4], ['host-tests', 2]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;

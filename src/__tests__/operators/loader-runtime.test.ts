@@ -4,7 +4,7 @@
  * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
  */
 import { fileURLToPath, URL } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { unstable_dev, type Unstable_DevWorker } from 'wrangler';
 import { createHash } from 'node:crypto';
 import { registerNativeDispatcherCases } from './fixtures/flue-native-cases';
@@ -16,13 +16,21 @@ import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../ope
 // provider requests, secrets, production config or production fixture exports.
 let worker: Unstable_DevWorker | undefined;
 beforeAll(async () => {
+  console.info('[native-loader] wrangler startup begin');
   worker = await unstable_dev(fileURLToPath(new URL('./fixtures/loader-worker.ts', import.meta.url)), {
     config: fileURLToPath(new URL('./fixtures/wrangler.toml', import.meta.url)),
     local: true, ip: '127.0.0.1', port: 0, inspectorPort: 0, persist: false, logLevel: 'none',
     experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
   });
+  console.info('[native-loader] wrangler startup complete');
 }, 60_000);
-afterAll(async () => { await worker?.stop(); });
+afterAll(async () => {
+  console.info('[native-loader] wrangler shutdown begin');
+  await worker?.stop();
+  console.info('[native-loader] wrangler shutdown complete');
+});
+beforeEach((context) => { console.info(`[native-loader] test begin: ${context.task.name}`); });
+afterEach((context) => { console.info(`[native-loader] test end: ${context.task.name}`); });
 
 describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
   it('loads fresh Workers rather than retaining isolate-local state', async () => {

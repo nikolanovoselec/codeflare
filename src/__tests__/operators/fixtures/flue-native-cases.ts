@@ -26,13 +26,22 @@ type Harness = {
 
 /** Registered only from loader-runtime.test.ts; not a new runner or fake Loader. */
 export function registerNativeDispatcherCases(harness: Harness) {
-  async function command<T>(id: string, value: FlueFixtureCommand): Promise<T> {
-    const response = await harness.fetch(`/flue?activity=${encodeURIComponent(id)}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value),
-    });
-    const result = await response.json();
-    expect(response.status, JSON.stringify(result)).toBe(200);
-    return result as T;
+  async function command<T>(id: string, value: FlueFixtureCommand, timeoutMs = 15_000): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`native fixture ${value.action} timed out`)), timeoutMs);
+    console.info(`[native-flue] command begin: ${value.action} ${id}`);
+    try {
+      const response = await harness.fetch(`/flue?activity=${encodeURIComponent(id)}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value),
+        signal: controller.signal,
+      });
+      const result = await response.json();
+      expect(response.status, JSON.stringify(result)).toBe(200);
+      console.info(`[native-flue] command end: ${value.action} ${id} status=${response.status}`);
+      return result as T;
+    } finally {
+      clearTimeout(timer);
+    }
   }
   const snapshot = (id: string) => command<Snapshot>(id, { action: 'snapshot' });
   function results(value: Snapshot): Assessment[] {

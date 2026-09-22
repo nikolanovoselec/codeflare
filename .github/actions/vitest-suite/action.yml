@@ -47,6 +47,10 @@ inputs:
     description: 'Emit mergeable coverage for this shard without enforcing package thresholds locally.'
     required: false
     default: 'false'
+  human-reporter:
+    description: 'Human Vitest reporter: dot (default) or verbose for a bounded diagnostic lane.'
+    required: false
+    default: 'dot'
 runs:
   using: composite
   steps:
@@ -65,6 +69,7 @@ runs:
         PRE_RUN: ${{ inputs.pre-run }}
         TOLERATE: ${{ inputs.tolerate-pool-crash }}
         COVERAGE: ${{ inputs.coverage }}
+        HUMAN_REPORTER: ${{ inputs.human-reporter }}
       run: |
         # Belt and braces with RUNNER_TEMP: if a report from a previous run
         # survived, the gate would parse IT — >0 tests, 0 failures, and for the
@@ -105,11 +110,15 @@ runs:
             exit 1
           fi
         fi
+        case "$HUMAN_REPORTER" in
+          dot|verbose) ;;
+          *) echo "::error::unsupported human reporter: $HUMAN_REPORTER"; exit 1 ;;
+        esac
         set +e
-        # CLI reporters replace the config ones: dot for humans, json for the gate.
+        # CLI reporters replace the config one; JSON remains mandatory for the gate.
         npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
           "${coverage_args[@]}" \
-          --reporter=dot --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
+          --reporter="$HUMAN_REPORTER" --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
           2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
         status=${PIPESTATUS[0]}
         set -e

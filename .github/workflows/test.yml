@@ -508,6 +508,7 @@ jobs:
           script: test:node
           artifact-name: backend-node-${{ matrix.slug }}
           pre-run: npm run pretest
+          human-reporter: ${{ matrix.group == 'native' && 'verbose' || 'dot' }}
 
   workflow-audit:
     name: Workflow audit
