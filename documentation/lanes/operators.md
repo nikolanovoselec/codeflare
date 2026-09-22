@@ -2,9 +2,9 @@
 
 **Audience:** Platform and operator developers
 
-**Owns:** Enterprise Operator Interface input formats and reusable platform boundaries.
+**Owns:** Enterprise Operator Interface input formats; Loader, lifecycle, resource, session, synchronization, GitHub, inference, and publication-fencing boundaries; generic host-side Pi execution confinement; and the Conductor Review Pi extensions, skills, and references used to configure per-repository GitHub Actions.
 
-**Does not own:** Private Flue code, Review business logic, canonical local-review resources, enterprise permission grants or deployment secrets.
+**Does not own:** Private Flue code; Review packet, session, result, history, or publication business logic owned by Conductor; canonical local-review resources; enterprise permission grants; or deployment secrets.
 
 The source boundaries identified below have focused behavioral evidence; the requirement file records which exact-head evidence is complete or pending. They do not by themselves prove a deployed operator runtime: live identity/egress/R2 behavior, responsive visual acceptance, and both integration-environment Gate 1 runs remain pending. Requirements and acceptance live in [Operators](../../sdd/spec/operators.md).
 
@@ -313,9 +313,10 @@ Current consumers and dependency direction are:
 | Restricted container host | Parent-owned session, structured Pi and explicit sync APIs | Activity admission, R2 credentials or whole-home persistence |
 | Shared interceptors | Parent-bound policy, inference selection and current human authority | Identity selection or permission grants |
 | Webhook edge | Activity-scoped verifier capabilities and optional handoff envelope | Interactive identity or automatic reruns |
-| Future private Flue / Remote Reviews adapters | The versioned generic contracts above | Codeflare platform internals; not shipped in Phase 1 |
+| Conductor Review package | Generic Operator Interface, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing | Review packet, session, result, history and publication business behavior |
+| Future private Flue adapters | The versioned generic contracts above | Codeflare platform internals; not shipped in Phase 1 |
 
-Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. The stateless `fixtures/operator-gate1` Worker is deployed only by explicit dispatch to the enterprise-integration environment; it requires both the Access assertion and independently provisioned connection secret and has no storage/service binding. Codeflare does not import a private Flue core, Review prompts, enrollment/monitor/publisher code or production Actions workflow. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
+Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. The stateless `fixtures/operator-gate1` Worker is deployed only by explicit dispatch to the enterprise-integration environment; it requires both the Access assertion and independently provisioned connection secret and has no storage/service binding. Codeflare does not implement Review packet preparation, session orchestration, result collection, history reconciliation, publication policy, or a production Actions workflow. Those behaviors belong to Conductor. Codeflare distributes Conductor Review Pi extensions, skills, and references so repositories can configure their own GitHub Actions, while generic host-side Pi sandbox/security primitives remain Codeflare execution confinement. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
 
 ## Verification
 

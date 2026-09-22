@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-050: parent-composed Review Pi filesystem sandbox. */
+/** REQ-OPERATOR-021: parent-composed Pi filesystem sandbox. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
@@ -90,7 +90,7 @@ async function fixture(t, configOverrides = {}) {
   return { root, cwd, service, sessionOptions, invoke };
 }
 
-test('REQ-OPERATOR-050: Review composition exposes only fixed sandboxed read and write tools', async t => {
+test('REQ-OPERATOR-021: Review composition exposes only fixed sandboxed read and write tools', async t => {
   const f = await fixture(t);
   assert.deepEqual(f.sessionOptions.tools, ['read', 'write']);
   assert.deepEqual(f.sessionOptions.customTools.map(tool => tool.name), ['read', 'write']);
@@ -106,7 +106,7 @@ test('REQ-OPERATOR-050: Review composition exposes only fixed sandboxed read and
   }
 });
 
-test('REQ-OPERATOR-050: Review reads deny absolute, traversal, symlink, undeclared, source and credential paths', async t => {
+test('REQ-OPERATOR-021: Review reads deny absolute, traversal, symlink, undeclared, source and credential paths', async t => {
   const f = await fixture(t);
   const outside = path.join(f.root, 'outside.txt');
   await writeFile(outside, 'outside', 'utf8');
@@ -127,7 +127,7 @@ test('REQ-OPERATOR-050: Review reads deny absolute, traversal, symlink, undeclar
   }
 });
 
-test('REQ-OPERATOR-050: Review writes only bound valid UTF-8 JSON lane reports', async t => {
+test('REQ-OPERATOR-021: Review writes only bound valid UTF-8 JSON lane reports', async t => {
   const f = await fixture(t);
   for (const lane of lanes) {
     const content = report(lane);
@@ -149,7 +149,7 @@ test('REQ-OPERATOR-050: Review writes only bound valid UTF-8 JSON lane reports',
   }
 });
 
-test('REQ-OPERATOR-050: Review writes deny all non-report, absolute, traversal and symlink destinations', async t => {
+test('REQ-OPERATOR-021: Review writes deny all non-report, absolute, traversal and symlink destinations', async t => {
   const f = await fixture(t);
   const valid = report('code-reviewer');
   const outside = path.join(f.root, 'outside.json');
@@ -172,7 +172,7 @@ test('REQ-OPERATOR-050: Review writes deny all non-report, absolute, traversal a
   assert.equal(await readFile(outside, 'utf8'), 'preserve');
 });
 
-test('REQ-OPERATOR-050: Review report writes are atomic, same-byte idempotent and conflicting rewrites fail', async t => {
+test('REQ-OPERATOR-021: Review report writes are atomic, same-byte idempotent and conflicting rewrites fail', async t => {
   const f = await fixture(t);
   const destination = 'reports/code-reviewer.json';
   const first = report('code-reviewer');
@@ -187,7 +187,7 @@ test('REQ-OPERATOR-050: Review report writes are atomic, same-byte idempotent an
   assert.deepEqual((await readdir(path.join(f.cwd, 'reports'))).sort(), ['code-reviewer.json']);
 });
 
-test('REQ-OPERATOR-050: strict Review config validates parent bindings while the standard five-field config is unchanged', async t => {
+test('REQ-OPERATOR-021: strict Review config validates parent bindings while the standard five-field config is unchanged', async t => {
   const f = await fixture(t);
   assert.ok(f.service);
   const base = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', root: f.root,

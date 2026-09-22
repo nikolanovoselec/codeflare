@@ -2,6 +2,8 @@
 
 Frozen before the RED batch; Dispatcher hosting refined after native API/source analysis on 22 September 2026. This is the smallest shared contract; implementations may add private helpers but may not add authority, execution backends or public behavior outside it.
 
+Codeflare owns the generic Operator Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub and inference boundaries, and publication fencing. Conductor owns Review business behavior. Codeflare retains generic host-side Pi sandbox and security confinement and distributes Conductor Review Pi extensions, skills, and references for configuring per-repository GitHub Actions. This contract adds no Review-specific Activity or adapter.
+
 ## Records
 
 ```ts
@@ -55,7 +57,6 @@ The platform derives identity, input digest, release, installation and resource 
 
 | Profile | Capability operations |
 |---|---|
-| Conductor | `POST /v1/conductor/review`: prepared packet reference; `GET /v1/conductor/review/:operationId`: bounded progress; `POST /v1/conductor/review/:operationId/cancel`: owned cancellation |
 | Dispatcher | Package-owned Flue/Renovate execution receives only activity-scoped GitHub-read and inference primitives. Existing `/v1/dispatcher/renovate` start/progress semantics select the admitted package operation; they are not a parent implementation of the model/tool loop. |
 
 The Dispatcher production primitive wire is deliberately narrow:
@@ -65,7 +66,7 @@ The Dispatcher production primitive wire is deliberately narrow:
 - Both use `https://operator.internal`, JSON request bodies and a 64 KiB request/response ceiling. An activity retains at most 128 operation records; completed response bodies are separate bounded storage values. Lost/oversized/upstream-uncertain completion fences the lease and is never replayed. A non-null resource profile is rejected until an existing parent resource resolver supports it; this slice adds no resolver or configuration setting.
 - The capability's only RPC methods are the nine pinned Agents facet schedule/list/cancel, keepalive and fiber-registration methods. Paths must name the exact Activity and fixed `dispatcher` facet. Only Flue's `__flueWakeAgentSubmissions` callback is schedulable, with bounded timing/counts; root callbacks and foreign paths are denied. Direct egress is null.
 
-The parent rejects unknown routes, mismatched activity/generation, expired/cancelled authority, changed operation digest and capability/resource requests outside the installed policy. Dispatcher routes never create or expose a session/container. Conductor routes never accept arbitrary session IDs. Both return bounded structured outcomes; network and upstream credentials remain parent-owned.
+The parent rejects unknown routes, mismatched activity/generation, expired/cancelled authority, changed operation digest and capability/resource requests outside the installed policy. Dispatcher routes never create or expose a session/container. They return bounded structured outcomes; network and upstream credentials remain parent-owned.
 
 ## Package release files
 
@@ -80,7 +81,3 @@ Facets have no independent physical alarm. Reuse the pinned Agents SDK root alar
 One durable execution lease binds generation, submission, input/release digests, expiry and state. Async Flue admission leaves that execution running; HTTP return/status polling does not commit a false `waiting`, increment generation or renew the lease. Only a persisted safe quiescent checkpoint permits explicit continuation. Each effect carries its original generation and stable operation ID/digest. Recheck current human eligibility/policy, expiry/cancellation and result generation; never upgrade stale warmed callers to current authority. Complete receipts reconcile; changed digest conflicts; unknown external completion is not replayed. Fence cancellation before signaling Flue. Alarm recovery/settlement grants no new execution authority.
 
 The child receives only scoped read/inference and required scheduler bridge operations. It cannot select another activity/facet, invoke arbitrary parent callbacks, obtain credentials, access sessions/containers or use direct outbound networking. All resource limits remain bounded as before. Native proof must execute the actual pinned generated Flue artifact, delegated alarm/fiber work, eviction/recovery, two-activity isolation, safe continuation, stale/expired/cancelled denial and completed/uncertain operation handling. Mock capability tests are not native proof.
-
-## Review webhook extension
-
-Existing start/status/result capability routes remain compatible. Add one authenticated continuation operation for an already started activity. Status is metadata-only; start/result remain single-use; continuation cannot change input, renew identity or create a second running generation.

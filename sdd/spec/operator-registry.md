@@ -1,6 +1,6 @@
 # Operator Registry
 
-This release extends the existing Operator foundation with GitHub package installation, delegated Operator Management, generic directed profiles, and the Review and Renovate proofs of concept. It preserves existing endpoint registrations, Gate 1, human sessions and local review behavior.
+This release extends the existing Operator foundation with GitHub package installation, delegated Operator Management, and generic directed profiles. Codeflare owns the generic Operator Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub and inference boundaries, and publication fencing. Conductor owns Review packet preparation, session orchestration, result collection, history reconciliation, and publication behavior. Codeflare retains generic host-side Pi sandbox and security confinement and distributes Conductor Review Pi extensions, skills, and references for configuring per-repository GitHub Actions. Existing endpoint registrations, Gate 1, human sessions, local review behavior, and Dispatcher code remain unchanged.
 
 ## REQ-OPERATOR-043: Catalog and installations
 
@@ -80,17 +80,6 @@ This release extends the existing Operator foundation with GitHub package instal
 1. `/operators` and `/api/operator-management/*` enforce management authorization independently of Administration navigation. <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 2. Catalog, registration, promotion, installation, grants and activity states expose no stored secrets. <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 3. Desktop, tablet and mobile retain usable controls, focus and scrolling for long names and errors. <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
-
-**Status:** Planned
-
-## REQ-OPERATOR-050: Review Conductor integration
-
-**Intent:** Directed remote Review uses trusted evidence/resources and GitHub-authoritative history without weakening existing local review.
-
-**Acceptance Criteria:**
-1. Canonical packet/evidence, required lanes, approved parent/child resources and independently verified output are required for a complete round. <!-- @test: src/__tests__/operators/review-conductor.test.ts (REQ-OPERATOR-050) -->
-2. Stale/partial rounds cannot clear findings; authorized rebuttals and unresolved findings remain correlated with exact repository/revision context. <!-- @test: src/__tests__/operators/review-conductor.test.ts (REQ-OPERATOR-050) -->
-3. Publisher credentials remain outside candidate/reviewer execution; stale publication cannot clear a newer generation; remote failure has no automatic local fallback. <!-- @test: src/__tests__/operators/review-conductor.test.ts (REQ-OPERATOR-050) -->
 
 **Status:** Planned
 
