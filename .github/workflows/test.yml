@@ -463,9 +463,9 @@ jobs:
     name: Backend tests (node-${{ matrix.slug }})
     needs: changes
     env:
-      DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/.dispatcher-native/operator-bundle.json
-      DISPATCHER_NATIVE_SHA256: 79f16d941a1ce5e5232f2a468591cc678c95586a6b588e531f557d4932e30239
-      DISPATCHER_NATIVE_SOURCE_SHA: e0839d102f0640737f4d4f851f3781eab68fe0f5
+      DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
+      DISPATCHER_NATIVE_SHA256: c7d9966471a755b3f06c9e29b5e3e581b2b8a021f967f22d47cb0df7a2e1e50e
+      DISPATCHER_NATIVE_SOURCE_SHA: 6028021aab62a6032f74f746723b38ec79a70e97
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -491,22 +491,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Acquire exact compiler-produced Dispatcher package
-        if: matrix.group == 'native'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          repository: nikolanovoselec/codeflare-operator-dispatcher
-          run-id: 35772745326
-          name: operator-package
-          path: .dispatcher-native
-          github-token: ${{ github.token }}
-
-      - name: Verify exact Dispatcher package contract
+      - name: Verify exact compiler-produced Dispatcher fixture
         if: matrix.group == 'native'
         run: |
-          test "$(find .dispatcher-native -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ')" = 'operator-bundle.json operator-manifest.json operator-provenance.json '
-          echo '79f16d941a1ce5e5232f2a468591cc678c95586a6b588e531f557d4932e30239  .dispatcher-native/operator-bundle.json' | sha256sum --check --strict
-          grep -F '"sourceCommit":"e0839d102f0640737f4d4f851f3781eab68fe0f5"' .dispatcher-native/operator-provenance.json
+          echo 'c7d9966471a755b3f06c9e29b5e3e581b2b8a021f967f22d47cb0df7a2e1e50e  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
+          grep -F '"sourceCommit":"6028021aab62a6032f74f746723b38ec79a70e97"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
 
       - uses: ./.github/actions/install-deps
         with:

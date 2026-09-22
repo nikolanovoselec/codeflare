@@ -2789,16 +2789,23 @@ else
     echo "[entrypoint] WARNING: Terminal server process died before binding port 8080!"
 fi
 
+restore_operator_attachments() {
+    [ -n "${CODEFLARE_OPERATOR_ATTACHMENTS:-}" ] || return 0
+    if [ "${PORT_BOUND:-0}" -ne 1 ]; then
+        echo "[entrypoint] Operator attachment restore requires a bound terminal port" >&2
+        return 1
+    fi
+    if [ "$RCLONE_CONFIG_RESULT" -ne 0 ]; then
+        echo "[entrypoint] Operator attachment restore requires R2 configuration" >&2
+        return 1
+    fi
+    node /opt/codeflare/scripts/restore-operator-attachments.mjs
+}
+
 # Restore activity-owned opaque Operator attachments only after the early port
 # bind. Readiness remains closed until this digest/size-verified restore and the
 # remaining startup work complete.
-if [ -n "${CODEFLARE_OPERATOR_ATTACHMENTS:-}" ]; then
-    if [ "$RCLONE_CONFIG_RESULT" -ne 0 ]; then
-        echo "[entrypoint] Operator attachment restore requires R2 configuration" >&2
-        exit 1
-    fi
-    node /opt/codeflare/scripts/restore-operator-attachments.mjs
-fi
+restore_operator_attachments
 
 # ============================================================================
 # R2 SYNC STARTUP

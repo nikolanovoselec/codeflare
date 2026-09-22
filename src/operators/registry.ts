@@ -96,7 +96,7 @@ export interface ManagementRelease {
   repositoryId: number; sourceRevision: number; coreVersion: string; intentVersion: string;
   requestedCapabilities: string[];
   assets: Array<{ id: number; name: string; digest: string }>;
-  provenance: { compilerCommit: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
+  provenance: { compilerCommit?: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
 export interface ManagementReleaseCandidate { release: ManagementRelease; manifestJson: string; bundleBytes: Uint8Array }
 export interface ManagementControls {
@@ -637,7 +637,19 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         const previous = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=?', release.id).toArray()[0];
         if (previous) {
           const old = JSON.parse(previous.data) as ManagementRelease;
-          if (JSON.stringify({ ...old, approved: false }) !== JSON.stringify({ ...release, approved: false })) throw new ValidationError('Immutable release identity changed');
+          const previousIdentity = { ...old, approved: false,
+            provenance: { ...old.provenance } };
+          const candidateIdentity = { ...release, approved: false,
+            provenance: { ...release.provenance } };
+          // Releases acquired before compiler provenance was mandatory remain
+          // immutable and usable. Never invent or persist a compiler identity;
+          // only ignore the new field while comparing that exact legacy row.
+          if (previousIdentity.provenance.compilerCommit === undefined) {
+            delete candidateIdentity.provenance.compilerCommit;
+          }
+          if (JSON.stringify(previousIdentity) !== JSON.stringify(candidateIdentity)) {
+            throw new ValidationError('Immutable release identity changed');
+          }
           releases.push(old);
         } else {
           if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_releases WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Retained release limit reached');

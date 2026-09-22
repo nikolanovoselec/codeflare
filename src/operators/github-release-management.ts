@@ -20,7 +20,7 @@ const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const commit = z.string().regex(/^[0-9a-f]{40}$/);
 const workflowPath = '.github/workflows/release.yml';
 const provenanceSchema = z.strictObject({
-  repositoryId: positive, sourceCommit: commit, compilerCommit: commit, manifestDigest: sha, bundleDigest: sha,
+  repositoryId: positive, sourceCommit: commit, compilerCommit: commit.optional(), manifestDigest: sha, bundleDigest: sha,
   workflow: z.strictObject({ id: positive, ref: z.string().min(1).max(512), runId: positive, runAttempt: positive }),
 });
 // GitHub adds fields to REST envelopes. Only package-authored documents are strict;
@@ -37,7 +37,7 @@ const artifactSchema = z.object({ id: positive, name: z.literal('operator-packag
   workflow_run: z.object({ id: positive, repository_id: positive, head_repository_id: positive, head_sha: commit }) });
 
 type GitHubContext = {
-  registry: Pick<OperatorRegistry, 'registerManagement' | 'getManagementAcquisition' | 'replaceManagementReleases' | 'setManagementSource'>;
+  registry: Pick<OperatorRegistry, 'registerManagement' | 'getManagementAcquisition' | 'getManagementReleases' | 'replaceManagementReleases' | 'setManagementSource'>;
   human: VerifiedHumanAccessClaims;
   controlsRevision: number;
   encryption: { ENCRYPTION_KEY?: string };
@@ -217,7 +217,8 @@ async function resolveSource(repositoryUrl: string, pat: string, deadline: numbe
     approvedWorkflow: { id: workflow.id, ref: `${workflowPath}@refs/heads/${resolved.default_branch}` } };
 }
 
-async function acquireRelease(value: unknown, source: { id: string; repositoryId: number; sourceRevision: number; profile: ManagementOperatorProfile; approvedWorkflow: { id: number; ref: string } }, pat: string, deadline: number): Promise<ManagementReleaseCandidate> {
+async function acquireRelease(value: unknown, source: { id: string; repositoryId: number; sourceRevision: number; profile: ManagementOperatorProfile; approvedWorkflow: { id: number; ref: string } }, pat: string, deadline: number,
+  allowLegacyProvenance = false): Promise<ManagementReleaseCandidate> {
   const remote = releaseSchema.parse(value);
   if (new Set(remote.assets.map(asset => asset.name)).size !== 3 || new Set(remote.assets.map(asset => asset.id)).size !== 3) throw new Error('Duplicate GitHub asset');
   const files = new Map<string, Uint8Array>();
@@ -241,6 +242,7 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
     ? await parseDispatcherBundle(bundleBytes, bundleDigest) : null;
   if (!dispatcherBundle) await parseOperatorBundle(bundleBytes, bundleDigest);
   const provenance = provenanceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(files.get('operator-provenance.json')!)));
+  if (!provenance.compilerCommit && !allowLegacyProvenance) throw new Error('Compiler provenance is required');
   if (dispatcherBundle && dispatcherBundle.sourceCommit !== provenance.sourceCommit) throw new Error('Dispatcher source mismatch');
   if (provenance.repositoryId !== source.repositoryId || provenance.manifestDigest !== manifestDigest || provenance.bundleDigest !== bundleDigest
     || provenance.workflow.id !== source.approvedWorkflow.id || provenance.workflow.ref !== source.approvedWorkflow.ref) throw new Error('GitHub provenance mismatch');
@@ -271,9 +273,9 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
     coreVersion: manifest.coreVersion, intentVersion: manifest.intentVersion,
     requestedCapabilities: [...manifest.requiredCapabilities], approved: false,
     assets: FILES.map(name => { const asset = remote.assets.find(candidate => candidate.name === name)!; return { id: asset.id, name, digest: digests.get(name)! }; }),
-    provenance: { compilerCommit: provenance.compilerCommit, workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref,
-      runId: run.id, runAttempt: run.run_attempt, artifactId: artifact.id,
-      artifactDigest: artifact.digest.slice('sha256:'.length) },
+    provenance: { ...(provenance.compilerCommit ? { compilerCommit: provenance.compilerCommit } : {}),
+      workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref, runId: run.id,
+      runAttempt: run.run_attempt, artifactId: artifact.id, artifactDigest: artifact.digest.slice('sha256:'.length) },
   } };
 }
 
@@ -330,10 +332,14 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
     // One bounded page; never silently walk unbounded release history. Retained
     // releases already in the registry remain available without GitHub I/O.
     const remote = z.array(z.unknown()).max(10).parse(await githubJson(`/repositories/${source.repositoryId}/releases?per_page=10`, pat, deadline));
+    const retainedLegacyIds = new Set((await context.registry.getManagementReleases(operatorId))
+      .filter(release => release.provenance.compilerCommit === undefined)
+      .map(release => release.githubReleaseId));
     const candidates: ManagementReleaseCandidate[] = [];
     let aggregateBytes = 0;
     for (const release of remote) {
-      const candidate = await acquireRelease(release, source, pat, deadline);
+      const releaseId = z.object({ id: positive }).parse(release).id;
+      const candidate = await acquireRelease(release, source, pat, deadline, retainedLegacyIds.has(releaseId));
       aggregateBytes += candidate.bundleBytes.length;
       if (aggregateBytes > 16 * 1024 * 1024) throw new Error('Release acquisition aggregate limit');
       candidates.push(candidate);

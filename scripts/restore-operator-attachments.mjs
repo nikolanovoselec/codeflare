@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,6 +37,8 @@ export function restoreOperatorAttachments(input, options) {
     try {
       (options.run ?? execFileSync)('rclone', ['copyto', source, temporary, '--config', options.rcloneConfig,
         '--max-size', String(file.size), '--immutable', '--no-traverse'], { stdio: 'ignore', timeout: 120_000 });
+      const restored = lstatSync(temporary);
+      if (!restored.isFile() || restored.isSymbolicLink()) throw new Error('Operator attachment is not a regular file');
       const bytes = readFileSync(temporary);
       if (bytes.length !== file.size || createHash('sha256').update(bytes).digest('hex') !== file.sha256) {
         throw new Error('Operator attachment integrity mismatch');

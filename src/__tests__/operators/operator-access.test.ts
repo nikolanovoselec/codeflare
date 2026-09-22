@@ -52,6 +52,13 @@ async function withApi(test: (request: RequestApi) => Promise<void>) {
     await test(request);
   });
 }
+function conductorInvocation(operatorId: string) {
+  return { schemaVersion: 1, interfaceVersion: 1, consumerId: 'operator-access-test', activityId: 'pending-activity',
+    operatorId, runId: 'operator-access-run', source: { kind: 'direct', reference: 'operator-access-test' },
+    revision: { reference: 'test-head', digest: 'a'.repeat(64) }, inputDigest: 'b'.repeat(64),
+    input: { repository: 'acme/release-operator' }, attachments: [],
+    resources: { inference: null, session: null, storage: null } };
+}
 async function delegate(request: RequestApi) {
   actor.role = 'admin';
   const result = await request('/api/operator-management/access', 'POST', {
@@ -132,19 +139,19 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(deniedCatalog.status).toBe(404);
     expect(await deniedCatalog.text()).not.toContain(operator.id);
     const invoked = await request('/api/operator-activities', 'POST', {
-      installationId, invocation: { repository: 'acme/release-operator' },
+      installationId, invocation: conductorInvocation(operator.id),
     });
     expect(invoked.status).toBe(201);
     expect(await invoked.json()).toMatchObject({ activityId: expect.any(String), startCapability: expect.any(String) });
 
     actor.email = 'manager@example.test'; actor.groups = ['operators'];
     const missing = await request('/api/operator-activities', 'POST', {
-      installationId: 'missing-installation', invocation: { repository: 'acme/release-operator' },
+      installationId: 'missing-installation', invocation: conductorInvocation(operator.id),
     });
     expect(missing.status).toBe(404);
     const missingBody = await missing.json();
     const unauthorized = await request('/api/operator-activities', 'POST', {
-      installationId, invocation: { repository: 'acme/release-operator' },
+      installationId, invocation: conductorInvocation(operator.id),
     });
     expect(unauthorized.status).toBe(missing.status);
     expect(await unauthorized.json()).toEqual(missingBody);

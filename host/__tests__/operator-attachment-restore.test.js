@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -25,11 +25,16 @@ test('opaque operator attachments restore only the declared owner key beneath th
   assert.equal(calls.length, 1);
 });
 
-test('opaque operator attachments reject undeclared shape and integrity mismatches', async () => {
+test('opaque operator attachments reject missing, oversized, unsafe and mismatched resources', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'operator-attachments-'));
+  const options = { root, bucket: 'owner-bucket', rcloneConfig: '/tmp/rclone.conf', run: () => {} };
   assert.throws(() => restoreOperatorAttachments({ ...projection, files: [{ ...projection.files[0], name: '../packet' }] },
-    { root, bucket: 'owner-bucket', rcloneConfig: '/tmp/rclone.conf', run: () => {} }), /invalid/i);
+    options), /invalid/i);
+  assert.throws(() => restoreOperatorAttachments({ ...projection,
+    files: [{ ...projection.files[0], size: 8 * 1024 * 1024 + 1 }] }, options), /invalid|bound/i);
+  assert.throws(() => restoreOperatorAttachments(projection, options), /ENOENT/);
   assert.throws(() => restoreOperatorAttachments(projection,
-    { root, bucket: 'owner-bucket', rcloneConfig: '/tmp/rclone.conf',
-      run: (_command, args) => writeFileSync(args[2], Buffer.from('changed')) }), /integrity/i);
+    { ...options, run: (_command, args) => writeFileSync(args[2], Buffer.from('changed')) }), /integrity/i);
+  assert.throws(() => restoreOperatorAttachments(projection,
+    { ...options, run: (_command, args) => symlinkSync('/etc/hosts', args[2]) }), /regular file/i);
 });

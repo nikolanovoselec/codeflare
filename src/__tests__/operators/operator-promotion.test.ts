@@ -26,7 +26,8 @@ const policy = { capabilities: [], resourceProfileId: null };
 const registration = { repositoryUrl: 'https://github.com/acme/review-operator', githubPat: 'acquisition-only-pat', profile: 'conductor', realm: 'internal',
   managers: { users: ['manager@example.test'], groups: [] }, invokers: { users: ['manager@example.test'], groups: [] }, policy };
 
-async function withManagementApi(test: (request: (path: string, method?: string, body?: unknown) => Promise<Response>) => Promise<void>) {
+async function withManagementApi(test: (request: (path: string, method?: string, body?: unknown) => Promise<Response>,
+  ctx: DurableObjectState) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
@@ -34,11 +35,34 @@ async function withManagementApi(test: (request: (path: string, method?: string,
       `https://enterprise.example.test/api/operator-management${path}`, { method, headers: { 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'manager@example.test' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
     { KV: createMockKV(), ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env,
     { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext);
-    await test(request);
+    await test(request, ctx);
   });
 }
 
 describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
+  it('preserves an exact release acquired before compiler provenance became mandatory', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', registration);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const first = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(first.status).toBe(200);
+    const release = (await first.json() as { items: Array<{ id: string }> }).items[0]!;
+    const row = ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=?', release.id).one();
+    const legacy = JSON.parse(row.data) as { provenance: { compilerCommit?: string } };
+    delete legacy.provenance.compilerCommit;
+    ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?', JSON.stringify(legacy), release.id);
+    const detail = await request(`/operators/${operator.operatorId}`);
+    const revision = (await detail.json() as { operator: { revision: number } }).operator.revision;
+
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision });
+
+    expect(refreshed.status).toBe(200);
+    await expect(refreshed.json()).resolves.toMatchObject({ items: [expect.objectContaining({ id: release.id,
+      provenance: expect.not.objectContaining({ compilerCommit: expect.anything() }) })] });
+  }));
+
   it('keeps discovery and promotion disabled, rejects a stale mutation, and preserves an independent installation', async () => withManagementApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
     const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
@@ -133,6 +157,6 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
       ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
     expect((await request(`/installations/${promotedInstallation.id}/enable`, 'POST', {
       revision: promotedInstallation.revision, enabled: true,
-    })).status).toBe(400);
+    })).status).toBe(404);
   }));
 });
