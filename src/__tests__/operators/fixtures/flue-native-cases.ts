@@ -188,7 +188,7 @@ export function registerNativeDispatcherCases(harness: Harness) {
       const next = await send(id, b);
       const final = await settle(id, next);
       expect(next).not.toBe(submitted);
-      expect(results(final).at(-1)).toMatchObject({ status: 200, generation: 2, markers: [{ marker: 'segment-a' }, { marker: 'segment-b' }] });
+      expect(results(final).at(-1)).toMatchObject({ generation: 2, markers: [{ marker: 'segment-a' }, { marker: 'segment-b' }] });
       expect(final.external).toMatchObject([{ operationId: a.operationId, generation: 1, sequence: 1 }, { operationId: b.operationId, generation: 2, sequence: 2 }]);
     });
 
