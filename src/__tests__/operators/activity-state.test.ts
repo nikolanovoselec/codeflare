@@ -28,7 +28,7 @@ async function withActivity(
     const activityEnv = {
       ...env,
       OPERATOR_REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
-    } as ConstructorParameters<typeof OperatorActivity>[1];
+    } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
     if (admitted) {

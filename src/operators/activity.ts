@@ -56,8 +56,6 @@ export type OperatorDriveResult = { ok: true; state: OperatorDriveState } | {
 
 interface ActivityEnv extends Env {
   OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
-  OPERATOR_ACTIVITY?: DurableObjectNamespace<OperatorActivity>;
-  LOADER?: Parameters<typeof loadOperatorDispatcherClass>[0];
 }
 type DispatcherFacetPath = readonly Readonly<{ className: string; name: string }>[];
 type DispatcherFacet = Fetcher & {

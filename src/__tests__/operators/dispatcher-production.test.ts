@@ -74,11 +74,11 @@ async function fixture(test: (f: {
       exports: { configurable: true, value: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-          sent.push(request); if (uncertain) throw new Error('lost response');
+          sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
           return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
-          sent.push(request); if (uncertain) throw new Error('lost response');
+          sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
           return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
