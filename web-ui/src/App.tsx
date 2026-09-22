@@ -364,7 +364,7 @@ const OperatorManagementRoute: Component = () => {
     setLoadError(false);
     try {
       const current = await getUser();
-      if (current.enterpriseMode !== true || (current.role !== 'admin' && current.operatorManagementEligible !== true)) {
+      if (current.enterpriseMode !== true) {
         window.location.href = '/app/';
         return;
       }

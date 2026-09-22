@@ -135,7 +135,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
         <nav class="operator-actions" aria-label="Operators navigation"><a href="/app">Back to workspace</a><a href="/operators">Catalog</a><a href="/operators?view=activity">My activity</a></nav>
       </header>
       <Show when={!activityView()} fallback={<OperatorManagementActivity installationId={invocationId() || undefined} />}>
-      <Show when={error()}><div class="operator-message" role="alert"><p>{error()}</p>
+      <Show when={error()}><div class="operator-message" role="alert" aria-atomic="true"><p>{error()}</p>
         <button class="admin-secondary-button" disabled={busy()} onClick={() => void refresh()}>Refresh current state</button></div></Show>
       <Show when={notice()}><p role="status" class="operator-message">{notice()}</p></Show>
       <Show when={busy()}><p role="status">Saving and reconciling current state…</p></Show>
@@ -249,6 +249,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
   const [policy, setPolicy] = createSignal(emptyPolicy());
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
+  const [releaseSelections, setReleaseSelections] = createSignal<Record<string, string>>({});
   createEffect(() => {
     setManagers(props.detail.grants.managers); setInvokers(props.detail.grants.invokers);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
@@ -285,7 +286,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
       </li>}</For></ul></Show>
     </section>
     <section class="admin-panel operator-panel"><h2>Installations</h2><p>Names are local labels. Promotion affects new activities only and leaves the installation disabled.</p>
-      <Show when={props.detail.installations.length} fallback={<p>No installations yet.</p>}><For each={props.detail.installations}>{installation => <InstallationEditor installation={installation} releases={props.detail.releases} locked={props.locked} perform={props.perform} />}</For></Show>
+      <Show when={props.detail.installations.length} fallback={<p>No installations yet.</p>}><For each={props.detail.installations}>{installation => <InstallationEditor installation={installation} releases={props.detail.releases} releaseId={releaseSelections()[installation.id] ?? ''} onReleaseChange={releaseId => setReleaseSelections(selections => ({ ...selections, [installation.id]: releaseId }))} locked={props.locked} perform={props.perform} />}</For></Show>
       <form onSubmit={event => { event.preventDefault(); void props.perform(async () => { await api.createInstallation(operator().id, { name: installationName().trim(), policy: policy(), revision: operator().revision }); setInstallationName(''); }, 'Disabled installation created. Approve a release before enabling.'); }}>
         <fieldset disabled={props.locked}><legend>Create installation</legend>
           <label class="admin-form-field"><span>Installation name</span><input required maxlength="256" value={installationName()} onInput={event => setInstallationName(event.currentTarget.value)} /></label>
@@ -302,9 +303,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
     </section>
   </>;
 };
-const InstallationEditor: Component<{ installation: api.ManagementInstallation; releases: api.ManagementRelease[]; locked: boolean;
-  perform: (action: () => Promise<unknown>, message: string) => Promise<void> }> = props => {
-  const [releaseId, setReleaseId] = createSignal('');
+const InstallationEditor: Component<{ installation: api.ManagementInstallation; releases: api.ManagementRelease[]; releaseId: string;
+  onReleaseChange: (releaseId: string) => void; locked: boolean; perform: (action: () => Promise<unknown>, message: string) => Promise<void> }> = props => {
   const [policy, setPolicy] = createSignal(emptyPolicy());
   const [configuration, setConfiguration] = createSignal('{}');
   const [validation, setValidation] = createSignal('');
@@ -328,9 +328,12 @@ const InstallationEditor: Component<{ installation: api.ManagementInstallation; 
     </>}</Show>
     <p>Granted capabilities: {installation().policy.capabilities.join(', ') || 'None'}</p>
     <p>Resource profile: {installation().policy.resourceProfileId ?? 'None'}</p>
-    <label class="admin-form-field"><span>Release for {installation().name}</span><select disabled={props.locked} value={releaseId()} onChange={event => setReleaseId(event.currentTarget.value)}>
+    <label class="admin-form-field"><span>Release for {installation().name}</span><select disabled={props.locked} value={props.releaseId} onChange={event => props.onReleaseChange(event.currentTarget.value)}>
       <option value="">Select exact release</option><For each={props.releases}>{release => <option value={release.id}>{release.version ?? release.id} · {release.approved ? 'approved' : 'requires approval'}</option>}</For></select></label>
-    <div class="operator-actions"><button class="admin-secondary-button" disabled={props.locked || !releaseId()} aria-label={`Approve and promote ${installation().name}`} onClick={() => void props.perform(() => api.promoteInstallation(installation().id, releaseId(), installation().revision), 'Release approved and pinned. Enable the installation separately.')}>Approve and promote</button>
+    <div class="operator-actions"><button class="admin-secondary-button" disabled={props.locked || !props.releaseId} aria-label={`Approve and promote ${installation().name}`} onClick={() => void props.perform(async () => {
+      await api.promoteInstallation(installation().id, props.releaseId, installation().revision);
+      props.onReleaseChange('');
+    }, 'Release approved and pinned. Enable the installation separately.')}>Approve and promote</button>
       <button class="admin-primary-button" disabled={props.locked || !installation().releaseId} aria-label={`${installation().enabled ? 'Disable' : 'Enable'} ${installation().name}`} onClick={() => void props.perform(() => api.enableInstallation(installation().id, !installation().enabled, installation().revision), installation().enabled ? 'Installation disabled for new activities.' : 'Installation enabled.')}>{installation().enabled ? 'Disable' : 'Enable'}</button>
       <Show when={installation().enabled}><a href={`/operators?invoke=${encodeURIComponent(installation().id)}`}>Invoke as yourself</a></Show>
     </div>
