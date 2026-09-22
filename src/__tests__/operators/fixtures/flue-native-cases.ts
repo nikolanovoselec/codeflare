@@ -274,5 +274,26 @@ export function registerNativeDispatcherCases(harness: Harness) {
       expect(after.activity.result).toBeNull();
       if (reason === 'cancel') expect(after.activity.executionStatus).toBe('cancel-requested');
     });
+
+    it('rejects a forged newer delivery generation through a warm native facet after rollover', async () => {
+      const { id } = await prepare();
+      const warm = delivery(id, { mode: 'hold', marker: 'warm-generation-one' });
+      await send(id, warm);
+      await observe(id, value => value.barrierReached);
+      expect(await harness.activity(id, { action: 'commit-drive', generation: 1,
+        update: { schemaVersion: 1, status: 'waiting', checkpoint: { fault: 'rollover-before-forgery' } } })).toMatchObject({ ok: true });
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true, state: { generation: 2, status: 'running' } });
+
+      // This submission reaches the existing generated facet, but its bridge was
+      // bound to generation one when the owner created it. Delivery JSON cannot
+      // replace that authority with generation two.
+      const forged = delivery(id, { generation: 2, marker: 'forged-generation-two' });
+      const forgedSubmission = await send(id, forged);
+      await command(id, { action: 'release' });
+      const after = await settle(id, forgedSubmission);
+      const output = results(after).find(result => result.operationId === forged.operationId);
+      expect(output).toMatchObject({ generation: 2, result: { status: 409 } });
+      expect(after.external).toEqual([]);
+    });
   });
 }

@@ -17,6 +17,15 @@ import { OperatorActivity, type OperatorActivityPreparation } from '../../../ope
 export class FixtureActivity extends OperatorActivity {
   private readonly instanceId = crypto.randomUUID();
   getInstanceId(): string { return this.instanceId; }
+  /** Fixture-private owner read; this capability is never bound into the child. */
+  async facetBridgeBinding(): Promise<{ generation: number; status: string; deadline: number } | null> {
+    const record = await this.ctx.storage.get<unknown>('admission') as {
+      intent?: { deadline?: unknown }; drive?: { generation?: unknown; status?: unknown };
+    } | undefined;
+    if (!record || !Number.isSafeInteger(record.drive?.generation) || (record.drive.generation ?? 0) < 1
+      || typeof record.drive?.status !== 'string' || !Number.isFinite(record.intent?.deadline)) return null;
+    return { generation: record.drive.generation, status: record.drive.status, deadline: record.intent.deadline };
+  }
   evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }
 

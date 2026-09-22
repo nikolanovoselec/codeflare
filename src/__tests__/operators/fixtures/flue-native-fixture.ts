@@ -27,15 +27,35 @@ export type FlueFixtureCommand =
   | { action: 'evict' }
   | { action: 'abort' };
 
+type FacetPath = readonly Readonly<{ className: string; name: string }>[];
 type Facet = Fetcher & {
   _cf_initAsFacet(name: string, parentPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
   fixtureSnapshot(): Promise<unknown>;
+};
+type AgentsFacetRootBridge = {
+  _cf_scheduleForFacet(ownerPath: FacetPath, when: unknown, callback: string, payload: unknown, options: unknown): Promise<unknown>;
+  _cf_scheduleEveryForFacet(ownerPath: FacetPath, intervalSeconds: number, callback: string, payload: unknown, options: unknown): Promise<unknown>;
+  _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<unknown>;
+  _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria: unknown): Promise<unknown>;
+  _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<unknown>;
+  _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string>;
+  _cf_releaseFacetKeepAlive(token: string): Promise<void>;
+  _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void>;
+  _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void>;
+  _cf_cleanupFacetPrefix(ownerPath: FacetPath): Promise<void>;
+  _cf_broadcastToSubAgent(ownerPath: FacetPath, message: unknown, without: readonly string[] | undefined): Promise<void>;
+  _cf_subAgentConnectionMetas(ownerPath: FacetPath): Promise<unknown>;
+  _cf_sendToSubAgentConnection(connectionId: string, message: unknown): Promise<void>;
+  _cf_closeSubAgentConnection(connectionId: string, code: number | undefined, reason: string | undefined): Promise<void>;
+  _cf_setSubAgentConnectionState(connectionId: string, state: unknown): Promise<unknown>;
+  _cf_destroyDescendantFacet(targetPath: FacetPath): Promise<void>;
 };
 type NativeEnv = {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
   LOADER: { get(id: string, code: () => Promise<unknown>): { getDurableObjectClass(name: string): unknown } };
 };
+type FacetBridgeBinding = { generation: number; status: 'current' | 'stale' | 'denied' };
 export type ExternalReceipt = NativeDelivery & { sequence: number; path: string };
 
 /** Real SDK owns all physical alarms/fiber machinery. No copied scheduler. */
@@ -79,25 +99,37 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     return this.facet ??= (async () => {
       const artifact = await this.artifact();
       const digest = await this.ctx.storage.get<string>('fixture:digest');
+      const binding = await this.facetBridgeBinding();
+      if (binding.status !== 'current') throw new Error('Native facet bridge generation is not current');
       const { exports } = this.ctx as unknown as { exports: {
-        FixtureFlueTransport(options: { props: { activityId: string } }): Fetcher;
+        FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
       } };
       const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}`, async () => ({
         compatibilityDate: artifact.compatibilityDate, compatibilityFlags: artifact.compatibilityFlags,
         mainModule: artifact.mainModule, modules: artifact.modules,
-        env: { OPERATOR: exports.FixtureFlueTransport({ props: { activityId: this.name } }) },
+        // The facet receives only this direct, activity-private RPC target.
+        // Its generation is captured here from the owner, never from delivery.
+        env: { OPERATOR: exports.FixtureFlueTransport({ props: { activityId: this.name, generation: binding.generation } }) },
         globalOutbound: null,
       }));
       const { facets } = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): Facet } };
       const child = facets.get('dispatcher', () => ({
         class: worker.getDurableObjectClass(artifact.className), id: this.env.FLUE_ROOT.idFromName('dispatcher'),
       }));
-      // Pinned SDK bootstrap, not an imitation. RED intentionally exposes the
-      // unsupported static root lookup in the generated dynamic Worker. GREEN
-      // needs the narrow bridge/resolver before any production base-class change.
+      // Pinned SDK bootstrap; the generated profile child supplies the exact
+      // private root override before this handshake.
       await child._cf_initAsFacet('dispatcher', [{ className: 'FixtureFlueRoot', name: this.name }], 'dispatcher');
       return child;
     })();
+  }
+
+  /** The owner is the sole source for the generation captured by a new facet. */
+  async facetBridgeBinding(generation?: number): Promise<FacetBridgeBinding> {
+    const current = await this.env.ACTIVITY.getByName(this.name).facetBridgeBinding();
+    if (!current || current.deadline <= Date.now() || current.status !== 'running') {
+      return { generation: current?.generation ?? 0, status: 'denied' };
+    }
+    return { generation: current.generation, status: generation === undefined || generation === current.generation ? 'current' : 'stale' };
   }
 
   async send(delivery: NativeDelivery) {
@@ -179,12 +211,161 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     }
     return Response.json({ accepted: true, receipt, evidence: { repositoryId: 123, botId: 29139614, head: 'a'.repeat(40), checks: ['success'] } });
   }
+
+  #path(path: FacetPath): void {
+    if (!Array.isArray(path) || path.length < 2) throw new Error('Invalid facet bridge path');
+    for (const segment of path) {
+      if (!segment || typeof segment !== 'object' || Array.isArray(segment)
+        || Object.keys(segment).length !== 2 || typeof segment.className !== 'string'
+        || !segment.className || typeof segment.name !== 'string' || !segment.name || segment.name.includes('\0')) {
+        throw new Error('Invalid facet bridge path');
+      }
+    }
+    const [root, child] = path;
+    if (root.className !== 'FixtureFlueRoot' || root.name !== this.name
+      || child.className !== 'FlueDispatcherAgent' || child.name !== 'dispatcher') {
+      throw new Error('Unauthorized facet bridge path');
+    }
+  }
+
+  #agentsRoot(): AgentsFacetRootBridge {
+    return Agent.prototype as unknown as AgentsFacetRootBridge;
+  }
+
+  async _cf_scheduleForFacet(ownerPath: FacetPath, when: unknown, callback: string, payload: unknown, options: unknown) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_scheduleForFacet.call(this, ownerPath, when, callback, payload, options);
+  }
+  async _cf_scheduleEveryForFacet(ownerPath: FacetPath, intervalSeconds: number, callback: string, payload: unknown, options: unknown) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_scheduleEveryForFacet.call(this, ownerPath, intervalSeconds, callback, payload, options);
+  }
+  async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_getScheduleForFacet.call(this, ownerPath, id);
+  }
+  async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria: unknown) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_listSchedulesForFacet.call(this, ownerPath, criteria);
+  }
+  async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_cancelScheduleForFacet.call(this, ownerPath, id);
+  }
+  async _cf_acquireFacetKeepAlive(ownerPath: FacetPath) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_acquireFacetKeepAlive.call(this, ownerPath);
+  }
+  async _cf_releaseFacetKeepAlive(token: string) {
+    return this.#agentsRoot()._cf_releaseFacetKeepAlive.call(this, token);
+  }
+  async _cf_registerFacetRun(ownerPath: FacetPath, runId: string) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_registerFacetRun.call(this, ownerPath, runId);
+  }
+  async _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_unregisterFacetRun.call(this, ownerPath, runId);
+  }
+  async _cf_cleanupFacetPrefix(ownerPath: FacetPath) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_cleanupFacetPrefix.call(this, ownerPath);
+  }
+  async _cf_broadcastToSubAgent(ownerPath: FacetPath, message: unknown, without: readonly string[] | undefined) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_broadcastToSubAgent.call(this, ownerPath, message, without);
+  }
+  async _cf_subAgentConnectionMetas(ownerPath: FacetPath) {
+    this.#path(ownerPath);
+    return this.#agentsRoot()._cf_subAgentConnectionMetas.call(this, ownerPath);
+  }
+  async _cf_sendToSubAgentConnection(connectionId: string, message: unknown) {
+    return this.#agentsRoot()._cf_sendToSubAgentConnection.call(this, connectionId, message);
+  }
+  async _cf_closeSubAgentConnection(connectionId: string, code: number | undefined, reason: string | undefined) {
+    return this.#agentsRoot()._cf_closeSubAgentConnection.call(this, connectionId, code, reason);
+  }
+  async _cf_setSubAgentConnectionState(connectionId: string, state: unknown) {
+    return this.#agentsRoot()._cf_setSubAgentConnectionState.call(this, connectionId, state);
+  }
+  async _cf_destroyDescendantFacet(targetPath: FacetPath) {
+    this.#path(targetPath);
+    return this.#agentsRoot()._cf_destroyDescendantFacet.call(this, targetPath);
+  }
 }
 
 export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
+  #root(): Promise<FixtureFlueRoot> {
+    const { activityId } = this.ctx.props as { activityId: string; generation: number };
+    return getAgentByName(this.env.FLUE_ROOT, activityId);
+  }
+
+  async #current(): Promise<FacetBridgeBinding> {
+    const { generation } = this.ctx.props as { activityId: string; generation: number };
+    return (await this.#root()).facetBridgeBinding(generation);
+  }
+
+  async #bridge<T>(call: (root: FixtureFlueRoot) => Promise<T>): Promise<T> {
+    const binding = await this.#current();
+    if (binding.status !== 'current') throw new Error(`Facet bridge generation ${binding.status}`);
+    return call(await this.#root());
+  }
+
   async fetch(request: Request) {
-    const { activityId } = this.ctx.props as { activityId: string };
-    return (await getAgentByName(this.env.FLUE_ROOT, activityId)).transport(request);
+    const binding = await this.#current();
+    if (binding.status !== 'current') {
+      return Response.json({ error: 'Facet bridge generation rejected' }, { status: binding.status === 'stale' ? 409 : 403 });
+    }
+    return (await this.#root()).transport(request);
+  }
+
+  async _cf_scheduleForFacet(ownerPath: FacetPath, when: unknown, callback: string, payload: unknown, options: unknown) {
+    return this.#bridge(root => root._cf_scheduleForFacet(ownerPath, when, callback, payload, options));
+  }
+  async _cf_scheduleEveryForFacet(ownerPath: FacetPath, intervalSeconds: number, callback: string, payload: unknown, options: unknown) {
+    return this.#bridge(root => root._cf_scheduleEveryForFacet(ownerPath, intervalSeconds, callback, payload, options));
+  }
+  async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string) {
+    return this.#bridge(root => root._cf_getScheduleForFacet(ownerPath, id));
+  }
+  async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria: unknown) {
+    return this.#bridge(root => root._cf_listSchedulesForFacet(ownerPath, criteria));
+  }
+  async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string) {
+    return this.#bridge(root => root._cf_cancelScheduleForFacet(ownerPath, id));
+  }
+  async _cf_acquireFacetKeepAlive(ownerPath: FacetPath) {
+    return this.#bridge(root => root._cf_acquireFacetKeepAlive(ownerPath));
+  }
+  async _cf_releaseFacetKeepAlive(token: string) {
+    return this.#bridge(root => root._cf_releaseFacetKeepAlive(token));
+  }
+  async _cf_registerFacetRun(ownerPath: FacetPath, runId: string) {
+    return this.#bridge(root => root._cf_registerFacetRun(ownerPath, runId));
+  }
+  async _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string) {
+    return this.#bridge(root => root._cf_unregisterFacetRun(ownerPath, runId));
+  }
+  async _cf_cleanupFacetPrefix(ownerPath: FacetPath) {
+    return this.#bridge(root => root._cf_cleanupFacetPrefix(ownerPath));
+  }
+  async _cf_broadcastToSubAgent(ownerPath: FacetPath, message: unknown, without: readonly string[] | undefined) {
+    return this.#bridge(root => root._cf_broadcastToSubAgent(ownerPath, message, without));
+  }
+  async _cf_subAgentConnectionMetas(ownerPath: FacetPath) {
+    return this.#bridge(root => root._cf_subAgentConnectionMetas(ownerPath));
+  }
+  async _cf_sendToSubAgentConnection(connectionId: string, message: unknown) {
+    return this.#bridge(root => root._cf_sendToSubAgentConnection(connectionId, message));
+  }
+  async _cf_closeSubAgentConnection(connectionId: string, code: number | undefined, reason: string | undefined) {
+    return this.#bridge(root => root._cf_closeSubAgentConnection(connectionId, code, reason));
+  }
+  async _cf_setSubAgentConnectionState(connectionId: string, state: unknown) {
+    return this.#bridge(root => root._cf_setSubAgentConnectionState(connectionId, state));
+  }
+  async _cf_destroyDescendantFacet(targetPath: FacetPath) {
+    return this.#bridge(root => root._cf_destroyDescendantFacet(targetPath));
   }
 }
 
