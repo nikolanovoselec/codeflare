@@ -4,6 +4,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import type { Env } from '../../types';
 import { OperatorRegistry } from '../../operators/registry';
 import { createMockKV } from '../helpers/mock-kv';
+import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
 
 vi.mock('../../middleware/auth', async importOriginal => ({
   ...await importOriginal<typeof import('../../middleware/auth')>(),
@@ -25,46 +26,21 @@ const registration = { repositoryUrl: 'https://github.com/acme/review-operator',
   managers: { users: ['manager@example.test'], groups: [] }, invokers: { users: ['manager@example.test'], groups: [] }, policy };
 
 async function withManagementApi(test: (request: (path: string, method?: string, body?: unknown) => Promise<Response>) => Promise<void>) {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     const request = (path: string, method = 'GET', body?: unknown) => worker.fetch(new Request(
-      `https://enterprise.example.test/api/operator-management${path}`, { method, headers: { 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
-    { KV: createMockKV(), ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env,
+      `https://enterprise.example.test/api/operator-management${path}`, { method, headers: { 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'manager@example.test' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
+    { KV: createMockKV(), ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env,
     { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext);
     await test(request);
   });
 }
 
-async function installGitHubRelease(mode: 'valid' | 'bad-provenance') {
-  const bundle = JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05', compatibilityFlags: ['nodejs_compat'],
-    mainModule: 'index.js', modules: { 'index.js': { js: 'export default { fetch() { return new Response("ok") } }' } } });
-  const digest = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
-    .map(byte => byte.toString(16).padStart(2, '0')).join('');
-  const bundleDigest = await digest(bundle);
-  const manifest = JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'review-operator', name: 'Review operator', description: 'Review',
-    coreVersion: '1', intentVersion: '1', profile: 'conductor', inputSchema: { type: 'object' }, requiredCapabilities: [],
-    artifact: { path: '/operator-bundle.json', sha256: bundleDigest } });
-  const manifestDigest = await digest(manifest);
-  const provenance = JSON.stringify({ repositoryId: mode === 'valid' ? 417 : 418, workflow: { id: 9, ref: '.github/workflows/release.yml@refs/heads/main' },
-    sourceCommit: 'a'.repeat(40), manifestDigest, bundleDigest });
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-    const url = new URL(input instanceof Request ? input.url : input.toString());
-    if (url.pathname.endsWith('/releases')) return Response.json([{ id: 81, target_commitish: 'a'.repeat(40), assets: [
-      { name: 'operator-manifest.json', browser_download_url: 'https://github.com/acme/review-operator/releases/download/v1/operator-manifest.json', digest: `sha256:${manifestDigest}` },
-      { name: 'operator-bundle.json', browser_download_url: 'https://github.com/acme/review-operator/releases/download/v1/operator-bundle.json', digest: `sha256:${bundleDigest}` },
-      { name: 'operator-provenance.json', browser_download_url: 'https://github.com/acme/review-operator/releases/download/v1/operator-provenance.json' },
-    ] }]);
-    if (url.pathname.endsWith('operator-manifest.json')) return new Response(manifest, { headers: { 'content-type': 'application/json' } });
-    if (url.pathname.endsWith('operator-bundle.json')) return new Response(bundle, { headers: { 'content-type': 'application/json' } });
-    if (url.pathname.endsWith('operator-provenance.json')) return new Response(provenance, { headers: { 'content-type': 'application/json' } });
-    return Response.json({ id: 417, full_name: 'acme/review-operator', html_url: registration.repositoryUrl });
-  });
-}
-
 describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
   it('stores a canonical repository identity without returning its acquisition-only PAT, then discovers a matching immutable release without enabling it', async () => withManagementApi(async request => {
-    await installGitHubRelease('valid');
+    const fixture = await createOperatorGitHubFixture();
+    vi.stubGlobal('fetch', fixture.fetcher);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number };
@@ -79,8 +55,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
       interfaceVersion: 1, approved: false })] });
   }));
 
-  it('rejects repository/provenance mismatches without enabling an installation or disclosing the PAT', async () => withManagementApi(async request => {
-    await installGitHubRelease('bad-provenance');
+  it.each(['provenance-repository', 'mutable-release', 'failed-run', 'build-bytes', 'unsafe-redirect'] as const)(
+    'rejects %s without admitting release bytes or disclosing the PAT', async fault => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ fault });
+    vi.stubGlobal('fetch', fixture.fetcher);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number };
@@ -90,5 +68,25 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     const detail = await request(`/operators/${operator.operatorId}`);
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ releases: [], installations: [] });
+    expect(fixture.requests.every(outbound => outbound.origin === 'https://api.github.com')).toBe(true);
+  }));
+
+  it('REQ-OPERATOR-044: release CDN transport succeeds without forwarding acquisition credentials', async () => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    const registered = await request('/operators', 'POST', registration);
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(200);
+    const discovered = await refreshed.json() as { items: unknown[] };
+    expect(discovered.items).toHaveLength(1);
+    // The outbound origin/header contract is intentional security evidence, not private-call counting.
+    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com');
+    expect(cdnRequests.length).toBeGreaterThan(0);
+    expect(cdnRequests.every(outbound => outbound.authorization === null)).toBe(true);
+    expect(fixture.requests.some(outbound => outbound.origin === 'https://api.github.com'
+      && outbound.authorization === `Bearer ${registration.githubPat}`)).toBe(true);
+    expect(JSON.stringify(discovered)).not.toContain(registration.githubPat);
   }));
 });

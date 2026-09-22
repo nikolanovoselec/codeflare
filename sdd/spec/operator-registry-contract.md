@@ -28,18 +28,26 @@ Repository URL and PAT are registration input only. The PAT is write-only and is
 
 All routes are Enterprise-only and reauthorize server-side. Unknown fields fail validation. List results are authorization-filtered and use `{ items, cursor }` with default 50/max 100.
 
+One admin-owned control record lives in the existing OperatorRegistry: `{ revision, managers: OperatorGrant, ceiling: { capabilities: string[], resourceProfileIds: string[] } }`. Missing controls mean revision 0 and empty grants/ceiling. Only a current verified human platform admin may read/change this record. Other managers need its explicit eligibility grant AND the operator's manager grant; request-body ACLs cannot grant global eligibility. Existing verified platform-admin management authority is preserved, but ceiling restrictions apply to everyone. A null resource profile requests no profile; other IDs and capabilities must be within the ceiling and installation policy must only narrow its operator. Recheck controls/current grants after upstream I/O and CAS the controls revision with target mutations; no separate ACL service or hierarchy.
+
 | Method and route | Body / result |
 |---|---|
+| `GET /api/operator-management/access` | admin-only global management-control record |
+| `POST /api/operator-management/access` | admin-only `{ revision, managers, ceiling }` → revision-CAS control record |
 | `GET /api/operator-management/operators` | filtered catalog; query `cursor`, `limit`, `query`, `profile`, `realm`, `state` |
 | `POST /api/operator-management/operators` | `{ repositoryUrl, githubPat, profile, realm, managers, invokers, policy }` → disabled operator projection |
 | `GET /api/operator-management/operators/:operatorId` | operator, releases, installations and grants, never PAT/ciphertext |
-| `POST /api/operator-management/operators/:operatorId/releases/refresh` | `{ revision }` → discovered releases only |
+| `POST /api/operator-management/operators/:operatorId/source` | `{ revision, repositoryUrl, githubPat }` → operator projection; source/trust change invalidates approval; PAT remains write-only |
+| `POST /api/operator-management/operators/:operatorId/releases/refresh` | `{ revision }` → discovered releases only; reload detail for the new revision |
 | `POST /api/operator-management/operators/:operatorId/installations` | `{ name, policy, revision }` → disabled installation |
+| `POST /api/operator-management/installations/:installationId/configure` | `{ revision, policy, configuration }` → installation; configuration JSON bounded to 64 KiB |
 | `POST /api/operator-management/installations/:installationId/promote` | `{ releaseId, revision }` → approved pinned disabled installation |
 | `POST /api/operator-management/installations/:installationId/enable` | `{ revision, enabled }` → installation |
 | `POST /api/operator-management/operators/:operatorId/grants` | `{ managers, invokers, revision }` → operator projection |
 
 Outcomes use existing error envelope conventions: validation 400, unauthenticated 401, denied/non-enumerating 404, conflict 409, unavailable/upstream failure 503. No public endpoint accepts human identity, resource IDs, source credentials, publisher authority or arbitrary artifact URLs.
+
+Installed invocation uses existing `POST /api/operator-activities` with `{ installationId, invocation }`, returning the existing prepared activity/start-capability envelope. The parent resolves the installation/release/profile/configuration and verifies independent invocation rights before admission. Legacy `{ operatorId, invocation }` remains for existing registrations; the alternatives are exclusive. Neither path accepts execution identity, profile or resource authority from the caller.
 
 ## Parent capability operations
 
