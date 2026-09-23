@@ -48,6 +48,16 @@ describe('REQ-OPERATOR-054: trusted Action OIDC run identity', () => {
     });
   });
 
+  it('REQ-OPERATOR-055: publication OIDC uses its own audience under the same protected workflow identity', async () => {
+    const publication = { ...expected,
+      audience: 'https://enterprise.example.test/operator-webhook/v1/activities/claims/publication' };
+    expect(await verifyBoundaryActionOidc(await token(), publication, fetchKeys)).toBeNull();
+    expect(await verifyBoundaryActionOidc(await token({ aud: publication.audience }), publication, fetchKeys))
+      .toMatchObject({ repositoryId: 138, runId: 502, runAttempt: 2, eventName: 'pull_request_target' });
+    expect(await verifyBoundaryActionOidc(await token({ aud: publication.audience, run_attempt: '3' }),
+      publication, fetchKeys)).toBeNull();
+  });
+
   it('rejects tampered signatures and unknown signing keys', async () => {
     const valid = await token();
     const [header, , signature] = valid.split('.');

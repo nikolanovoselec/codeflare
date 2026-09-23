@@ -302,6 +302,17 @@ export class OperatorActivity extends Agent {
       ? structuredClone(state.boundary) : null;
   }
 
+  /** Parent-only non-driving terminal metadata; no result bytes, JWT or capability leaves this read. */
+  async getBoundaryPublicationState(activityId: string): Promise<{ binding: BoundaryActivityBinding;
+    generation: number; status: 'completed' | 'failed'; collected: boolean } | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (state?.intent.activityId !== activityId || !state.boundary || !state.drive
+      || state.drive.generation < 1 || state.phase !== 'queued'
+      || (state.drive.status !== 'completed' && state.drive.status !== 'failed')) return null;
+    return { binding: structuredClone(state.boundary), generation: state.drive.generation,
+      status: state.drive.status, collected: state.webhook?.consumed === true };
+  }
+
   /** Stop's exact binding wins durably over prepared, admitting and queued starts. */
   async cancelBoundaryStart(binding: BoundaryActivityBinding): Promise<{ ok: boolean }> {
     if (!boundaryBindingSchema.safeParse(binding).success) return { ok: false };

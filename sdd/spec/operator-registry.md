@@ -290,7 +290,7 @@ This release extends the existing Operator foundation with GitHub package instal
 2. At an authenticated Enterprise PR boundary, the parent prebinds one visible activity to the verified human, installation, exact current PR revision and applicable protected Action. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-boundary-preparation.ts::prepareVerifiedBoundary --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation) --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-053: exact-context preparation is one durable Registry reservation) -->
 3. At an eligible PR boundary, selection is remote only for an applicable trusted Action, local only for confirmed absence, and unavailable otherwise. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: src/operators/review-boundary-preparation.ts::selectVerifiedBoundaryAction --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-OPERATOR-053: Enterprise PR-boundary remote review selection) --> <!-- @test: src/__tests__/operators/review-action-applicability.test.ts (REQ-OPERATOR-053: approved target Action applicability, not release provenance) -->
 4. The status response exposes only metadata and the durable generation. Continuation claims that waiting generation once; a delayed accepted continuation cannot reserve a later drive. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/runtime.ts::driveOperatorRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes) -->
-5. Only a separate trusted publisher holds credentials for Review publication; neither local Pi nor the compiled child may publish. Publication ordering and evidence are governed by [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering).
+5. Only a separate trusted publisher holds credentials for Review publication; neither local Pi nor the compiled child may publish. Journal ordering and independent publication are governed by [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) and [REQ-OPERATOR-056](#req-operator-056-independent-review-publication).
 6. The existing owner-scoped Operator activity view shows real waiting, running, cleanup and terminal states; local Pi monitors independently verified published Review and ordinary CI and retains triage/FIX without running a second reviewer wave.
 7. The protected Action redeems the terminal result once with its read capability. <!-- @impl: src/operators/activity.ts::OperatorActivity.redeemWebhookResult --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity) -->
 
@@ -355,20 +355,47 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. The Registry admits a publication effect only for the current claimed PR reservation, exact Action run/attempt and parent-verified Activity drive generation. <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) --> <!-- @test: src/__tests__/routes/operator-boundary-claim.test.ts (REQ-OPERATOR-055: trusted publication journal boundary) -->
-2. Artifact, comment and shadow-check effects each retain an independent pending content digest across Registry reconstruction; repeating a pending request never authorizes another write. <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
-3. A verified external effect ID is bound once to its pending digest; lost acknowledgements reconcile the exact ID without replacing an ambiguous write. <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
-4. A newer PR reservation fences older publication completion; only independently verified current-context IDs and evidence may clear a shadow round. <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
-5. The separate trusted publisher requires independently verified original reports and GitHub history before any clearance.
-6. The credential-bearing publisher writes a bounded artifact, round comment and generation-specific shadow check, retaining each exact effect ID.
-7. Red or incomplete evidence leaves the independently verified shadow round non-green.
+1. The Registry admits journal effects only for the current claimed PR reservation, exact protected run/attempt and parent-verified terminal Activity drive generation. <!-- @impl: src/operators/registry.ts::OperatorRegistry.beginBoundaryPublication --> <!-- @impl: src/operators/review-boundary-claim.ts::operateBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getBoundaryPublicationState --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-055: Activity publishes only non-driving collected terminal generation metadata) --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-055: protected run and collected terminal drive alone reach the PR journal) --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-055: changed protected controls invalidate a previously claimed publication) --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-055: cancellation during GitHub verification fences journal admission) --> <!-- @test: src/__tests__/routes/operator-boundary-claim.test.ts (REQ-OPERATOR-055: trusted publication journal boundary) --> <!-- @test: src/__tests__/operators/review-action-oidc.test.ts (REQ-OPERATOR-055: publication OIDC uses its own audience under the same protected workflow identity) -->
+2. Artifact, comment and shadow-check effects each retain an independent pending digest across Registry reconstruction. <!-- @impl: src/operators/registry.ts::OperatorRegistry.beginBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
+3. Repeating a pending effect cannot authorize another write. <!-- @impl: src/operators/registry.ts::OperatorRegistry.beginBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
+4. An exact external effect ID binds once to its immutable pending digest. <!-- @impl: src/operators/registry.ts::OperatorRegistry.completeBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
+5. A lost completion acknowledgement retains the exact recorded ID without authorizing a replacement write. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getBoundaryPublication --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.getBoundaryPublicationGuard --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
+6. A newer PR reservation fences an older effect's completion. <!-- @impl: src/operators/registry.ts::OperatorRegistry.completeBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-055: protected run and collected terminal drive alone reach the PR journal) -->
 
-**Constraints:** Codeflare stores only opaque effect digests and IDs, not GitHub credentials, findings or publication policy. No cross-owner transaction or lock spanning GitHub I/O. A late stale check is not clearance; activating a required check needs explicit separate authorization. The trusted Action must run protected source, never candidate-controlled workflow bytes.
+**Constraints:** The Registry stores only opaque effect digests and IDs, never credentials, findings or publication policy. No cross-owner transaction or lock spanning GitHub I/O. An old successful shadow check cannot itself clear the current PR.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)
 
-**Verification:** Conductor's credential-bearing publisher adapter remains an uncommitted RED draft. The Registry owner tests are test-only RED; no durable journal, protected Action publisher or sandbox proof is claimed.
+**Verification:** Owner and protected route tests were RED at `db63cd98` (PR Checks `35905898120`). Journal and route implementation awaits exact-head GREEN CI; the independent publisher and protected sandbox publication are not proven.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-056: Independent Review publication
+
+**Intent:** A separate protected publisher uses original verified Review evidence and exact current GitHub identity to publish a non-authoritative shadow round.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Only the separate protected publisher job holds GitHub publication credentials; Pi, candidate code and the compiled child cannot access them.
+2. The publisher validates original lane reports and independently reconciled GitHub history before a round can clear.
+3. A bounded artifact retains the original reports under the exact prepared repository, PR, revision, run and activity identity.
+4. A human-readable round comment binds the same generation and preserves unresolved original findings.
+5. A generation-specific shadow check binds exact external IDs and the immutable content digest.
+6. Red, partial, missing or incomplete evidence never publishes a green round.
+7. Independent current-context verification rejects a late old check from clearing a newer revision.
+
+**Constraints:** Publication uses the credential-free [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) journal but never treats its receipt alone as GitHub evidence. Actions concurrency and matching check names are not serialization or clearance proofs. Required-check activation and production deployment need separate explicit authorization.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)
+
+**Verification:** Conductor's publisher RED draft is preserved uncommitted. Protected publisher, independent evidence and exact-ID sandbox proof remain pending; this requirement is Planned.
 
 **Status:** Planned

@@ -6,7 +6,8 @@ import { OperatorActivity } from '../../operators/activity';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
-import { claimVerifiedBoundaryAction } from '../../operators/review-boundary-claim';
+import { claimVerifiedBoundaryAction, operateBoundaryPublication,
+  type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
 import webhookRoutes from '../../routes/operator-webhook';
 import { fencePendingBoundaryStart } from '../../routes/session/boundary-stop';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
@@ -60,8 +61,9 @@ beforeEach(async () => {
 
 async function scenario(run: (fixture: {
   registry: OperatorRegistry; activity: OperatorActivity; repo: D1SessionRepository;
-  claim: (change?: Partial<typeof request>) => Promise<unknown>; activityId: string;
-  startCapability: string;
+  claim: (change?: Partial<typeof request>) => Promise<unknown>;
+  publish: (change?: Partial<BoundaryPublicationRequest>) => Promise<unknown>;
+  expireBoundary: () => Promise<void>; activityId: string; startCapability: string;
 }) => Promise<void>) {
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -108,10 +110,13 @@ async function scenario(run: (fixture: {
   const registryOwner = {
     resolveManagementExecution: (id: string) => inRegistry(owner => owner.resolveManagementExecution(id)),
     getBoundaryStartGuard: (id: string) => inRegistry(owner => owner.getBoundaryStartGuard(id)),
+    getBoundaryPublicationGuard: (id: string) => inRegistry(owner => owner.getBoundaryPublicationGuard(id)),
     admitManagement: (input: Parameters<OperatorRegistry['admitManagement']>[0]) =>
       inRegistry(owner => owner.admitManagement(input)),
     markBoundaryPrepared: (...args: Parameters<OperatorRegistry['markBoundaryPrepared']>) =>
       inRegistry(owner => owner.markBoundaryPrepared(...args)),
+    reserveBoundaryPreparation: (input: Parameters<OperatorRegistry['reserveBoundaryPreparation']>[0]) =>
+      inRegistry(owner => owner.reserveBoundaryPreparation(input)),
     claimBoundaryPreparation: (input: Parameters<OperatorRegistry['claimBoundaryPreparation']>[0]) =>
       inRegistry(owner => owner.claimBoundaryPreparation(input)),
     getBoundaryPreparation: (repositoryId: number, pullRequest: number) =>
@@ -122,6 +127,12 @@ async function scenario(run: (fixture: {
       inRegistry(owner => owner.setManagementControls(...args)),
     upsertOwnedActivity: (...args: Parameters<OperatorRegistry['upsertOwnedActivity']>) =>
       inRegistry(owner => owner.upsertOwnedActivity(...args)),
+    beginBoundaryPublication: (input: Parameters<OperatorRegistry['beginBoundaryPublication']>[0]) =>
+      inRegistry(owner => owner.beginBoundaryPublication(input)),
+    completeBoundaryPublication: (input: Parameters<OperatorRegistry['completeBoundaryPublication']>[0]) =>
+      inRegistry(owner => owner.completeBoundaryPublication(input)),
+    getBoundaryPublication: (input: Parameters<OperatorRegistry['getBoundaryPublication']>[0]) =>
+      inRegistry(owner => owner.getBoundaryPublication(input)),
   } as unknown as OperatorRegistry;
   const repo = new D1SessionRepository(db);
   await runInDurableObject(activityNamespace.get(activityNamespace.newUniqueId()), async (_inner, activityCtx) => {
@@ -182,7 +193,16 @@ async function scenario(run: (fixture: {
       })}.signature`;
       const claim = (change: Partial<typeof request> = {}) => claimVerifiedBoundaryAction(actionEnv,
         signedFixture, { ...request, ...change });
-      try { await run({ registry: registryOwner, activity, repo, claim, activityId, startCapability: prepared.startCapability }); }
+      const publish = (change: Partial<BoundaryPublicationRequest> = {}) => operateBoundaryPublication(actionEnv,
+        signedFixture, { ...request, workflowId: 531, activityId, contextDigest: 'f'.repeat(64),
+          sessionGeneration: 1, activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64),
+          operation: 'begin', ...change });
+      const expireBoundary = () => runInDurableObject(registryNamespace.getByName(registryName), (_owner, ctx) => {
+        ctx.storage.sql.exec(`UPDATE operator_boundary_preparations SET data=json_set(data,'$.deadline',?)
+          WHERE repository_id=? AND pull_request=?`, Date.now() - 1, 138, 34);
+      });
+      try { await run({ registry: registryOwner, activity, repo, claim, publish, expireBoundary,
+        activityId, startCapability: prepared.startCapability }); }
       finally { vi.restoreAllMocks(); }
   });
 }
@@ -245,6 +265,104 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     lost.mockRestore();
     expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
     expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
+  }));
+
+  it('REQ-OPERATOR-055: Activity publishes only non-driving collected terminal generation metadata', () => scenario(async f => {
+    expect(await f.activity.getBoundaryPublicationState(f.activityId)).toBeNull();
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    const started = await f.activity.startWebhook(f.startCapability);
+    if (!started.ok) throw Error('Expected Action-started activity');
+    expect(await f.activity.getBoundaryPublicationState(f.activityId)).toBeNull();
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { status: 'complete', reports: ['original-private-bytes'] } })).toMatchObject({ ok: true });
+    expect(await f.activity.getBoundaryPublicationState(f.activityId))
+      .toMatchObject({ generation: 1, status: 'completed', collected: false });
+    expect(await f.activity.redeemWebhookResult(started.readCapability)).toMatchObject({ ok: true, terminal: true });
+    const metadata = await f.activity.getBoundaryPublicationState(f.activityId);
+    expect(metadata).toMatchObject({ generation: 1, status: 'completed', collected: true,
+      binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session } });
+    expect(JSON.stringify(metadata)).not.toContain('original-private-bytes');
+    expect(await f.activity.getBoundaryPublicationState('foreign-activity')).toBeNull();
+    expect(await f.publish({ activityGeneration: 1 })).toMatchObject({ status: 'new' });
+    expect(await f.publish({ activityGeneration: 1 })).toMatchObject({ status: 'pending' });
+  }));
+
+  it('REQ-OPERATOR-055: protected run and collected terminal drive alone reach the PR journal', () => scenario(async f => {
+    expect(await f.publish()).toMatchObject({ status: 'stale' });
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    expect(await f.publish()).toMatchObject({ status: 'stale' });
+    vi.spyOn(f.activity, 'getBoundaryPublicationState').mockResolvedValue({
+      binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session },
+      generation: 2, status: 'completed', collected: true,
+    });
+    trust.signed = false;
+    expect(await f.publish()).toMatchObject({ status: 'denied' });
+    trust.signed = true;
+    trust.selection = false;
+    expect(await f.publish()).toMatchObject({ status: 'stale' });
+    trust.selection = true;
+    trust.current = false;
+    expect(await f.publish()).toMatchObject({ status: 'stale' });
+    trust.current = true;
+    expect(await f.publish({ runAttempt: 2 })).not.toMatchObject({ status: 'new' });
+    expect(await f.publish({ repositoryId: 139 })).not.toMatchObject({ status: 'new' });
+    expect(await f.publish({ activityGeneration: 3 })).toMatchObject({ status: 'stale' });
+    expect(await f.publish()).toMatchObject({ status: 'new' });
+    expect(await f.publish()).toMatchObject({ status: 'pending' });
+    expect(await f.publish({ operation: 'complete', externalId: 71 }))
+      .toMatchObject({ status: 'published', externalId: 71 });
+    expect(await f.publish({ operation: 'read' })).toMatchObject({ status: 'published', externalId: 71 });
+    await f.expireBoundary();
+    expect(await f.registry.getBoundaryStartGuard(f.activityId)).toMatchObject({ claimed: false });
+    expect(await f.publish({ operation: 'read' })).toMatchObject({ status: 'published', externalId: 71 });
+    expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) })).toMatchObject({ status: 'stale' });
+    const old = await f.registry.getBoundaryPreparation(138, 34);
+    if (!old) throw Error('Expected earlier PR reservation');
+    const { activityId: _activityId, phase: _phase, ...reservation } = old;
+    expect(await f.registry.reserveBoundaryPreparation({ ...reservation,
+      deadline: Date.now() + 300_000, contextDigest: '9'.repeat(64),
+      revision: { ...old.revision, head: '8'.repeat(40) }, expectedContextDigest: old.contextDigest }))
+      .toMatchObject({ ok: true });
+    expect(await f.registry.getBoundaryPublication({ ...request, workflowId: 531,
+      activityId: f.activityId, contextDigest: old.contextDigest, sessionGeneration: 1,
+      activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64) }))
+      .toMatchObject({ status: 'published', externalId: 71 });
+    expect(await f.publish({ operation: 'read' })).toMatchObject({ status: 'stale' });
+  }));
+
+  it('REQ-OPERATOR-055: changed protected controls invalidate a previously claimed publication', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    vi.spyOn(f.activity, 'getBoundaryPublicationState').mockResolvedValue({
+      binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session },
+      generation: 2, status: 'completed', collected: true,
+    });
+    const controls = await f.registry.getManagementControls();
+    expect(await f.registry.setManagementControls({ ...controls,
+      boundaryActions: [{ ...controls.boundaryActions![0], workflowDigest: '0'.repeat(64) }],
+    }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).toMatchObject({ ok: true });
+    expect(await f.publish()).toMatchObject({ status: 'stale' });
+    expect(await f.registry.getBoundaryPublication({ ...request, workflowId: 531,
+      activityId: f.activityId, contextDigest: 'f'.repeat(64), sessionGeneration: 1,
+      activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64) })).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-055: cancellation during GitHub verification fences journal admission', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    const binding = { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session };
+    let observation = 0;
+    vi.spyOn(f.activity, 'getBoundaryPublicationState').mockImplementation(async () => {
+      if (++observation === 2) {
+        expect(await f.activity.cancelBoundaryStart(binding)).toMatchObject({ ok: true });
+        return null;
+      }
+      return { binding, generation: 2, status: 'completed', collected: true };
+    });
+    expect(await f.publish()).toMatchObject({ status: 'stale' });
+    expect(await f.registry.getBoundaryPublication({ ...request, workflowId: 531,
+      activityId: f.activityId, contextDigest: binding.contextDigest, sessionGeneration: 1,
+      activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64) })).toBeNull();
+    expect(await f.activity.getAdmission()).toMatchObject({ phase: 'cancelled' });
   }));
 
   it('REQ-OPERATOR-054: a lost durable cancellation response retains pending Stop until exact reconciliation', () => scenario(async f => {

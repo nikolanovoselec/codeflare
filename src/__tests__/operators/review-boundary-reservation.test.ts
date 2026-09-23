@@ -215,9 +215,11 @@ describe('REQ-OPERATOR-055: durable PR-wide publication ordering', () => {
     for (const effect of effects) {
       const input = { ...identity, effect, digest: effect === 'artifact' ? '1'.repeat(64) : effect === 'comment'
         ? '2'.repeat(64) : '3'.repeat(64) };
-      expect(await publication(registry).beginBoundaryPublication(input)).toMatchObject({ status: 'new' });
-      expect(await publication(new OperatorRegistry(ctx, protectedEnv)).beginBoundaryPublication(input))
-        .toMatchObject({ status: 'pending' });
+      const contenders = await Promise.all([
+        publication(registry).beginBoundaryPublication(input),
+        publication(new OperatorRegistry(ctx, protectedEnv)).beginBoundaryPublication(input),
+      ]);
+      expect(contenders.map(outcome => outcome.status).sort()).toEqual(['new', 'pending']);
       const pending = await publication(registry).getBoundaryPublication(input);
       expect(pending).toMatchObject({ status: 'pending', digest: input.digest });
       expect(JSON.stringify(pending)).not.toContain('z'.repeat(43));
@@ -247,9 +249,27 @@ describe('REQ-OPERATOR-055: durable PR-wide publication ordering', () => {
     expect((await publication(registry).getBoundaryPublication(old))?.status).not.toBe('published');
   }));
 
-  it('retains a verified exact external ID after a lost acknowledgement without authorizing another create', () => withRegistry(async (registry, ctx) => {
+  it('reconciles a collected effect after execution expiry without granting a new publication write', () => withRegistry(async (registry, ctx) => {
+    const identity = await claimed(registry);
+    const input = { ...identity, effect: 'artifact' as const, digest: '1'.repeat(64) };
+    expect(await registry.beginBoundaryPublication(input)).toMatchObject({ status: 'new' });
+    ctx.storage.sql.exec(`UPDATE operator_boundary_preparations
+      SET data=json_set(data,'$.deadline',?) WHERE repository_id=? AND pull_request=?`,
+    Date.now() - 1, first.repositoryId, first.pullRequest);
+    expect(await registry.getBoundaryStartGuard(identity.activityId)).toMatchObject({ claimed: false });
+    expect(await registry.getBoundaryPublicationGuard(identity.activityId)).toMatchObject({ claimed: true });
+    expect(await registry.beginBoundaryPublication(input)).toMatchObject({ status: 'pending' });
+    expect(await registry.completeBoundaryPublication({ ...input, externalId: 77 }))
+      .toMatchObject({ status: 'published', externalId: 77 });
+    expect(await registry.beginBoundaryPublication({ ...input, effect: 'check', digest: '3'.repeat(64) }))
+      .toMatchObject({ status: 'stale' });
+  }));
+
+  it('retains a publisher-reported exact ID after a lost acknowledgement without authorizing another create', () => withRegistry(async (registry, ctx) => {
     const identity = await claimed(registry);
     const input = { ...identity, effect: 'comment' as const, digest: '2'.repeat(64) };
+    expect(await publication(registry).completeBoundaryPublication({ ...input, externalId: 71 }))
+      .toMatchObject({ status: 'stale' });
     expect(await publication(registry).beginBoundaryPublication(input)).toMatchObject({ status: 'new' });
     expect(await publication(registry).completeBoundaryPublication({ ...input, externalId: 71 }))
       .toMatchObject({ status: 'published' });

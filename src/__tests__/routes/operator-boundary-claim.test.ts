@@ -97,7 +97,7 @@ describe('operator boundary claim route (task #30; proposed contract)', () => {
 });
 
 const publicationPath = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/publication';
-const publication = { ...bindings, activityId: 'review-activity', contextDigest: 'd'.repeat(64),
+const publication = { ...bindings, workflowId: 531, activityId: 'review-activity', contextDigest: 'd'.repeat(64),
   sessionGeneration: 1, activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64), operation: 'begin' };
 function publicationRequest(body: unknown = publication, authorization: string | null = `Bearer ${token}`) {
   return new Request(publicationPath, { method: 'POST', headers: {
@@ -138,6 +138,7 @@ describe('REQ-OPERATOR-055: trusted publication journal boundary', () => {
 
   it('validates effect identity, operation, digest, exact numeric ID and bounded payload at the edge', async () => {
     for (const invalid of [{ ...publication, effect: 'required-check' },
+      Object.fromEntries(Object.entries(publication).filter(([key]) => key !== 'activityId')),
       { ...publication, operation: 'dispatch' }, { ...publication, digest: 'bad' },
       { ...publication, activityGeneration: 0 }, { ...publication, externalId: 71 },
       { ...publication, operation: 'complete' }, { ...publication, operation: 'complete', externalId: 0 },

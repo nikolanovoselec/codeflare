@@ -115,6 +115,14 @@ export interface BoundaryPreparation {
   releaseId: string; bundleDigest: string; workflowId: number; workflowDigest: string;
   session: { bucket: string; sessionId: string; generation: number };
 }
+export type BoundaryPublicationInput = {
+  repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string;
+  workflowId: number; runId: number; runAttempt: number; activityId: string;
+  contextDigest: string; sessionGeneration: number; activityGeneration: number;
+  effect: 'artifact' | 'comment' | 'check'; digest: string;
+};
+export type BoundaryPublicationReceipt = { status: 'pending' | 'published'; digest: string; externalId?: number };
+type BoundaryPublicationOutcome = { status: 'new' | 'pending' | 'published' | 'stale' | 'conflict'; externalId?: number };
 export interface ManagementAuthority { operatorRevision: number; controlsRevision: number; expiresAt: number }
 export interface ManagementAdmissionRequest {
   installationId: string; activityId: string; intentDigest: string;
@@ -480,7 +488,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         json_extract(data,'$.ownerKey'),repository_id,pull_request);
       CREATE TABLE IF NOT EXISTS operator_boundary_handoffs (
         activity_id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, expires_at INTEGER NOT NULL,
-        consumed INTEGER NOT NULL DEFAULT 0, run_id INTEGER, run_attempt INTEGER);`);
+        consumed INTEGER NOT NULL DEFAULT 0, run_id INTEGER, run_attempt INTEGER);
+      CREATE TABLE IF NOT EXISTS operator_boundary_publications (
+        repository_id INTEGER NOT NULL, pull_request INTEGER NOT NULL, activity_id TEXT NOT NULL,
+        activity_generation INTEGER NOT NULL, effect TEXT NOT NULL, digest TEXT NOT NULL,
+        external_id INTEGER, PRIMARY KEY(repository_id,pull_request,activity_id,activity_generation,effect));`);
     const columns = this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(operator_boundary_handoffs)').toArray();
     if (!columns.some(column => column.name === 'run_id')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_id INTEGER');
     if (!columns.some(column => column.name === 'run_attempt')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_attempt INTEGER');
@@ -622,6 +634,28 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       session: structuredClone(current.session) };
   }
 
+  /** Terminal publication reconciliation uses immutable claimed identity, not permission to
+   * start another drive. Expiry still fences new effects in beginBoundaryPublication. */
+  async getBoundaryPublicationGuard(activityId: string): Promise<{
+    claimed: boolean; repositoryId: number; pullRequest: number; workflowId: number;
+    runId: number; runAttempt: number; contextDigest: string; sessionGeneration: number;
+  } | null> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return null;
+    this.managementSchema();
+    const row = this.ctx.storage.sql.exec<{ data: string }>(
+      "SELECT data FROM operator_boundary_preparations WHERE json_extract(data,'$.activityId')=? LIMIT 1",
+      activityId).toArray()[0];
+    if (!row) return null;
+    const current = JSON.parse(row.data) as BoundaryPreparation;
+    const handoff = this.ctx.storage.sql.exec<{ consumed: number; run_id: number | null; run_attempt: number | null }>(
+      'SELECT consumed,run_id,run_attempt FROM operator_boundary_handoffs WHERE activity_id=?', activityId).toArray()[0];
+    return { claimed: current.phase === 'claimed' && handoff?.consumed === 1
+      && handoff.run_id != null && handoff.run_attempt != null && this.boundarySelectionCurrent(current),
+    repositoryId: current.repositoryId, pullRequest: current.pullRequest, workflowId: current.workflowId,
+    runId: handoff?.run_id ?? 0, runAttempt: handoff?.run_attempt ?? 0,
+    contextDigest: current.contextDigest, sessionGeneration: current.session.generation };
+  }
+
   /** OIDC and live session authority are verified by the authenticated parent before this one-time claim. */
   async claimBoundaryPreparation(input: { repositoryId: number; pullRequest: number; head: string; base: string;
     mergeBase: string; workflowId: number; runId: number; runAttempt: number }): Promise<OperatorRegistryResult<{
@@ -659,6 +693,101 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       { purpose: 'handoff', recordId: claimed.current.activityId });
     return { ok: true, value: { activityId: claimed.current.activityId, startCapability,
       ...input, generation: claimed.current.session.generation, session: structuredClone(claimed.current.session) } };
+  }
+
+  /** Credential-free, PR-wide journal. The parent verifies OIDC, current GitHub and the terminal
+   * Activity drive before calling; this owner never holds a publisher credential or GitHub I/O. */
+  private validBoundaryPublication(input: BoundaryPublicationInput): boolean {
+    return Number.isSafeInteger(input.repositoryId) && input.repositoryId > 0
+      && Number.isSafeInteger(input.pullRequest) && input.pullRequest > 0
+      && [input.workflowId, input.runId, input.runAttempt, input.sessionGeneration, input.activityGeneration]
+        .every(value => Number.isSafeInteger(value) && value > 0)
+      && [input.head, input.base, input.mergeBase].every(value => /^[a-f0-9]{40}$/.test(value))
+      && [input.contextDigest, input.digest].every(value => /^[a-f0-9]{64}$/.test(value))
+      && /^[A-Za-z0-9_-]{1,128}$/.test(input.activityId)
+      && ['artifact', 'comment', 'check'].includes(input.effect);
+  }
+
+  private boundaryPublicationCurrent(input: BoundaryPublicationInput): boolean {
+    const row = this.ctx.storage.sql.exec<{ data: string }>(
+      'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
+      input.repositoryId, input.pullRequest).toArray()[0];
+    if (!row) return false;
+    const current = JSON.parse(row.data) as BoundaryPreparation;
+    const handoff = this.ctx.storage.sql.exec<{ consumed: number; run_id: number | null; run_attempt: number | null }>(
+      'SELECT consumed,run_id,run_attempt FROM operator_boundary_handoffs WHERE activity_id=?',
+      current.activityId).toArray()[0];
+    return current.phase === 'claimed' && this.boundarySelectionCurrent(current)
+      && current.activityId === input.activityId && current.contextDigest === input.contextDigest
+      && current.session.generation === input.sessionGeneration && current.workflowId === input.workflowId
+      && current.revision.head === input.head && current.revision.base === input.base
+      && current.revision.mergeBase === input.mergeBase && handoff?.consumed === 1
+      && handoff.run_id === input.runId && handoff.run_attempt === input.runAttempt;
+  }
+
+  private boundaryPublicationRow(input: BoundaryPublicationInput): { digest: string; external_id: number | null } | undefined {
+    return this.ctx.storage.sql.exec<{ digest: string; external_id: number | null }>(
+      `SELECT digest,external_id FROM operator_boundary_publications
+       WHERE repository_id=? AND pull_request=? AND activity_id=? AND activity_generation=? AND effect=?`,
+      input.repositoryId, input.pullRequest, input.activityId, input.activityGeneration, input.effect).toArray()[0];
+  }
+
+  async beginBoundaryPublication(input: BoundaryPublicationInput): Promise<BoundaryPublicationOutcome> {
+    if (!this.validBoundaryPublication(input)) throw new ValidationError('Invalid boundary publication');
+    this.managementSchema();
+    return this.ctx.storage.transactionSync<BoundaryPublicationOutcome>(() => {
+      if (!this.boundaryPublicationCurrent(input)) return { status: 'stale' };
+      const existing = this.boundaryPublicationRow(input);
+      if (existing) {
+        if (existing.digest !== input.digest) return { status: 'conflict' };
+        return existing.external_id === null ? { status: 'pending' }
+          : { status: 'published', externalId: existing.external_id };
+      }
+      const reservation = this.ctx.storage.sql.exec<{ deadline: number }>(
+        "SELECT json_extract(data,'$.deadline') AS deadline FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?",
+        input.repositoryId, input.pullRequest).toArray()[0];
+      if (!reservation || reservation.deadline <= Date.now()) return { status: 'stale' };
+      const generation = this.ctx.storage.sql.exec<{ activity_generation: number }>(
+        `SELECT activity_generation FROM operator_boundary_publications
+         WHERE repository_id=? AND pull_request=? AND activity_id=? LIMIT 1`,
+        input.repositoryId, input.pullRequest, input.activityId).toArray()[0];
+      if (generation && generation.activity_generation !== input.activityGeneration) return { status: 'stale' };
+      this.ctx.storage.sql.exec(`INSERT INTO operator_boundary_publications
+        (repository_id,pull_request,activity_id,activity_generation,effect,digest,external_id) VALUES(?,?,?,?,?,?,NULL)`,
+      input.repositoryId, input.pullRequest, input.activityId, input.activityGeneration, input.effect, input.digest);
+      return { status: 'new' };
+    });
+  }
+
+  async completeBoundaryPublication(input: BoundaryPublicationInput & { externalId: number }): Promise<BoundaryPublicationOutcome> {
+    if (!this.validBoundaryPublication(input) || !Number.isSafeInteger(input.externalId) || input.externalId < 1) {
+      throw new ValidationError('Invalid boundary publication receipt');
+    }
+    this.managementSchema();
+    return this.ctx.storage.transactionSync<BoundaryPublicationOutcome>(() => {
+      if (!this.boundaryPublicationCurrent(input)) return { status: 'stale' };
+      const existing = this.boundaryPublicationRow(input);
+      if (!existing) return { status: 'stale' };
+      if (existing.digest !== input.digest || existing.external_id !== null && existing.external_id !== input.externalId) {
+        return { status: 'conflict' };
+      }
+      if (existing.external_id === null) this.ctx.storage.sql.exec(
+        `UPDATE operator_boundary_publications SET external_id=? WHERE repository_id=? AND pull_request=?
+         AND activity_id=? AND activity_generation=? AND effect=? AND digest=? AND external_id IS NULL`,
+        input.externalId, input.repositoryId, input.pullRequest, input.activityId,
+        input.activityGeneration, input.effect, input.digest);
+      return { status: 'published', externalId: input.externalId };
+    });
+  }
+
+  /** Reconciliation reads immutable metadata only; it is never permission to create again. */
+  async getBoundaryPublication(input: BoundaryPublicationInput): Promise<BoundaryPublicationReceipt | null> {
+    if (!this.validBoundaryPublication(input)) return null;
+    this.managementSchema();
+    const row = this.boundaryPublicationRow(input);
+    return row && row.digest === input.digest ? row.external_id === null
+      ? { status: 'pending', digest: row.digest }
+      : { status: 'published', digest: row.digest, externalId: row.external_id } : null;
   }
 
   async markBoundaryPrepared(repositoryId: number, pullRequest: number, activityId: string,
