@@ -8,6 +8,7 @@ import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { claimVerifiedBoundaryAction } from '../../operators/review-boundary-claim';
 import webhookRoutes from '../../routes/operator-webhook';
+import { fencePendingBoundaryStart } from '../../routes/session/boundary-stop';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
@@ -64,13 +65,13 @@ async function scenario(run: (fixture: {
 }) => Promise<void>) {
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  const registryStub = registryNamespace.get(registryNamespace.newUniqueId());
-  let registry!: OperatorRegistry;
+  const registryName = `boundary-${crypto.randomUUID()}`;
+  const registryStub = registryNamespace.getByName(registryName);
   let activityId!: string;
   let human!: { subject: string; email: string; issuer: string; audiences: string[];
     issuedAt: number; expiresAt: number };
   await runInDurableObject(registryStub, async (_instance, registryCtx) => {
-    registry = new OperatorRegistry(registryCtx, protectedEnv);
+    const registry = new OperatorRegistry(registryCtx, protectedEnv);
     const policy = { capabilities: [], resourceProfileId: null };
     expect((await registry.setManagementControls({ revision: 0, managers: { users: [], groups: [] },
       ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [{ repositoryId: 138,
@@ -100,9 +101,10 @@ async function scenario(run: (fixture: {
     if (!reservation.ok) throw Error('Expected real Registry preparation');
     activityId = reservation.value.activityId;
   });
-  // Cross-owner calls enter the Registry's DO context; a raw instance cannot be used from Activity.
+  // Reacquire the same owner by name in the calling context; neither a stub nor storage is shared across DOs.
   const inRegistry = <T>(call: (owner: OperatorRegistry) => Promise<T>) =>
-    runInDurableObject(registryStub, () => call(registry));
+    runInDurableObject(registryNamespace.getByName(registryName), (_instance, registryCtx) =>
+      call(new OperatorRegistry(registryCtx, protectedEnv)));
   const registryOwner = {
     resolveManagementExecution: (id: string) => inRegistry(owner => owner.resolveManagementExecution(id)),
     getBoundaryStartGuard: (id: string) => inRegistry(owner => owner.getBoundaryStartGuard(id)),
@@ -243,6 +245,32 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     lost.mockRestore();
     expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
     expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
+  }));
+
+  it('REQ-OPERATOR-054: a lost durable cancellation response retains pending Stop until exact reconciliation', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    const stopping = await f.repo.claimStop(session.bucket, session.sessionId, 'stop-lost', new Date().toISOString());
+    expect(stopping).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: f.activityId });
+    if (!stopping) throw Error('Expected stopping session');
+    const lostActivity = {
+      getBoundaryStartBinding: (id: string) => f.activity.getBoundaryStartBinding(id),
+      cancelBoundaryStart: async (binding: Parameters<OperatorActivity['cancelBoundaryStart']>[0]) => {
+        await f.activity.cancelBoundaryStart(binding);
+        throw Error('Durable cancellation response lost');
+      },
+    };
+    await expect(fencePendingBoundaryStart({ OPERATOR_ACTIVITY: { getByName: () => lostActivity } } as never,
+      f.repo, stopping)).rejects.toThrow('response lost');
+    expect(await f.repo.getSession(session.bucket, session.sessionId))
+      .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: f.activityId });
+    expect(await f.repo.confirmStopped(session.bucket, session.sessionId, 1, 'stop-lost', new Date().toISOString()))
+      .toBe(false);
+    expect(await f.repo.start(session.bucket, session.sessionId, new Date().toISOString())).toBeNull();
+    expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: false });
+    await fencePendingBoundaryStart({ OPERATOR_ACTIVITY: { getByName: () => f.activity } } as never,
+      f.repo, stopping);
+    expect(await f.repo.confirmStopped(session.bucket, session.sessionId, 1, 'stop-lost', new Date().toISOString()))
+      .toBe(true);
   }));
 
   it('Stop wins before an Action claim; the old generation cannot consume or start', () => scenario(async f => {
