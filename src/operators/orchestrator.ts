@@ -156,6 +156,7 @@ export async function runOperatorActivity(
   activityId: string,
   env: Env,
   bindCapability: OperatorCapabilityBinder,
+  expectedGeneration?: number,
 ): Promise<void> {
   const requestDeadline = Date.now() + 25_000;
   if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return;
@@ -177,8 +178,8 @@ export async function runOperatorActivity(
           throw new Error('Pinned Dispatcher source mismatch');
         }
         const driven = await driveDispatcherRuntime({ activity, deadline: attemptDeadline,
-          bundle: dispatcher, artifactDigest, invocation: JSON.parse(plan.invocationJson) });
-        if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure();
+          bundle: dispatcher, artifactDigest, invocation: JSON.parse(plan.invocationJson), expectedGeneration });
+        if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
         return;
       }
       bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
@@ -201,11 +202,11 @@ export async function runOperatorActivity(
     }
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
-      invocation,
+      invocation, expectedGeneration,
       bind: async generation => ({ capability: bindCapability(activityId, generation), outbound: null }),
     });
-    if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure();
+    if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
   } catch {
-    await activity.fenceRuntimeFailure().catch(() => {});
+    await activity.fenceRuntimeFailure(expectedGeneration).catch(() => {});
   }
 }

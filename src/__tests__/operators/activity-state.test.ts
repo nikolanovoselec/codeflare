@@ -301,6 +301,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.continueWebhook(started.readCapability, 1))
       .toEqual({ ok: false, reason: 'stale-generation' });
     expect(await activity.beginDrive(1)).toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity.fenceRuntimeFailure(1)).toEqual({ ok: false, reason: 'stale-drive' });
     expect(await activity.getWebhookStatus(started.readCapability))
       .toMatchObject({ ok: true, status: 'waiting', generation: 2 });
     expect(await activity.continueWebhook(started.readCapability, 2)).toEqual({ ok: true, phase: 'queued' });

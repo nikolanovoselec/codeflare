@@ -410,7 +410,11 @@ describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
   });
 
   it('REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction', async () => {
-    const { activityId } = await queuedActivity();
+    const { activityId } = await preparedActivity();
+    const start = await activity(activityId, { action: 'start-webhook', capability: START_TOKEN }) as {
+      ok: boolean; readCapability: string;
+    };
+    expect(start.ok).toBe(true);
     expect(await activity(activityId, { action: 'drive-runtime' }))
       .toMatchObject({ ok: true, state: { generation: 1, status: 'waiting' } });
     expect(await activity(activityId, { action: 'begin-drive' }))
@@ -418,6 +422,8 @@ describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
     expect(await activity(activityId, { action: 'commit-drive', generation: 2,
       update: { schemaVersion: 1, status: 'waiting', checkpoint: { step: 2 } } }))
       .toMatchObject({ ok: true, state: { generation: 2, status: 'waiting' } });
+    expect(await activity(activityId, { action: 'continue-webhook', capability: start.readCapability, generation: 2 }))
+      .toEqual({ ok: true, phase: 'queued' });
     await activity(activityId, { action: 'evict' });
     expect(await activity(activityId, { action: 'drive-runtime', expectedGeneration: 1 }))
       .toEqual({ ok: false, reason: 'stale-drive' });

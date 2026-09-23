@@ -26,6 +26,32 @@ function bearer(header: string | undefined): string | null {
   const token = header.slice(7);
   return CAPABILITY.test(token) ? token : null;
 }
+async function continuationGeneration(request: Request): Promise<number | null> {
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    || !request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 128) { await reader.cancel(); return null; }
+      chunks.push(chunk.value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const body: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).length !== 1 || !('generation' in body)
+      || typeof body.generation !== 'number'
+      || !Number.isSafeInteger(body.generation) || body.generation < 1) return null;
+    return body.generation;
+  } catch { return null; }
+  finally { reader.releaseLock(); }
+}
 function throttle(key: string): boolean {
   const now = Date.now();
   const current = limits.get(key);
@@ -46,11 +72,14 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
   }
   const expectedMethod = action === 'status' ? 'GET' : 'POST';
   if (c.req.method !== expectedMethod) return response({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
-  if (c.req.raw.body !== null) return response({ error: 'Request body is not accepted', code: 'WEBHOOK_BODY_INVALID' }, 400);
   const limitKey = `${c.req.header('cf-connecting-ip') ?? 'unknown'}:${activityId}`;
   if (throttle(limitKey)) return response({ error: 'Too many requests', code: 'WEBHOOK_THROTTLED' }, 429);
   const capability = bearer(c.req.header('authorization'));
   if (!capability) return response({ error: 'Capability required', code: 'WEBHOOK_CAPABILITY_REQUIRED' }, 401);
+  const generation = action === 'continue' ? await continuationGeneration(c.req.raw) : null;
+  if (action === 'continue' ? generation === null : c.req.raw.body !== null) {
+    return response({ error: 'Request body is not accepted', code: 'WEBHOOK_BODY_INVALID' }, 400);
+  }
   if (!c.env.OPERATOR_ACTIVITY) return response({ error: 'Webhook unavailable', code: 'WEBHOOK_UNAVAILABLE' }, 503);
 
   const activity = c.env.OPERATOR_ACTIVITY.getByName(activityId);
@@ -62,11 +91,12 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
       : action === 'status'
         ? await activity.getWebhookStatus(capability)
         : action === 'continue'
-          ? await activity.continueWebhook(capability)
+          ? await activity.continueWebhook(capability, generation!)
           : await activity.redeemWebhookResult(capability);
     if (result.ok) {
       if ((action === 'start' || action === 'continue') && bindCapability) {
-        c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
+        c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability,
+          action === 'continue' ? generation! : undefined).catch(() => {}));
       }
       if (action === 'status') {
         const { result: _result, ...metadata } = result as { result?: unknown };
@@ -76,7 +106,8 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
     }
     const status = result.reason === 'not-ready' ? 202
       : result.reason === 'capability-expired' ? 410
-        : result.reason === 'consumed' || result.reason === 'already-started' || result.reason === 'stale-publication' ? 409
+        : result.reason === 'consumed' || result.reason === 'already-started'
+          || result.reason === 'stale-generation' || result.reason === 'stale-publication' ? 409
           : result.reason === 'not-prepared' ? 404
             : result.reason === 'admission-denied' || result.reason === 'authority-expired' ? 403
               : result.reason === 'admission-uncertain' ? 503 : 401;

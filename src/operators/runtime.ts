@@ -14,6 +14,7 @@ interface OperatorRuntimeOptions {
   activity: Pick<OperatorActivity, 'beginDrive' | 'commitDrive' | 'interruptDrive'>;
   activityId: string;
   deadline: number;
+  expectedGeneration?: number;
   loader: OperatorLoaderBinding;
   bundle: OperatorBundle;
   invocation?: unknown;
@@ -25,11 +26,12 @@ interface OperatorRuntimeOptions {
 export async function driveDispatcherRuntime(options: {
   activity: Pick<OperatorActivity, 'beginDrive' | 'admitDispatcher' | 'interruptDrive'>;
   deadline: number; bundle: DispatcherBundle; artifactDigest: string; invocation: unknown;
+  expectedGeneration?: number;
 }): Promise<OperatorDriveResult> {
   if (!Number.isFinite(options.deadline) || Date.now() >= options.deadline) {
     return { ok: false, reason: 'authority-expired' };
   }
-  const reserved = await options.activity.beginDrive();
+  const reserved = await options.activity.beginDrive(options.expectedGeneration);
   if (!reserved.ok) return reserved;
   try {
     return await options.activity.admitDispatcher(reserved.state.generation,
@@ -51,7 +53,7 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
   if (!Number.isFinite(options.deadline) || Date.now() >= options.deadline) {
     return { ok: false, reason: 'authority-expired' };
   }
-  const reserved = await options.activity.beginDrive();
+  const reserved = await options.activity.beginDrive(options.expectedGeneration);
   if (!reserved.ok) return reserved;
   const { generation, checkpoint } = reserved.state;
   const controller = new AbortController();

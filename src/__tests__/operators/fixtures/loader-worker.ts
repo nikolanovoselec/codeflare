@@ -49,6 +49,8 @@ export class FixtureRegistry extends OperatorRegistry {
 export type ActivityFixtureCommand =
   | { action: 'prepare'; intent: OperatorActivityPreparation }
   | { action: 'start'; capability: string }
+  | { action: 'start-webhook'; capability: string }
+  | { action: 'continue-webhook'; capability: string; generation: number }
   | { action: 'observe' }
   | { action: 'begin-drive' }
   | { action: 'commit-drive'; generation: number; update: unknown }
@@ -216,6 +218,8 @@ export default {
           }
           case 'prepare': return Response.json(await activity.prepare(command.intent));
           case 'start': return Response.json(await activity.start(command.capability));
+          case 'start-webhook': return Response.json(await activity.startWebhook(command.capability));
+          case 'continue-webhook': return Response.json(await activity.continueWebhook(command.capability, command.generation));
           case 'observe': return Response.json(await activity.getAdmission());
           case 'begin-drive': return Response.json(await activity.beginDrive());
           case 'commit-drive': return Response.json(await activity.commitDrive(command.generation, command.update));

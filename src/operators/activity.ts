@@ -96,11 +96,11 @@ export type OperatorSyncResult = { ok: true; phase: OperatorSyncState['phase'] }
   'not-admitted' | 'invalid-scope' | 'conflict' | 'operation-limit' | 'authority-expired'
     | 'not-prepared' | 'sealed' | 'evidence-mismatch' };
 export type WebhookStartResult = { ok: true; phase: 'queued'; readCapability: string } | AdmissionFailure;
-export type WebhookReadResult = { ok: true; terminal: boolean; status: string; result?: unknown } | {
+export type WebhookReadResult = { ok: true; terminal: boolean; status: string; generation: number; result?: unknown } | {
   ok: false; reason: 'invalid-capability' | 'capability-expired' | 'not-ready' | 'consumed' | 'not-prepared' };
 export type WebhookContinueResult = { ok: true; phase: 'queued' }
   | Extract<WebhookReadResult, { ok: false }>
-  | { ok: false; reason: 'stale-publication' };
+  | { ok: false; reason: 'stale-publication' | 'stale-generation' | 'already-started' };
 
 export interface OperatorRuntimePlan {
   activityId: string;
@@ -142,7 +142,7 @@ interface AdmissionState {
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
   review?: OperatorReviewState;
-  webhook?: { readVerifier: string; expiresAt: number; consumed: boolean };
+  webhook?: { readVerifier: string; expiresAt: number; consumed: boolean; continuedGeneration?: number };
   ownerKey?: string;
   browserCollectionConsumed?: boolean;
   updatedAt?: number;
@@ -480,15 +480,28 @@ export class OperatorActivity extends Agent {
   async getWebhookStatus(capability: string): Promise<WebhookReadResult> {
     const checked = await this.readWebhook(capability);
     if (!checked.ok) return checked;
-    return { ok: true, terminal: checked.terminal, status: checked.status,
+    return { ok: true, terminal: checked.terminal, status: checked.status, generation: checked.generation,
       ...(checked.terminal ? { result: checked.result } : {}) };
   }
 
-  /** Re-drive only non-terminal work authenticated by its existing read capability. */
-  async continueWebhook(capability: string): Promise<WebhookContinueResult> {
-    const checked = await this.readWebhook(capability);
-    if (!checked.ok) return checked;
-    return checked.terminal ? { ok: false, reason: 'not-ready' } : { ok: true, phase: 'queued' };
+  /** Claim one observed waiting generation; a read or delayed callback never drives a later one. */
+  async continueWebhook(capability: string, expectedGeneration: number): Promise<WebhookContinueResult> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
+    if (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 1) {
+      return { ok: false, reason: 'stale-generation' };
+    }
+    const verifier = await capabilityVerifier(capability);
+    return this.ctx.storage.transaction<WebhookContinueResult>(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      const checked = this.checkWebhookRead(state, verifier);
+      if (!checked.ok) return checked;
+      if (checked.terminal || state?.drive?.status !== 'waiting') return { ok: false, reason: 'not-ready' };
+      if (state.drive.generation !== expectedGeneration) return { ok: false, reason: 'stale-generation' };
+      if (state.webhook!.continuedGeneration === expectedGeneration) return { ok: false, reason: 'already-started' };
+      await tx.put<AdmissionState>('admission', { ...state, webhook: { ...state.webhook!,
+        continuedGeneration: expectedGeneration } });
+      return { ok: true, phase: 'queued' };
+    });
   }
 
   /** A not-ready read is non-consuming; one terminal transaction wins before delivery. */
@@ -521,7 +534,8 @@ export class OperatorActivity extends Agent {
     const terminal = expired || driveStatus === 'completed' || driveStatus === 'failed'
       || driveStatus === 'cancel-requested' || driveStatus === 'unknown';
     const status = expired && !driveStatus ? 'expired' : (driveStatus ?? 'queued');
-    return { ok: true, terminal, status, ...(terminal ? { result: state.drive?.result ?? null } : {}) };
+    return { ok: true, terminal, status, generation: state.drive?.generation ?? 0,
+      ...(terminal ? { result: state.drive?.result ?? null } : {}) };
   }
 
   /** Persist a stable parent-authorized upload scope before host-side effects. */
@@ -761,12 +775,18 @@ export class OperatorActivity extends Agent {
    * resume; a running/unknown drive is never replayed based on isolate loss.
    * The parent binds the returned generation to its child capabilities.
    */
-  async beginDrive(): Promise<OperatorDriveResult> {
+  async beginDrive(expectedGeneration?: number): Promise<OperatorDriveResult> {
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
       if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
         return { ok: false, reason: 'authority-expired' };
+      }
+      if (expectedGeneration !== undefined && (!Number.isSafeInteger(expectedGeneration)
+        || expectedGeneration < 1 || record.drive?.status !== 'waiting'
+        || record.drive.generation !== expectedGeneration
+        || record.webhook?.continuedGeneration !== expectedGeneration)) {
+        return { ok: false, reason: 'stale-drive' };
       }
       if (record.drive?.status === 'running') return { ok: false, reason: 'drive-active' };
       if (record.drive && record.drive.status !== 'waiting') return { ok: false, reason: 'drive-settled' };
@@ -871,8 +891,8 @@ export class OperatorActivity extends Agent {
   }
 
   /** Fence a queued request whose one attached runtime attempt failed before loading code. */
-  async fenceRuntimeFailure(): Promise<OperatorDriveResult> {
-    const result = await this.fenceDrive('unknown');
+  async fenceRuntimeFailure(expectedGeneration?: number): Promise<OperatorDriveResult> {
+    const result = await this.fenceDrive('unknown', expectedGeneration, true);
     if (result.ok) {
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
@@ -880,11 +900,13 @@ export class OperatorActivity extends Agent {
     return result;
   }
 
-  private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number): Promise<OperatorDriveResult> {
+  private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number,
+    allowWaiting = false): Promise<OperatorDriveResult> {
     return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
-      if (generation !== undefined && (record.drive?.status !== 'running' || record.drive.generation !== generation)) {
+      if (generation !== undefined && (record.drive?.generation !== generation
+        || (record.drive.status !== 'running' && !(allowWaiting && record.drive.status === 'waiting')))) {
         return { ok: false, reason: 'stale-drive' };
       }
       if (record.drive && record.drive.status !== 'running' && record.drive.status !== 'waiting') {
