@@ -464,8 +464,8 @@ jobs:
     needs: changes
     env:
       DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
-      DISPATCHER_NATIVE_SHA256: c7d9966471a755b3f06c9e29b5e3e581b2b8a021f967f22d47cb0df7a2e1e50e
-      DISPATCHER_NATIVE_SOURCE_SHA: 6028021aab62a6032f74f746723b38ec79a70e97
+      DISPATCHER_NATIVE_SHA256: cda68ed8d2ba47c479f5daa636b00701f0ef079bedb55649c0d659de73cc910e
+      DISPATCHER_NATIVE_SOURCE_SHA: 7e32feb95b470b961da4607956274f641a9abf29
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -494,8 +494,8 @@ jobs:
       - name: Verify exact compiler-produced Dispatcher fixture
         if: matrix.group == 'native'
         run: |
-          echo 'c7d9966471a755b3f06c9e29b5e3e581b2b8a021f967f22d47cb0df7a2e1e50e  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
-          grep -F '"sourceCommit":"6028021aab62a6032f74f746723b38ec79a70e97"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
+          echo 'cda68ed8d2ba47c479f5daa636b00701f0ef079bedb55649c0d659de73cc910e  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
+          grep -qF '"sourceCommit":"7e32feb95b470b961da4607956274f641a9abf29"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
 
       - uses: ./.github/actions/install-deps
         with:
