@@ -25,9 +25,11 @@ function environment(overrides: Record<string, unknown> = {}) {
     getByName: vi.fn(() => activity),
   }, ...overrides } };
 }
-function request(path: string, method: string, token = capability) {
+function request(path: string, method: string, token = capability, body?: unknown) {
   return new Request(`https://enterprise.example.test${path}`, {
-    method, headers: { authorization: `Bearer ${token}` },
+    method, headers: { authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
 
@@ -61,25 +63,36 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
   it('REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority', async () => {
     const { env, activity } = environment();
     const continuing = activity as typeof activity & { continueWebhook?: ReturnType<typeof vi.fn> };
-    continuing.continueWebhook = vi.fn(async () => ({ ok: true, phase: 'queued' }));
-    const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST'), env as never,
+    continuing.continueWebhook = vi.fn(async (_token: string, generation: number) => generation === 1
+      ? { ok: true, phase: 'queued' } : { ok: false, reason: 'stale-generation' });
+    const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST', capability,
+      { generation: 1 }), env as never,
       { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {
         OperatorRuntimeCapability: vi.fn(() => ({ fetch: vi.fn() })),
       } });
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     await expect(response.json()).resolves.toEqual({ ok: true, phase: 'queued' });
+    for (const body of [undefined, { generation: 0 }, { generation: '1' }, { generation: 1, actorId: 'other' }]) {
+      const denied = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST', capability, body), env as never);
+      expect(denied.status).toBe(400);
+      expect(await denied.text()).not.toContain(capability);
+    }
+    const stale = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST', capability,
+      { generation: 2 }), env as never);
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({ code: 'WEBHOOK_STALE_GENERATION' });
   });
 
   it('REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes', async () => {
     const { env, activity } = environment();
     const terminal = activity as unknown as { getWebhookStatus: () => Promise<unknown> };
-    terminal.getWebhookStatus = async () => ({ ok: true, terminal: true, status: 'completed',
+    terminal.getWebhookStatus = async () => ({ ok: true, terminal: true, status: 'completed', generation: 2,
       result: { report: 'private-review-report-canary' } });
     const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/status`, 'GET'), env as never);
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    await expect(response.json()).resolves.toEqual({ ok: true, terminal: true, status: 'completed' });
+    await expect(response.json()).resolves.toEqual({ ok: true, terminal: true, status: 'completed', generation: 2 });
   });
 
   it('rejects non-enterprise, missing capability, unknown paths, wrong methods and request bodies before activity RPC', async () => {

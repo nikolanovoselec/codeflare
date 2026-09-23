@@ -409,6 +409,23 @@ describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
     expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
   });
 
+  it('REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'drive-runtime' }))
+      .toMatchObject({ ok: true, state: { generation: 1, status: 'waiting' } });
+    expect(await activity(activityId, { action: 'begin-drive' }))
+      .toMatchObject({ ok: true, state: { generation: 2 } });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 2,
+      update: { schemaVersion: 1, status: 'waiting', checkpoint: { step: 2 } } }))
+      .toMatchObject({ ok: true, state: { generation: 2, status: 'waiting' } });
+    await activity(activityId, { action: 'evict' });
+    expect(await activity(activityId, { action: 'drive-runtime', expectedGeneration: 1 }))
+      .toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity(activityId, { action: 'drive-runtime', expectedGeneration: 2 }))
+      .toMatchObject({ ok: true, state: { generation: 3, status: 'completed',
+        result: { action: 'resume', activityId, principal: 'fixture-owner' } } });
+  });
+
   it.each(['throw', 'oversized'] as const)('fences %s output as unknown without automatic replay', async failure => {
     const { activityId } = await queuedActivity();
     expect(await activity(activityId, { action: 'drive-runtime', failure })).toMatchObject({ ok: true, state: {

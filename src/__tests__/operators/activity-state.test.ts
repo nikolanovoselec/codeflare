@@ -273,6 +273,40 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
   }, true, false));
 
+  it('REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
+    const started = await activity.startWebhook(token);
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error('expected webhook start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.continueWebhook(started.readCapability, 1)).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } }))
+      .toMatchObject({ ok: true });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, terminal: false, status: 'waiting', generation: 1 });
+    const contenders = await Promise.all([
+      activity.continueWebhook(started.readCapability, 1), activity.continueWebhook(started.readCapability, 1),
+    ]);
+    expect(contenders.filter(outcome => outcome.ok)).toEqual([{ ok: true, phase: 'queued' }]);
+    expect(contenders.filter(outcome => !outcome.ok)).toEqual([{ ok: false, reason: 'already-started' }]);
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
+    expect(await reconstructed.continueWebhook(started.readCapability, 1))
+      .toEqual({ ok: false, reason: 'already-started' });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, status: 'waiting', generation: 1 });
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
+    expect(await activity.commitDrive(2, { schemaVersion: 1, status: 'waiting', checkpoint: { step: 2 } }))
+      .toMatchObject({ ok: true });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, status: 'waiting', generation: 2 });
+    expect(await activity.continueWebhook(started.readCapability, 1))
+      .toEqual({ ok: false, reason: 'stale-generation' });
+    expect(await activity.beginDrive(1)).toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, status: 'waiting', generation: 2 });
+    expect(await activity.continueWebhook(started.readCapability, 2)).toEqual({ ok: true, phase: 'queued' });
+    expect(await activity.beginDrive(2)).toMatchObject({ ok: true, state: { generation: 3 } });
+  }, true, false));
+
   it('denies drive operations when admission does not exist', () => withActivity(async ({ activity }) => {
     expect(await activity.getAdmission()).toBeNull();
     expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'not-admitted' });

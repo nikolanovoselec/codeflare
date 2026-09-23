@@ -56,7 +56,7 @@ export type ActivityFixtureCommand =
   | { action: 'interrupt-drive'; generation: number }
   | { action: 'instance' }
   | { action: 'evict' }
-  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number };
+  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number; expectedGeneration?: number };
 
 export type RegistryFixtureCommand =
   | { action: 'create'; operatorId: string }
@@ -207,6 +207,7 @@ export default {
             return Response.json(await driveOperatorRuntime({
               activity, activityId: url.searchParams.get('activity') ?? 'default',
               deadline: command.deadline ?? Date.now() + 60_000, loader: env.LOADER, bundle: runtimeBundle,
+              ...(command.expectedGeneration === undefined ? {} : { expectedGeneration: command.expectedGeneration }),
               bind: generation => ({
                 capability: entrypoints.FixtureCapability({ props: { ...props, generation } }),
                 outbound: entrypoints.FixtureOutbound({ props: { ...props, generation } }),

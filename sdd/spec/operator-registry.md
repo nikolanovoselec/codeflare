@@ -275,3 +275,32 @@ This release extends the existing Operator foundation with GitHub package instal
 **Verification:** Adjacent package, attachment and startup tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
+
+---
+
+### REQ-OPERATOR-053: Enterprise PR-boundary Review handoff
+
+**Intent:** A trusted GitHub Action starts and publishes independent Review under the already-authenticated Codeflare actor's bounded operator context, while the existing local review procedure remains available unchanged.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Only Enterprise deployment mode may select the operator Review path, prepare its activity, call the Action handoff or expose operator progress. Non-enterprise PR-boundary and local `/review` behavior remains unchanged.
+2. At an eligible Codeflare-authenticated PR creation or push, the parent verifies the invoking human, pinned installation, numeric repository, current PR/head/base/merge-base and the installed, enabled and applicable trusted Action. It prebinds the actor and instance to one visible activity before the configured Action redeems its handoff; GitHub automatically starts that Action on the PR event. The authenticated Action atomically claims its run/attempt for the exact prebound context; a callback, session owner, workflow label, PR author or GitHub email cannot choose or renew the human identity.
+3. At the existing PR-boundary selection point only, a confirmed applicable trusted Action selects exclusive remote Review; confirmed absence selects the unchanged local reviewer path. Inconclusive detection, disabled operator, expired authority or failed configured remote execution never silently falls back or marks a check green. Local `/review` is not an operator entry point.
+4. The Action alone redeems one short-lived activity-specific start capability, polls metadata-only status with a durable generation identity, atomically claims and reserves a drive only for that observed safely waiting generation, collects the durably available terminal bundle once and persists its receipt before publishing. No browser JWT or publisher credential enters Pi or the compiled child; a lost response cannot start a duplicate activity or replay an already-consumed result.
+5. A separate trusted publisher binds artifacts, human-readable round comment and shadow check to the exact prepared repo/PR/head/base/merge-base, workflow/run/attempt and activity/generation. Pending/published receipts and current-context verification fence stale or ambiguous writes; red, missing or incomplete evidence stays non-green. Activating a required check needs separate explicit authorization.
+6. The existing owner-scoped Operator activity view shows real waiting, running, cleanup and terminal states; local Pi monitors independently verified published Review and ordinary CI and retains triage/FIX without running a second reviewer wave.
+
+**Notes:** The authenticated boundary-to-activity preparation, workflow/publisher, production compiled-Conductor composition and end-to-end proof do not yet exist. Package Review policy remains in Conductor; Codeflare owns only generic authority, lifecycle, capability and UI plumbing. Test and implementation anchors must be added alongside the complete behavioral RED suite and implementation.
+
+**Constraints:** No new identity broker, Pi/Codeflare `workflow_dispatch`, workflow-selected principal, automatic JWT renewal, candidate-controlled trusted workflow or modification of local `/review`. A human JWT's expiry blocks further protected execution. An automatic Action run without a matching Codeflare-bound handoff fails closed; it cannot use an outside-Codeflare push as human authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability), [REQ-OPERATOR-029](operators.md#req-operator-029-capability-authenticated-webhook-edge)
+
+**Verification:** Pending full behavioral RED/production GREEN, exact-head CI and Enterprise Integration acceptance.
+
+**Status:** Planned
