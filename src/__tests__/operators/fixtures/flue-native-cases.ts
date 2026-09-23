@@ -13,6 +13,7 @@ type Assessment = NativeDelivery & {
 type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
+  productionCalls: Array<{ path: string; resource?: string }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
@@ -139,6 +140,37 @@ export function registerNativeDispatcherCases(harness: Harness) {
       expect(value.alarmDeliveries).toBeGreaterThan(0);
       expect(results(value)[0].result).toMatchObject({ status: 200, body: { accepted: true } });
       expect(results(value)[0].result.body.evidence).toEqual({ repositoryId: 123, botId: 29139614, head: 'a'.repeat(40), checks: ['success'] });
+      expect(value.activity.sessionId).toBeNull();
+    });
+
+    it.each([
+      { name: 'complete', filesHead: 'b'.repeat(40), truncated: false, conclusion: 'success',
+        expected: { complete: true, stale: false, truncated: false } },
+      { name: 'incomplete', filesHead: 'c'.repeat(40), truncated: true, conclusion: 'failure',
+        expected: { complete: false, stale: true, truncated: true } },
+    ])('executes compiled production Renovate assessment through parent reads ($name)', async variant => {
+      const { id } = await prepare();
+      const evidence = {
+        'pull-request': { head: { sha: 'b'.repeat(40) }, user: { login: 'renovate[bot]' } },
+        files: { observedHead: variant.filesHead, truncated: variant.truncated, data: [{ filename: 'README.md' }] },
+        checks: { observedHead: 'b'.repeat(40), truncated: false,
+          data: { check_runs: [{ name: 'test', conclusion: variant.conclusion }] } },
+      };
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id,
+        { action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 }, productionEvidence: evidence });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      const value = await settle(id, admission.body.submissionId);
+      expect(value.conversation?.settlements, JSON.stringify({ productionCalls: value.productionCalls,
+        messages: value.conversation?.messages, failure: value.failure, activityStatus: value.activity.executionStatus }))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ submissionId: admission.body.submissionId, outcome: 'completed' }),
+        ]));
+      expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
+        readOnly: true, evidence: variant.expected });
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource))
+        .toEqual(['pull-request', 'files', 'checks']);
+      expect(value.productionCalls.some(call => call.path === '/v1/dispatcher/inference')).toBe(true);
+      expect(value.external).toEqual([]);
       expect(value.activity.sessionId).toBeNull();
     });
 
