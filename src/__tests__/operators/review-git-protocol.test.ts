@@ -13,9 +13,11 @@ const stream = (chunks: string[]) => new ReadableStream<Uint8Array>({
   start(controller) { for (const chunk of chunks) controller.enqueue(encoder.encode(chunk)); controller.close(); },
 });
 const collect = async (source: ReadableStream<Uint8Array>) => {
-  const reader = source.getReader(); const chunks: Uint8Array[] = [];
-  for (;;) { const next = await reader.read(); if (next.done) break; chunks.push(next.value); }
-  return chunks.map(chunk => new TextDecoder().decode(chunk)).join('');
+  const reader = source.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  for (;;) { const next = await reader.read(); if (next.done) break; chunks.push(next.value); size += next.value.byteLength; }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
 };
 async function exchange(upload: string, reply: string) {
   const observer = createReviewPushObserver();
@@ -54,6 +56,59 @@ describe('REQ-OPERATOR-053: inline Git receive-pack evidence without replaying t
     const reply = sideband(1, status());
     expect(await collect(observer.wrapDownload(stream([reply])))).toBe(reply);
     expect(await observer.result).toEqual({ ref: branch, head: newHead });
+  });
+  it('parses byte-sized packets across multibyte progress splits without changing forwarded bytes', async () => {
+    const observer = createReviewPushObserver();
+    await collect(observer.wrapUpload(stream([request()])));
+    const reply = packet('\u0002progress: 🧪\n') + packet(`\u0001${status()}`) + '0000';
+    const bytes = encoder.encode(reply);
+    const split = reply.indexOf('🧪');
+    const first = encoder.encode(reply.slice(0, split)).byteLength + 2;
+    const transport = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bytes.subarray(0, first));
+      controller.enqueue(bytes.subarray(first));
+      controller.close();
+    } });
+    expect(await collect(observer.wrapDownload(transport))).toBe(reply);
+    expect(await observer.result).toEqual({ ref: branch, head: newHead });
+  });
+  it('does not confirm oversized progress or an aborted upload', async () => {
+    const oversized = packet(`\u0002${'p'.repeat(65_490)}`) + packet(`\u0001${status()}`) + '0000';
+    expect(await exchange(request(), oversized)).toBeNull();
+    const observer = createReviewPushObserver();
+    const reader = observer.wrapUpload(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(encoder.encode(request())); },
+    })).getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(await observer.result).toBeNull();
+  });
+  it('does not confirm an early response before upload completion', async () => {
+    let release!: () => void;
+    const pause = new Promise<void>(resolve => { release = resolve; });
+    const observer = createReviewPushObserver();
+    let sent = false;
+    const upload = observer.wrapUpload(new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(encoder.encode(request())); return; }
+        await pause;
+        controller.close();
+      },
+    }));
+    const reading = collect(upload);
+    await collect(observer.wrapDownload(stream([sideband(1, status())])));
+    let resolved = false;
+    void observer.result.then(() => { resolved = true; });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    release();
+    await reading;
+    expect(await observer.result).toEqual({ ref: branch, head: newHead });
+  });
+  it('settles uncertainty when the upstream request fails before any response exists', async () => {
+    const observer = createReviewPushObserver();
+    observer.abort();
+    expect(await observer.result).toBeNull();
   });
   it('treats a cancelled response as unknown, without blocking the forwarded stream', async () => {
     const observer = createReviewPushObserver();

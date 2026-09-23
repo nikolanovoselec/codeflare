@@ -94,6 +94,27 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
+  it('binds target Action trust only through current platform-admin controls and retains it on unrelated edits', async () => withApi(async request => {
+    const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
+      workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
+      workflowDigest: 'a'.repeat(64), events: ['pull_request'] };
+    const controls = { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [action] };
+    expect((await request('/api/operator-management/access', 'POST', controls)).status).toBe(404);
+    actor.role = 'admin';
+    const approved = await request('/api/operator-management/access', 'POST', controls);
+    expect(approved.status).toBe(200);
+    expect(await approved.json()).toMatchObject({ revision: 1, boundaryActions: [action] });
+    actor.role = 'user';
+    expect((await request('/api/operator-management/access', 'POST', { ...controls, revision: 1,
+      boundaryActions: [] })).status).toBe(404);
+    actor.role = 'admin';
+    const unrelated = await request('/api/operator-management/access', 'POST', {
+      revision: 1, managers: registration.managers, ceiling: controls.ceiling,
+    });
+    expect(unrelated.status).toBe(200);
+    expect(await unrelated.json()).toMatchObject({ revision: 2, boundaryActions: [action] });
+  }));
   it('rejects a cross-origin simple management mutation before it can self-nominate authority', async () => withApi(async request => {
     const denied = await request('/api/operator-management/operators', 'POST', registration, false);
     expect(denied.status).toBe(403);

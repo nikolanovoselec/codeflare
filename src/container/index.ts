@@ -58,6 +58,9 @@ import {
   type ContainerHost,
 } from './container-config';
 import { dispatchInternalRoute } from './container-router';
+import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
+import type { VerifiedHumanAccessClaims } from '../lib/jwt';
+import { parseBoundedBoundaryInput, type BoundaryInput } from '../operators/boundary-input';
 import {
   onStart as lifecycleOnStart,
   collectMetrics as lifecycleCollectMetrics,
@@ -587,6 +590,159 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   override async destroy(): Promise<void> {
     await lifecycleDestroy(this.lifecycleHost);
+  }
+
+  /** Parent-only Enterprise session authority; never exported to container env vars. */
+  async bindReviewHuman(input: {
+    bucket: string; sessionId: string; generation: number;
+    human: VerifiedHumanAccessClaims; accessJwt: string;
+  } | null): Promise<void> {
+    await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input);
+  }
+
+  async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+    human: VerifiedHumanAccessClaims; accessJwt: string;
+  }> {
+    return openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+  }
+
+  /** Join Pi evidence and observed Git success in either arrival order, without starting work. */
+  async getReviewLifecycleGeneration(ref: { bucket: string; sessionId: string; email: string }): Promise<number> {
+    await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+    const generation = await this.ctx.storage.get<number>('lifecycleGeneration');
+    if (!Number.isSafeInteger(generation) || !generation || generation < 1) throw Error('Lifecycle unavailable');
+    return generation;
+  }
+
+  private async putReviewEvidence<T extends { generation: number }>(key: string, value: T): Promise<void> {
+    await this.ctx.storage.transaction(async txn => {
+      const [generation, shutdown] = await Promise.all([
+        txn.get<number>('lifecycleGeneration'), txn.get('shutdownRequested'),
+      ]);
+      if (generation !== value.generation || shutdown !== undefined) throw Error('Review lifecycle changed');
+      await txn.put(key, value);
+    });
+  }
+
+  async stageBoundaryInput(value: { sessionId: string; generation: number; input: BoundaryInput;
+    owner?: string; repository?: string; ref?: string }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+  } | null> {
+    if (!this._bucketName || !this._userEmail || value.sessionId !== this._sessionId) {
+      throw new Error('Boundary session unavailable');
+    }
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], {
+      bucket: this._bucketName, sessionId: value.sessionId, email: this._userEmail,
+    });
+    const input = parseBoundedBoundaryInput(value.input);
+    await this.putReviewEvidence('review:boundary-input', {
+      sessionId: value.sessionId, generation: value.generation, subject: authority.human.subject, input,
+      owner: value.owner, repository: value.repository, ref: value.ref,
+    });
+    return this.getReadyBoundary({ bucket: this._bucketName, sessionId: value.sessionId,
+      email: this._userEmail, generation: value.generation });
+  }
+
+  async stagePushEvidence(value: { sessionId: string; generation: number; owner: string; repository: string;
+    ref: string; head: string }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+  } | null> {
+    if (!this._bucketName || !this._userEmail || this._sessionId !== value.sessionId
+      || !/^[A-Za-z0-9_.-]+$/.test(value.owner) || !/^[A-Za-z0-9_.-]+$/.test(value.repository)
+      || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(value.ref) || !/^[a-f0-9]{40}$/i.test(value.head)) {
+      throw new Error('Invalid push evidence');
+    }
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], {
+      bucket: this._bucketName, sessionId: value.sessionId, email: this._userEmail,
+    });
+    await this.putReviewEvidence('review:push-evidence', { ...value, subject: authority.human.subject,
+      observedAt: Date.now() });
+    return this.getReadyBoundary({ bucket: this._bucketName, sessionId: value.sessionId,
+      email: this._userEmail, generation: value.generation });
+  }
+
+  async stagePrCreationEvidence(value: { sessionId: string; generation: number; pullRequest: number;
+    repositoryId: number; repositoryNodeId: string; pullRequestNodeId: string;
+    owner: string; repository: string; head: string;
+    headRefName: string; baseRefName: string }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+    creation?: { repositoryNodeId: string; pullRequestNodeId: string;
+      headRefName: string; baseRefName: string };
+  } | null> {
+    if (!this._bucketName || !this._userEmail || this._sessionId !== value.sessionId
+      || !Number.isSafeInteger(value.pullRequest) || value.pullRequest < 1
+      || !Number.isSafeInteger(value.repositoryId) || value.repositoryId < 1
+      || !/^[A-Za-z0-9_.-]+$/.test(value.owner) || !/^[A-Za-z0-9_.-]+$/.test(value.repository)
+      || !/^[a-f0-9]{40}$/i.test(value.head)
+      || !/^[A-Za-z0-9_=-]{1,256}$/.test(value.pullRequestNodeId)
+      || !/^[A-Za-z0-9_=-]{1,256}$/.test(value.repositoryNodeId)
+      || !/^[A-Za-z0-9._/-]{1,200}$/.test(value.headRefName)
+      || !/^[A-Za-z0-9._/-]{1,200}$/.test(value.baseRefName)) throw Error('Invalid PR creation evidence');
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], {
+      bucket: this._bucketName, sessionId: value.sessionId, email: this._userEmail,
+    });
+    await this.putReviewEvidence('review:pr-creation', { ...value, subject: authority.human.subject,
+      observedAt: Date.now() });
+    return this.getReadyBoundary({ bucket: this._bucketName, sessionId: value.sessionId,
+      email: this._userEmail, generation: value.generation });
+  }
+
+  async getReadyBoundary(ref: { bucket: string; sessionId: string; email: string; generation: number }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+    creation?: { repositoryNodeId: string; pullRequestNodeId: string;
+      headRefName: string; baseRefName: string };
+  } | null> {
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+    const current = await this.getReviewLifecycleGeneration(ref);
+    if (current !== ref.generation) return null;
+    const [staged, push, creation] = await Promise.all([
+      this.ctx.storage.get<{ sessionId: string; generation: number; subject: string; input: BoundaryInput;
+        owner?: string; repository?: string; ref?: string }>('review:boundary-input'),
+      this.ctx.storage.get<{ sessionId: string; generation: number; subject: string; owner: string; repository: string;
+        ref: string; head: string; observedAt: number }>('review:push-evidence'),
+      this.ctx.storage.get<{ sessionId: string; generation: number; subject: string; pullRequest: number;
+        repositoryId: number; repositoryNodeId: string; pullRequestNodeId: string;
+        owner: string; repository: string; head: string;
+        headRefName: string; baseRefName: string; observedAt: number }>('review:pr-creation'),
+    ]);
+    if (!staged || staged.sessionId !== ref.sessionId || staged.generation !== ref.generation
+      || staged.subject !== authority.human.subject) return null;
+    if (push && push.sessionId === ref.sessionId && push.generation === ref.generation
+      && push.subject === authority.human.subject
+      && push.head === staged.input.targetHead && Number.isFinite(push.observedAt)
+      && push.observedAt <= Date.now() && push.observedAt >= Date.now() - 5 * 60_000
+      && (!staged.owner || staged.owner.toLowerCase() === push.owner.toLowerCase())
+      && (!staged.repository || staged.repository.toLowerCase() === push.repository.toLowerCase())) {
+      return { generation: ref.generation, input: structuredClone(staged.input), push: {
+        owner: push.owner, repository: push.repository, ref: push.ref, head: push.head,
+      } };
+    }
+    if (creation && creation.sessionId === ref.sessionId && creation.generation === ref.generation
+      && creation.subject === authority.human.subject
+      && creation.pullRequest === staged.input.pullRequest
+      && creation.repositoryId === staged.input.repositoryId
+      && creation.head === staged.input.targetHead && Number.isFinite(creation.observedAt)
+      && creation.observedAt <= Date.now() && creation.observedAt >= Date.now() - 5 * 60_000
+      && staged.owner?.toLowerCase() === creation.owner.toLowerCase()
+      && staged.repository?.toLowerCase() === creation.repository.toLowerCase()
+      && staged.ref === `refs/heads/${creation.headRefName}`) {
+      return { generation: ref.generation, input: structuredClone(staged.input), push: {
+        owner: creation.owner, repository: creation.repository,
+        ref: staged.ref, head: creation.head,
+      }, creation: { repositoryNodeId: creation.repositoryNodeId,
+        pullRequestNodeId: creation.pullRequestNodeId,
+        headRefName: creation.headRefName, baseRefName: creation.baseRefName } };
+    }
+    return null;
+  }
+
+  async getBoundaryInput(ref: { bucket: string; sessionId: string; email: string }): Promise<BoundaryInput | null> {
+    const authority = await openReviewSessionHuman(this, ref);
+    const record = await this.ctx.storage.get<{
+      sessionId: string; subject: string; input: BoundaryInput;
+    }>('review:boundary-input');
+    return record?.sessionId === ref.sessionId && record.subject === authority.human.subject
+      ? structuredClone(record.input) : null;
   }
 
   /** Invoke the superclass destroy (SDK teardown). Used by container-lifecycle. */

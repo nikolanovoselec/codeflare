@@ -25,7 +25,7 @@ import type { Logger } from '../../lib/logger';
 import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 import { resolveEffectiveSleepAfter, validateSessionAndCheckLimits } from './lifecycle-validation';
 import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
-import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
+import { resolveSessionAccessGroup, loadEnterpriseRouteConfig, requireOperatorHumanContext } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
 import { getCachedActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
@@ -79,8 +79,12 @@ export async function startOrRestartContainer(params: {
   shortContainerId: string;
   logger: Logger;
   waitUntil: (p: Promise<void>) => void;
+  bindHuman?: (lifecycleGeneration: number) => Promise<void>;
+  expectedLifecycleGeneration?: number;
 }): Promise<{ status: string; containerState?: string }> {
-  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, env, shortContainerId, logger, waitUntil } = params;
+  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, env, shortContainerId,
+    logger, waitUntil, bindHuman, expectedLifecycleGeneration } = params;
+  if (bindHuman && !Number.isSafeInteger(expectedLifecycleGeneration)) throw new Error('Session lifecycle unavailable');
 
   // Check current state
   let currentState;
@@ -127,6 +131,11 @@ export async function startOrRestartContainer(params: {
   // Marker-protected metrics owns KV convergence; this request path cannot inspect
   // shutdownRequested and must not race a deliberate stop or recreate a deletion.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
+    if (bindHuman) {
+      const current = await new D1SessionRepository(env.USAGE_DB).getSession(sessionData.userId, sessionData.id);
+      if (!current || current.lifecycleGeneration !== expectedLifecycleGeneration) throw new Error('Session lifecycle moved');
+      await bindHuman(current.lifecycleGeneration);
+    }
     return {
       status: 'already_running',
       containerState: currentState.status,
@@ -139,6 +148,7 @@ export async function startOrRestartContainer(params: {
   const repository = new D1SessionRepository(env.USAGE_DB);
   const authoritative = await repository.getSession(sessionData.userId, sessionData.id);
   if (!authoritative) throw new Error('Session lifecycle record unavailable for Start');
+  if (bindHuman && authoritative.lifecycleGeneration !== expectedLifecycleGeneration) throw new Error('Session lifecycle moved');
   if (authoritative.lifecycleState !== 'stopped') {
     if (currentState.status !== 'stopped') throw new Error('Container exit is not confirmed for Start');
     const intentId = authoritative.lifecycleState === 'stopping'
@@ -166,6 +176,9 @@ export async function startOrRestartContainer(params: {
     (async () => {
       try {
         await container.startAndWaitForPorts();
+        // onStart has confirmed the new lifecycle and cleared its old shutdown
+        // marker; only then may the parent attach current human authority.
+        await bindHuman?.(claimed.lifecycleGeneration);
         logger.info('Container started and ports ready', { containerId: shortContainerId });
       } catch (error) {
         logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
@@ -299,6 +312,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       billingStatus: user.billingStatus,
       billingPeriodEnd: user.billingPeriodEnd,
     }));
+    const enterpriseLifecycle = isEnterpriseMode(c.env)
+      ? await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId) : null;
+    if (isEnterpriseMode(c.env) && !enterpriseLifecycle) throw new Error('Session lifecycle unavailable');
     const sessionAgent = sessionData.agentType ?? 'claude-code';
     if (!installedAgents(c.env).includes(sessionAgent)) {
       throw new ValidationError(`Agent type '${sessionAgent}' is not available in this deployment`);
@@ -456,8 +472,21 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       logger: reqLogger,
     });
 
+    // Operator authority is separate from bucket/session ownership and never enters
+    // the container configuration, env vars, or the GitHub credential placeholder.
+    let reviewHuman: Awaited<ReturnType<typeof requireOperatorHumanContext>> | null = null;
+    if (isEnterpriseMode(c.env)) {
+      try { reviewHuman = await requireOperatorHumanContext(c.req.raw, c.env, user.email); }
+      catch { /* Missing or stale human authority leaves ordinary Git available. */ }
+    }
+
     // Step 5: Start or restart the container
     const result = await startOrRestartContainer({
+      ...(enterpriseLifecycle ? { expectedLifecycleGeneration: enterpriseLifecycle.lifecycleGeneration,
+        bindHuman: (generation: number) => (container as unknown as {
+          bindReviewHuman: (value: typeof reviewHuman & { bucket: string; sessionId: string;
+            generation: number } | null) => Promise<void>;
+        }).bindReviewHuman(reviewHuman ? { bucket: bucketName, sessionId, generation, ...reviewHuman } : null) } : {}),
       container,
       needsBucketUpdate,
       setBucketBody,

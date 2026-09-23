@@ -58,6 +58,7 @@ type Dependencies = {
   queryRepository?(repo: string): Promise<RepositoryIdentity | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
+  selectBoundary?(review: CurrentReview, acknowledgedHead?: string, submit?: boolean, ctx?: ReviewContext): Promise<'remote' | 'local' | 'unavailable'>;
 };
 
 type ReviewContext = {
@@ -308,6 +309,70 @@ async function currentReview(
     };
   }
   return undefined;
+}
+
+function previousTriageEvidence(ctx: ReviewContext | undefined, head: string | undefined): Record<string, unknown> {
+  if (!ctx || !head) return { rejectedFindingsStatus: 'unavailable' };
+  let entries: Record<string, any>[];
+  try { entries = ctx.sessionManager.getEntries?.() ?? []; }
+  catch { return { rejectedFindingsStatus: 'unavailable' }; }
+  const end = entries.reduce((found, entry, index) => entry.customType === 'pr-boundary-fix-follow-up'
+    && entry.details?.head === head ? index : found, -1);
+  if (end < 0) return { rejectedFindingsStatus: 'unavailable' };
+  const start = entries.reduce((found, entry, index) => index < end
+    && entry.customType === 'pr-boundary-launch-plan' && entry.details?.head === head ? index : found, -1);
+  if (start < 0) return { rejectedFindingsStatus: 'unavailable' };
+  const window = entries.slice(start + 1, end);
+  const triage = window.filter(entry => entry.type === 'message' && entry.message?.role === 'assistant')
+    .map(entry => ({ entryId: entry.id, text: entry.message.content?.filter((item: any) => item.type === 'text')
+      .map((item: any) => item.text).join('\n') }))
+    .filter(value => typeof value.entryId === 'string' && typeof value.text === 'string'
+      && value.text.includes(REVIEW_TRIAGE_HEADER) && value.text.includes(REVIEW_TRIAGE_DIVIDER))
+    .at(-1);
+  if (!triage || triage.text.length > 6_000) return { rejectedFindingsStatus: 'unavailable' };
+  const originalReferences = window.filter(entry => entry.type === 'custom_message'
+      && entry.customType === 'subagent-notification' && typeof entry.id === 'string')
+    .slice(0, 8).map(entry => ({ entryId: entry.id, excerpt: String(entry.content ?? '').slice(0, 256) }));
+  // Transcript content is bounded, untrusted data; it never asserts that a finding was cleared.
+  return { rejectedFindingsStatus: 'unverified', triageExcerpts: [triage], originalReferences };
+}
+
+/** The existing GitHub egress owner answers applicability; Pi never reads registry authority. */
+async function selectRemoteBoundary(review: CurrentReview, acknowledgedHead?: string, submit = true,
+  ctx?: ReviewContext, runner: QueryRunner = execFileAsync): Promise<'remote' | 'local' | 'unavailable'> {
+  const repository = review.repository;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)
+    || review.identity.gitHost !== 'github.com') return 'unavailable';
+  try {
+    const { stdout: idText } = await runner('gh', ['api', `repos/${repository}`, '--jq', '.id'], {
+      cwd: review.repo, encoding: 'utf8', timeout: 10_000,
+    });
+    const repositoryId = Number(String(idText).trim());
+    if (!Number.isSafeInteger(repositoryId) || repositoryId < 1) return 'unavailable';
+    const input = { repositoryId, pullRequest: review.pr.number,
+      acknowledgedHead: acknowledgedHead ?? null, targetHead: review.identity.head,
+      payload: { range: acknowledgedHead ? `${acknowledgedHead}..${review.identity.head}` : null,
+        ...previousTriageEvidence(ctx, acknowledgedHead) } };
+    const encoded = Buffer.from(JSON.stringify(input), 'utf8').toString('base64');
+    const { stdout } = await runner('gh', ['api', '--include',
+      '-H', `x-codeflare-operator-boundary-select: ${submit ? '1' : 'check'}`,
+      '-H', `x-codeflare-operator-boundary-input: ${encoded}`,
+      `repos/${repository}/pulls/${review.pr.number}`], {
+      cwd: review.repo, encoding: 'utf8', timeout: 20_000,
+    });
+    const output = String(stdout).replace(/\r\n/g, '\n');
+    if (output.length > 256 * 1024) return 'unavailable';
+    const split = output.indexOf('\n\n');
+    if (split < 0 || !/^HTTP\/(?:1\.1|2(?:\.0)?|3) 200(?:\s|$)/.test(output)) return 'unavailable';
+    const headers = output.slice(0, split).split('\n')
+      .filter(line => /^x-codeflare-operator-boundary-selection:/i.test(line));
+    if (headers.length !== 1) return 'unavailable';
+    const value = headers[0].split(':').slice(1).join(':').trim();
+    if (!['remote', 'local', 'unavailable'].includes(value)) return 'unavailable';
+    const pr = JSON.parse(output.slice(split + 2)) as { number?: unknown; head?: { sha?: unknown } };
+    if (pr.number !== review.pr.number || pr.head?.sha !== review.identity.head) return 'unavailable';
+    return value as 'remote' | 'local' | 'unavailable';
+  } catch { return 'unavailable'; }
 }
 
 type ClassifiedBoundary = {
@@ -638,6 +703,9 @@ function statusReason(status: ReturnType<typeof readCompletion>["status"]): stri
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   let activeRound: ActiveRound | undefined;
+  let remoteRound: ReviewIdentity | undefined;
+  let selectionEpoch = 0;
+  const pendingSelections = new Set<string>();
   let dialogIdentity: string | undefined;
   let pendingGoalPauseHead: string | undefined;
   const mergeBefore = new Map<string, Promise<{
@@ -661,10 +729,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     command?: string,
     createdPr?: CreatedPrTarget,
   ): Promise<void> => {
+    const epoch = selectionEpoch;
     const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
-    if (!review) return;
+    if (epoch !== selectionEpoch || !review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
+    if (remoteRound && sameIdentity(remoteRound, review.identity)) return;
     let decision: string | undefined;
     if (ciEvent) {
       decision = LAUNCH_REVIEW;
@@ -684,15 +754,62 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
     }
     const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
-    if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+    if (epoch !== selectionEpoch || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
     if (readCompletion(refreshed.identity).status === "complete") return;
     if (decision === MARK_COMPLETE) {
+      if (process.env.ENTERPRISE_MODE === 'active') {
+        const selection = await (dependencies.selectBoundary ?? selectRemoteBoundary)(refreshed, undefined, false);
+        if (epoch !== selectionEpoch) return;
+        if (selection !== 'local') {
+          ctx.ui?.notify('Local completion cannot clear a remote or uncertain protected Review.', 'warning');
+          return;
+        }
+      }
       writeCompletion(refreshed.identity);
       return;
     }
     const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
     const ackHead = ancestor?.head;
     const range = reviewRange({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
+    const selectionKey = `${epoch}:${JSON.stringify(refreshed.identity)}`;
+    if (pendingSelections.has(selectionKey)) return;
+    pendingSelections.add(selectionKey);
+    let selection: 'remote' | 'local' | 'unavailable';
+    try {
+      selection = process.env.ENTERPRISE_MODE === 'active'
+        ? await (dependencies.selectBoundary ?? selectRemoteBoundary)(refreshed, ackHead, true, ctx)
+        : 'local';
+    } finally {
+      pendingSelections.delete(selectionKey);
+    }
+    if (epoch !== selectionEpoch || remoteRound && sameIdentity(remoteRound, refreshed.identity)
+      || activeRound && sameIdentity(activeRound.identity, refreshed.identity)) return;
+    if (selection !== 'local') {
+      if (selection === 'remote') remoteRound = refreshed.identity;
+      if (selection === 'remote' && ciEvent) activateRegisteredTools(pi, ['subagent']);
+      pi.sendMessage({
+        customType: selection === 'remote' ? 'pr-boundary-remote-plan' : 'pr-boundary-remote-unavailable',
+        content: selection === 'remote' ? [
+          '## PR boundary — protected Action Review', '',
+          `The protected Action owns Review for PR #${refreshed.pr.number} at ${refreshed.identity.head}.`,
+          'Do not start local reviewers, start the operator, redeem results, publish checks or mark review complete.',
+          'Selection is not proof of preparation or Action admission. Rejected-finding evidence is unavailable, not an empty set; do not claim clearance.',
+          'Monitor only the independent Action publication and current exact-head CI; retain joint triage and FIX.',
+          ...(ciEvent ? [
+            'Run the existing ci-monitoring request resolver once for this PR/head and launch its public background CI monitor.',
+          ] : []),
+          'End this turn after launching the CI monitor (if any); do not poll in this turn.',
+        ].join('\n') : [
+          '## PR boundary — remote applicability uncertain', '',
+          'Do not launch local Review, mark completion, or substitute a different identity.',
+          'The authenticated protected-Action selection was not confirmed. Report it as unavailable/non-green.',
+        ].join('\n'),
+        details: { repo: refreshed.repo, pr: refreshed.pr.number, head: refreshed.identity.head,
+          boundaryToolUseId, ciEvent, reviewMode: selection,
+          acknowledgedHead: ackHead ?? null, range: range ?? null },
+      });
+      return;
+    }
     const reviewers = requiredReviewLanes({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
     if (reviewers.length === 0) {
       try {
@@ -769,6 +886,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("session_start", async (_event, ctx) => {
     await releaseReviewGoalPause(pi, ctx);
     activeRound = undefined;
+    remoteRound = undefined;
+    selectionEpoch += 1;
+    pendingSelections.clear();
     dialogIdentity = undefined;
     pendingGoalPauseHead = undefined;
     if (!globalPrunePerformed) {

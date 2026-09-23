@@ -151,6 +151,60 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   });
 
+  describe('REQ-OPERATOR-053: session-owned PR boundary join', () => {
+    it('joins push and Pi input in either order, and refuses a delayed previous lifecycle', async () => {
+      const records = new Map<string, unknown>([
+        ['lifecycleGeneration', 1], ['bucketName', 'review-owner'],
+        ['_sessionId', 'review1234'], ['userEmail', 'owner@example.test'],
+      ]);
+      mockStorage.get.mockImplementation(async (key: string) => records.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { records.set(key, value); });
+      mockStorage.delete.mockImplementation(async (key: string) => { records.delete(key); });
+      mockStorage.transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+        get: (key: string) => Promise.resolve(records.get(key)),
+        put: async (key: string, value: unknown) => { records.set(key, value); },
+        delete: async (key: string) => { records.delete(key); },
+      }));
+      mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)?.value;
+      const human = { subject: 'owner', email: 'owner@example.test',
+        issuer: 'https://team.cloudflareaccess.com', audiences: ['aud'],
+        issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.floor(Date.now() / 1000) + 300 };
+      await instance.bindReviewHuman({ bucket: 'review-owner', sessionId: 'review1234', generation: 1,
+        human, accessJwt: 'private.jwt' });
+      const input = { repositoryId: 138, pullRequest: 34, acknowledgedHead: null,
+        targetHead: 'a'.repeat(40), payload: { rejectedFindings: [] } };
+      const push = { sessionId: 'review1234', generation: 1, owner: 'owner', repository: 'repo',
+        ref: 'refs/heads/feature', head: input.targetHead };
+      const staged = { sessionId: 'review1234', generation: 1, input,
+        owner: 'owner', repository: 'repo', ref: 'refs/heads/feature' };
+      const observed = { owner: push.owner, repository: push.repository, ref: push.ref, head: push.head };
+      expect(await instance.stageBoundaryInput(staged)).toBeNull();
+      expect(await instance.stagePushEvidence(push)).toMatchObject({ generation: 1, input, push: observed });
+      await mockStorage.delete('review:boundary-input');
+      await mockStorage.delete('review:push-evidence');
+      expect(await instance.stagePushEvidence(push)).toBeNull();
+      expect(await instance.stageBoundaryInput(staged)).toMatchObject({ generation: 1, input, push: observed });
+      await mockStorage.delete('review:push-evidence');
+      const creation = { sessionId: 'review1234', generation: 1, pullRequest: 34,
+        repositoryId: 138, repositoryNodeId: 'R_node_138', pullRequestNodeId: 'PR_node_34',
+        owner: 'owner', repository: 'repo', headRefName: 'feature', baseRefName: 'main' };
+      expect(await instance.stagePrCreationEvidence({ ...creation, head: 'f'.repeat(40) })).toBeNull();
+      expect(await instance.stagePrCreationEvidence({ ...creation, head: input.targetHead }))
+        .toMatchObject({ input, creation: { repositoryNodeId: 'R_node_138', pullRequestNodeId: 'PR_node_34' } });
+      expect(await instance.stageBoundaryInput({ ...staged, repository: 'other-repo' })).toBeNull();
+      expect(await instance.stageBoundaryInput(staged)).toMatchObject({ generation: 1, input, push: observed });
+      records.set('shutdownRequested', Date.now());
+      await expect(instance.stagePushEvidence(push)).rejects.toThrow();
+      records.delete('shutdownRequested');
+      records.set('lifecycleGeneration', 2);
+      await expect(instance.stagePushEvidence(push)).rejects.toThrow();
+      await expect(instance.getReadyBoundary({ bucket: 'review-owner', sessionId: 'review1234',
+        email: human.email, generation: 1 })).rejects.toThrow();
+    });
+  });
+
   describe('constructor', () => {
     it('initializes with defaultPort 8080', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);

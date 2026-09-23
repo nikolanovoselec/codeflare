@@ -10,7 +10,7 @@ import { ValidationError } from '../lib/error-types';
 
 /** Parent-generated context; separates operators/activities and secret purposes. */
 export interface OperatorSecretContext {
-  purpose: 'connection' | 'human-access' | 'webhook';
+  purpose: 'connection' | 'human-access' | 'webhook' | 'handoff';
   recordId: string;
 }
 

@@ -7,9 +7,9 @@ const action = { repositoryId: 138, installationId: 'review-install', workflowId
   events: ['pull_request'], controlsRevision: 4 };
 const repository = { id: 138, full_name: 'owner/repo', default_branch: 'main' };
 const workflow = { id: 531, path: action.workflowPath, state: 'active' };
-const branch = { name: 'main', protected: true };
+const branch = { name: 'main', protected: true, commit: { sha: 'c'.repeat(40) } };
 const contents = { content: btoa('name: Boundary Reviews\non: pull_request\njobs: {}\n'),
-  encoding: 'base64', ref: 'refs/heads/main' };
+  encoding: 'base64' };
 
 describe('REQ-OPERATOR-053: approved target Action applicability, not release provenance', () => {
   it('selects remote only when numeric repository, protected workflow identity and immutable bytes agree', async () => {

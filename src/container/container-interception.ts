@@ -31,6 +31,7 @@ import { getOrImportKey } from '../lib/kv-crypto';
 import type { OperatorPolicy } from '../operators/policy';
 import type { OperatorContainerProfile } from './operator-context';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import { D1SessionRepository } from '../lib/session-repository';
 
 /** The DO surface the interception registry consumes (explicit interface, not inheritance). */
 export interface InterceptionHost {
@@ -172,11 +173,12 @@ const llm: InterceptorSpec = {
  * token from the deploy-keys KV entry keyed by the BOUND session bucket (fixed here, never
  * read from the request), so the real token never enters the container. Skipped without a
  * bucket (no user to resolve). REQ-ENTERPRISE-016: `strict` is added only when ON so an OFF
- * deploy passes the exact same `{ user, bucket }` props as before (byte-identical).
+ * deploy retains the existing bound `{ user, bucket }` credential scope; ordinary
+ * human sessions additionally carry their parent-bound session reference, never a JWT.
  */
 const github: InterceptorSpec = {
   mode: 'enterprise',
-  resolve(host) {
+  async resolve(host) {
     const bucket = host._bucketName;
     if (!bucket) {
       host.logger.warn('Enterprise mode active but bucket name unset; skipping GitHub interception');
@@ -184,10 +186,22 @@ const github: InterceptorSpec = {
     }
     const user = host._userEmail ?? bucket;
     const hosts = interceptedGithubHosts(host.env);
+    let lifecycleGeneration: number | null = null;
+    if (host._sessionId && !host._operatorPolicy && host.env.USAGE_DB) {
+      try {
+        const session = await new D1SessionRepository(host.env.USAGE_DB).getSession(bucket, host._sessionId);
+        if (session && (session.lifecycleState === 'starting' || session.lifecycleState === 'running')
+          && Number.isSafeInteger(session.lifecycleGeneration) && session.lifecycleGeneration > 0) {
+          lifecycleGeneration = session.lifecycleGeneration;
+        }
+      } catch { /* Git traffic still works without Review authority. */ }
+    }
     return {
       entrypoint: 'GitHubInterceptor',
       props: {
         user, bucket,
+        ...(host._sessionId && !host._operatorPolicy ? { sessionId: host._sessionId } : {}),
+        ...(lifecycleGeneration ? { lifecycleGeneration } : {}),
         ...((host._strictEgress || host._operatorPolicy) ? { strict: true } : {}),
         ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
         ...jwtProps(host),

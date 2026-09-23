@@ -16,6 +16,7 @@ import { toError } from '../lib/error-types';
 import { SetSessionIdBodySchema } from '../lib/container-config-schema';
 import { validateBucketNameInput, applyPrefsOnRestart } from './container-env';
 import { refreshStrictEgressInterception } from './container-interception';
+import { bindReviewSessionHuman } from './review-session-human';
 import {
   setBucketName as applySetBucketName,
   updateEnvVars,
@@ -192,6 +193,13 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         headers: JSON_HEADERS,
       });
     }
+
+    // A new or reconfigured lifecycle cannot inherit a prior human's operator authority.
+    // The authenticated parent rebinds only after this configuration succeeds.
+    await bindReviewSessionHuman(host as unknown as Parameters<typeof bindReviewSessionHuman>[0], null);
+    await host.ctx.storage.delete('review:boundary-input');
+    await host.ctx.storage.delete('review:push-evidence');
+    await host.ctx.storage.delete('review:pr-creation');
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
     // But always store sessionId so collectMetrics/onStop can find the KV entry

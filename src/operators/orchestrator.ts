@@ -53,12 +53,17 @@ export interface PreparedOperatorActivity {
 /** Request-attached preparation only; it creates no scheduler or child session. */
 export async function prepareOperatorActivity(input: unknown, authority: {
   human: VerifiedHumanAccessClaims; accessJwt: string;
-}, env: Env): Promise<PreparedOperatorActivity> {
+}, env: Env, parentReservation?: { activityId: string; expectedManagement?: {
+  controlsRevision: number; installationRevision: number; operatorRevision: number;
+  releaseId: string; bundleDigest: string;
+} }): Promise<PreparedOperatorActivity> {
   const parsed = preparationSchema.safeParse(input);
-  if (!parsed.success || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) {
+  if (!parsed.success || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY
+    || (parentReservation && !ID.safeParse(parentReservation.activityId).success)) {
     throw new ValidationError('Invalid operator activity request');
   }
-  const activityId = crypto.randomUUID();
+  // Only the parent passes a Registry-reserved ID. The caller's invocation cannot choose it.
+  const activityId = parentReservation?.activityId ?? crypto.randomUUID();
   const bounded = boundedInvocation(parsed.data.invocation);
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
@@ -71,6 +76,14 @@ export async function prepareOperatorActivity(input: unknown, authority: {
       throw new AppError('NOT_FOUND', 404, 'Operator installation is not available for execution');
     }
     const selection = management.value;
+    const pinned = parentReservation?.expectedManagement;
+    if (pinned && (selection.controlsRevision !== pinned.controlsRevision
+      || selection.installation.revision !== pinned.installationRevision
+      || selection.operator.revision !== pinned.operatorRevision
+      || selection.release.id !== pinned.releaseId
+      || selection.release.bundleDigest !== pinned.bundleDigest)) {
+      throw new AppError('CONFLICT', 409, 'Operator installation changed during boundary preparation');
+    }
     managementSelection = selection;
     if (!canInvokeOperator(authority.human, selection.operator)) {
       throw new AppError('NOT_FOUND', 404, 'Operator installation is not available for execution');

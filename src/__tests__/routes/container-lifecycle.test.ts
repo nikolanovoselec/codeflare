@@ -178,7 +178,7 @@ describe('Container Lifecycle Routes', () => {
         });
         expect(response.status).toBe(200);
         expect((await response.json() as { status: string }).status).toBe(running ? 'already_running' : 'starting');
-        expect(await lookup()).toBe(principal);
+        await vi.waitFor(async () => expect(await lookup()).toBe(principal));
       });
     }
 
@@ -194,7 +194,7 @@ describe('Container Lifecycle Routes', () => {
         const response = await fetch(path, { method: 'POST', headers });
         expect(response.status).toBe(200);
         expect((await response.json() as { status: string }).status).toBe('starting');
-        expect(await lookup()).toBeNull();
+        await vi.waitFor(async () => expect(await lookup()).toBeNull());
       });
     }
 

@@ -20,19 +20,22 @@ const input = { repositoryId: 138, pullRequest: 34, acknowledgedHead: 'b'.repeat
 const encoded = btoa(JSON.stringify(input));
 function interceptor() {
   const staged: unknown[] = [];
-  const stub = { openReviewHuman: async () => ({ human: { subject: 'owner', email: 'owner@example.test',
+  const stub = { getReviewLifecycleGeneration: async () => 1,
+    openReviewHuman: async () => ({ human: { subject: 'owner', email: 'owner@example.test',
     issuer: 'https://team.cloudflareaccess.com', audiences: ['aud'], issuedAt: 1,
     expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'private.jwt' }),
     stageBoundaryInput: async (value: unknown) => { staged.push(value); } };
-  const env = { CONTAINER: { getByName: () => stub } } as unknown as Env;
-  const ctx = { props: { user: 'owner@example.test', bucket: 'review-owner', sessionId: 'review1234' },
-    waitUntil: (promise: Promise<unknown>) => promise } as unknown as ExecutionContext;
-  return { client: new GitHubInterceptor(ctx, env), staged };
+  const env = { ENTERPRISE_MODE: 'active', CONTAINER: { getByName: () => stub } } as unknown as Env;
+  const waiting: Promise<unknown>[] = [];
+  const ctx = { props: { user: 'owner@example.test', bucket: 'review-owner',
+    sessionId: 'review1234', lifecycleGeneration: 1 },
+    waitUntil: (promise: Promise<unknown>) => { waiting.push(promise); } } as unknown as ExecutionContext;
+  return { client: new GitHubInterceptor(ctx, env), staged, waiting };
 }
 
 describe('REQ-OPERATOR-053: Pi boundary data travels through the existing session-bound GitHub transport', () => {
   it('submits bounded opaque evidence without forwarding its header or a browser assertion to GitHub', async () => {
-    const { client, staged } = interceptor();
+    const { client, staged, waiting } = interceptor();
     let outbound: Request | undefined;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async request => {
       outbound = request as Request;
@@ -42,6 +45,8 @@ describe('REQ-OPERATOR-053: Pi boundary data travels through the existing sessio
       headers: { 'x-codeflare-operator-boundary-input': encoded },
     }));
     expect(result.status).toBe(200);
+    await result.text();
+    await Promise.all(waiting);
     expect(outbound?.headers.has('x-codeflare-operator-boundary-input')).toBe(false);
     expect(outbound?.headers.has('cf-access-jwt-assertion')).toBe(false);
     expect(staged).toMatchObject([{ sessionId: 'review1234', input }]);

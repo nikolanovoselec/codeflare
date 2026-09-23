@@ -28,6 +28,8 @@ import {
   type MetricsCallbacks,
 } from './container-metrics';
 
+import { discardReviewSessionHuman } from './review-session-human';
+
 const SESSION_ID_KEY = '_sessionId';
 
 /**
@@ -209,6 +211,14 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       if (timer) clearTimeout(timer);
     }
   };
+  // Fence protected admissions before any teardown I/O yields. Cleanup failures
+  // do not prevent the existing bounded final sync and guaranteed stop path.
+  try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, start)); }
+  catch (err) { host.logger.warn('Shutdown fence could not be persisted', { error: toError(err).message }); }
+  try { await withinDeadline(discardReviewSessionHuman(host as unknown as Parameters<typeof discardReviewSessionHuman>[0])); }
+  catch (err) { host.logger.warn('Review authority cleanup failed', { error: toError(err).message }); }
+  try { await withinDeadline(host.ctx.storage.delete(['review:boundary-input', 'review:push-evidence', 'review:pr-creation'])); }
+  catch (err) { host.logger.warn('Boundary input cleanup failed', { error: toError(err).message }); }
   host.logger.info('Destroying container, clearing operational storage');
   // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
   // so the final-sync audit (recorded after the drain) stays correlatable.
@@ -228,7 +238,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // persisted marker, so the surviving collectMetrics alarm cannot self-heal a
   // session the user is deliberately stopping back to running (REQ-SESSION-018
   // AC4). onStart() clears the marker on the next fresh start.
-  try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now())); } catch { /* storage racing teardown */ }
+  // The durable shutdown fence was persisted before the first teardown await.
 
   // REQ-SESSION-027 AC1: give pending away notifications one final,
   // independently bounded delivery attempt before final sync or destructive
@@ -266,6 +276,11 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       // Drop auth and vault keys before the next lifecycle can reuse this DO.
       host.ctx.storage.delete('containerAuthToken'),
       host.ctx.storage.delete('vaultKey'),
+      host.ctx.storage.delete('review:session-human'),
+      host.ctx.storage.delete('review:session-principal'),
+      host.ctx.storage.delete('review:boundary-input'),
+      host.ctx.storage.delete('review:push-evidence'),
+      host.ctx.storage.delete('review:pr-creation'),
     ]));
     host._bucketName = null;
     host._sessionId = null;

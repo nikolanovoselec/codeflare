@@ -38,7 +38,15 @@ const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision }
 const configureBody = z.strictObject({ policy, configuration, revision });
 const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), managers: grant,
   ceiling: z.strictObject({ capabilities: policy.shape.capabilities, resourceProfileIds: z.array(z.string().regex(ID)).max(128)
-    .refine(values => new Set(values).size === values.length) }) });
+    .refine(values => new Set(values).size === values.length) }),
+  boundaryActions: z.array(z.strictObject({
+    repositoryId: z.number().int().positive().safe(), installationId: z.string().regex(ID),
+    workflowId: z.number().int().positive().safe(),
+    workflowPath: z.string().regex(/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/),
+    protectedRef: z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/),
+    workflowDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+    events: z.array(z.enum(['pull_request', 'push'])).min(1).max(2),
+  })).max(100).optional() });
 
 type HumanContext = Awaited<ReturnType<typeof requireOperatorHumanContext>> & { controls: ManagementControls; platformAdmin: boolean };
 type Variables = AuthVariables & { operatorHuman: HumanContext; registry: DurableObjectStub<OperatorRegistry> };

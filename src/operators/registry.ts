@@ -13,6 +13,7 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseOperatorPolicy } from './policy';
 import type { OperatorBrowserSummary } from './browser-activity';
+import type { BoundaryActionBinding } from './boundary-action-trust';
 
 /** RPC carries bounded JSON text rather than recursively serialized schema types. */
 function normalizePolicyJson(json: string): string {
@@ -102,6 +103,17 @@ export interface ManagementReleaseCandidate { release: ManagementRelease; manife
 export interface ManagementControls {
   revision: number; managers: ManagementGrant;
   ceiling: { capabilities: string[]; resourceProfileIds: string[] };
+  /** Target repository trust, never the operator package's approved build workflow. */
+  boundaryActions?: Array<Omit<BoundaryActionBinding, 'controlsRevision'>>;
+}
+
+export interface BoundaryPreparation {
+  repositoryId: number; pullRequest: number; contextDigest: string; ownerKey: string;
+  installationId: string; operatorId: string; deadline: number; activityId: string; phase: 'pending' | 'prepared';
+  revision: { head: string; base: string; mergeBase: string };
+  controlsRevision: number; installationRevision: number; operatorRevision: number;
+  releaseId: string; bundleDigest: string; workflowId: number; workflowDigest: string;
+  session: { bucket: string; sessionId: string; generation: number };
 }
 export interface ManagementAuthority { operatorRevision: number; controlsRevision: number; expiresAt: number }
 export interface ManagementAdmissionRequest {
@@ -460,7 +472,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       CREATE TABLE IF NOT EXISTS operator_bytes (digest TEXT NOT NULL, part INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(digest,part));
       CREATE TABLE IF NOT EXISTS operator_configuration_history (installation_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(installation_id,revision));
       CREATE TABLE IF NOT EXISTS operator_admissions (activity_id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS operator_management_controls (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS operator_management_controls (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS operator_boundary_preparations (
+        repository_id INTEGER NOT NULL, pull_request INTEGER NOT NULL, data TEXT NOT NULL,
+        PRIMARY KEY(repository_id,pull_request));
+      CREATE INDEX IF NOT EXISTS operator_boundary_owner ON operator_boundary_preparations(
+        json_extract(data,'$.ownerKey'),repository_id,pull_request);
+      CREATE TABLE IF NOT EXISTS operator_boundary_handoffs (
+        activity_id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, expires_at INTEGER NOT NULL,
+        consumed INTEGER NOT NULL DEFAULT 0);`);
   }
 
   private managementControls(): ManagementControls {
@@ -471,14 +491,161 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   async getManagementControls(): Promise<ManagementControls> { return this.managementControls(); }
 
+  async getBoundaryAction(repositoryId: number): Promise<BoundaryActionBinding | null> {
+    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) return null;
+    const controls = this.managementControls();
+    const action = controls.boundaryActions?.find(value => value.repositoryId === repositoryId);
+    return action ? { ...structuredClone(action), controlsRevision: controls.revision } : null;
+  }
+
+  /** Atomic PR-revision reservation; never returns an Action start credential. */
+  async reserveBoundaryPreparation(input: Omit<BoundaryPreparation, 'activityId' | 'phase'> & {
+    expectedContextDigest?: string | null;
+  }): Promise<OperatorRegistryResult<{ activityId: string; created: boolean }>> {
+    if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
+      || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
+      || !/^[a-f0-9]{64}$/.test(input.contextDigest) || !/^[a-f0-9]{64}$/.test(input.ownerKey)
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(input.installationId)
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(input.operatorId)
+      || !input.revision || !/^[a-f0-9]{40}$/i.test(input.revision.head)
+      || !/^[a-f0-9]{40}$/i.test(input.revision.base)
+      || !/^[a-f0-9]{40}$/i.test(input.revision.mergeBase)
+      || !Number.isSafeInteger(input.controlsRevision) || input.controlsRevision < 1
+      || !Number.isSafeInteger(input.installationRevision) || input.installationRevision < 1
+      || !Number.isSafeInteger(input.operatorRevision) || input.operatorRevision < 1
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(input.releaseId)
+      || !/^[a-f0-9]{64}$/.test(input.bundleDigest)
+      || !Number.isSafeInteger(input.workflowId) || input.workflowId < 1
+      || !/^[a-f0-9]{64}$/.test(input.workflowDigest)
+      || !input.session || !/^[A-Za-z0-9_-]{1,128}$/.test(input.session.bucket)
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(input.session.sessionId)
+      || !Number.isSafeInteger(input.session.generation) || input.session.generation < 1
+      || (input.expectedContextDigest != null && !/^[a-f0-9]{64}$/.test(input.expectedContextDigest))
+      || !Number.isSafeInteger(input.deadline) || input.deadline <= Date.now()) {
+      throw new ValidationError('Invalid PR boundary reservation');
+    }
+    this.managementSchema();
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.ctx.storage.sql.exec<{ data: string }>(
+        'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
+        input.repositoryId, input.pullRequest).toArray()[0];
+      const previous = row ? JSON.parse(row.data) as BoundaryPreparation : null;
+      const action = this.managementControls().boundaryActions?.find(binding => binding.repositoryId === input.repositoryId);
+      const selected = this.managementExecution(input.installationId);
+      if (!action || this.managementControls().revision !== input.controlsRevision
+        || action.installationId !== input.installationId || action.workflowId !== input.workflowId
+        || action.workflowDigest !== input.workflowDigest || !selected.ok
+        || selected.value.controlsRevision !== input.controlsRevision
+        || selected.value.installation.revision !== input.installationRevision
+        || selected.value.operator.revision !== input.operatorRevision
+        || selected.value.operator.operatorId !== input.operatorId
+        || selected.value.release.id !== input.releaseId
+        || selected.value.release.bundleDigest !== input.bundleDigest) {
+        return { ok: false, reason: 'revision-conflict' };
+      }
+      const sameRevision = previous && previous.revision?.head === input.revision.head
+        && previous.revision?.base === input.revision.base
+        && previous.revision?.mergeBase === input.revision.mergeBase;
+      if (previous?.contextDigest === input.contextDigest) {
+        if (previous.ownerKey !== input.ownerKey || previous.session?.bucket !== input.session.bucket
+          || previous.session?.sessionId !== input.session.sessionId) {
+          return { ok: false, reason: 'activity-conflict' };
+        }
+        return previous.deadline > Date.now()
+          ? { ok: true, value: { activityId: previous.activityId, created: false } }
+          : { ok: false, reason: 'authority-expired' };
+      }
+      if (sameRevision || (previous?.contextDigest ?? null) !== (input.expectedContextDigest ?? null)) {
+        return { ok: false, reason: 'revision-conflict' };
+      }
+      const next: BoundaryPreparation = { repositoryId: input.repositoryId, pullRequest: input.pullRequest,
+        contextDigest: input.contextDigest, ownerKey: input.ownerKey, installationId: input.installationId,
+        operatorId: input.operatorId, revision: structuredClone(input.revision),
+        controlsRevision: input.controlsRevision, installationRevision: input.installationRevision,
+        operatorRevision: input.operatorRevision, releaseId: input.releaseId, bundleDigest: input.bundleDigest,
+        workflowId: input.workflowId, workflowDigest: input.workflowDigest,
+        session: structuredClone(input.session),
+        deadline: input.deadline, activityId: crypto.randomUUID(), phase: 'pending' };
+      this.ctx.storage.sql.exec('INSERT OR REPLACE INTO operator_boundary_preparations VALUES(?,?,?)',
+        input.repositoryId, input.pullRequest, JSON.stringify(next));
+      return { ok: true, value: { activityId: next.activityId, created: true } };
+    });
+  }
+
+  /** Reconciliation is a read only metadata projection; it grants no start authority. */
+  async getBoundaryPreparation(repositoryId: number, pullRequest: number): Promise<BoundaryPreparation | null> {
+    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0
+      || !Number.isSafeInteger(pullRequest) || pullRequest <= 0) return null;
+    this.managementSchema();
+    const row = this.ctx.storage.sql.exec<{ data: string }>(
+      'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
+      repositoryId, pullRequest).toArray()[0];
+    return row ? JSON.parse(row.data) as BoundaryPreparation : null;
+  }
+
+  async markBoundaryPrepared(repositoryId: number, pullRequest: number, activityId: string,
+    contextDigest: string, startCapability: string, startExpiresAt: number): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(startCapability) || !Number.isSafeInteger(startExpiresAt)
+      || startExpiresAt <= Date.now()) throw new ValidationError('Invalid Action handoff');
+    const ciphertext = await sealOperatorSecret(startCapability, this.env,
+      { purpose: 'handoff', recordId: activityId });
+    this.managementSchema();
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.ctx.storage.sql.exec<{ data: string }>(
+        'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
+        repositoryId, pullRequest).toArray()[0];
+      const current = row ? JSON.parse(row.data) as BoundaryPreparation : null;
+      if (!current || current.activityId !== activityId || current.contextDigest !== contextDigest
+        || current.deadline <= Date.now() || startExpiresAt > current.deadline || current.phase !== 'pending') return false;
+      const action = this.managementControls().boundaryActions?.find(binding => binding.repositoryId === repositoryId);
+      const selected = this.managementExecution(current.installationId);
+      if (!action || !selected.ok || this.managementControls().revision !== current.controlsRevision
+        || action.installationId !== current.installationId || action.workflowId !== current.workflowId
+        || action.workflowDigest !== current.workflowDigest
+        || selected.value.controlsRevision !== current.controlsRevision
+        || selected.value.installation.revision !== current.installationRevision
+        || selected.value.operator.revision !== current.operatorRevision
+        || selected.value.release.id !== current.releaseId
+        || selected.value.release.bundleDigest !== current.bundleDigest) return false;
+      const existing = this.ctx.storage.sql.exec(
+        'SELECT activity_id FROM operator_boundary_handoffs WHERE activity_id=?', activityId).toArray();
+      if (existing.length) return false;
+      this.ctx.storage.sql.exec('INSERT INTO operator_boundary_handoffs VALUES(?,?,?,0)',
+        activityId, ciphertext, startExpiresAt);
+      this.ctx.storage.sql.exec('UPDATE operator_boundary_preparations SET data=? WHERE repository_id=? AND pull_request=?',
+        JSON.stringify({ ...current, phase: 'prepared' }), repositoryId, pullRequest);
+      return true;
+    });
+  }
+
   /** Current human platform-admin authorization belongs to the route, never to submitted ACL data. */
   async setManagementControls(input: ManagementControls, actor: { email: string; expiresAt: number }): Promise<OperatorRegistryResult<ManagementControls>> {
     this.managementSchema();
+    if (input.boundaryActions !== undefined) {
+      const seen = new Set<number>();
+      if (!Array.isArray(input.boundaryActions) || input.boundaryActions.length > 100) throw new ValidationError('Invalid boundary Action bindings');
+      for (const action of input.boundaryActions) {
+        if (!action || !Number.isSafeInteger(action.repositoryId) || action.repositoryId <= 0
+          || seen.has(action.repositoryId) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(action.installationId)
+          || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(action.workflowPath)
+          || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(action.protectedRef)
+          || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)
+          || !Array.isArray(action.events) || action.events.length === 0
+          || action.events.some(event => event !== 'pull_request' && event !== 'push')) {
+          throw new ValidationError('Invalid boundary Action binding');
+        }
+        seen.add(action.repositoryId);
+      }
+    }
     return this.ctx.storage.transactionSync(() => {
       if (!Number.isFinite(actor.expiresAt) || actor.expiresAt <= Date.now()) return { ok: false, reason: 'authority-expired' };
       const current = this.managementControls();
       if (current.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
-      const value = { ...input, revision: current.revision + 1 };
+      const value = { ...input,
+        ...(input.boundaryActions === undefined && current.boundaryActions
+          ? { boundaryActions: current.boundaryActions } : {}),
+        revision: current.revision + 1 };
       this.ctx.storage.sql.exec('INSERT OR REPLACE INTO operator_management_controls VALUES(1,?)', JSON.stringify(value));
       createLogger('operator-management').info('Operator management controls changed', { actor: actor.email, target: 'management-controls', revision: value.revision });
       return { ok: true, value };
@@ -876,7 +1043,19 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const ids = await this.ctx.storage.get<string[]>(`owner-activities:${ownerKey}`) ?? [];
     const values = await Promise.all(ids.slice(0, 100).map(id =>
       this.ctx.storage.get<OperatorBrowserSummary>(`owner-activity:${ownerKey}:${id}`)));
-    return values.filter((value): value is OperatorBrowserSummary => value !== undefined);
+    const existing = values.filter((value): value is OperatorBrowserSummary => value !== undefined);
+    this.managementSchema();
+    const pending = this.ctx.storage.sql.exec<{ data: string }>(
+      `SELECT data FROM operator_boundary_preparations
+       WHERE json_extract(data,'$.ownerKey')=? ORDER BY repository_id DESC,pull_request DESC LIMIT 100`,
+      ownerKey).toArray().map(row => JSON.parse(row.data) as BoundaryPreparation);
+    const known = new Set(existing.map(item => item.activityId));
+    const uncertain = pending.filter(item => item.phase === 'pending' && !known.has(item.activityId))
+      .map(item => ({ activityId: item.activityId, operatorId: item.operatorId,
+        executionStatus: 'unknown' as const, cleanupStatus: 'pending' as const,
+        collectionStatus: 'unavailable' as const, attention: true, sessionId: null,
+        source: 'pr-boundary', updatedAt: Date.now() }));
+    return [...uncertain, ...existing].slice(0, 100);
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {
