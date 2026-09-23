@@ -290,18 +290,26 @@ This release extends the existing Operator foundation with GitHub package instal
 2. At an authenticated Enterprise PR boundary, the parent prebinds one visible activity to the verified human, installation, exact current PR revision and applicable protected Action. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-boundary-preparation.ts::prepareVerifiedBoundary --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation) --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-053: exact-context preparation is one durable Registry reservation) -->
 3. At an eligible PR boundary, selection is remote only for an applicable trusted Action, local only for confirmed absence, and unavailable otherwise. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: src/operators/review-boundary-preparation.ts::selectVerifiedBoundaryAction --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-OPERATOR-053: Enterprise PR-boundary remote review selection) --> <!-- @test: src/__tests__/operators/review-action-applicability.test.ts (REQ-OPERATOR-053: approved target Action applicability, not release provenance) -->
 4. The status response exposes only metadata and the durable generation. Continuation claims that waiting generation once; a delayed accepted continuation cannot reserve a later drive. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/runtime.ts::driveOperatorRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes) -->
-5. A separate trusted publisher binds the independently retained terminal receipt, artifacts, human-readable round comment and shadow check to the exact prepared repo/PR/head/base/merge-base, workflow/run/attempt and activity/generation. Pending/published receipts and current-context verification fence stale or ambiguous writes; red, missing or incomplete evidence stays non-green. Activating a required check needs separate explicit authorization.
+5. A separate trusted publisher binds artifacts, human-readable round comment and shadow check to the exact prepared repo/PR/head/base/merge-base, workflow/run/attempt and activity/generation. Pending/published receipts and current-context verification fence stale or ambiguous writes; red, missing or incomplete evidence stays non-green. Activating a required check needs separate explicit authorization.
 6. The existing owner-scoped Operator activity view shows real waiting, running, cleanup and terminal states; local Pi monitors independently verified published Review and ordinary CI and retains triage/FIX without running a second reviewer wave.
 7. The protected Action redeems the terminal result once with its read capability. <!-- @impl: src/operators/activity.ts::OperatorActivity.redeemWebhookResult --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity) -->
 
 **Constraints:**
 
-- Neither session ownership nor GitHub identity supplies human authority. No identity broker, workflow-selected principal, JWT renewal or candidate-controlled workflow.
-- Pi and Codeflare do not dispatch the workflow. GitHub triggers it automatically; only the authenticated claim binds run/attempt under [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence).
-- Local `/review` remains unchanged and never starts the operator. Uncertain applicability, disabled configuration, expired authority or failed remote execution cannot silently fall back or clear a check.
-- Human authority expiry stops protected execution; an Action without a matching handoff fails closed. Browser JWTs and publisher credentials never enter Pi or the compiled child.
-- The parent verifies numeric repository, PR/head/base/merge-base, acknowledged-head ancestry and installed Action bytes. Session-bound range and rejected-finding evidence are not principal authority.
-- Conductor creates the canonical packet after Action start; rejected reasoning alone cannot resolve findings.
+- Neither session ownership nor GitHub identity supplies human authority.
+- No new identity broker, workflow-selected principal, JWT renewal or candidate-controlled workflow.
+- Pi and Codeflare do not dispatch the automatically triggered GitHub workflow.
+- Only the authenticated claim binds run/attempt under [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence).
+- Local `/review` remains unchanged and never starts the operator.
+- Uncertain applicability, disabled configuration, expired authority or failed remote execution cannot silently fall back or clear a check.
+- Human authority expiry stops protected execution.
+- An Action without a matching Codeflare handoff fails closed.
+- Browser JWTs and publisher credentials never enter Pi or the compiled child.
+- The parent verifies numeric repository, PR/head/base/merge-base, acknowledged-head ancestry and installed Action bytes.
+- Session-bound range and rejected-finding evidence are not principal authority.
+- An independent terminal receipt is retained before publication.
+- Conductor creates the canonical packet after Action start.
+- Rejected reasoning alone cannot resolve findings.
 
 **Priority:** P0
 
@@ -333,6 +341,6 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** The test-only RED suite ran at `e4cbc923` (PR Checks `35896387844`). Implementation heads `0818d60f`, `8f673c87` and `eff95b47` failed exact-head CI; authenticated claim, Stop cancellation and restart require passing exact-head CI and protected sandbox proof. This requirement remains Planned.
+**Verification:** The test-only RED suite ran at `e4cbc923` (PR Checks `35896387844`). Implementation heads `0818d60f`, `8f673c87`, `eff95b47` and `93ed85e8` failed exact-head CI; authenticated claim, Stop cancellation and restart require passing exact-head CI and protected sandbox proof. This requirement remains Planned.
 
 **Status:** Planned

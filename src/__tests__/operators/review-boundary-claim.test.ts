@@ -38,7 +38,7 @@ const workflowSha = 'd'.repeat(40), workflowSource = 'name: Boundary Reviews\non
 const actionDigest = '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc6ee4e95d';
 const request = { repositoryId: 138, pullRequest: 34, head, base, mergeBase, runId: 87, runAttempt: 1 };
 const session = { bucket: 'owner-bucket', sessionId: 'session01', generation: 1 };
-const protectedEnv = { ...env, ENCRYPTION_KEY: btoa('k'.repeat(32)) };
+const protectedEnv = { ...env, ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: 'active' as const };
 
 beforeAll(async () => {
   for (const sql of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
