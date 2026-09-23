@@ -8,7 +8,7 @@ import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveDispatcherRuntime, driveOperatorRuntime } from './runtime';
-import { createOperatorIntentDigest, type OperatorRuntimePlan } from './activity';
+import { createOperatorIntentDigest, type BoundaryActivityBinding, type OperatorRuntimePlan } from './activity';
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
@@ -53,7 +53,7 @@ export interface PreparedOperatorActivity {
 /** Request-attached preparation only; it creates no scheduler or child session. */
 export async function prepareOperatorActivity(input: unknown, authority: {
   human: VerifiedHumanAccessClaims; accessJwt: string;
-}, env: Env, parentReservation?: { activityId: string; expectedManagement?: {
+}, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; expectedManagement?: {
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string;
 } }): Promise<PreparedOperatorActivity> {
@@ -127,7 +127,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   } : { operatorId, activityId, intentDigest, expectedRevision: legacySelection!.revision,
     deadline, startExpiresAt, startVerifier };
   const prepared = await env.OPERATOR_ACTIVITY.getByName(activityId).prepareAuthorized(
-    intent, executionContext, invocationJson);
+    intent, executionContext, invocationJson, parentReservation?.boundary);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
   return { activityId, startCapability, startExpiresAt };
 }

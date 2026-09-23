@@ -31,6 +31,7 @@ export interface D1Session extends AuthoritySession {
   unreachableDeadlineMs?: number;
   terminationIntentId?: string;
   terminationGeneration?: number;
+  boundaryActivityId?: string;
 }
 
 type SessionRow = Record<string, string | number | null>;
@@ -55,6 +56,7 @@ function fromRow(row: SessionRow): D1Session {
     unreachableIncidentId: optional(row.unreachable_incident_id as string | null), unreachableFirstObservedAt: optional(row.unreachable_first_observed_at as string | null),
     unreachableDeadlineMs: row.unreachable_deadline_ms === null ? undefined : Number(row.unreachable_deadline_ms),
     terminationIntentId: optional(row.termination_intent_id as string | null), terminationGeneration: row.termination_generation === null ? undefined : Number(row.termination_generation),
+    boundaryActivityId: optional(row.boundary_activity_id as string | null),
   };
 }
 
@@ -105,7 +107,8 @@ export class D1SessionRepository implements SessionAuthority {
       unreachable_incident_id=NULL, unreachable_first_observed_at=NULL, unreachable_deadline_ms=NULL,
       termination_intent_id=NULL, termination_generation=NULL, termination_claimed_at=NULL,
       termination_signal_accepted_at=NULL
-      WHERE owner_key=?1 AND lifecycle_state='stopping' AND transitioned_at<?2`)
+      WHERE owner_key=?1 AND lifecycle_state='stopping' AND transitioned_at<?2
+        AND boundary_activity_id IS NULL`)
       .bind(ownerKey, transitionedBefore).run();
     return result.meta.changes;
   }
@@ -116,7 +119,7 @@ export class D1SessionRepository implements SessionAuthority {
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
       transitioned_at=?3, lifecycle_reason=NULL
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
-        AND termination_intent_id IS NULL
+        AND termination_intent_id IS NULL AND boundary_activity_id IS NULL
         AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')`)
       .bind(ownerKey, sessionId, transitionedAt).run();
     return result.meta.changes === 1 ? this.getSession(ownerKey, sessionId) : null;
@@ -139,8 +142,56 @@ export class D1SessionRepository implements SessionAuthority {
       termination_intent_id=NULL, termination_generation=NULL, termination_claimed_at=NULL,
       termination_signal_accepted_at=NULL
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
-        AND lifecycle_state='stopping' AND termination_intent_id=?4`)
+        AND lifecycle_state='stopping' AND termination_intent_id=?4
+        AND boundary_activity_id IS NULL`)
       .bind(ownerKey, sessionId, generation, intentId, observedAt).run();
+    return result.meta.changes === 1;
+  }
+
+  async recordBoundaryActionStart(ownerKey: string, sessionId: string, generation: number, activityId: string): Promise<boolean> {
+    if (!activityId) return false;
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET boundary_activity_id=?4,
+      response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+        AND lifecycle_state='running'
+        AND termination_intent_id IS NULL AND boundary_activity_id IS NULL`)
+      .bind(ownerKey, sessionId, generation, activityId).run();
+    if (result.meta.changes === 1) return true;
+    return this.isBoundaryActionPending(ownerKey, sessionId, generation, activityId, true);
+  }
+
+  async isBoundaryActionPending(ownerKey: string, sessionId: string, generation: number, activityId: string,
+    requireOpen = false): Promise<boolean> {
+    if (!activityId) return false;
+    const row = await this.db.prepare(`SELECT 1 AS pending FROM runtime_sessions
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND boundary_activity_id=?4
+        AND (?5=0 OR (lifecycle_state='running' AND termination_intent_id IS NULL))`)
+      .bind(ownerKey, sessionId, generation, activityId, requireOpen ? 1 : 0).first<{ pending: number }>();
+    return row?.pending === 1;
+  }
+
+  async isBoundaryActionStartCurrent(ownerKey: string, sessionId: string, generation: number, activityId: string): Promise<boolean> {
+    return this.isBoundaryActionPending(ownerKey, sessionId, generation, activityId, true);
+  }
+
+  /** Only a consumed, successfully completed Activity result may release the singleton for another review. */
+  async releaseCompletedBoundaryAction(ownerKey: string, sessionId: string, generation: number, activityId: string): Promise<boolean> {
+    if (!activityId) return false;
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET boundary_activity_id=NULL,
+      response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND boundary_activity_id=?4
+        AND lifecycle_state='running' AND termination_intent_id IS NULL`)
+      .bind(ownerKey, sessionId, generation, activityId).run();
+    return result.meta.changes === 1;
+  }
+
+  async acknowledgeBoundaryCancellation(ownerKey: string, sessionId: string, generation: number, activityId: string): Promise<boolean> {
+    if (!activityId) return false;
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET boundary_activity_id=NULL,
+      response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND boundary_activity_id=?4
+        AND lifecycle_state='stopping' AND termination_intent_id IS NOT NULL`)
+      .bind(ownerKey, sessionId, generation, activityId).run();
     return result.meta.changes === 1;
   }
 
@@ -189,12 +240,12 @@ export class D1SessionRepository implements SessionAuthority {
   }
 
   async deleteOwnerSessions(ownerKey: string): Promise<number> {
-    const result = await this.db.prepare('DELETE FROM runtime_sessions WHERE owner_key=?1').bind(ownerKey).run();
+    const result = await this.db.prepare('DELETE FROM runtime_sessions WHERE owner_key=?1 AND boundary_activity_id IS NULL').bind(ownerKey).run();
     return result.meta.changes;
   }
 
   async deleteConfirmed(ownerKey: string, sessionId: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'").bind(ownerKey, sessionId).run();
+    const result = await this.db.prepare("DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL").bind(ownerKey, sessionId).run();
     return result.meta.changes === 1;
   }
 }

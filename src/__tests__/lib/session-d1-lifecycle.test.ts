@@ -3,6 +3,8 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
+import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
@@ -28,7 +30,9 @@ beforeAll(async () => {
   for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(statement).run();
   }
-  await db.prepare('ALTER TABLE runtime_sessions ADD COLUMN boundary_activity_id TEXT').run();
+  for (const statement of boundaryMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+    await db.prepare(statement).run();
+  }
 });
 
 beforeEach(async () => {
@@ -137,14 +141,37 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     const stopped = await repository.claimStop('owner-a', 'session01', 'stop-second', new Date().toISOString());
     expect(stopped).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
     expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-other')).toBe(false);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 2, 'review-one', true)).toBe(false);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 1, 'review-one')).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 2, 'review-other')).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-b', 'session01', 2, 'review-one')).toBe(false);
     expect(await repository.confirmStopped('owner-a', 'session01', 2, 'stop-second', new Date().toISOString())).toBe(false);
     expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 2, 'review-one')).toBe(false);
     expect(await repository.confirmStopped('owner-a', 'session01', 2, 'stop-second', new Date().toISOString())).toBe(true);
     const restarted = await repository.start('owner-a', 'session01', new Date().toISOString());
     expect(restarted?.lifecycleGeneration).toBe(3);
     await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running' WHERE owner_key='owner-a' AND session_id='session01'").run();
     expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(false);
     expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 3, 'review-three')).toBe(true);
+  });
+
+  it('REQ-OPERATOR-053: only the exact completed review releases the running session for a second review', async () => {
+    const repository = new D1SessionRepository(db);
+    await createSession();
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=1 WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-two')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 1, 'review-other')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-b', 'session01', 1, 'review-one')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-two')).toBe(true);
+    expect(await repository.claimStop('owner-a', 'session01', 'stop-review-two', new Date().toISOString()))
+      .toMatchObject({ boundaryActivityId: 'review-two' });
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 1, 'review-two')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-review-two', new Date().toISOString())).toBe(false);
   });
 
   it('REQ-OPERATOR-053: timeout reset and owner cleanup cannot erase unfenced Action work', async () => {
@@ -158,6 +185,11 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.deleteOwnerSessions('owner-a')).toBe(0);
     expect(await repository.getSession('owner-a', 'session01'))
       .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
+    expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-one', new Date().toISOString())).toBe(false);
+    expect(await repository.start('owner-a', 'session01', new Date().toISOString())).toBeNull();
+    expect(await repository.deleteConfirmed('owner-a', 'session01')).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.forceStopExpired('owner-a', new Date(Date.now() + 60_000).toISOString())).toBe(1);
   });
 
   it('rejects old generations and delayed or equal observation sequences', async () => {

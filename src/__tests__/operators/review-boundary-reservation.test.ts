@@ -20,7 +20,7 @@ async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>)
       managers: { users: [], groups: [] }, ceiling: { capabilities: [], resourceProfileIds: [] },
       boundaryActions: [{ repositoryId: 138, installationId: 'review-install', workflowId: 531,
         workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-        workflowDigest: 'c'.repeat(64), events: ['pull_request'] }],
+        workflowDigest: 'c'.repeat(64), events: ['pull_request_target'] }],
     }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 });
     if (!controls.ok) throw Error('Boundary fixture controls unavailable');
     ctx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'review-operator', 'conductor',

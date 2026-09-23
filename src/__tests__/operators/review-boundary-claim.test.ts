@@ -7,8 +7,11 @@ import { D1SessionRepository } from '../../lib/session-repository';
 import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { claimVerifiedBoundaryAction } from '../../operators/review-boundary-claim';
+import webhookRoutes from '../../routes/operator-webhook';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
+// @ts-expect-error Workers test loader supports raw SQL fixtures.
+import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
 const trust = vi.hoisted(() => ({ signed: true, current: true, human: true, selection: true }));
 vi.mock('../../operators/boundary-action-oidc', () => ({ verifyBoundaryActionOidc: async (_token: string, expected: {
@@ -40,7 +43,9 @@ beforeAll(async () => {
   for (const sql of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(sql).run();
   }
-  await db.prepare('ALTER TABLE runtime_sessions ADD COLUMN boundary_activity_id TEXT').run();
+  for (const sql of boundaryMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+    await db.prepare(sql).run();
+  }
 });
 beforeEach(async () => {
   trust.signed = trust.current = trust.human = trust.selection = true;
@@ -141,8 +146,13 @@ async function scenario(run: (fixture: {
         CONTAINER: { getByName: () => container }, USAGE_DB: db,
         KV: { get: async (key: string) => key === 'setup:custom_domain' ? 'enterprise.example.test' : null },
       } as never;
+      const encode = (value: unknown) => btoa(JSON.stringify(value)).replace(/\+/g, '-')
+        .replace(/\//g, '_').replace(/=+$/, '');
+      const signedFixture = `${encode({ alg: 'RS256', typ: 'JWT', kid: 'test' })}.${encode({
+        repository: 'owner/repo', workflow_sha: workflowSha,
+      })}.signature`;
       const claim = (change: Partial<typeof request> = {}) => claimVerifiedBoundaryAction(actionEnv,
-        'signed-action-oidc', { ...request, ...change });
+        signedFixture, { ...request, ...change });
       try { await run({ registry, activity, repo, claim, activityId, startCapability: prepared.startCapability }); }
       finally { vi.restoreAllMocks(); }
     });
@@ -150,6 +160,19 @@ async function scenario(run: (fixture: {
 }
 
 describe('REQ-OPERATOR-053: real prepared Registry and Activity owners at protected Action claim', () => {
+  it('releases only the successfully consumed terminal result for the next review on this session', async () => {
+    const repository = new D1SessionRepository(db);
+    expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'review-activity')).toBe(true);
+    const activity = { redeemWebhookResult: async () => ({ ok: true, terminal: true, status: 'completed' }),
+      getBoundaryStartBinding: async () => ({ repositoryId: 138, pullRequest: 34,
+        contextDigest: 'f'.repeat(64), session }) };
+    const response = await webhookRoutes.fetch(new Request(
+      'https://enterprise.example.test/operator-webhook/v1/activities/review-activity/result', {
+        method: 'POST', headers: { authorization: `Bearer ${'r'.repeat(43)}` },
+      }), { ENTERPRISE_MODE: 'active', OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db } as never);
+    expect(response.status).toBe(200);
+    expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'next-review')).toBe(true);
+  });
   it('claims once for the exact current run, then only the Action webhook start admits the bound activity', () => scenario(async f => {
     expect(await f.activity.start(f.startCapability)).toMatchObject({ ok: false });
     expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: false });

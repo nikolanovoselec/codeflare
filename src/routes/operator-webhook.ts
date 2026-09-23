@@ -10,6 +10,8 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { isEnterpriseMode } from '../lib/subscription';
 import { bindOperatorRuntimeCapability, runOperatorActivity } from '../operators/orchestrator';
+import { claimVerifiedBoundaryAction, type BoundaryActionClaimRequest } from '../operators/review-boundary-claim';
+import { D1SessionRepository } from '../lib/session-repository';
 
 const app = new Hono<{ Bindings: Env }>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -66,6 +68,64 @@ function throttle(key: string): boolean {
   return next.count > 30;
 }
 
+const CLAIM_PATH = '/operator-webhook/v1/activities/claims/boundary';
+const CLAIM_FIELDS = ['repositoryId', 'pullRequest', 'head', 'base', 'mergeBase', 'runId', 'runAttempt'];
+const SHA = /^[0-9a-f]{40}$/;
+const OIDC = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+async function claimBody(request: Request): Promise<BoundaryActionClaimRequest | null> {
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    || !request.body) return null;
+  const reader = request.body.getReader();
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  let expired = false;
+  const deadline = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 2000);
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 4096) { await reader.cancel(); return null; }
+      chunks.push(chunk.value);
+    }
+    if (expired) return null;
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const input: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const fields = Object.keys(input);
+    if (fields.length !== CLAIM_FIELDS.length || fields.some(field => !CLAIM_FIELDS.includes(field))) return null;
+    const claim = input as Record<string, unknown>;
+    if (!['repositoryId', 'pullRequest', 'runId', 'runAttempt'].every(field =>
+      typeof claim[field] === 'number' && Number.isSafeInteger(claim[field] as number) && (claim[field] as number) > 0)
+      || !['head', 'base', 'mergeBase'].every(field => typeof claim[field] === 'string' && SHA.test(claim[field] as string))) {
+      return null;
+    }
+    return claim as unknown as BoundaryActionClaimRequest;
+  } catch { return null; }
+  finally { clearTimeout(deadline); reader.releaseLock(); }
+}
+
+app.all(CLAIM_PATH, async c => {
+  if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+  if (c.req.method !== 'POST') return response({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
+  const header = c.req.header('authorization');
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || token.length > 8192 || !OIDC.test(token)) {
+    return response({ error: 'Action identity required', code: 'ACTION_IDENTITY_REQUIRED' }, 401);
+  }
+  const input = await claimBody(c.req.raw);
+  if (!input) return response({ error: 'Invalid claim', code: 'BOUNDARY_CLAIM_INVALID' }, 400);
+  try {
+    const result = await claimVerifiedBoundaryAction(c.env, token, input);
+    if ('status' in result) return response({ error: 'Action claim unavailable', code: 'BOUNDARY_CLAIM_UNAVAILABLE' },
+      result.status === 'unknown' ? 503 : result.status === 'denied' ? 403 : 409);
+    return response(result, 200);
+  } catch { return response({ error: 'Action claim unavailable', code: 'BOUNDARY_CLAIM_UNAVAILABLE' }, 503); }
+});
+
 app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
   if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
   const activityId = c.req.param('activityId');
@@ -97,6 +157,12 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
           ? await activity.continueWebhook(capability, generation!)
           : await activity.redeemWebhookResult(capability);
     if (result.ok) {
+      if (action === 'result' && result.status === 'completed' && c.env.USAGE_DB) {
+        // Terminal result consumption precedes release; a lost release leaves pending authority fenced.
+        const binding = await activity.getBoundaryStartBinding(activityId);
+        if (binding) await new D1SessionRepository(c.env.USAGE_DB).releaseCompletedBoundaryAction(
+          binding.session.bucket, binding.session.sessionId, binding.session.generation, activityId);
+      }
       if ((action === 'start' || action === 'continue') && bindCapability) {
         const drive = action === 'continue'
           ? runOperatorActivity(activityId, c.env, bindCapability, generation!)

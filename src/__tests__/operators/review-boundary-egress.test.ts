@@ -39,7 +39,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
     } }),
     getBoundaryAction: async () => options.denied ? null : ({ repositoryId: 138, installationId: 'review-install',
       workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-      workflowDigest, events: ['pull_request'], controlsRevision: 4 }),
+      workflowDigest, events: ['pull_request_target'], controlsRevision: 4 }),
     reserveBoundaryPreparation: async (request: { contextDigest: string }) => {
       prepared = { activityId: 'reserved-activity', contextDigest: request.contextDigest };
       return { ok: true, value: { activityId: prepared.activityId, created: true } };

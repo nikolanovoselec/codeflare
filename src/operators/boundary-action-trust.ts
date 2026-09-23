@@ -34,7 +34,8 @@ export async function resolveBoundaryAction(input: {
     || action.protectedRef !== `refs/heads/${repository.default_branch}`
     || branch.name !== repository.default_branch || !branch.protected
     || !/^[a-f0-9]{40}$/i.test(branch.commit?.sha) || contents.encoding !== 'base64'
-    || !action.events.includes(event) || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)) {
+    || event !== 'pull_request_target' || !action.events.includes('pull_request_target')
+    || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)) {
     return { selection: 'unavailable' };
   }
   try {

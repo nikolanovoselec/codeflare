@@ -16,6 +16,7 @@ import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from '../../lib/kv-keys';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { fencePendingBoundaryStart } from '../session/boundary-stop';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { buildCloneTargets } from '../../lib/clone-targets';
 import { installedAgents } from '../../lib/agent-allowlist';
@@ -102,6 +103,7 @@ export async function startOrRestartContainer(params: {
     const intentId = crypto.randomUUID();
     const stopping = await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
     if (!stopping) throw new Error('Replacement lifecycle could not claim termination ownership');
+    await fencePendingBoundaryStart(env, repository, stopping);
     try {
       await container.destroy();
     } catch (error) {
@@ -131,11 +133,10 @@ export async function startOrRestartContainer(params: {
   // Marker-protected metrics owns KV convergence; this request path cannot inspect
   // shutdownRequested and must not race a deliberate stop or recreate a deletion.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
-    if (bindHuman) {
-      const current = await new D1SessionRepository(env.USAGE_DB).getSession(sessionData.userId, sessionData.id);
-      if (!current || current.lifecycleGeneration !== expectedLifecycleGeneration) throw new Error('Session lifecycle moved');
-      await bindHuman(current.lifecycleGeneration);
-    }
+    const current = await new D1SessionRepository(env.USAGE_DB).getSession(sessionData.userId, sessionData.id);
+    if (!current || current.lifecycleState !== 'running' || current.boundaryActivityId && current.terminationIntentId
+      || (bindHuman && current.lifecycleGeneration !== expectedLifecycleGeneration)) throw new Error('Session lifecycle moved');
+    if (bindHuman) await bindHuman(current.lifecycleGeneration);
     return {
       status: 'already_running',
       containerState: currentState.status,
@@ -158,7 +159,9 @@ export async function startOrRestartContainer(params: {
     const stopping = authoritative.lifecycleState === 'stopping'
       ? authoritative
       : await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
-    if (!stopping || !await repository.confirmStopped(
+    if (!stopping) throw new Error('Confirmed container exit could not be persisted for Start');
+    await fencePendingBoundaryStart(env, repository, stopping);
+    if (!await repository.confirmStopped(
       sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
     )) throw new Error('Confirmed container exit could not be persisted for Start');
   }
@@ -532,9 +535,23 @@ app.post('/destroy', async (c) => {
   try {
     const { containerId, container } = getContainerContext(c);
 
-    // Destroy the container
+    // Preserve a D1 termination intent before teardown; cancellation must precede destruction.
+    const bucketName = c.get('bucketName');
+    const sessionId = getSessionIdFromQuery(c);
+    const repository = new D1SessionRepository(c.env.USAGE_DB);
+    const session = await repository.getSession(bucketName, sessionId);
+    if (!session) throw new Error('Session lifecycle unavailable for Destroy');
+    const intentId = session.lifecycleState === 'stopping' ? session.terminationIntentId : crypto.randomUUID();
+    if (!intentId) throw new Error('Session termination intent unavailable');
+    const stopping = session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping'
+      ? session : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
+    if (!stopping) throw new Error('Session termination intent unavailable');
+    await fencePendingBoundaryStart(c.env, repository, stopping);
     // Note: Do NOT call getState() before destroy() - it wakes up hibernated DOs (gotcha #6)
     await container.destroy();
+    if (stopping.lifecycleState !== 'stopped' && !await repository.confirmStopped(
+      bucketName, sessionId, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
+    )) throw new Error('Confirmed container exit could not be persisted');
 
     reqLogger.info('Container destroyed', { containerId });
 

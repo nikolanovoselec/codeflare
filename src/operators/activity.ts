@@ -16,8 +16,8 @@ import { z } from 'zod';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
-import { resolveOperatorGroupIdentity } from '../lib/access';
-import { projectOperatorExecution, reauthenticateOperatorExecution,
+import { canInvokeOperator, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
+import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
 import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
 import { parseOperatorContainerProfile } from '../container/operator-context';
@@ -38,7 +38,7 @@ export type ActivityAdmissionResult = { ok: true; phase: 'prepared' | 'queued' }
 
 export interface ActivityAdmissionProjection {
   activityId: string;
-  phase: 'prepared' | 'admitting' | 'queued';
+  phase: 'prepared' | 'admitting' | 'queued' | 'cancelled';
   receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null;
 }
 
@@ -133,8 +133,21 @@ export interface OperatorReviewState {
 export type OperatorReviewResult = { ok: true; state: OperatorReviewState } | { ok: false; reason:
   'not-admitted' | 'invalid' | 'conflict' | 'stale-generation' | 'incomplete' | 'not-verified' | 'unknown' };
 
+export interface BoundaryActivityBinding {
+  repositoryId: number; pullRequest: number; contextDigest: string;
+  session: { bucket: string; sessionId: string; generation: number };
+}
+
+const boundaryBindingSchema = z.strictObject({
+  repositoryId: z.number().int().positive().safe(), pullRequest: z.number().int().positive().safe(),
+  contextDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  session: z.strictObject({ bucket: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), generation: z.number().int().positive().safe() }),
+});
+
 interface AdmissionState {
   intent: OperatorActivityPreparation;
+  boundary?: BoundaryActivityBinding;
   phase: ActivityAdmissionProjection['phase'];
   receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null;
   executionContext?: OperatorExecutionContext;
@@ -208,6 +221,7 @@ function randomCapability(): string {
 }
 
 function checkStart(state: AdmissionState, verifier: string): AdmissionFailure | null {
+  if (state.phase === 'cancelled') return { ok: false, reason: 'admission-denied' };
   if (state.phase === 'queued') return { ok: false, reason: 'already-started' };
   if (state.intent.startVerifier !== verifier) return { ok: false, reason: 'invalid-capability' };
   const now = Date.now();
@@ -255,7 +269,11 @@ export class OperatorActivity extends Agent {
 
   /** Production preparation stores parent-created encrypted human authority. */
   async prepareAuthorized(intent: OperatorActivityPreparation,
-    executionContext: OperatorExecutionContext, invocationJson = 'null'): Promise<ActivityAdmissionResult> {
+    executionContext: OperatorExecutionContext, invocationJson = 'null',
+    boundary?: BoundaryActivityBinding): Promise<ActivityAdmissionResult> {
+    if (boundary && !boundaryBindingSchema.safeParse(boundary).success) {
+      return { ok: false, reason: 'admission-denied' };
+    }
     if (intent.activityId !== executionContext.activityId || intent.operatorId !== executionContext.operatorId) {
       return { ok: false, reason: 'admission-denied' };
     }
@@ -271,10 +289,72 @@ export class OperatorActivity extends Agent {
     const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
       await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
-        invocationJson, ownerKey, updatedAt: Date.now() });
+        invocationJson, ownerKey, ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
       return { ok: true, phase: 'prepared' };
     });
     return result;
+  }
+
+  /** Parent-only read for a stopping session; contains no human or start credentials. */
+  async getBoundaryStartBinding(activityId: string): Promise<BoundaryActivityBinding | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    return state?.intent.activityId === activityId && state.boundary
+      ? structuredClone(state.boundary) : null;
+  }
+
+  /** Stop's exact binding wins durably over prepared, admitting and queued starts. */
+  async cancelBoundaryStart(binding: BoundaryActivityBinding): Promise<{ ok: boolean }> {
+    if (!boundaryBindingSchema.safeParse(binding).success) return { ok: false };
+    const result = await this.ctx.storage.transaction(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      if (!state?.boundary || JSON.stringify(state.boundary) !== JSON.stringify(binding)) return { ok: false };
+      if (state.phase === 'cancelled') return { ok: true };
+      const drive = state.drive && (state.drive.status === 'running' || state.drive.status === 'waiting')
+        ? { ...state.drive, generation: state.drive.generation + 1, status: 'cancel-requested' as const } : state.drive;
+      await tx.put<AdmissionState>('admission', { ...state, phase: 'cancelled', drive,
+        intent: { ...state.intent, startVerifier: '' }, updatedAt: Date.now() });
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (lease && lease.status !== 'settled') await tx.put(DISPATCHER_LEASE, { ...lease, status: 'unknown' });
+      return { ok: true };
+    });
+    if (result.ok) await this.publishBrowserSummary().catch(() => {});
+    return result;
+  }
+
+  private async boundaryClaimCurrent(state: AdmissionState): Promise<boolean> {
+    if (!state.boundary) return true;
+    try {
+      const guard = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getBoundaryStartGuard(state.intent.activityId);
+      return !!guard?.claimed && guard.repositoryId === state.boundary.repositoryId
+        && guard.pullRequest === state.boundary.pullRequest
+        && 'contextDigest' in guard && guard.contextDigest === state.boundary.contextDigest
+        && JSON.stringify(guard.session) === JSON.stringify(state.boundary.session);
+    } catch { return false; }
+  }
+
+  private async boundaryCurrent(state: AdmissionState): Promise<boolean> {
+    if (!state.boundary) return true;
+    if (state.phase === 'cancelled' || !state.executionContext || state.intent.deadline <= Date.now()
+      || state.executionContext.expiresAt * 1000 <= Date.now() || !this.#appEnv.USAGE_DB) return false;
+    try {
+      const { D1SessionRepository } = await import('../lib/session-repository');
+      if (!await new D1SessionRepository(this.#appEnv.USAGE_DB).isBoundaryActionStartCurrent(
+        state.boundary.session.bucket, state.boundary.session.sessionId, state.boundary.session.generation,
+        state.intent.activityId)) return false;
+      if (!await this.boundaryClaimCurrent(state)) return false;
+      const sealed = await openOperatorExecutionAccess(state.executionContext, this.#appEnv);
+      const current = await requireOperatorHumanContext(new Request('https://codeflare.invalid/', {
+        headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+      }), this.#appEnv, sealed.human.email);
+      if (current.human.subject !== sealed.human.subject || current.human.issuer !== sealed.human.issuer
+        || current.human.email.toLowerCase() !== sealed.human.email.toLowerCase()
+        || JSON.stringify(current.human.audiences) !== JSON.stringify(sealed.human.audiences)
+        || await operatorOwnerKey(current.human) !== state.ownerKey) return false;
+      if (!('installationId' in state.intent)) return false;
+      const selection = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+        .resolveManagementExecution(state.intent.installationId);
+      return selection.ok && canInvokeOperator(current.human, selection.value.operator);
+    } catch { return false; }
   }
 
   /** Replace protected authority only through same-owner reauthentication. */
@@ -319,7 +399,8 @@ export class OperatorActivity extends Agent {
   /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
   async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
-    if (!state?.executionContext || !state.receipt || state.phase !== 'queued') return null;
+    if (!state?.executionContext || !state.receipt || state.phase !== 'queued'
+      || !await this.boundaryCurrent(state)) return null;
     return { activityId: state.intent.activityId, deadline: state.intent.deadline,
       invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
       executionContext: structuredClone(state.executionContext) };
@@ -412,6 +493,12 @@ export class OperatorActivity extends Agent {
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
       if (denied) return denied;
+      if (state.boundary && !issueRead) return { ok: false, reason: 'admission-denied' };
+      if (state.boundary) {
+        if (!await this.boundaryClaimCurrent(state) || !await this.boundaryCurrent(state)) {
+          return { ok: false, reason: 'admission-denied' };
+        }
+      }
       await tx.put<AdmissionState>('admission', { ...state, phase: 'admitting' });
       return { ok: true, intent: state.intent };
     });
@@ -448,6 +535,8 @@ export class OperatorActivity extends Agent {
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
       if (denied) return denied;
+      if (state.boundary && (!issueRead || !await this.boundaryClaimCurrent(state)
+        || !await this.boundaryCurrent(state))) return { ok: false, reason: 'admission-denied' };
       const intent = state.intent;
       const managementValid = 'installationId' in intent && managementReceipt !== null
         && managementReceipt.installationId === intent.installationId
@@ -588,7 +677,8 @@ export class OperatorActivity extends Agent {
       return { ok: false };
     }
     const record = await this.ctx.storage.get<AdmissionState>('admission');
-    if (!record || record.phase !== 'queued' || record.intent.deadline <= Date.now()) return { ok: false };
+    if (!record || record.phase !== 'queued' || record.intent.deadline <= Date.now()
+      || !await this.boundaryCurrent(record)) return { ok: false };
     const allowed = Object.values(record.syncOperations ?? {}).some(operation => operation.phase === 'verified'
       && (key === `${operation.prefix}manifest.json` || operation.keys.includes(key)));
     return allowed ? { ok: true } : { ok: false };
@@ -655,7 +745,8 @@ export class OperatorActivity extends Agent {
     return this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record?.executionContext || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' } as const;
-      if (record.drive?.status !== 'running' || record.drive.generation !== candidate.generation) {
+      if (!await this.boundaryCurrent(record) || record.drive?.status !== 'running'
+        || record.drive.generation !== candidate.generation) {
         return { ok: false, reason: 'stale-generation' } as const;
       }
       if (record.executionContext.artifactDigest !== candidate.releaseDigest) return { ok: false, reason: 'invalid' } as const;
@@ -779,7 +870,8 @@ export class OperatorActivity extends Agent {
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
-      if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
+      if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()
+        || !await this.boundaryCurrent(record)) {
         return { ok: false, reason: 'authority-expired' };
       }
       if (expectedGeneration !== undefined && (!Number.isSafeInteger(expectedGeneration)
@@ -808,7 +900,8 @@ export class OperatorActivity extends Agent {
     if (!Number.isSafeInteger(generation) || generation < 1) return false;
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
-      && record.drive?.status === 'running' && record.drive.generation === generation;
+      && record.drive?.status === 'running' && record.drive.generation === generation
+      && await this.boundaryCurrent(record);
   }
 
   /** Validate bounded child output before committing the current generation only. */
@@ -828,7 +921,8 @@ export class OperatorActivity extends Agent {
     const committed = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
-      if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()) {
+      if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()
+        || !await this.boundaryCurrent(record)) {
         return { ok: false, reason: 'authority-expired' };
       }
       if (record.drive?.status !== 'running' || record.drive.generation !== generation) {

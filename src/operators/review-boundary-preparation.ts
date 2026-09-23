@@ -76,7 +76,7 @@ export async function selectVerifiedBoundaryAction(
       content: string; encoding: string;
     };
     const decision = await resolveBoundaryAction({ action, repository, workflow, branch, contents,
-      event: 'pull_request' });
+      event: 'pull_request_target' });
     if (decision.selection !== 'remote') return 'unavailable';
     const installed = await registry.resolveManagementExecution(decision.installationId);
     return installed.ok && installed.value.controlsRevision === decision.controlsRevision
@@ -149,7 +149,7 @@ export async function prepareVerifiedBoundary(
     content: string; encoding: string;
   };
   const selected = await resolveBoundaryAction({ action, repository: repo, workflow, branch: protectedBranch,
-    contents, event: 'pull_request' });
+    contents, event: 'pull_request_target' });
   if (selected.selection !== 'remote') throw Error('Protected Action unavailable');
   const installation = await registry.resolveManagementExecution(selected.installationId);
   if (!installation.ok || installation.value.controlsRevision !== selected.controlsRevision

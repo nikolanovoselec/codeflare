@@ -7,7 +7,7 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { createOperatorWebhookKey, sealOperatorSecret } from './protected-secrets';
+import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -109,7 +109,7 @@ export interface ManagementControls {
 
 export interface BoundaryPreparation {
   repositoryId: number; pullRequest: number; contextDigest: string; ownerKey: string;
-  installationId: string; operatorId: string; deadline: number; activityId: string; phase: 'pending' | 'prepared';
+  installationId: string; operatorId: string; deadline: number; activityId: string; phase: 'pending' | 'prepared' | 'claimed';
   revision: { head: string; base: string; mergeBase: string };
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string; workflowId: number; workflowDigest: string;
@@ -480,7 +480,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         json_extract(data,'$.ownerKey'),repository_id,pull_request);
       CREATE TABLE IF NOT EXISTS operator_boundary_handoffs (
         activity_id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, expires_at INTEGER NOT NULL,
-        consumed INTEGER NOT NULL DEFAULT 0);`);
+        consumed INTEGER NOT NULL DEFAULT 0, run_id INTEGER, run_attempt INTEGER);`);
+    const columns = this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(operator_boundary_handoffs)').toArray();
+    if (!columns.some(column => column.name === 'run_id')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_id INTEGER');
+    if (!columns.some(column => column.name === 'run_attempt')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_attempt INTEGER');
   }
 
   private managementControls(): ManagementControls {
@@ -581,6 +584,81 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
       repositoryId, pullRequest).toArray()[0];
     return row ? JSON.parse(row.data) as BoundaryPreparation : null;
+  }
+
+  private boundarySelectionCurrent(current: BoundaryPreparation): boolean {
+    const controls = this.managementControls();
+    const action = controls.boundaryActions?.find(binding => binding.repositoryId === current.repositoryId);
+    const selected = this.managementExecution(current.installationId);
+    return !!action && selected.ok && controls.revision === current.controlsRevision
+      && action.installationId === current.installationId && action.workflowId === current.workflowId
+      && action.workflowDigest === current.workflowDigest
+      && selected.value.controlsRevision === current.controlsRevision
+      && selected.value.installation.revision === current.installationRevision
+      && selected.value.operator.revision === current.operatorRevision
+      && selected.value.operator.operatorId === current.operatorId
+      && selected.value.release.id === current.releaseId
+      && selected.value.release.bundleDigest === current.bundleDigest;
+  }
+
+  /** Parent-only guard for Activity's final queue transition; no handoff authority leaves this read. */
+  async getBoundaryStartGuard(activityId: string): Promise<{ claimed: boolean; repositoryId: number; pullRequest: number;
+    head: string; base: string; mergeBase: string; workflowId: number; runId: number; runAttempt: number;
+    generation: number; contextDigest: string; session: BoundaryPreparation['session'] } | null> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return null;
+    this.managementSchema();
+    const row = this.ctx.storage.sql.exec<{ data: string }>(
+      "SELECT data FROM operator_boundary_preparations WHERE json_extract(data,'$.activityId')=? LIMIT 1", activityId).toArray()[0];
+    if (!row) return null;
+    const current = JSON.parse(row.data) as BoundaryPreparation;
+    const handoff = this.ctx.storage.sql.exec<{ consumed: number; run_id: number | null; run_attempt: number | null }>(
+      'SELECT consumed,run_id,run_attempt FROM operator_boundary_handoffs WHERE activity_id=?', activityId).toArray()[0];
+    return { claimed: current.phase === 'claimed' && handoff?.consumed === 1
+      && handoff.run_id != null && handoff.run_attempt != null && current.deadline > Date.now()
+      && this.boundarySelectionCurrent(current), repositoryId: current.repositoryId, pullRequest: current.pullRequest,
+      head: current.revision.head, base: current.revision.base, mergeBase: current.revision.mergeBase,
+      workflowId: current.workflowId, runId: handoff?.run_id ?? 0, runAttempt: handoff?.run_attempt ?? 0,
+      generation: current.session.generation, contextDigest: current.contextDigest,
+      session: structuredClone(current.session) };
+  }
+
+  /** OIDC and live session authority are verified by the authenticated parent before this one-time claim. */
+  async claimBoundaryPreparation(input: { repositoryId: number; pullRequest: number; head: string; base: string;
+    mergeBase: string; workflowId: number; runId: number; runAttempt: number }): Promise<OperatorRegistryResult<{
+      activityId: string; startCapability: string; repositoryId: number; pullRequest: number;
+      head: string; base: string; mergeBase: string; workflowId: number; runId: number;
+      runAttempt: number; generation: number; session: BoundaryPreparation['session'] }>> {
+    if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
+      || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
+      || ![input.head, input.base, input.mergeBase].every(sha => /^[a-f0-9]{40}$/i.test(sha))
+      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)) {
+      throw new ValidationError('Invalid Action claim');
+    }
+    this.managementSchema();
+    const claimed = this.ctx.storage.transactionSync(() => {
+      const row = this.ctx.storage.sql.exec<{ data: string }>(
+        'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
+        input.repositoryId, input.pullRequest).toArray()[0];
+      if (!row) return null;
+      const current = JSON.parse(row.data) as BoundaryPreparation;
+      if (current.phase !== 'prepared' || current.deadline <= Date.now()
+        || current.revision.head !== input.head || current.revision.base !== input.base
+        || current.revision.mergeBase !== input.mergeBase || current.workflowId !== input.workflowId
+        || !this.boundarySelectionCurrent(current)) return null;
+      const handoff = this.ctx.storage.sql.exec<{ ciphertext: string; expires_at: number; consumed: number }>(
+        'SELECT ciphertext,expires_at,consumed FROM operator_boundary_handoffs WHERE activity_id=?', current.activityId).toArray()[0];
+      if (!handoff || handoff.consumed || handoff.expires_at <= Date.now()) return null;
+      this.ctx.storage.sql.exec('UPDATE operator_boundary_handoffs SET consumed=1,run_id=?,run_attempt=? WHERE activity_id=? AND consumed=0',
+        input.runId, input.runAttempt, current.activityId);
+      this.ctx.storage.sql.exec('UPDATE operator_boundary_preparations SET data=? WHERE repository_id=? AND pull_request=?',
+        JSON.stringify({ ...current, phase: 'claimed' }), input.repositoryId, input.pullRequest);
+      return { current, ciphertext: handoff.ciphertext };
+    });
+    if (!claimed) return { ok: false, reason: 'activity-conflict' };
+    const startCapability = await openOperatorSecret(claimed.ciphertext, this.env,
+      { purpose: 'handoff', recordId: claimed.current.activityId });
+    return { ok: true, value: { activityId: claimed.current.activityId, startCapability,
+      ...input, generation: claimed.current.session.generation, session: structuredClone(claimed.current.session) } };
   }
 
   async markBoundaryPrepared(repositoryId: number, pullRequest: number, activityId: string,

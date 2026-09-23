@@ -12,6 +12,7 @@ import { getContainerId } from '../../lib/container-helpers';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { fencePendingBoundaryStart } from './boundary-stop';
 import { getPreferencesKey, getTimekeeperKey, getUtcDateString, getUtcMonthString } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
@@ -228,6 +229,7 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
     ? existing
     : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
   if (!claimed) throw new Error('Session stop ownership unavailable');
+  await fencePendingBoundaryStart(c.env, repository, claimed);
   const containerId = getContainerId(bucketName, sessionId);
   await getContainer(c.env.CONTAINER, containerId).destroy();
   if (!await repository.confirmStopped(bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString())) {
