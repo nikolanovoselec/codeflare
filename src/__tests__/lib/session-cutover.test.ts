@@ -4,6 +4,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import completionMigration from '../../../migrations/usage/0003_complete_session_cutover.sql?raw';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
+import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 import { runSessionCutover } from '../../lib/session-cutover';
 import { D1SessionRepository } from '../../lib/session-repository';
 
@@ -11,6 +13,9 @@ const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
 beforeAll(async () => {
   for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+    await db.prepare(statement).run();
+  }
+  for (const statement of boundaryMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(statement).run();
   }
 });

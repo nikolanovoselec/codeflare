@@ -133,10 +133,12 @@ export async function startOrRestartContainer(params: {
   // Marker-protected metrics owns KV convergence; this request path cannot inspect
   // shutdownRequested and must not race a deliberate stop or recreate a deletion.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
-    const current = await new D1SessionRepository(env.USAGE_DB).getSession(sessionData.userId, sessionData.id);
-    if (!current || current.lifecycleState !== 'running' || current.boundaryActivityId && current.terminationIntentId
-      || (bindHuman && current.lifecycleGeneration !== expectedLifecycleGeneration)) throw new Error('Session lifecycle moved');
-    if (bindHuman) await bindHuman(current.lifecycleGeneration);
+    if (bindHuman) {
+      const current = await new D1SessionRepository(env.USAGE_DB).getSession(sessionData.userId, sessionData.id);
+      if (!current || current.lifecycleGeneration !== expectedLifecycleGeneration
+        || current.lifecycleState === 'stopping' || current.terminationIntentId) throw new Error('Session lifecycle moved');
+      await bindHuman(current.lifecycleGeneration);
+    }
     return {
       status: 'already_running',
       containerState: currentState.status,

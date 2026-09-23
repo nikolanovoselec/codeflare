@@ -157,7 +157,7 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
           ? await activity.continueWebhook(capability, generation!)
           : await activity.redeemWebhookResult(capability);
     if (result.ok) {
-      if (action === 'result' && result.status === 'completed' && c.env.USAGE_DB) {
+      if (action === 'result' && 'status' in result && result.status === 'completed' && c.env.USAGE_DB) {
         // Terminal result consumption precedes release; a lost release leaves pending authority fenced.
         const binding = await activity.getBoundaryStartBinding(activityId);
         if (binding) await new D1SessionRepository(c.env.USAGE_DB).releaseCompletedBoundaryAction(

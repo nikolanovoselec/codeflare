@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { GitHubInterceptor } from '../../github-interceptor';
+import type { BoundaryActivityBinding } from '../../operators/activity';
 
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'user-github-token' }));
 vi.mock('../../lib/access', async (importOriginal) => {
@@ -15,8 +16,8 @@ const oldHead = 'a'.repeat(40), head = 'b'.repeat(40), base = 'c'.repeat(40), me
 const packet = (text: string) => `${(new TextEncoder().encode(text).length + 4).toString(16).padStart(4, '0')}${text}`;
 const upload = packet(`${oldHead} ${head} refs/heads/feature\0report-status side-band-64k\n`) + '0000';
 const result = packet(`\u0001${packet('unpack ok\n')}${packet('ok refs/heads/feature\n')}0000`) + '0000';
-const workflowSource = 'name: Boundary Reviews\non: pull_request\njobs: {}\n';
-const workflowDigest = '08758fded8a2aa973ac14c14171697eaf2057a53691ba4231dd2d11a8ca3e990';
+const workflowSource = 'name: Boundary Reviews\non: pull_request_target\njobs: {}\n';
+const workflowDigest = '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc6ee4e95d';
 const boundaryInput = { repositoryId: 138, pullRequest: 34, acknowledgedHead: oldHead, targetHead: head,
   payload: { range: `${oldHead}..${head}`, rejectedFindings: [] } };
 
@@ -28,6 +29,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   let piEvidence = !options.piFirst;
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let activity: { activityId: string; phase: string } | null = null;
+  let boundary: BoundaryActivityBinding | null = null;
   let visible: { activityId: string; executionStatus: string; attention: boolean } | null = null;
   const registry = {
     resolveManagementExecution: async () => ({ ok: true, value: {
@@ -72,9 +74,11 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
         creation: { repositoryNodeId: evidence.repositoryNodeId, pullRequestNodeId: evidence.pullRequestNodeId,
           headRefName: evidence.headRefName, baseRefName: evidence.baseRefName } },
   };
-  const operatorActivity = { prepareAuthorized: async (intent: { activityId: string }) => {
+  const operatorActivity = { prepareAuthorized: async (intent: { activityId: string },
+    _executionContext: unknown, _invocationJson: string, binding?: BoundaryActivityBinding) => {
+    boundary = binding ?? null;
     activity = { activityId: intent.activityId, phase: 'prepared' }; return { ok: true, phase: 'prepared' };
-  }, getBrowserDetail: async () => activity };
+  }, getBrowserDetail: async () => activity, getBoundaryStartBinding: async () => boundary };
   const env = { ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)),
     CONTAINER: { getByName: () => container }, OPERATOR_REGISTRY: { getByName: () => registry },
     OPERATOR_ACTIVITY: { getByName: () => operatorActivity } } as unknown as Env;
@@ -175,8 +179,12 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(result);
     await Promise.all(waiting);
-    expect(await registry.getBoundaryPreparation()).toMatchObject({ activityId: 'reserved-activity' });
+    const reserved = await registry.getBoundaryPreparation();
+    expect(reserved).toMatchObject({ activityId: 'reserved-activity' });
     expect(await operatorActivity.getBrowserDetail()).toEqual({ activityId: 'reserved-activity', phase: 'prepared' });
+    expect(await operatorActivity.getBoundaryStartBinding()).toMatchObject({ repositoryId: 138,
+      pullRequest: 34, contextDigest: reserved?.contextDigest,
+      session: { bucket: 'review-owner', sessionId: 'review1234', generation: 1 } });
   });
   it('accepts verified GraphQL PR creation only after independent exact-context lookup, not from HTTP 200', async () => {
     for (const graphqlRejected of [false, true]) {

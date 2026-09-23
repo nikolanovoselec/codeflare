@@ -688,7 +688,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const existing = this.ctx.storage.sql.exec(
         'SELECT activity_id FROM operator_boundary_handoffs WHERE activity_id=?', activityId).toArray();
       if (existing.length) return false;
-      this.ctx.storage.sql.exec('INSERT INTO operator_boundary_handoffs VALUES(?,?,?,0)',
+      this.ctx.storage.sql.exec(`INSERT INTO operator_boundary_handoffs
+        (activity_id,ciphertext,expires_at,consumed) VALUES(?,?,?,0)`,
         activityId, ciphertext, startExpiresAt);
       this.ctx.storage.sql.exec('UPDATE operator_boundary_preparations SET data=? WHERE repository_id=? AND pull_request=?',
         JSON.stringify({ ...current, phase: 'prepared' }), repositoryId, pullRequest);
@@ -710,7 +711,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
           || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(action.protectedRef)
           || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)
           || !Array.isArray(action.events) || action.events.length === 0
-          || action.events.some(event => event !== 'pull_request' && event !== 'push')) {
+          || action.events.some(event => event !== 'pull_request_target' && event !== 'pull_request' && event !== 'push')) {
           throw new ValidationError('Invalid boundary Action binding');
         }
         seen.add(action.repositoryId);

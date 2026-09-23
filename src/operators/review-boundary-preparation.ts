@@ -221,7 +221,9 @@ export async function prepareVerifiedBoundary(
       storage: { scopeId: activityId } } };
   await checkLifecycle();
   const prepared = await prepareOperatorActivity({ installationId: selected.installationId, invocation },
-    currentAuthority, env, { activityId, expectedManagement: pinned });
+    currentAuthority, env, { activityId, expectedManagement: pinned,
+      boundary: { repositoryId: context.repositoryId, pullRequest: context.pullRequest,
+        contextDigest, session: sessionBinding } });
   await checkLifecycle();
   if (!await registry.markBoundaryPrepared(context.repositoryId, context.pullRequest, activityId,
     contextDigest, prepared.startCapability, prepared.startExpiresAt)) throw Error('Boundary preparation uncertain');

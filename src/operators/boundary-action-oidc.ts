@@ -11,11 +11,11 @@ export interface BoundaryActionIdentity {
 }
 
 /** Fetch only GitHub's fixed signing origin; neither token headers nor request data can select a key URL. */
-export async function fetchBoundaryActionKeys(): Promise<unknown> {
+async function fetchBoundaryActionKeys(): Promise<unknown> {
   const response = await fetch(KEYS_URL, { signal: AbortSignal.timeout(5_000),
     headers: { accept: 'application/json' }, redirect: 'error' });
   if (!response.ok) throw Error('Action signing keys unavailable');
-  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
     await readBoundedResponse(response, 64 * 1024, 'GitHub Action signing keys'))) as unknown;
 }
 
@@ -45,8 +45,8 @@ export async function verifyBoundaryActionOidc(token: string, expected: {
     || !SHA.test(expected.workflowSha)) return null;
   try {
     const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
-    const header = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decode(encodedHeader))) as unknown;
-    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decode(encodedPayload))) as unknown;
+    const header = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(decode(encodedHeader))) as unknown;
+    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(decode(encodedPayload))) as unknown;
     if (!object(header) || header.alg !== 'RS256' || header.typ !== 'JWT'
       || typeof header.kid !== 'string' || header.kid.length < 1 || header.kid.length > 256
       || 'crit' in header || 'jku' in header || 'x5u' in header || !object(payload)) return null;

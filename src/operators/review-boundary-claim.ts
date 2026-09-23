@@ -31,7 +31,7 @@ function tokenHints(token: string): { repository: string; workflowSha: string } 
   try {
     const parts = token.split('.');
     if (parts.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(parts[1])) return null;
-    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
       Uint8Array.from(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')
         + '='.repeat((4 - parts[1].length % 4) % 4)), char => char.charCodeAt(0)))) as unknown;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -45,7 +45,7 @@ function tokenHints(token: string): { repository: string; workflowSha: string } 
 /** No caller-provided GitHub identity, event metadata or prepared actor is authoritative. */
 export function verifyBoundaryActionRun(input: {
   prepared: Pick<BoundaryPreparation, 'repositoryId' | 'pullRequest' | 'revision' | 'workflowId'>;
-  oidc: BoundaryActionIdentity;
+  oidc: Omit<BoundaryActionIdentity, 'eventName'> & { eventName: string };
   action: { repositoryId: number; workflowId: number; workflowPath: string; protectedRef: string;
     branchSha: string; applicable: boolean };
   github: { repository: { id: number; full_name: string };
@@ -114,6 +114,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
       workflowPath: action.workflowPath, protectedRef: action.protectedRef,
       workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt });
     if (!signed) return { status: 'denied' };
+    const identity = signed;
     const activity = env.OPERATOR_ACTIVITY.getByName(prepared.activityId);
     const owner = await activity.getExecutionContext();
     if (!owner || owner.activityId !== prepared.activityId || owner.operatorId !== prepared.operatorId) return { status: 'stale' };
@@ -148,7 +149,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
       || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unavailable' };
     const githubToken = await getValidGithubToken(env, prepared.session.bucket);
     if (!githubToken) return { status: 'unavailable' };
-    const [repoOwner, repoName] = signed.repository.split('/');
+    const [repoOwner, repoName] = identity.repository.split('/');
     const root = `/repos/${repoOwner}/${repoName}`;
     async function github(path: string): Promise<unknown> {
       const response = await fetch(`https://api.github.com${path}`, { redirect: 'error',
@@ -179,7 +180,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
         Array<{ number: number }>, { merge_base_commit: { sha: string } }];
       const applicable = (await resolveBoundaryAction({ action: action!, repository: repo,
         workflow, branch, contents, event: 'pull_request_target' })).selection === 'remote';
-      return verifyBoundaryActionRun({ prepared: prepared!, oidc: signed, action: {
+      return verifyBoundaryActionRun({ prepared: prepared!, oidc: identity, action: {
         repositoryId: action!.repositoryId, workflowId: action!.workflowId,
         workflowPath: action!.workflowPath, protectedRef: action!.protectedRef,
         branchSha: branch.commit.sha, applicable }, github: { repository: repo,

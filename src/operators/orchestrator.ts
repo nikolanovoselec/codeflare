@@ -126,8 +126,10 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     deadline, startExpiresAt, startVerifier,
   } : { operatorId, activityId, intentDigest, expectedRevision: legacySelection!.revision,
     deadline, startExpiresAt, startVerifier };
-  const prepared = await env.OPERATOR_ACTIVITY.getByName(activityId).prepareAuthorized(
-    intent, executionContext, invocationJson, parentReservation?.boundary);
+  const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
+  const prepared = parentReservation?.boundary
+    ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
+    : await activity.prepareAuthorized(intent, executionContext, invocationJson);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
   return { activityId, startCapability, startExpiresAt };
 }
