@@ -9,7 +9,7 @@ const action = { repositoryId: 138, installationId: 'review-install', workflowId
   workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
   workflowDigest: 'a'.repeat(64), events: ['pull_request'] };
 async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>) {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     await test(new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) }));
   });

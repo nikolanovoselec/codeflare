@@ -15,11 +15,13 @@ const oldHead = 'a'.repeat(40), head = 'b'.repeat(40), base = 'c'.repeat(40), me
 const packet = (text: string) => `${(new TextEncoder().encode(text).length + 4).toString(16).padStart(4, '0')}${text}`;
 const upload = packet(`${oldHead} ${head} refs/heads/feature\0report-status side-band-64k\n`) + '0000';
 const result = packet(`\u0001${packet('unpack ok\n')}${packet('ok refs/heads/feature\n')}0000`) + '0000';
+const workflowSource = 'name: Boundary Reviews\non: pull_request\njobs: {}\n';
+const workflowDigest = '08758fded8a2aa973ac14c14171697eaf2057a53691ba4231dd2d11a8ca3e990';
 const boundaryInput = { repositoryId: 138, pullRequest: 34, acknowledgedHead: oldHead, targetHead: head,
   payload: { range: `${oldHead}..${head}`, rejectedFindings: [] } };
 
 function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?: boolean;
-  missingInput?: boolean; noAuthority?: boolean } = {}) {
+  missingInput?: boolean; noAuthority?: boolean; tamperedAction?: boolean } = {}) {
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let activity: { activityId: string; phase: string } | null = null;
   const registry = {
@@ -32,7 +34,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
     } }),
     getBoundaryAction: async () => options.denied ? null : ({ repositoryId: 138, installationId: 'review-install',
       workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-      workflowDigest: 'e'.repeat(64), events: ['pull_request'], controlsRevision: 4 }),
+      workflowDigest, events: ['pull_request'], controlsRevision: 4 }),
     reserveBoundaryPreparation: async (request: { contextDigest: string }) => {
       prepared = { activityId: 'reserved-activity', contextDigest: request.contextDigest };
       return { ok: true, value: { activityId: prepared.activityId, startCapability: 'z'.repeat(43) } };
@@ -77,7 +79,9 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
     if (path.includes('/compare/')) return Response.json({ merge_base_commit: { sha: mergeBase } });
     if (path.includes('/actions/workflows/')) return Response.json({ id: 531,
       path: '.github/workflows/boundary-reviews.yml', state: 'active' });
-    if (path.includes('/contents/')) return Response.json({ sha256: 'e'.repeat(64), ref: 'refs/heads/main' });
+    if (path.includes('/contents/')) return Response.json({ encoding: 'base64',
+      content: btoa(options.tamperedAction ? workflowSource.replace('Boundary Reviews', 'Tampered') : workflowSource),
+      ref: 'refs/heads/main' });
     if (path.endsWith('/branches/main')) return Response.json({ name: 'main', protected: true });
     return new Response('unknown GitHub request', { status: 404 });
   });
@@ -111,7 +115,8 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     }
   });
   it('does not prepare when the trusted Action is absent or the PR head changed', async () => {
-    for (const options of [{ denied: true }, { moved: true }, { missingInput: true }, { noAuthority: true }]) {
+    for (const options of [{ denied: true }, { moved: true }, { missingInput: true },
+      { noAuthority: true }, { tamperedAction: true }]) {
       const { client, registry, waiting } = fixture(options);
       const response = await client.fetch(new Request('https://github.com/owner/repo.git/git-receive-pack', {
         method: 'POST', body: upload,

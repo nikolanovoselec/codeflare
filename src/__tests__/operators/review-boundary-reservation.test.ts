@@ -7,7 +7,7 @@ const protectedEnv = { ENCRYPTION_KEY: btoa('k'.repeat(32)) };
 const first = { repositoryId: 138, pullRequest: 34, contextDigest: 'a'.repeat(64),
   ownerKey: 'b'.repeat(64), installationId: 'review-install', deadline: Date.now() + 300_000 };
 async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>) {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     await test(new OperatorRegistry(ctx, protectedEnv));
   });

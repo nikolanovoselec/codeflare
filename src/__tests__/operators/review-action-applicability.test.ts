@@ -3,11 +3,13 @@ import { resolveBoundaryAction } from '../../operators/boundary-action-trust';
 
 const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
   workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-  workflowDigest: 'a'.repeat(64), events: ['pull_request'], controlsRevision: 4 };
+  workflowDigest: '08758fded8a2aa973ac14c14171697eaf2057a53691ba4231dd2d11a8ca3e990',
+  events: ['pull_request'], controlsRevision: 4 };
 const repository = { id: 138, full_name: 'owner/repo', default_branch: 'main' };
 const workflow = { id: 531, path: action.workflowPath, state: 'active' };
 const branch = { name: 'main', protected: true };
-const contents = { sha256: action.workflowDigest, ref: 'refs/heads/main' };
+const contents = { content: btoa('name: Boundary Reviews\non: pull_request\njobs: {}\n'),
+  encoding: 'base64', ref: 'refs/heads/main' };
 
 describe('REQ-OPERATOR-053: approved target Action applicability, not release provenance', () => {
   it('selects remote only when numeric repository, protected workflow identity and immutable bytes agree', async () => {
@@ -24,10 +26,10 @@ describe('REQ-OPERATOR-053: approved target Action applicability, not release pr
       { action, workflow: { ...workflow, id: 532 } },
       { action, branch: { ...branch, protected: false } },
       { action, repository: { ...repository, id: 139 } },
-      { action, contents: { ...contents, sha256: 'b'.repeat(64) } },
+      { action, contents: { ...contents, content: btoa('name: Tampered\non: pull_request\njobs: {}\n') } },
       { action, contents: null },
     ]) {
-      expect(await resolveBoundaryAction({ action, repository, workflow, branch, contents,
+      expect(await resolveBoundaryAction({ repository, workflow, branch, contents,
         event: 'pull_request', ...candidate })).toEqual({ selection: 'unavailable' });
     }
   });

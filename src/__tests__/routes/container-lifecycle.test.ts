@@ -133,8 +133,8 @@ describe('Container Lifecycle Routes', () => {
     const principal = 'test@example.com';
 
     function enterpriseHarness(running: boolean, enterprise = true,
-      pauseConfiguration?: { entered: () => void; wait: Promise<void> }) {
-      let boundHuman: string | null = running ? principal : null;
+      pauseConfiguration?: { entered: () => void; wait: Promise<void> }, staleHuman = false) {
+      let boundHuman: string | null = running || staleHuman ? principal : null;
       const retainedOwner = principal;
       let configured = false;
       let retired = false;
@@ -166,7 +166,7 @@ describe('Container Lifecycle Routes', () => {
       return {
         stub,
         fetch: createLifecycleApp('test-bucket', enterprise ? { ENTERPRISE_MODE: 'active' } : {}),
-        lookup: () => stub.getReviewHuman() as Promise<string | null>,
+        lookup: async () => boundHuman,
       };
     }
 
@@ -189,13 +189,21 @@ describe('Container Lifecycle Routes', () => {
       ['mismatched', { 'cf-access-jwt-assertion': 'other-human-credential' }],
     ] as const) {
       it(`#29: ${kind} Access allows ordinary start but removes stale operator authority`, async () => {
-        const { fetch, lookup } = enterpriseHarness(false);
+        const { fetch, lookup } = enterpriseHarness(false, true, undefined, true);
+        expect(await lookup()).toBe(principal);
         const response = await fetch(path, { method: 'POST', headers });
         expect(response.status).toBe(200);
         expect((await response.json() as { status: string }).status).toBe('starting');
         expect(await lookup()).toBeNull();
       });
     }
+
+    it('#29: an unbound cold start without human authority leaves operator authority absent', async () => {
+      const { fetch, lookup } = enterpriseHarness(false);
+      const response = await fetch(path, { method: 'POST' });
+      expect(response.status).toBe(200);
+      expect(await lookup()).toBeNull();
+    });
 
     it('#29: teardown during reconnect cannot rebind a retired human', async () => {
       let entered!: () => void; let release!: () => void;
