@@ -219,7 +219,8 @@ describe('CF-016 dispatchInternalRoute', () => {
     const host = makeHost({
       env: { ENTERPRISE_MODE: 'active' } as any,
       ctx: {
-        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined),
+          delete: vi.fn().mockResolvedValue(undefined) },
         exports: { EgressController },
         container: {
           interceptOutboundHttps: vi.fn(async (pattern: string, worker: typeof activeCatchAll) => {
@@ -298,7 +299,8 @@ describe('CF-016 dispatchInternalRoute', () => {
     const host = makeHost({
       env: { ENTERPRISE_MODE: 'active' } as any,
       ctx: {
-        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined),
+          delete: vi.fn().mockResolvedValue(undefined) },
         exports: { EgressController },
         container: { interceptOutboundHttps },
       } as any,
@@ -388,7 +390,8 @@ describe('CF-016 dispatchInternalRoute', () => {
     const host = makeHost({
       env: { ENTERPRISE_MODE: 'active' } as any,
       ctx: {
-        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined),
+          delete: vi.fn().mockResolvedValue(undefined) },
         exports: { EgressController },
         container: { interceptOutboundHttps },
       } as any,
