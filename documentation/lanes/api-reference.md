@@ -159,7 +159,7 @@ Only continuation accepts a request body: `Content-Type: application/json` and a
 | Operation outcome | Status | Response envelope |
 |---|---:|---|
 | Start queued | `200` | `{ "ok": true, "phase": "queued", "readCapability": "<capability>" }` |
-| Status available | `200` | `{ "ok": true, "terminal": false, "status": "queued", "generation": 0 }` before any drive; a waiting drive reports its observed generation. Terminal status sets `terminal` to `true`, without result bytes |
+| Status available | `200` | `{ "ok": true, "terminal": false, "status": "queued", "generation": 0 }` before the first drive while authority is valid; pre-drive expiry instead reports `status: "expired", terminal: true, generation: 0`. A waiting drive reports its observed generation. Terminal status never includes result bytes |
 | Continuation claimed | `200` | `{ "ok": true, "phase": "queued" }`; a stale or already-claimed generation returns `409` |
 | Result not ready | `202` | `{ "error": "Webhook capability operation rejected", "code": "WEBHOOK_NOT_READY" }` |
 

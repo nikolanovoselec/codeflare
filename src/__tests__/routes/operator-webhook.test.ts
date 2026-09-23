@@ -84,20 +84,30 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
     await expect(stale.json()).resolves.toMatchObject({ code: 'WEBHOOK_STALE_GENERATION' });
   });
 
-  it('REQ-OPERATOR-053: a stalled continuation body is cancelled and rejected within the read deadline', async () => {
-    const { env } = environment();
-    let cancelled = false;
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) { controller.enqueue(new TextEncoder().encode('{"generation":')); },
-      cancel() { cancelled = true; },
-    });
-    const response = await webhookRoutes.fetch(new Request(
-      `https://enterprise.example.test/operator-webhook/v1/activities/${activityId}/continue`, {
-        method: 'POST', headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
-        body, duplex: 'half',
-      } as RequestInit), env as never);
-    expect(response.status).toBe(400);
-    expect(cancelled).toBe(true);
+  it('REQ-OPERATOR-053: a stalled continuation body is cancelled at the two-second read deadline', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { env } = environment();
+      let cancelled = false;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new TextEncoder().encode('{"generation":')); },
+        cancel() { cancelled = true; },
+      });
+      const pending = webhookRoutes.fetch(new Request(
+        `https://enterprise.example.test/operator-webhook/v1/activities/${activityId}/continue`, {
+          method: 'POST', headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
+          body, duplex: 'half',
+        } as RequestInit), env as never);
+      let settled = false;
+      void pending.then(() => { settled = true; }, () => { settled = true; });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(settled).toBe(false);
+      expect(cancelled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await pending).status).toBe(400);
+      expect(cancelled).toBe(true);
+    } finally { vi.useRealTimers(); }
   }, 4_000);
 
   it('REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes', async () => {
