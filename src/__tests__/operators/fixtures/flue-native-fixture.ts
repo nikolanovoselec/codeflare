@@ -19,9 +19,12 @@ export type NativeDelivery = {
   activityId: string; generation: number; operationId: string; requestDigest: string;
   marker: string; mode: 'read' | 'hold' | 'receipt-window' | 'unknown' | 'probe';
 };
+type ProductionEvidence = Record<'pull-request' | 'files' | 'checks', unknown>;
+type ProductionCall = { path: string; resource?: string };
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
-  | { action: 'send'; delivery: NativeDelivery }
+  | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
+      productionEvidence?: ProductionEvidence }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -148,8 +151,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       status: generation === undefined || generation === current.generation ? 'current' : 'stale' };
   }
 
-  async send(delivery: NativeDelivery) {
+  async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence) {
     try {
+      if (!('mode' in delivery) && productionEvidence) await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
       const response = await (await this.child()).fetch(new Request('https://flue.internal/dispatcher', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: 'user', body: JSON.stringify(delivery) }),
@@ -212,6 +216,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       barrierReached: await this.ctx.storage.get<boolean>('fixture:barrier-reached') ?? false,
       external: await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [],
       externalAttempts: await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [],
+      productionCalls: await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [],
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
       digest: await this.ctx.storage.get('fixture:digest'),
     };
@@ -231,7 +236,12 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   /** Synthetic upstream, deliberately NOT the missing parent authority bridge. */
   async transport(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path === '/fixture/inference') {
+    if (path === '/fixture/inference' || path === '/v1/dispatcher/inference') {
+      if (path === '/v1/dispatcher/inference') {
+        const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
+        calls.push({ path });
+        await this.ctx.storage.put('fixture:production-calls', calls);
+      }
       // Official Workers-AI adapter consumes OpenAI-compatible SSE. Exactly one
       // real Flue tool is offered by the deterministic model, no model billing.
       const body = await request.json() as { input: { messages?: Array<{ role: string }> } };
@@ -248,12 +258,23 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     if (path !== '/fixture/barrier' && path !== '/v1/dispatcher/github/read') {
       return Response.json({ error: 'Dispatcher capability denied' }, { status: 403 });
     }
-    const delivery = await request.json() as NativeDelivery;
+    const payload = await request.json() as NativeDelivery & { resource?: string };
     if (path === '/fixture/barrier') {
       await this.ctx.storage.put('fixture:barrier-reached', true);
       if (!await this.ctx.storage.get('fixture:released')) await new Promise<void>(resolve => { this.releaseBarrier = resolve; });
       return Response.json({ released: true });
     }
+    if (typeof payload.resource === 'string') {
+      const evidence = await this.ctx.storage.get<ProductionEvidence>('fixture:production-evidence');
+      if (!evidence || !Object.hasOwn(evidence, payload.resource)) {
+        return Response.json({ error: 'Unapproved production read' }, { status: 403 });
+      }
+      const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
+      calls.push({ path, resource: payload.resource });
+      await this.ctx.storage.put('fixture:production-calls', calls);
+      return Response.json(evidence[payload.resource as keyof ProductionEvidence]);
+    }
+    const delivery = payload as NativeDelivery;
     const external = await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [];
     const attempts = await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [];
     attempts.push({ ...delivery, path, attempt: attempts.length + 1 });
@@ -424,7 +445,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   const command = await request.json<FlueFixtureCommand>();
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest));
-    case 'send': return Response.json(await root.send(command.delivery));
+    case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence));
     case 'snapshot': return Response.json(await root.snapshot());
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());
