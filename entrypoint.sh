@@ -71,6 +71,43 @@ export CODEFLARE_SYNC_DAEMON_PIDFILE="$SYNC_RUNTIME_DIR/sync-daemon.pid"
 export CODEFLARE_OPENVSCODE_EXTENSIONS_DIR="$OPENVSCODE_RUNTIME_DIR/data/extensions"
 export CODEFLARE_GRAPH_LOCK="$LOCKS_RUNTIME_DIR/graphify-global.lock"
 
+# Restore parent-validated, digest-bound Operator package resources before any
+# agent/context service starts. Package paths are relative beneath this fixed,
+# non-synced parent-owned root; packages cannot select host filesystem paths.
+export CODEFLARE_OPERATOR_RESOURCE_ROOT="$CODEFLARE_RUNTIME_ROOT/operator-resources"
+if [ -n "${CODEFLARE_OPERATOR_PACKAGE_RESOURCES:-}" ]; then
+    node <<'CODEFLARE_PACKAGE_RESOURCES'
+const fs = require('node:fs');
+const pathModule = require('node:path');
+const crypto = require('node:crypto');
+const projection = JSON.parse(process.env.CODEFLARE_OPERATOR_PACKAGE_RESOURCES);
+if (projection.schemaVersion !== 1 || !/^[0-9a-f]{64}$/.test(projection.artifactDigest)
+    || !Array.isArray(projection.files) || projection.files.length > 64) throw new Error('Invalid Operator package resources');
+const base = process.env.CODEFLARE_OPERATOR_RESOURCE_ROOT;
+const root = pathModule.join(base, projection.artifactDigest);
+fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+fs.rmSync(root, { recursive: true, force: true });
+fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+for (const file of projection.files) {
+  const relative = file.destination;
+  const bytes = Buffer.from(file.content, 'utf8');
+  if (typeof relative !== 'string' || relative.length < 2 || relative.length > 2048 || relative.startsWith('/')
+      || /[\\%\x00-\x1f\x7f]/.test(relative)
+      || relative.split('/').some(part => !part || part === '.' || part === '..')
+      || !Number.isInteger(file.size) || file.size < 0 || file.size > 1024 * 1024
+      || bytes.length !== file.size || !/^[0-9a-f]{64}$/.test(file.sha256)
+      || crypto.createHash('sha256').update(bytes).digest('hex') !== file.sha256) {
+    throw new Error('Invalid Operator package resource');
+  }
+  const destination = pathModule.join(root, relative);
+  fs.mkdirSync(pathModule.dirname(destination), { recursive: true, mode: 0o700 });
+  const temporary = `${destination}.codeflare-${process.pid}`;
+  fs.writeFileSync(temporary, bytes, { mode: 0o600 });
+  fs.renameSync(temporary, destination);
+}
+CODEFLARE_PACKAGE_RESOURCES
+fi
+
 # Check R2 environment variables (configured/missing status only)
 echo "[entrypoint] === R2 ENV STATUS ===" | tee $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 echo "R2_BUCKET_NAME: ${R2_BUCKET_NAME:+configured}" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
@@ -321,7 +358,7 @@ init_sync_log() {
 }
 
 # Rclone config path (set after create_rclone_config)
-RCLONE_CONFIG="$USER_HOME/.config/rclone/rclone.conf"
+export RCLONE_CONFIG="$USER_HOME/.config/rclone/rclone.conf"
 
 # Shared rclone filter rules (used by all sync functions)
 # SYNC_MODE controls what syncs from workspace/:
@@ -2752,6 +2789,22 @@ else
     echo "[entrypoint] WARNING: Terminal server process died before binding port 8080!"
 fi
 
+restore_operator_attachments() {
+    [ -n "${CODEFLARE_OPERATOR_ATTACHMENTS:-}" ] || return 0
+    if [ "${PORT_BOUND:-0}" -ne 1 ]; then
+        echo "[entrypoint] Operator attachment restore requires a bound terminal port" >&2
+        return 1
+    fi
+    if [ "$RCLONE_CONFIG_RESULT" -ne 0 ]; then
+        echo "[entrypoint] Operator attachment restore requires R2 configuration" >&2
+        return 1
+    fi
+    node /opt/codeflare/scripts/restore-operator-attachments.mjs
+}
+
+# Restricted startup invokes attachment restoration after this confirmed bind
+# and before it writes the readiness flag.
+
 # ============================================================================
 # R2 SYNC STARTUP
 # ============================================================================
@@ -4570,9 +4623,14 @@ NODE
     echo "[entrypoint] Restricted operator startup ready (no whole-home restore or bisync baseline)"
 }
 
+run_operator_attachment_startup() {
+    restore_operator_attachments
+    run_operator_startup
+}
+
 run_managed_curation_startup() {
     if [ "${CODEFLARE_OPERATOR_SESSION:-}" = "true" ]; then
-        run_operator_startup
+        run_operator_attachment_startup
         return
     fi
     run_initial_r2_restore

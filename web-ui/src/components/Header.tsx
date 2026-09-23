@@ -28,6 +28,7 @@ import '../styles/header.css';
 
 interface HeaderProps {
   userName?: string;
+  operatorManagementEligible?: boolean;
   onSettingsClick?: () => void;
   onStoragePanelToggle?: () => void;
   onVaultOpen?: () => void;
@@ -190,6 +191,16 @@ const Header: Component<HeaderProps> = (props) => {
                 <span>Usage</span>
                 <UsageInlineBadge />
               </a>
+              <Show when={sessionStore.enterpriseMode && props.operatorManagementEligible}>
+                <a
+                  href="/operators"
+                  class="header-user-dropdown-item"
+                  data-testid="header-user-dropdown-operators"
+                >
+                  <Icon path={mdiShieldAccount} size={16} />
+                  <span>Operators</span>
+                </a>
+              </Show>
               <Show when={!sessionStore.enterpriseMode}>
                 <a
                   href="/app/onboarding"

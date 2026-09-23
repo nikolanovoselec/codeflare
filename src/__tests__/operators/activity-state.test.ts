@@ -12,22 +12,23 @@ import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 
-// Native storage/context supplies instrumented state coverage. The separate
-// Wrangler fixture remains the authority for cross-DO RPC, SQLite and eviction.
+// Native SQLite Activity storage/context supplies instrumented state coverage.
+// The separate Wrangler fixture remains the authority for cross-DO RPC and eviction.
 async function withActivity(
   test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
     ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
   admitted = true,
   started = true,
 ): Promise<void> {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const stub = namespace.get(namespace.newUniqueId());
   await runInDurableObject(stub, async (_instance, ctx) => {
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
     const activityEnv = {
+      ...env,
       OPERATOR_REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
-    };
+    } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
     if (admitted) {
@@ -194,7 +195,44 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       .toEqual({ ok: true, phase: 'verified' });
     expect(await secured.getSync('sync-1')).toMatchObject({ phase: 'verified', manifestDigest: 'e'.repeat(64),
       evidence: { filesVerified: 1, bytesVerified: 6 } });
+    expect(await secured.authorizeSyncRead(`${sync.prefix}manifest.json`, 64 * 1024)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncRead(sync.keys[0], 64 * 1024)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncRead('Operators/foreign.txt', 64 * 1024)).toEqual({ ok: false });
     expect(JSON.stringify(await secured.getSync('sync-1'))).not.toContain('private.jwt');
+
+    expect(await secured.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await secured.operatorGenerationCurrent(1)).toBe(true);
+    expect(await secured.operatorGenerationCurrent(2)).toBe(false);
+    const review = { generation: 1, repositoryId: 12, pullRequest: 34, head: '1'.repeat(40),
+      releaseDigest: 'a'.repeat(64), packageDigest: '6'.repeat(64), resourceDigest: '7'.repeat(64),
+      packetDigest: '2'.repeat(64), requiredLanes: ['security', 'contract'] };
+    expect(await secured.prepareReviewState(review)).toMatchObject({ ok: true, state: { requiredLanes: ['security', 'contract'] } });
+    expect(await secured.recordReviewLane(2, review.head, 'security', '3'.repeat(64)))
+      .toEqual({ ok: false, reason: 'stale-generation' });
+    expect(await secured.recordReviewLane(1, review.head, 'undeclared', '3'.repeat(64)))
+      .toEqual({ ok: false, reason: 'invalid' });
+    expect(await secured.recordReviewLane(1, review.head, 'security', '3'.repeat(64))).toMatchObject({ ok: true });
+    expect(await secured.sealReview(1, review.head, 'sync-1')).toEqual({ ok: false, reason: 'incomplete' });
+    expect(await secured.recordReviewLane(1, review.head, 'contract', '4'.repeat(64))).toMatchObject({ ok: true });
+    expect(await secured.sealReview(1, review.head, 'sync-1')).toMatchObject({ ok: true, state: { sealedSyncOperationId: 'sync-1' } });
+
+    expect(await secured.reserveReviewPublication(1, review.head, 'publish-1', '5'.repeat(64)))
+      .toMatchObject({ ok: true, state: { publication: { phase: 'reserved' } } });
+    expect(await secured.reserveReviewPublication(1, review.head, 'publish-1', '6'.repeat(64)))
+      .toEqual({ ok: false, reason: 'conflict' });
+    expect(await secured.markReviewPublicationUnknown(1, review.head, 'publish-1', '5'.repeat(64)))
+      .toMatchObject({ ok: true, state: { publication: { phase: 'unknown' } } });
+    expect(await secured.reserveReviewPublication(1, review.head, 'publish-1', '5'.repeat(64)))
+      .toEqual({ ok: false, reason: 'unknown' });
+    expect(await secured.completeReviewPublication(1, review.head, 'publish-1', '5'.repeat(64), { checkId: 1, recordId: 2 }))
+      .toEqual({ ok: false, reason: 'unknown' });
+    expect(await secured.reconcileReviewPublication(1, review.head, 'publish-1', '5'.repeat(64), { checkId: 1, recordId: 2 }))
+      .toMatchObject({ ok: true, state: { publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } } });
+    expect(await secured.reconcileReviewPublication(1, review.head, 'publish-1', '8'.repeat(64), { checkId: 1, recordId: 2 }))
+      .toEqual({ ok: false, reason: 'conflict' });
+    const reconstructed = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    expect(await reconstructed.getReviewState()).toMatchObject({ ...review,
+      sealedSyncOperationId: 'sync-1', publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } });
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {

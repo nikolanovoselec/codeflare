@@ -2,16 +2,20 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { requireOperatorHumanContext } from '../lib/access';
+import { canInvokeOperator, requireOperatorHumanContext } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
-import type { OperatorRegistry } from '../operators/registry';
+import type { ManagementExecutionSelection, OperatorRegistry, OperatorRegistryResult } from '../operators/registry';
 import type { OperatorActivity } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
 
-const preparationBody = z.strictObject({ operatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), invocation: z.json() });
+const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const preparationBody = z.union([
+  z.strictObject({ operatorId: identifier, invocation: z.json() }),
+  z.strictObject({ installationId: identifier, invocation: z.json() }),
+]);
 type HumanAuthority = Awaited<ReturnType<typeof requireOperatorHumanContext>>;
 type ActivityRouteEnv = { Bindings: Env; Variables: { ownerKey: string; operatorHuman: HumanAuthority;
   registry: DurableObjectStub<OperatorRegistry> } };
@@ -81,6 +85,17 @@ app.post('/:activityId/start', async c => {
   const indexed = await owned(c.get('registry'), c.get('ownerKey'), activityId);
   if (!indexed && !await activity.ownsPrepared(c.get('ownerKey'))) return c.notFound();
   const body = await parseJsonBody(c, startBody);
+  const installationId = await activity.getPreparedInstallationId();
+  if (installationId) {
+    const selected: OperatorRegistryResult<ManagementExecutionSelection> =
+      await c.get('registry').resolveManagementExecution(installationId);
+    if (selected.ok !== true) {
+      throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
+    }
+    if (!canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) {
+      throw new AppError('FORBIDDEN', 403, 'Operator invocation is not authorized');
+    }
+  }
   const bindCapability = bindOperatorRuntimeCapability(c.executionCtx);
   const outcome = await activity.start(body.capability);
   if (!outcome.ok) return c.json({ error: 'Activity start rejected', code: outcome.reason }, 409);

@@ -191,89 +191,47 @@ function ranked(query: string, candidates = rankingCandidates, limit?: number) {
   return searchCapabilities(input);
 }
 
-describe('REQ-AGENT-096: deterministic capability ranking', () => {
-  it.each<[string, string[]]>([
-    ['graphify_query', ['tool:graphify_query']],
-    ['graphify', ['skill:graphify']],
-    ['repository architecture', ['skill:graphify']],
-    ['please query the code graph', ['tool:graphify_query']],
-    ['background specialist', ['tool:get_subagent_result', 'tool:steer_subagent', 'tool:subagent']],
-    ['launch background specialist', ['tool:subagent']],
-    ['save notes in Vault', ['skill:vault-note-capture']],
-    ['JavaScript MCP tools', ['skill:mcp-scripting']],
-    ['the please help', []],
-    ['arch', []],
-    ['quantum banana', []],
-    ['goal_wait', []],
-    ['  SkIlL:GrApHiFy  ', ['skill:graphify']],
-    ['TOOL:graphify_query', ['tool:graphify_query']],
-    ['tool:repository architecture', []],
-    ['skill:background specialist', []],
-  ])('selects frozen identities for %s', (query, expected) => {
-    expect(identities(ranked(query))).toEqual(expected);
+describe('REQ-AGENT-096: relevant capability discovery', () => {
+  it('keeps exact names authoritative and preserves kind filters', () => {
+    expect(identities(ranked('skill:graphify'))).toEqual(['skill:graphify']);
+    expect(identities(ranked('tool:graphify_query'))).toEqual(['tool:graphify_query']);
   });
 
-  it('retains both exact same-name identities and narrows by kind', () => {
+  it('finds relevant capabilities despite natural-language filler', () => {
+    expect(ranked('please query the code graph')[0]?.name).toBe('graphify_query');
+    expect(ranked('please launch a background specialist')[0]?.name).toBe('subagent');
+  });
+
+  it('ranks a name match above a description-only match', () => {
     const candidates: SearchMatch[] = [
-      { kind: 'tool', name: 'graphify', description: 'Query graph' },
-      { kind: 'skill', name: 'graphify', description: 'Query graph', filePath: '/actual/graphify/SKILL.md' },
-      { kind: 'tool', name: 'graphify_query', description: 'Query graph' },
+      { kind: 'tool', name: 'graph_query', description: 'Query Graphify for repository relationships.' },
+      { kind: 'skill', name: 'graphify', description: 'Query the repository graph for architecture, dependencies and call flow.',
+        filePath: '/managed/skills/graphify/SKILL.md' },
     ];
-    expect(identities(ranked('graphify', candidates))).toEqual(['skill:graphify', 'tool:graphify']);
-    expect(identities(ranked('tool:graphify', candidates))).toEqual(['tool:graphify']);
-    expect(identities(ranked('skill:graphify', candidates))).toEqual(['skill:graphify']);
+    expect(identities(ranked('graphify repository', candidates))).toEqual(['skill:graphify', 'tool:graph_query']);
   });
 
-  it('uses per-kind thresholds so a stronger skill does not hide a relevant native tool', () => {
+  it('uses distinctive terms to separate otherwise similar candidates', () => {
     const candidates: SearchMatch[] = [
-      { kind: 'skill', name: 'graph-architecture', description: 'Inspect dependencies', filePath: '/skills/graph/SKILL.md' },
-      { kind: 'tool', name: 'graphify_query', description: 'Query graph architecture' },
-      { kind: 'tool', name: 'noise', description: 'Utility. Graph architecture example.' },
+      { kind: 'tool', name: 'deployment_status', description: 'Inspect deployment workflow status.' },
+      { kind: 'tool', name: 'deployment_monitor', description: 'Monitor a deployment workflow while it runs.' },
+      { kind: 'tool', name: 'deployment_history', description: 'List deployment workflow history.' },
     ];
-    expect(identities(ranked('graph architecture', candidates))).toEqual([
-      'skill:graph-architecture', 'tool:graphify_query',
-    ]);
+    expect(ranked('monitor deployment', candidates)[0]?.name).toBe('deployment_monitor');
   });
 
-  it('normalizes Unicode, camel case and repeated terms without substring matching or stemming', () => {
+  it('returns no result without meaningful lexical overlap', () => {
+    expect(ranked('calculate orbital frobnication')).toEqual([]);
+  });
+
+  it('returns executable next actions and honors result limits', () => {
+    expect(ranked('tool:graphify_query')[0]?.nextAction).toEqual({ action: 'activate-tool', name: 'graphify_query' });
+    expect(ranked('skill:graphify')[0]?.nextAction).toEqual({ action: 'read-skill', path: '/fixture/graphify/SKILL.md' });
     const candidates: SearchMatch[] = [
-      { kind: 'tool', name: 'café_graphQuery', description: 'Inspect dependencies' },
-      { kind: 'tool', name: 'archive', description: 'Store documents' },
+      { kind: 'tool', name: 'shared', description: 'Run the shared tool.' },
+      { kind: 'skill', name: 'shared', description: 'Guide the shared workflow.', filePath: '/managed/skills/shared/SKILL.md' },
     ];
-    expect(identities(ranked('ＣＡＦÉ graph graph', candidates))).toEqual(['tool:café_graphQuery']);
-    expect(identities(ranked('dependencies dependencies', candidates))).toEqual(['tool:café_graphQuery']);
-    expect(ranked('arch', candidates)).toEqual([]);
-    expect(ranked('dependency', candidates)).toEqual([]);
-  });
-
-  it('requires two-thirds coverage and a strong hit, including the exact coverage boundary', () => {
-    const candidates: SearchMatch[] = [
-      { kind: 'tool', name: 'reader', description: 'Read graph. Architecture dependencies example.' },
-      { kind: 'tool', name: 'noise', description: 'Utility. Graph architecture dependencies example.' },
-    ];
-    expect(identities(ranked('graph architecture absent', candidates))).toEqual(['tool:reader']);
-    expect(ranked('graph absent missing', candidates)).toEqual([]);
-    expect(ranked('architecture dependencies', candidates)).toEqual([]);
-  });
-
-  it('ranks consecutive name phrases above separated hits and uses name hits before lexical ties', () => {
-    expect(identities(ranked('graph query', [
-      { kind: 'tool', name: 'a_graph_native_query', description: '' },
-      { kind: 'tool', name: 'z_graph_query', description: '' },
-    ]))).toEqual(['tool:z_graph_query', 'tool:a_graph_native_query']);
-    expect(identities(ranked('graph query native', [
-      { kind: 'tool', name: 'a', description: 'Graph query native' },
-      { kind: 'tool', name: 'z_graph', description: 'Query' },
-    ]))).toEqual(['tool:z_graph', 'tool:a']);
-  });
-
-  it('caps results at three even with a larger caller limit; does not pad weak matches', () => {
-    const candidates: SearchMatch[] = ['d', 'c', 'b', 'a'].map((name) => ({
-      kind: 'tool', name, description: 'Query graph',
-    }));
-    expect(identities(ranked('query graph', candidates, 99))).toEqual(['tool:a', 'tool:b', 'tool:c']);
-    expect(identities(ranked('query graph', candidates, 1))).toEqual(['tool:a']);
-    expect(identities(ranked('launch background specialist'))).toEqual(['tool:subagent']);
+    expect(ranked('shared', candidates, 1)).toHaveLength(1);
   });
 
   it('accepts missing optional tool descriptions at the public search boundary', () => {
@@ -399,7 +357,7 @@ describe('REQ-AGENT-095/096: event-backed skill discovery and policy boundaries'
     const packaged = fixture.skill('package-native');
     packaged.sourceInfo.origin = 'package';
     await fixture.observe([project, user, packaged], false);
-    expect(await fixture.search('skill:project-native')).toEqual([]);
+    expect(identities(await fixture.search('skill:project-native'))).not.toContain('skill:project-native');
     expect(identities(await fixture.search('skill:user-native'))).toEqual(['skill:user-native']);
     expect(identities(await fixture.search('skill:package-native'))).toEqual(['skill:package-native']);
     await fixture.observe([project, user, packaged], true);

@@ -41,7 +41,7 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
   if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
   const activityId = c.req.param('activityId');
   const action = c.req.param('action');
-  if (!ID.test(activityId) || !['start', 'status', 'result'].includes(action)) {
+  if (!ID.test(activityId) || !['start', 'status', 'continue', 'result'].includes(action)) {
     return response({ error: 'Not found', code: 'WEBHOOK_ROUTE_NOT_FOUND' }, 404);
   }
   const expectedMethod = action === 'status' ? 'GET' : 'POST';
@@ -55,21 +55,28 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
 
   const activity = c.env.OPERATOR_ACTIVITY.getByName(activityId);
   try {
-    const bindCapability = action === 'start' ? bindOperatorRuntimeCapability(c.executionCtx) : null;
+    const bindCapability = action === 'start' || action === 'continue'
+      ? bindOperatorRuntimeCapability(c.executionCtx) : null;
     const result = action === 'start'
       ? await activity.startWebhook(capability)
       : action === 'status'
         ? await activity.getWebhookStatus(capability)
-        : await activity.redeemWebhookResult(capability);
+        : action === 'continue'
+          ? await activity.continueWebhook(capability)
+          : await activity.redeemWebhookResult(capability);
     if (result.ok) {
-      if (action === 'start' && bindCapability) {
+      if ((action === 'start' || action === 'continue') && bindCapability) {
         c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
+      }
+      if (action === 'status') {
+        const { result: _result, ...metadata } = result as { result?: unknown };
+        return response(metadata, 200);
       }
       return response(result, 200);
     }
     const status = result.reason === 'not-ready' ? 202
       : result.reason === 'capability-expired' ? 410
-        : result.reason === 'consumed' || result.reason === 'already-started' ? 409
+        : result.reason === 'consumed' || result.reason === 'already-started' || result.reason === 'stale-publication' ? 409
           : result.reason === 'not-prepared' ? 404
             : result.reason === 'admission-denied' || result.reason === 'authority-expired' ? 403
               : result.reason === 'admission-uncertain' ? 503 : 401;

@@ -5,12 +5,13 @@
 - Solve only the requested problem. Make the smallest coherent change.
 - Read the relevant code, configuration, specifications, tests, and documentation first. Evidence and explicit constraints outrank preference.
 - Preserve unrelated work and behavior. Add no speculative abstraction, setting, fallback, or cleanup.
-- Prove every behavior change with a failing behavioral test, then make it pass. Test outcomes, not prose, mocks, or implementation shape.
-- Prefer composition, explicit ownership, immutable updates, and local mutation. Extract only when state, reuse, testability, or maintenance improves.
-- Always launch subagents in the background. Never let a foreground subagent block the main session; continue independent root work and collect results after completion.
+- Every behavior change needs an observable behavioral test. In repositories with `sdd/`, use plan-batched TDD unless instructed otherwise: add the complete RED suite in one test-only phase, then implement locally to GREEN in coherent phases. Push or run GitHub Actions once at RED and once at final GREEN, never for partial implementation churn.
+- Ban test theatre: no assertions on source, comments, files, function names, private calls, mock counts, or implementation snapshots. Exact text or structure is allowed only when it is an intentional contract, such as user copy, error code, wire format, migration or version pin, security allowlist, generated artifact, or SDD integrity rule; name that contract and assert the related outcome.
+- Keep ownership clear and changes local. Extract shared code only when it improves reuse, testing, or maintenance.
+- Run subagents only in the background; never let a foreground subagent block the main session. Continue independent root work and, unless the user explicitly requests otherwise, omit model and reasoning settings so subagents inherit the main session defaults.
 - Never block the main session on CI, automated tests, deploys, or log tails; use background agents or processes. Run only approved safe local checks in-session.
 - Validate untrusted input at boundaries. Trust typed internals.
-- In repositories with `sdd/`, trace behavior changes to requirements. Keep specifications, anchors, and documentation truthful. Leave no touched requirement `Partial`.
+- In repositories with `sdd/`, map the complete approved behavior plan to requirements before editing; keep specifications, anchors, and documentation truthful. Leave no touched requirement `Partial`.
 - Verify before claiming completion. Separate observation, inference, and uncertainty.
 
 ## Security
@@ -31,7 +32,7 @@
 
 ## Dependencies
 
-- For a new or updated dependency, SDK, runtime, action, or tool, use the latest stable release from an authoritative source unless the user or repository requires a specific version.
+- For a new or updated dependency, SDK, runtime, action, or tool, use the latest compatible stable release from an authoritative source unless the user or repository requires a specific version.
 - Do not turn a scoped change into unrelated upgrades.
 
 ## Continuity

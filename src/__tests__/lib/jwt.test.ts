@@ -142,6 +142,18 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
       expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
     });
 
+    it('binds signed stable group claims to the verified issuer without returning credentials', async () => {
+      const claims = { ...humanClaims(), groups: ['group-1', 'group-1', 'group-2'] };
+      const token = await sign(claims);
+      expect(await verifyHumanAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toMatchObject({ issuer: claims.iss, groups: ['group-1', 'group-2'] });
+      expect(await verifyHumanAccessJWT(token, 'another-team.cloudflareaccess.com', TEST_AUD)).toBeNull();
+    });
+
+    it.each([[['group-1', 42]], [[{ name: 'group-1' }]], [[' group-1 ']], ['group-1']])('does not infer IDs from malformed signed groups %j', async groups => {
+      const token = await sign({ ...humanClaims(), groups });
+      expect(await verifyHumanAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toMatchObject({ groups: [] });
+    });
+
     it.each([
       ['missing subject', { sub: undefined }],
       ['empty subject', { sub: '' }],

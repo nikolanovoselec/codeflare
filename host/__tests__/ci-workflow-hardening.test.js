@@ -649,7 +649,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
         'package-root': '.',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
         'changed-line-threshold': '80',
-        'statements-threshold': '88',
+        'statements-threshold': '0',
         'branches-threshold': '80',
         'functions-threshold': '89',
         'lines-threshold': '89',

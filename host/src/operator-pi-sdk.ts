@@ -8,6 +8,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { OperatorPiFactory, OperatorPiSession } from './operator-pi.js';
+import { createOperatorPiReviewTools, type OperatorPiReviewConfig, type ReviewToolSdk } from './operator-pi-review.js';
 
 export interface OperatorPiSdkProfile {
   provider: string;
@@ -48,7 +49,7 @@ interface PiAgentSession {
   subscribe(listener: (event: unknown) => void): () => void;
   dispose(): void;
 }
-interface PiSdk {
+interface PiSdk extends ReviewToolSdk {
   ModelRuntime: { create(options: object): Promise<PiModelRuntime> };
   SettingsManager: { inMemory(options: object): unknown };
   SessionManager: { create(cwd: string, sessionDir: string): unknown; open(file: string, sessionDir: string): unknown };
@@ -77,6 +78,7 @@ export function createProvisionedOperatorPiFactory(options: {
   agentDir: string;
   sessionDir: string;
   profile: OperatorPiSdkProfile;
+  review?: OperatorPiReviewConfig;
   sdkRoot?: string;
   importSdk?: () => Promise<Record<string, unknown>>;
   importPiAi?: () => Promise<Record<string, unknown>>;
@@ -90,6 +92,7 @@ export function createProvisionedOperatorPiFactory(options: {
   const loadPiAi = options.importPiAi ?? (async () => import(pathToFileURL(
     path.join(sdkRoot, 'node_modules/@earendil-works/pi-ai/dist/index.js'),
   ).href));
+  const approvedTools = options.review ? ['read', 'write'] : [...options.profile.tools];
   let contextPromise: Promise<{ sdk: PiSdk; piAi: PiAi; base: Record<string, unknown> }> | undefined;
 
   const context = (): Promise<{ sdk: PiSdk; piAi: PiAi; base: Record<string, unknown> }> => {
@@ -99,6 +102,7 @@ export function createProvisionedOperatorPiFactory(options: {
       const piAi = piAiValue as unknown as PiAi;
       if (!sdk?.ModelRuntime?.create || !sdk?.SettingsManager?.inMemory || !sdk?.SessionManager?.create
         || !sdk.SessionManager.open || !sdk.createExtensionRuntime || !sdk.createAgentSession
+        || (options.review && (!sdk.createReadToolDefinition || !sdk.createWriteToolDefinition))
         || !piAi?.validateToolArguments) {
         throw new Error('Provisioned Pi SDK is incompatible');
       }
@@ -110,12 +114,13 @@ export function createProvisionedOperatorPiFactory(options: {
       const model = provisionedRuntime.getModel(options.profile.provider, options.profile.model);
       if (!model) throw new Error('Approved model is unavailable in the provisioned Pi SDK');
       const runtime = sdk.createExtensionRuntime();
+      const fixedReviewResources = options.review !== undefined;
       const resourceLoader = {
-        getExtensions: () => ({ extensions: [...(options.profile.extensions ?? [])], errors: [], runtime }),
-        getSkills: () => ({ skills: [...(options.profile.skills ?? [])], diagnostics: [] }),
-        getPrompts: () => ({ prompts: [...(options.profile.prompts ?? [])], diagnostics: [] }),
-        getThemes: () => ({ themes: [...(options.profile.themes ?? [])], diagnostics: [] }),
-        getAgentsFiles: () => ({ agentsFiles: [...(options.profile.agentsFiles ?? [])] }),
+        getExtensions: () => ({ extensions: fixedReviewResources ? [] : [...(options.profile.extensions ?? [])], errors: [], runtime }),
+        getSkills: () => ({ skills: fixedReviewResources ? [] : [...(options.profile.skills ?? [])], diagnostics: [] }),
+        getPrompts: () => ({ prompts: fixedReviewResources ? [] : [...(options.profile.prompts ?? [])], diagnostics: [] }),
+        getThemes: () => ({ themes: fixedReviewResources ? [] : [...(options.profile.themes ?? [])], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: fixedReviewResources ? [] : [...(options.profile.agentsFiles ?? [])] }),
         getSystemPrompt: () => options.profile.systemPrompt,
         getSystemPromptSource: () => undefined,
         getAppendSystemPrompt: () => [],
@@ -123,9 +128,12 @@ export function createProvisionedOperatorPiFactory(options: {
         extendResources: () => {},
         reload: async () => {},
       };
+      const reviewTools = options.review ? createOperatorPiReviewTools(sdk, cwd, options.review) : undefined;
       return { sdk, piAi, base: {
         cwd, agentDir, model, modelRuntime: provisionedRuntime, resourceLoader,
-        tools: [...options.profile.tools], thinkingLevel: options.profile.thinkingLevel,
+        tools: approvedTools,
+        ...(reviewTools ? { customTools: reviewTools } : {}),
+        thinkingLevel: options.profile.thinkingLevel,
         settingsManager: sdk.SettingsManager.inMemory({
           compaction: { enabled: false }, retry: { enabled: false },
         }),
@@ -148,7 +156,7 @@ export function createProvisionedOperatorPiFactory(options: {
       prompt: text => session.prompt(text),
       async executeTool(input) {
         if (session.isStreaming) throw new Error('Pi conversation is busy');
-        if (!options.profile.tools.includes(input.name)) throw new Error('Approved Pi tool is unavailable');
+        if (!approvedTools.includes(input.name)) throw new Error('Approved Pi tool is unavailable');
         const matches = session.agent.state.tools.filter(tool => tool.name === input.name);
         if (matches.length !== 1) throw new Error('Approved Pi tool is unavailable');
         input.signal.throwIfAborted();

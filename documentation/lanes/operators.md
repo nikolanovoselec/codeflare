@@ -2,9 +2,9 @@
 
 **Audience:** Platform and operator developers
 
-**Owns:** Enterprise Operator Interface input formats and reusable platform boundaries.
+**Owns:** Enterprise Operator Interface input formats; Loader, lifecycle, resource, session, synchronization, GitHub, inference, and publication-fencing boundaries; generic host-side Pi execution confinement; and the Conductor Review Pi extensions, skills, and references used to configure per-repository GitHub Actions.
 
-**Does not own:** Private Flue code, Review business logic, canonical local-review resources, enterprise permission grants or deployment secrets.
+**Does not own:** Private Flue code; Review packet, session, result, history, or publication business logic owned by Conductor; canonical local-review resources; enterprise permission grants; or deployment secrets.
 
 The source boundaries identified below have focused behavioral evidence; the requirement file records which exact-head evidence is complete or pending. They do not by themselves prove a deployed operator runtime: live identity/egress/R2 behavior, responsive visual acceptance, and both integration-environment Gate 1 runs remain pending. Requirements and acceptance live in [Operators](../../sdd/spec/operators.md).
 
@@ -33,6 +33,16 @@ The source boundaries identified below have focused behavioral evidence; the req
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
+## Managed Dispatcher host
+
+Managed receipts selecting `dispatcher` use `driveDispatcherRuntime`: reserve the existing drive once, then admit the pinned generated Flue class into the fixed Activity-private `dispatcher` facet. `OperatorActivity` extends pinned Agents 0.20.1; its constructor resumes the exact lease and its alarm delegates to the SDK before reconciliation. No namespace, migration, container or separate scheduler is introduced. Gate 1 and default-entrypoint dispatch stay unchanged. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->
+
+The non-renewing lease binds generation, submission, input/release digest and the earlier of human expiry or 30 seconds. Admission/status responses remain running. Only persisted exact completed settlement, with all protected operations completed, commits waiting through `commitDrive`. Cancellation fences before sending Flue abort; uncertain admission/effects interrupt rather than retry. <!-- @impl: src/operators/activity.ts::OperatorActivity -->
+
+`OperatorDispatcherCapability` exposes only bounded GitHub reads, inference and the exact pinned facet scheduler/fiber bridge. The parent rechecks human eligibility and pinned installation revisions, then constructs existing `GitHubInterceptor`/`LlmInterceptor` loopbacks with parent-owned props. Credentials, the Activity stub, namespaces and direct networking never enter the child. Read scope is the invocation repository/PR, approved Renovate identity, first-page files/checks and observed head; inference uses the current eligible human default. Non-null resource profiles fail closed. The precise wire/limits live in the [registry contract](../../sdd/spec/operator-registry-contract.md#parent-capability-operations). <!-- @impl: src/operators/activity.ts::OperatorDispatcherCapability -->
+
+Verification: `dispatcher-production.test.ts` adds behavioral coverage using instrumented child/interceptor transports. This implementation batch ran managed TypeScript syntax checks only, not tests or type checking. The existing generated-Flue native fixture is retained unchanged; it does not yet establish production-composition native eviction/alarm acceptance.
+
 ## Verified human context
 
 Implements [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verified-human-access-claims).
@@ -48,7 +58,9 @@ Implements the distribution and registration boundaries in [REQ-OPERATOR-002](..
 - `parseOperatorManifest(json, endpoint)` validates at most 64 KiB of discovery JSON and resolves a canonical artifact path only against the registered HTTPS origin.
 - `parseOperatorBundle(bytes, approvedSha256)` checks at most 8 MiB of exact artifact bytes, validates compatible JS/text modules and returns data without executing it. The bundle cannot supply environment bindings or outbound configuration.
 
-Both reject invalid input with a safe `ValidationError`. Network callers must still bound responses before buffering, authenticate the invoking human and connection secret, reject redirects/login responses and enforce artifact approval. An advertised digest is integrity metadata, not independent publisher authenticity or user eligibility.
+Both reject invalid input with a safe `ValidationError`. `npm run compile:operator-package -- <configuration.json> <output-directory>` deterministically emits those existing manifest and Operator/Dispatcher bundle shapes, plus optional registry provenance, while deriving exact bundle/resource digests and sizes. The compiler accepts no policy, bindings, credentials, environment, or outbound authority.
+
+Network callers must still bound responses before buffering, authenticate the invoking human and connection secret, reject redirects/login responses and enforce artifact approval. An advertised digest is integrity metadata, not independent publisher authenticity or user eligibility.
 
 ### Authenticated discovery transport
 
@@ -268,6 +280,12 @@ Its 1,024-event/1-MiB memory queue and 100-event/64-KiB cursor pages report gaps
 
 Restricted PID1 startup validates the paired Pi/sync identities, creates the private activity tree plus the human-readable `~/Operators` folder, and skips whole-home restore, managed-policy restore, bisync, Vault, and clone paths. Shutdown can wait for an already accepted upload but never starts persistence. See [Container — Restricted Operator Lifecycle](container.md#restricted-operator-lifecycle) and [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis).
 
+## Opaque package attachment restore ([REQ-OPERATOR-052](../../sdd/spec/operator-registry.md#req-operator-052-opaque-package-resources))
+
+At admission the parent owns attachment locator metadata, canonical relative paths, exact sizes and SHA-256 digests; package code receives no bucket credentials or arbitrary destination. The activity persists this bounded projection, and owned-session configuration exposes it only to restricted startup. After port 8080 is confirmed bound with readiness still closed, PID1 restores at most 16 attachments and 8 MiB beneath `/run/codeflare/operator-resources/input/`, rejects symlinks and path escapes, and verifies every restored file before initialization completes.
+
+Missing R2 configuration, an unbound terminal port, unavailable bytes, or an identity mismatch fails closed before Operator work starts. These inputs remain outside synchronized human storage; packages alone interpret their contents. <!-- @impl: src/operators/attachments.ts --> <!-- @impl: src/container/index.ts::configureOperatorAttachments --> <!-- @impl: scripts/restore-operator-attachments.mjs --> <!-- @impl: entrypoint.sh -->
+
 ## Explicit scoped persistence
 
 Also implements [REQ-OPERATOR-022](../../sdd/spec/operators.md#req-operator-022-restricted-operator-container-lifecycle) and [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization).
@@ -303,9 +321,10 @@ Current consumers and dependency direction are:
 | Restricted container host | Parent-owned session, structured Pi and explicit sync APIs | Activity admission, R2 credentials or whole-home persistence |
 | Shared interceptors | Parent-bound policy, inference selection and current human authority | Identity selection or permission grants |
 | Webhook edge | Activity-scoped verifier capabilities and optional handoff envelope | Interactive identity or automatic reruns |
-| Future private Flue / Remote Reviews adapters | The versioned generic contracts above | Codeflare platform internals; not shipped in Phase 1 |
+| Conductor Review package | Generic Operator Interface, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing | Review packet, session, result, history and publication business behavior |
+| Future private Flue adapters | The versioned generic contracts above | Codeflare platform internals; not shipped in Phase 1 |
 
-Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. The stateless `fixtures/operator-gate1` Worker is deployed only by explicit dispatch to the enterprise-integration environment; it requires both the Access assertion and independently provisioned connection secret and has no storage/service binding. Codeflare does not import a private Flue core, Review prompts, enrollment/monitor/publisher code or production Actions workflow. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
+Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. The stateless `fixtures/operator-gate1` Worker is deployed only by explicit dispatch to the enterprise-integration environment; it requires both the Access assertion and independently provisioned connection secret and has no storage/service binding. Codeflare does not implement Review packet preparation, session orchestration, result collection, history reconciliation, publication policy, or a production Actions workflow. Those behaviors belong to Conductor. Codeflare distributes Conductor Review Pi extensions, skills, and references so repositories can configure their own GitHub Actions, while generic host-side Pi sandbox/security primitives remain Codeflare execution confinement. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
 
 ## Verification
 

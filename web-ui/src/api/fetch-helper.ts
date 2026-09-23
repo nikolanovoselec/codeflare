@@ -35,7 +35,8 @@ export function redirectExpiredSession(): boolean {
   const authenticatedPath = path === '/app'
     || path.startsWith('/app/')
     || path === '/admin'
-    || path.startsWith('/admin/');
+    || path.startsWith('/admin/')
+    || path === '/operators';
   if (!authenticatedPath) return false;
   try { window.location.replace('/'); } catch { /* non-browser/test env */ }
   return true;
@@ -97,7 +98,7 @@ export async function baseFetch<T>(
     }
 
     // Auto-redirect to login on 401 (expired session cookie).
-    // Only redirect from authenticated pages (/app/*, /admin/*).
+    // Only redirect from authenticated pages (/app/*, /admin/*, /operators).
     // Login page (/, /login) and public pages handle 401 in their own error flow.
     // REQ-AUTH-022 AC1: redirect via location.replace (not href, so Back does not
     // return to the dead page) AND throw an authRedirect-tagged ApiError. The old

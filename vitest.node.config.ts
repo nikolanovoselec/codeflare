@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { NODE_SUITE_FILES } from './vitest.node-suite.mjs';
+import { nodeSuiteFiles } from './vitest.node-suite.mjs';
 
 // The backend test files that run under plain Node, NOT the Workers pool.
 //
@@ -19,10 +19,14 @@ export default defineConfig({
     // under the threads pool. Forks is vitest's current default, so relying on
     // it would make a pool switch or a major bump an opaque suite failure.
     pool: 'forks',
-    include: [...NODE_SUITE_FILES],
+    include: nodeSuiteFiles(process.env.VITEST_NODE_SUITE_GROUP),
     slowTestThreshold: 5000,
     testTimeout: 30000,
     hookTimeout: 30000,
+    // One native failure can leave workerd intentionally fenced or evicted.
+    // Do not spend another 30 seconds on every later case against that failed
+    // fixture; the dedicated native report still records the first real failure.
+    bail: process.env.VITEST_NODE_SUITE_GROUP === 'native' ? 1 : 0,
     // Compact per-test output in CI (dots + summary); full reporter locally.
     reporters: process.env.CI ? ['dot'] : ['default'],
   },

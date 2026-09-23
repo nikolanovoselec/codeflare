@@ -2,6 +2,14 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-22
+
+- **Managed Dispatcher production composition is added, verification remains gated** ([REQ-OPERATOR-047/048](operator-registry.md#req-operator-048-dispatcher-execution)). The existing Activity now owns the pinned Agent/facet lease and interceptor-backed read/inference operation records. Admission never implies waiting, uncertain effects are fenced, and cancellation precedes abort delivery. Legacy/default drivers are unchanged. New behavioral tests are present but unrun in the syntax-only batch; native production-composition and exact-head CI evidence remain outstanding.
+
+- **Dispatcher hosting is refined, not deferred** ([REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution)). The planned host reuses the existing Activity namespace and an isolated dynamic Flue facet with SDK-delegated alarm/fiber support, bounded non-renewing generation leases and restricted read/inference capabilities. Flue executes inside the package, not as a parent-side Renovate substitute. No container, per-operator deployment, copied scheduler or platform-wide Vite conversion is added. Real workerd compatibility and legacy regressions are required before production integration; current mocked capability tests are not native proof.
+
+- **Directed Operator Registry is specified for implementation** ([REQ-OPERATOR-043](operator-registry.md#req-operator-043-catalog-and-installations) through [REQ-OPERATOR-052](operator-registry.md#req-operator-052-opaque-package-resources)). The release adds GitHub immutable package acquisition, delegated Operator Management, generic directed admission, a profile-neutral Conductor capability, opaque package resources, and read-only Dispatcher Renovate assessment while retaining Gate 1, legacy sources and local reviews. Implementation remains Partial until exact-head CI and deployment evidence pass.
+
 ## 2026-09-21
 
 - **Stopped-session resume stays locked throughout managed seed updates** ([REQ-AGENT-175](agents.md#req-agent-175-environment-update-ui-lockdown)). Session cards now remain disabled from the pending phase through active reconciliation, including after the update request returns but before status polling confirms completion.

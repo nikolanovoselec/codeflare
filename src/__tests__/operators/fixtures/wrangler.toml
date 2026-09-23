@@ -18,9 +18,14 @@ class_name = "FixtureRegistry"
 name = "ACTIVITY"
 class_name = "FixtureActivity"
 
+# Compatibility-only SDK root; not a production namespace or migration.
+[[durable_objects.bindings]]
+name = "FLUE_ROOT"
+class_name = "FixtureFlueRoot"
+
 [[migrations]]
 tag = "fixture-v1"
-new_sqlite_classes = ["FixtureRegistry", "FixtureActivity"]
+new_sqlite_classes = ["FixtureRegistry", "FixtureActivity", "FixtureFlueRoot"]
 
 [vars]
 PARENT_SECRET = "fixture-parent-only"

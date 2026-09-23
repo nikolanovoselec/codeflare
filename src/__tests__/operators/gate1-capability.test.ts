@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Gate1OperatorCapability, type Gate1CapabilityOptions } from '../../operators/gate1-capability';
-import { createOperatorSyncReader, OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { createOperatorSyncReader } from '../../operators/owned-session-production';
 import { resolveGate1Resources, type Gate1Resources } from '../../operators/gate1-resources';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { parseOperatorPolicy } from '../../operators/policy';
@@ -138,6 +139,7 @@ describe('REQ-OPERATOR-018: platform operator capability binding', () => {
       getSync: vi.fn(async () => ({ phase: 'verified', evidence: { filesVerified: 1, bytesVerified: 27 } })),
       getOwnedSession: vi.fn(async () => ({ requestId: 'gate1-session-v1', requestDigest: 'e'.repeat(64),
         activityId, ownerBucket: 'owner-bucket', sessionId: profile.sessionId, profile, status: 'stopped' })),
+      getPackageResources: vi.fn(async () => null),
       saveOwnedSession: vi.fn(),
     };
     const env = { ...encryption, OPERATOR_ACTIVITY: { getByName: vi.fn(() => activity) }, CONTAINER: {},

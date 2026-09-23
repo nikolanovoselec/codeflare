@@ -34,7 +34,11 @@ const manifestSchema = z.strictObject({
   description: z.string().max(4096),
   coreVersion: version,
   intentVersion: version,
+  /** Package-management releases bind this optional declaration to the registered profile. */
+  profile: z.enum(['conductor', 'dispatcher']).optional(),
   inputSchema: z.record(z.string(), z.json()),
+  /** Optional for legacy Gate 1 manifests; managed packages declare it when available. */
+  outputSchema: z.record(z.string(), z.json()).optional(),
   requiredCapabilities: z.array(capability).max(5)
     .refine(values => new Set(values).size === values.length),
   artifact: z.strictObject({ path: artifactPath, sha256: z.string().regex(SHA256) }),
@@ -44,14 +48,40 @@ const moduleSchema = z.union([
   z.strictObject({ js: z.string() }),
   z.strictObject({ text: z.string() }),
 ]);
+const modulesSchema = z.record(relativePath, moduleSchema)
+  .refine(modules => Object.keys(modules).length > 0 && Object.keys(modules).length <= 128);
+const packageResourcesSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  files: z.array(z.strictObject({
+    source: relativePath,
+    destination: relativePath,
+    sha256: z.string().regex(SHA256),
+    size: z.number().int().min(0).max(1024 * 1024),
+  })).max(64).refine(files => new Set(files.map(file => file.destination)).size === files.length),
+});
 const bundleSchema = z.strictObject({
   schemaVersion: z.literal(1),
   interfaceVersion: z.literal(1),
   compatibilityDate: z.literal('2026-02-05'),
   compatibilityFlags: z.tuple([z.literal('nodejs_compat')]),
   mainModule: relativePath,
-  modules: z.record(relativePath, moduleSchema)
-    .refine(modules => Object.keys(modules).length > 0 && Object.keys(modules).length <= 128),
+  modules: modulesSchema,
+  resources: packageResourcesSchema.optional(),
+}).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
+  && 'js' in bundle.modules[bundle.mainModule]);
+
+/** Exact profile-CI output accepted by the production Dispatcher facet host. */
+const dispatcherBundleSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  versions: z.strictObject({
+    runtime: z.literal('2.1.0'), vitePlugin: z.literal('2.1.0'), agents: z.literal('0.20.1'),
+  }),
+  className: z.literal('FlueDispatcherAgent'),
+  compatibilityDate: z.literal('2026-09-10'),
+  compatibilityFlags: z.tuple([z.literal('nodejs_compat')]),
+  mainModule: relativePath,
+  modules: modulesSchema,
 }).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
@@ -62,6 +92,8 @@ export type OperatorManifest = z.infer<typeof manifestSchema> & {
 
 /** Approved code/static data only; binding and outbound configuration are parent-owned. */
 export type OperatorBundle = z.infer<typeof bundleSchema>;
+/** Generated Dispatcher class metadata is fixed by the pinned profile build. */
+export type DispatcherBundle = z.infer<typeof dispatcherBundleSchema>;
 
 /** Parse external JSON without exposing its contents or parser diagnostics in errors. */
 function parseJson<T>(json: string, schema: z.ZodType<T>, message: string): T {
@@ -120,7 +152,7 @@ export function validateOperatorEndpoint(endpoint: string): URL {
  * No side effects, business retries or credentials; invalid input throws a safe
  * ValidationError. Example: parseOperatorBundle(bytes, registration.artifactDigest).
  */
-export async function parseOperatorBundle(bytes: Uint8Array, digest: string): Promise<OperatorBundle> {
+async function approvedBundleJson(bytes: Uint8Array, digest: string): Promise<string> {
   if (bytes.byteLength > BUNDLE_BYTES || !SHA256.test(digest)) {
     throw new ValidationError('Invalid operator artifact size or digest');
   }
@@ -128,11 +160,23 @@ export async function parseOperatorBundle(bytes: Uint8Array, digest: string): Pr
   const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', approvedBytes)))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
   if (actual !== digest) throw new ValidationError('Operator artifact integrity check failed');
-  let json: string;
   try {
-    json = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(approvedBytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(approvedBytes);
   } catch {
     throw new ValidationError('Invalid operator artifact encoding');
   }
-  return parseJson(json, bundleSchema, 'Invalid or incompatible operator artifact');
+}
+
+export async function parseOperatorBundle(bytes: Uint8Array, digest: string): Promise<OperatorBundle> {
+  return parseJson(await approvedBundleJson(bytes, digest), bundleSchema, 'Invalid or incompatible operator artifact');
+}
+
+/**
+ * REQ-OPERATOR-048: Validate the exact generated Flue class contract without
+ * evaluating it. Child compatibility is intentionally independent of the
+ * unchanged parent Worker and legacy default-entrypoint bundle contract.
+ */
+export async function parseDispatcherBundle(bytes: Uint8Array, digest: string): Promise<DispatcherBundle> {
+  return parseJson(await approvedBundleJson(bytes, digest), dispatcherBundleSchema,
+    'Invalid or incompatible Dispatcher artifact');
 }

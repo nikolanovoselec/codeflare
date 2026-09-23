@@ -2,6 +2,7 @@
 import type { OperatorSyncFile, OperatorSyncReceipt } from './operator-sync.js';
 
 export interface OperatorSyncCoordinator {
+  inspect(paths: readonly string[]): Promise<OperatorSyncFile[]>;
   upload(request: { operationId: string; requestDigest: string; files: OperatorSyncFile[] }): Promise<OperatorSyncReceipt>;
   status(operationId: string): Promise<OperatorSyncReceipt | null>;
 }
@@ -18,6 +19,17 @@ function validPath(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 1024 && value !== 'manifest.json'
     && !/[\\%\x00-\x1f\x7f]/.test(value)
     && value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+}
+function parsePaths(body?: Uint8Array): string[] {
+  if (!body || body.byteLength > 64 * 1024) throw new Error(body && body.byteLength > 64 * 1024 ? 'oversized' : 'invalid');
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder().decode(body)); } catch { throw new Error('invalid'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid');
+  const request = value as Record<string, unknown>;
+  if (Object.keys(request).length !== 1 || !Array.isArray(request.paths) || request.paths.length < 1
+    || request.paths.length > 128 || new Set(request.paths).size !== request.paths.length
+    || request.paths.some(path => !validPath(path))) throw new Error('invalid');
+  return request.paths as string[];
 }
 function parseRequest(body?: Uint8Array): { operationId: string; requestDigest: string; files: OperatorSyncFile[] } {
   if (!body || body.byteLength > 64 * 1024) throw new Error(body && body.byteLength > 64 * 1024 ? 'oversized' : 'invalid');
@@ -56,6 +68,10 @@ export class OperatorSyncHttpController {
       if (input.pathname === '/internal/bisync-trigger') {
         if (input.method !== 'POST') return result(405, { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' });
         return result(200, await this.coordinator.upload(parseRequest(input.body)));
+      }
+      if (input.pathname === '/internal/operator/sync/inspect') {
+        if (input.method !== 'POST') return result(405, { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' });
+        return result(200, { files: await this.coordinator.inspect(parsePaths(input.body)) });
       }
       const match = input.pathname.match(/^\/internal\/operator\/sync\/operations\/([A-Za-z0-9_-]{1,128})$/);
       if (match) {

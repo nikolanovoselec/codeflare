@@ -4,10 +4,13 @@
  * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { flueFixture } from './flue-native-fixture';
+export { FixtureFlueRoot, FixtureFlueTransport } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
 import { GATE1_BUNDLE_BYTES } from '../../../../fixtures/operator-gate1/src/bundle';
+import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
@@ -15,6 +18,18 @@ import { OperatorActivity, type OperatorActivityPreparation } from '../../../ope
 export class FixtureActivity extends OperatorActivity {
   private readonly instanceId = crypto.randomUUID();
   getInstanceId(): string { return this.instanceId; }
+  /** Fixture-private owner read; this capability is never bound into the child. */
+  async facetBridgeBinding(): Promise<{ generation: number; status: string; deadline: number } | null> {
+    const record = await this.ctx.storage.get<unknown>('admission') as {
+      intent?: { deadline?: unknown }; drive?: { generation?: unknown; status?: unknown };
+    } | undefined;
+    const generation = record?.drive?.generation;
+    const status = record?.drive?.status;
+    const deadline = record?.intent?.deadline;
+    if (!record || typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1
+      || typeof status !== 'string' || typeof deadline !== 'number' || !Number.isFinite(deadline)) return null;
+    return { generation, status, deadline };
+  }
   evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }
 
@@ -74,6 +89,46 @@ export class FixtureCapability extends WorkerEntrypoint<FixtureEnv> {
   }
 }
 
+const conductorObjects = new Map<string, Uint8Array>();
+
+/** Deterministic transport fixture: no provider, Internet, credentials or billing. */
+export class ConductorFixtureCapability extends WorkerEntrypoint<FixtureEnv> {
+  async fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    const body = await request.json<Record<string, unknown>>();
+    if (path === '/v1/session/ensure') return Response.json({ status: 'ready' });
+    if (path === '/v1/storage/restore') return Response.json({ status: 'restored',
+      path: '/run/codeflare/operator-resources/input/packet.json' });
+    if (path === '/v1/pi/ensure') return Response.json({ ready: true, conversationId: 'conversation-1' });
+    if (path === '/v1/pi/tasks') return Response.json({ taskId: body.taskId, status: 'completed' });
+    if (path === '/v1/sync/seal') {
+      const packetDigest = 'a'.repeat(64);
+      const files = [];
+      for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+        const bytes = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, lane, packetDigest,
+          generation: 1, complete: true, omissions: [], findings: [] }));
+        const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
+          .map(byte => byte.toString(16).padStart(2, '0')).join('');
+        conductorObjects.set(`Operators/reports/${lane}.json`, bytes);
+        files.push({ path: `reports/${lane}.json`, size: bytes.byteLength, sha256 });
+      }
+      const manifest = new TextEncoder().encode(JSON.stringify({ operationId: body.operationId, files }));
+      const manifestDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', manifest)))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      conductorObjects.set('.codeflare/operators/conductor-activity/review-generation-1/manifest.json', manifest);
+      return Response.json({ status: 'sealed', manifestDigest,
+        prefix: '.codeflare/operators/conductor-activity/review-generation-1/', filePrefix: 'Operators/' });
+    }
+    if (path === '/v1/storage/read') {
+      const bytes = conductorObjects.get(String(body.key));
+      return bytes ? Response.json({ bytes: btoa(String.fromCharCode(...bytes)) })
+        : Response.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (path === '/v1/session/stop') return Response.json({ status: 'stopped' });
+    return Response.json({ error: 'Not found' }, { status: 404 });
+  }
+}
+
 /** Deterministic transport fixture: no provider, Internet, credentials or billing. */
 export class FixtureOutbound extends WorkerEntrypoint<FixtureEnv> {
   fetch(request: Request): Response {
@@ -104,6 +159,13 @@ const bundle: OperatorBundle = {
   ` } },
 };
 
+async function loadConductorBundle(env: FixtureEnv, capability: Fetcher): Promise<Fetcher> {
+  const bytes = new TextEncoder().encode(JSON.stringify(conductorBundle));
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  return loadOperatorWorker(env.LOADER, await parseOperatorBundle(bytes, digest), capability, null);
+}
+
 async function loadGate1Bundle(env: FixtureEnv, capability: Fetcher): Promise<Fetcher> {
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', GATE1_BUNDLE_BYTES)))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -118,6 +180,9 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      if (url.pathname === '/flue') {
+        return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
+      }
       if (url.pathname === '/activity') {
         const activity = env.ACTIVITY.getByName(url.searchParams.get('activity') ?? 'default');
         const command = await request.json<ActivityFixtureCommand>();
@@ -178,6 +243,14 @@ export default {
         const first = await create().fetch(new Request('https://child.test/count'));
         const second = await create().fetch(new Request('https://child.test/count'));
         return Response.json([await first.json(), await second.json()]);
+      }
+      if (url.pathname === '/conductor-bundle') {
+        const loaded = await loadConductorBundle(env, entrypoints.ConductorFixtureCapability({ props }));
+        const invocation = { input: { packet: { reference: 'prepared-review-packet-1', digest: 'a'.repeat(64) } },
+          attachments: [{ name: 'packet.json', mediaType: 'application/json', size: 128,
+            sha256: 'a'.repeat(64), locator: 'packet-1' }] };
+        return loaded.fetch(new Request('https://operator.internal/drive', { method: 'POST',
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generation: 1, invocation }) }));
       }
       if (url.pathname === '/gate1-bundle') {
         const loaded = await loadGate1Bundle(env, entrypoints.FixtureCapability({ props }));

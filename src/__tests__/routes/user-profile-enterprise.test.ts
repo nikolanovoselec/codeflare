@@ -19,9 +19,15 @@ import { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
 
 const mockAuthenticateRequest = vi.hoisted(() => vi.fn());
+const mockRequireOperatorHumanContext = vi.hoisted(() => vi.fn());
+const mockHasOperatorManagementEligibility = vi.hoisted(() => vi.fn());
 const mockGetOrCreateScopedR2Token = vi.hoisted(() => vi.fn());
 
-vi.mock('../../lib/access', () => ({ authenticateRequest: mockAuthenticateRequest }));
+vi.mock('../../lib/access', () => ({
+  authenticateRequest: mockAuthenticateRequest,
+  requireOperatorHumanContext: mockRequireOperatorHumanContext,
+  hasOperatorManagementEligibility: mockHasOperatorManagementEligibility,
+}));
 vi.mock('../../lib/r2-admin', () => ({ getOrCreateScopedR2Token: mockGetOrCreateScopedR2Token }));
 
 describe('GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002', () => {
@@ -99,11 +105,34 @@ describe('GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002', () => {
       hasSubscribed: true,
       subscribedMode: 'default',
       enterpriseMode: false,
+      operatorManagementEligible: false,
       // View-only storage: non-enterprise default is OFF (no KV read).
       downloadsDisabled: false,
       // REQ-ENTERPRISE-003: non-enterprise delivers the full agent enum.
       allowedAgents: ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'],
     });
+  });
+
+  it('projects live global Operator Management eligibility without exposing grants', async () => {
+    mockRequireOperatorHumanContext.mockResolvedValue({ human: { email: 'test@example.com', groups: ['operators'] } });
+    mockHasOperatorManagementEligibility.mockReturnValue(true);
+    const OPERATOR_REGISTRY = { getByName: () => ({ getManagementControls: async () => ({ revision: 1,
+      managers: { users: [], groups: [{ issuer: 'https://issuer.example', id: 'operators' }] },
+      ceiling: { capabilities: [], resourceProfileIds: [] } }) }) } as unknown as Env['OPERATOR_REGISTRY'];
+    const app = createApp({ ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY });
+    const res = await app.request('/user');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ operatorManagementEligible: true });
+  });
+
+  it('fails Operator Management visibility closed when live group resolution fails', async () => {
+    mockRequireOperatorHumanContext.mockRejectedValue(new Error('identity unavailable'));
+    const OPERATOR_REGISTRY = { getByName: () => ({ getManagementControls: async () => ({ revision: 1,
+      managers: { users: [], groups: [] }, ceiling: { capabilities: [], resourceProfileIds: [] } }) }) } as unknown as Env['OPERATOR_REGISTRY'];
+    const app = createApp({ ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY });
+    const res = await app.request('/user');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ operatorManagementEligible: false });
   });
 
   // ── REQ-ENTERPRISE-003: creation-selectable agent delivery ──
