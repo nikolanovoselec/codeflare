@@ -28,6 +28,7 @@ beforeAll(async () => {
   for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(statement).run();
   }
+  await db.prepare('ALTER TABLE runtime_sessions ADD COLUMN boundary_activity_id TEXT').run();
 });
 
 beforeEach(async () => {
@@ -115,6 +116,48 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(start.meta.changes).toBe(1);
     expect(duplicate.meta.changes).toBe(0);
     expect(await row()).toMatchObject({ lifecycle_state: 'starting', lifecycle_generation: 1, response_revision: 1, observation_sequence: -1 });
+  });
+
+  it('REQ-OPERATOR-053: Stop wins before claim or retains the exact Action activity until durable cancellation', async () => {
+    const repository = new D1SessionRepository(db);
+    for (const sessionId of ['session01', 'session02']) {
+      await createSession('owner-a', sessionId);
+      await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=2 WHERE owner_key='owner-a' AND session_id=?1")
+        .bind(sessionId).run();
+    }
+    const firstStop = await repository.claimStop('owner-a', 'session02', 'stop-first', new Date().toISOString());
+    expect(firstStop?.lifecycleState).toBe('stopping');
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session02', 2, 'review-two')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-b', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01'))
+      .toMatchObject({ lifecycleState: 'running', boundaryActivityId: 'review-one' });
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    const stopped = await repository.claimStop('owner-a', 'session01', 'stop-second', new Date().toISOString());
+    expect(stopped).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-other')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'session01', 2, 'stop-second', new Date().toISOString())).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.confirmStopped('owner-a', 'session01', 2, 'stop-second', new Date().toISOString())).toBe(true);
+    const restarted = await repository.start('owner-a', 'session01', new Date().toISOString());
+    expect(restarted?.lifecycleGeneration).toBe(3);
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running' WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 3, 'review-three')).toBe(true);
+  });
+
+  it('REQ-OPERATOR-053: timeout reset and owner cleanup cannot erase unfenced Action work', async () => {
+    const repository = new D1SessionRepository(db);
+    await createSession();
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=1 WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.claimStop('owner-a', 'session01', 'stop-one', new Date().toISOString()))
+      .toMatchObject({ boundaryActivityId: 'review-one' });
+    expect(await repository.forceStopExpired('owner-a', new Date(Date.now() + 60_000).toISOString())).toBe(0);
+    expect(await repository.deleteOwnerSessions('owner-a')).toBe(0);
+    expect(await repository.getSession('owner-a', 'session01'))
+      .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
   });
 
   it('rejects old generations and delayed or equal observation sequences', async () => {

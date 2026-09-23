@@ -142,6 +142,30 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
   }, false));
 
+  it('REQ-OPERATOR-053: stopping the bound session durably fences a prepared Action activity before either start path', () => withActivity(async ({ ctx, activityEnv, token }) => {
+    const human: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      expiresAt: Math.floor(Date.now() / 1000) + 300 };
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human, accessJwt: 'private.jwt' }, encryption);
+    const binding = { repositoryId: 138, pullRequest: 34, contextDigest: 'c'.repeat(64),
+      session: { bucket: 'owner-bucket', sessionId: 'session01', generation: 1 } };
+    const verifier = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))]
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const deadline = human.expiresAt * 1000;
+    const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
+      expectedRevision: 1, deadline, startExpiresAt: deadline - 1_000, startVerifier: verifier }, context,
+    'null', binding)).toMatchObject({ ok: true, phase: 'prepared' });
+    expect(await secured.cancelBoundaryStart(binding)).toMatchObject({ ok: true });
+    expect(await secured.getAdmission()).toMatchObject({ phase: 'cancelled' });
+    expect(await secured.start(token)).toMatchObject({ ok: false });
+    expect(await secured.startWebhook(token)).toMatchObject({ ok: false });
+    expect(await secured.getRuntimePlan()).toBeNull();
+  }, false));
+
   it('queues authorized intent only when registry artifact and policy identities match', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
     const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
       storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,

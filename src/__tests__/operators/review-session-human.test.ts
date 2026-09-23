@@ -55,6 +55,15 @@ describe('REQ-OPERATOR-053: parent-only Enterprise session authority', () => {
     expect(await openReviewSessionHuman(host, { bucket, sessionId, email: human.email }))
       .toEqual({ human, accessJwt: 'private.jwt' });
   });
+  it('REQ-OPERATOR-053: an old prepared Action cannot reopen human authority after stop or generation replacement', async () => {
+    const { host, records } = session();
+    await bindReviewSessionHuman(host, bound);
+    records.set('shutdownRequested', Date.now());
+    await expect(openReviewSessionHuman(host, { bucket, sessionId, email: human.email })).rejects.toThrow();
+    records.delete('shutdownRequested');
+    records.set('lifecycleGeneration', generation + 1);
+    await expect(openReviewSessionHuman(host, { bucket, sessionId, email: human.email })).rejects.toThrow();
+  });
   it('refuses an expired human and a different subject on rebind', async () => {
     const { host } = session();
     await bindReviewSessionHuman(host, bound);

@@ -3,22 +3,26 @@ import { resolveBoundaryAction } from '../../operators/boundary-action-trust';
 
 const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
   workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-  workflowDigest: '08758fded8a2aa973ac14c14171697eaf2057a53691ba4231dd2d11a8ca3e990',
-  events: ['pull_request'], controlsRevision: 4 };
+  workflowDigest: '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc6ee4e95d',
+  events: ['pull_request_target'], controlsRevision: 4 };
 const repository = { id: 138, full_name: 'owner/repo', default_branch: 'main' };
 const workflow = { id: 531, path: action.workflowPath, state: 'active' };
 const branch = { name: 'main', protected: true, commit: { sha: 'c'.repeat(40) } };
-const contents = { content: btoa('name: Boundary Reviews\non: pull_request\njobs: {}\n'),
+const contents = { content: btoa('name: Boundary Reviews\non: pull_request_target\njobs: {}\n'),
   encoding: 'base64' };
 
 describe('REQ-OPERATOR-053: approved target Action applicability, not release provenance', () => {
   it('selects remote only when numeric repository, protected workflow identity and immutable bytes agree', async () => {
-    expect(await resolveBoundaryAction({ action, repository, workflow, branch, contents, event: 'pull_request' }))
+    expect(await resolveBoundaryAction({ action, repository, workflow, branch, contents, event: 'pull_request_target' }))
       .toEqual({ selection: 'remote', installationId: 'review-install', controlsRevision: 4 });
+  });
+  it('rejects a candidate-controlled pull_request job even with a matching protected workflow binding', async () => {
+    expect(await resolveBoundaryAction({ action: { ...action, events: ['pull_request'] },
+      repository, workflow, branch, contents, event: 'pull_request' })).toEqual({ selection: 'unavailable' });
   });
   it('distinguishes confirmed absence from unavailable or tampered target workflow', async () => {
     expect(await resolveBoundaryAction({ action: null, repository, workflow: null, branch, contents: null,
-      event: 'pull_request', workflowLookup: 'not-found' })).toEqual({ selection: 'local' });
+      event: 'pull_request_target', workflowLookup: 'not-found' })).toEqual({ selection: 'local' });
     for (const candidate of [
       { action: null, workflowLookup: 'unavailable' },
       { action: null, workflowLookup: 'found' },
@@ -26,11 +30,11 @@ describe('REQ-OPERATOR-053: approved target Action applicability, not release pr
       { action, workflow: { ...workflow, id: 532 } },
       { action, branch: { ...branch, protected: false } },
       { action, repository: { ...repository, id: 139 } },
-      { action, contents: { ...contents, content: btoa('name: Tampered\non: pull_request\njobs: {}\n') } },
+      { action, contents: { ...contents, content: btoa('name: Tampered\non: pull_request_target\njobs: {}\n') } },
       { action, contents: null },
     ] as const) {
       expect(await resolveBoundaryAction({ repository, workflow, branch, contents,
-        event: 'pull_request', ...candidate })).toEqual({ selection: 'unavailable' });
+        event: 'pull_request_target', ...candidate })).toEqual({ selection: 'unavailable' });
     }
   });
 });

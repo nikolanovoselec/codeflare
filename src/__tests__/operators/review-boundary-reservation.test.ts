@@ -123,4 +123,55 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
     expect(await registry.reserveBoundaryPreparation({ ...first, expectedContextDigest: first.contextDigest }))
       .toMatchObject({ ok: false, reason: 'revision-conflict' });
   }));
+
+  const claim = { repositoryId: first.repositoryId, pullRequest: first.pullRequest,
+    head: first.revision.head, base: first.revision.base, mergeBase: first.revision.mergeBase,
+    workflowId: first.workflowId, runId: 87, runAttempt: 1 };
+  async function prepared(registry: OperatorRegistry) {
+    const reservation = await registry.reserveBoundaryPreparation(first);
+    if (!reservation.ok) throw Error('Expected boundary reservation');
+    const startCapability = 'z'.repeat(43);
+    if (!await registry.markBoundaryPrepared(first.repositoryId, first.pullRequest,
+      reservation.value.activityId, first.contextDigest, startCapability, first.deadline - 1_000)) {
+      throw Error('Expected protected handoff');
+    }
+    return { activityId: reservation.value.activityId, startCapability };
+  }
+
+  it('REQ-OPERATOR-053: a verified run and attempt alone win the prepared exact revision once', () => withRegistry(async registry => {
+    const handoff = await prepared(registry);
+    const [winner, loser] = await Promise.all([
+      registry.claimBoundaryPreparation(claim), registry.claimBoundaryPreparation({ ...claim, runAttempt: 2 }),
+    ]);
+    const results = [winner, loser];
+    expect(results.filter(result => result.ok)).toHaveLength(1);
+    expect(results.find(result => result.ok)).toMatchObject({ ok: true, value: {
+      activityId: handoff.activityId, startCapability: handoff.startCapability,
+      repositoryId: claim.repositoryId, pullRequest: claim.pullRequest, runId: claim.runId,
+    } });
+    expect(await registry.claimBoundaryPreparation(claim)).toMatchObject({ ok: false });
+    expect(await registry.getBoundaryPreparation(first.repositoryId, first.pullRequest))
+      .toMatchObject({ activityId: handoff.activityId, phase: 'claimed' });
+    expect(JSON.stringify(await registry.getBoundaryPreparation(first.repositoryId, first.pullRequest)))
+      .not.toContain(handoff.startCapability);
+  }));
+
+  it('REQ-OPERATOR-053: stale head/base/merge-base or workflow cannot consume the start handoff', () => withRegistry(async registry => {
+    await prepared(registry);
+    for (const altered of [{ head: 'f'.repeat(40) }, { base: 'e'.repeat(40) },
+      { mergeBase: 'd'.repeat(40) }, { workflowId: 532 }, { repositoryId: 139 }, { pullRequest: 35 }]) {
+      expect(await registry.claimBoundaryPreparation({ ...claim, ...altered })).toMatchObject({ ok: false });
+    }
+    expect(await registry.claimBoundaryPreparation(claim)).toMatchObject({ ok: true });
+  }));
+
+  it('REQ-OPERATOR-053: changed binding or installation cannot claim an already-prepared handoff', () => withRegistry(async registry => {
+    await prepared(registry);
+    const current = await registry.getManagementControls();
+    const changed = await registry.setManagementControls({ ...current,
+      boundaryActions: [{ ...current.boundaryActions![0], workflowDigest: 'f'.repeat(64) }],
+    }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 });
+    expect(changed.ok).toBe(true);
+    expect(await registry.claimBoundaryPreparation(claim)).toMatchObject({ ok: false });
+  }));
 });
