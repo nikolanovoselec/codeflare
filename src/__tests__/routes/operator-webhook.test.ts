@@ -93,11 +93,11 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
         start(controller) { controller.enqueue(new TextEncoder().encode('{"generation":')); },
         cancel() { cancelled = true; },
       });
-      const pending = webhookRoutes.fetch(new Request(
+      const pending = Promise.resolve(webhookRoutes.fetch(new Request(
         `https://enterprise.example.test/operator-webhook/v1/activities/${activityId}/continue`, {
           method: 'POST', headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
           body, duplex: 'half',
-        } as RequestInit), env as never);
+        } as RequestInit), env as never));
       let settled = false;
       void pending.then(() => { settled = true; }, () => { settled = true; });
       await vi.advanceTimersByTimeAsync(0);
