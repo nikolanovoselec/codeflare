@@ -75,6 +75,32 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled();
   });
 
+  it('does not reconcile failed preparation against an earlier accepted activity', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1');
+    let preparationAvailable = true;
+    serve = (url, init) => {
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') return preparationAvailable
+        ? json({ activityId: 'activity-1', startCapability: 's'.repeat(43), startExpiresAt: Date.now() + 30000 })
+        : json({ error: 'Unavailable' }, 503);
+      if (url.pathname.endsWith('/activity-1/start')) return json({ ok: true });
+      if (url.pathname.endsWith('/activity-1')) return json({ ...summary, checkpoint: null, result: null });
+      return json({ items: [summary] });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
+    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled());
+    preparationAvailable = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'activity-1' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'activity-1' }));
+    expect(await screen.findByRole('heading', { name: 'Activity activity-1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh activities' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled());
+  });
+
   it('denies independent invocation and does not expose activity details on a denied list', async () => {
     serve = () => json({ error: 'Not found' }, 404);
     render(() => <OperatorManagement />);

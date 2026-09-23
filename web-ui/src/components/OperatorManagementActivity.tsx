@@ -56,6 +56,7 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
   }
   function invoke() {
     let input: unknown;
+    let attemptedStartId = '';
     try {
       if (new TextEncoder().encode(invocation()).byteLength > 65536) throw new Error('Too large');
       input = JSON.parse(invocation());
@@ -63,13 +64,14 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
     void perform(async () => {
       const prepared = await api.prepareInstallationActivity(props.installationId!, input);
       if (!active) return;
-      setPreparedId(prepared.activityId);
-      await api.startInstallationActivity(prepared.activityId, prepared.startCapability);
+      attemptedStartId = prepared.activityId;
+      setPreparedId(attemptedStartId);
+      await api.startInstallationActivity(attemptedStartId, prepared.startCapability);
       // The single-use start capability is neither rendered nor retained.
       if (active) setSelected(prepared.activityId);
     }, 'Activity start accepted. Observe execution and cleanup separately.',
-    () => { if (preparedId()) {
-      setUnresolvedStartId(preparedId());
+    () => { if (attemptedStartId) {
+      setUnresolvedStartId(attemptedStartId);
       setError('Activity start state could not be confirmed. Inspect the prepared activity before preparing more work.');
     } });
   }
