@@ -74,7 +74,9 @@ export function registerNativeDispatcherCases(harness: Harness) {
     const artifact = JSON.parse(bytes.toString()) as NativeArtifact;
     expect(artifact).toMatchObject({ schemaVersion: 1, sourceCommit: expectedSource,
       className: 'FlueDispatcherAgent', versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' } });
-    return { artifact, digest: expectedDigest! };
+    // The compiler-produced file is pinned by its byte digest above; the facet
+    // hashes its JSON-serialized object after parsing (which drops file formatting).
+    return { artifact, digest: createHash('sha256').update(JSON.stringify(artifact)).digest('hex') };
   }
   function delivery(id: string, patch: Partial<NativeDelivery> = {}): NativeDelivery {
     const operationId = patch.operationId ?? crypto.randomUUID();
