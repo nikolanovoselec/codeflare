@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-23
 
+- **Protected Action claim/Stop traceability is separated without changing behavior** ([REQ-OPERATOR-054](operator-registry.md#req-operator-054-protected-action-claim-and-stop-fence)). The existing planned Review handoff keeps selection, result and publication in REQ-OPERATOR-053; the already-specified Action identity, one-time claim, Stop fence and lost-response outcomes have their own observable criteria. Neither requirement is implemented or deploy-proven yet.
+
 - **Enterprise PR-boundary Review handoff is planned, not shipped** ([REQ-OPERATOR-053](operator-registry.md#req-operator-053-enterprise-pr-boundary-review-handoff)). An authenticated Codeflare actor will prebind an independent Action-started Review; the existing local review remains unchanged. Generation-fenced webhook collection is under implementation; Action admission, publication and live acceptance are still pending.
 
 - **Uncertain Operator starts require exact activity reconciliation** ([REQ-OPERATOR-049](operator-registry.md#req-operator-049-operators-management-interface)). A successful activity-list refresh no longer permits another start after an uncertain submission; the user must inspect that prepared activity through owner-scoped detail. A failed preparation cannot borrow an earlier activity's identity for reconciliation; a successful list refresh remains available for recovery when no start was attempted. Management grants and activity execution authority are unchanged.

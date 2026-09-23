@@ -21,7 +21,7 @@ const github = { repository: { id: 138, full_name: 'owner/repo' },
   headPullRequests: [34], matchingPullRequests: [34] };
 const input = { prepared, oidc, action, github };
 
-describe('REQ-OPERATOR-053: protected Action run and fresh GitHub PR context', () => {
+describe('REQ-OPERATOR-054: protected Action run and fresh GitHub PR context', () => {
   it('accepts only a signed protected workflow run bound to the sole current PR and exact prepared revision', () => {
     expect(verifyBoundaryActionRun(input)).toEqual({
       repositoryId: 138, pullRequest: 34, head: prepared.revision.head,

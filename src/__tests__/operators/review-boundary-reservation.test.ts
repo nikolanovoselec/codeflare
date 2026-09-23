@@ -138,7 +138,7 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
     return { activityId: reservation.value.activityId, startCapability };
   }
 
-  it('REQ-OPERATOR-053: a verified run and attempt alone win the prepared exact revision once', () => withRegistry(async registry => {
+  it('REQ-OPERATOR-054: a verified run and attempt alone win the prepared exact revision once', () => withRegistry(async registry => {
     const handoff = await prepared(registry);
     const [winner, loser] = await Promise.all([
       registry.claimBoundaryPreparation(claim), registry.claimBoundaryPreparation({ ...claim, runAttempt: 2 }),
@@ -156,7 +156,7 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
       .not.toContain(handoff.startCapability);
   }));
 
-  it('REQ-OPERATOR-053: stale head/base/merge-base or workflow cannot consume the start handoff', () => withRegistry(async registry => {
+  it('REQ-OPERATOR-054: stale head/base/merge-base or workflow cannot consume the start handoff', () => withRegistry(async registry => {
     await prepared(registry);
     for (const altered of [{ head: 'f'.repeat(40) }, { base: 'e'.repeat(40) },
       { mergeBase: 'd'.repeat(40) }, { workflowId: 532 }, { repositoryId: 139 }, { pullRequest: 35 }]) {
@@ -165,7 +165,7 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
     expect(await registry.claimBoundaryPreparation(claim)).toMatchObject({ ok: true });
   }));
 
-  it('REQ-OPERATOR-053: changed binding or installation cannot claim an already-prepared handoff', () => withRegistry(async registry => {
+  it('REQ-OPERATOR-054: changed binding or installation cannot claim an already-prepared handoff', () => withRegistry(async registry => {
     await prepared(registry);
     const current = await registry.getManagementControls();
     const changed = await registry.setManagementControls({ ...current,

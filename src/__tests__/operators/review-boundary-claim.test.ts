@@ -64,8 +64,13 @@ async function scenario(run: (fixture: {
 }) => Promise<void>) {
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  await runInDurableObject(registryNamespace.get(registryNamespace.newUniqueId()), async (_instance, registryCtx) => {
-    const registry = new OperatorRegistry(registryCtx, protectedEnv);
+  const registryStub = registryNamespace.get(registryNamespace.newUniqueId());
+  let registry!: OperatorRegistry;
+  let activityId!: string;
+  let human!: { subject: string; email: string; issuer: string; audiences: string[];
+    issuedAt: number; expiresAt: number };
+  await runInDurableObject(registryStub, async (_instance, registryCtx) => {
+    registry = new OperatorRegistry(registryCtx, protectedEnv);
     const policy = { capabilities: [], resourceProfileId: null };
     expect((await registry.setManagementControls({ revision: 0, managers: { users: [], groups: [] },
       ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [{ repositoryId: 138,
@@ -84,7 +89,7 @@ async function scenario(run: (fixture: {
       'review-install', 1, JSON.stringify({ id: 'review-install', operatorId: 'review-operator',
         name: 'review-install', releaseId: 'review-release', revision: 1, enabled: true, policy,
         configurationJson: '{}', approvedSourceRevision: 1 }));
-    const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+    human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['aud'], issuedAt: Math.floor(Date.now() / 1000) - 10,
       expiresAt: Math.floor(Date.now() / 1000) + 300 };
     const reservation = await registry.reserveBoundaryPreparation({ repositoryId: 138, pullRequest: 34,
@@ -93,10 +98,32 @@ async function scenario(run: (fixture: {
       releaseId: 'review-release', bundleDigest: 'e'.repeat(64), workflowId: 531, workflowDigest: actionDigest,
       session, operatorId: 'review-operator', revision: { head, base, mergeBase } });
     if (!reservation.ok) throw Error('Expected real Registry preparation');
-    const activityId = reservation.value.activityId;
-    const repo = new D1SessionRepository(db);
-    await runInDurableObject(activityNamespace.get(activityNamespace.newUniqueId()), async (_inner, activityCtx) => {
-      const activityEnv = { ...protectedEnv, OPERATOR_REGISTRY: { getByName: () => registry } };
+    activityId = reservation.value.activityId;
+  });
+  // Cross-owner calls enter the Registry's DO context; a raw instance cannot be used from Activity.
+  const inRegistry = <T>(call: (owner: OperatorRegistry) => Promise<T>) =>
+    runInDurableObject(registryStub, () => call(registry));
+  const registryOwner = {
+    resolveManagementExecution: (id: string) => inRegistry(owner => owner.resolveManagementExecution(id)),
+    getBoundaryStartGuard: (id: string) => inRegistry(owner => owner.getBoundaryStartGuard(id)),
+    admitManagement: (input: Parameters<OperatorRegistry['admitManagement']>[0]) =>
+      inRegistry(owner => owner.admitManagement(input)),
+    markBoundaryPrepared: (...args: Parameters<OperatorRegistry['markBoundaryPrepared']>) =>
+      inRegistry(owner => owner.markBoundaryPrepared(...args)),
+    claimBoundaryPreparation: (input: Parameters<OperatorRegistry['claimBoundaryPreparation']>[0]) =>
+      inRegistry(owner => owner.claimBoundaryPreparation(input)),
+    getBoundaryPreparation: (repositoryId: number, pullRequest: number) =>
+      inRegistry(owner => owner.getBoundaryPreparation(repositoryId, pullRequest)),
+    getBoundaryAction: (repositoryId: number) => inRegistry(owner => owner.getBoundaryAction(repositoryId)),
+    getManagementControls: () => inRegistry(owner => owner.getManagementControls()),
+    setManagementControls: (...args: Parameters<OperatorRegistry['setManagementControls']>) =>
+      inRegistry(owner => owner.setManagementControls(...args)),
+    upsertOwnedActivity: (...args: Parameters<OperatorRegistry['upsertOwnedActivity']>) =>
+      inRegistry(owner => owner.upsertOwnedActivity(...args)),
+  } as unknown as OperatorRegistry;
+  const repo = new D1SessionRepository(db);
+  await runInDurableObject(activityNamespace.get(activityNamespace.newUniqueId()), async (_inner, activityCtx) => {
+      const activityEnv = { ...protectedEnv, OPERATOR_REGISTRY: { getByName: () => registryOwner } };
       const activity = new OperatorActivity(activityCtx,
         activityEnv as unknown as ConstructorParameters<typeof OperatorActivity>[1]);
       const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
@@ -110,7 +137,7 @@ async function scenario(run: (fixture: {
           OPERATOR_ACTIVITY: { getByName: () => activity },
         } as never, { activityId, expectedManagement: { controlsRevision: 1, installationRevision: 1,
           operatorRevision: 1, releaseId: 'review-release', bundleDigest: 'e'.repeat(64) }, boundary: binding });
-      if (!await registry.markBoundaryPrepared(138, 34, activityId, 'f'.repeat(64),
+      if (!await registryOwner.markBoundaryPrepared(138, 34, activityId, 'f'.repeat(64),
         prepared.startCapability, prepared.startExpiresAt)) throw Error('Expected exact prepared handoff');
       const container = { openReviewHuman: async () => {
         if (!trust.human) throw Error('Session authority revoked');
@@ -153,14 +180,13 @@ async function scenario(run: (fixture: {
       })}.signature`;
       const claim = (change: Partial<typeof request> = {}) => claimVerifiedBoundaryAction(actionEnv,
         signedFixture, { ...request, ...change });
-      try { await run({ registry, activity, repo, claim, activityId, startCapability: prepared.startCapability }); }
+      try { await run({ registry: registryOwner, activity, repo, claim, activityId, startCapability: prepared.startCapability }); }
       finally { vi.restoreAllMocks(); }
-    });
   });
 }
 
-describe('REQ-OPERATOR-053: real prepared Registry and Activity owners at protected Action claim', () => {
-  it('releases only the successfully consumed terminal result for the next review on this session', async () => {
+describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protected Action claim', () => {
+  it('REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity', async () => {
     const repository = new D1SessionRepository(db);
     expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'review-activity')).toBe(true);
     const activity = { redeemWebhookResult: async () => ({ ok: true, terminal: true, status: 'completed' }),

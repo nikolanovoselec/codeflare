@@ -122,7 +122,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await row()).toMatchObject({ lifecycle_state: 'starting', lifecycle_generation: 1, response_revision: 1, observation_sequence: -1 });
   });
 
-  it('REQ-OPERATOR-053: Stop wins before claim or retains the exact Action activity until durable cancellation', async () => {
+  it('REQ-OPERATOR-054: Stop wins before claim or retains the exact Action activity until durable cancellation', async () => {
     const repository = new D1SessionRepository(db);
     for (const sessionId of ['session01', 'session02']) {
       await createSession('owner-a', sessionId);
@@ -174,7 +174,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-review-two', new Date().toISOString())).toBe(false);
   });
 
-  it('REQ-OPERATOR-053: timeout reset and owner cleanup cannot erase unfenced Action work', async () => {
+  it('REQ-OPERATOR-054: timeout reset and owner cleanup cannot erase unfenced Action work', async () => {
     const repository = new D1SessionRepository(db);
     await createSession();
     await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=1 WHERE owner_key='owner-a' AND session_id='session01'").run();

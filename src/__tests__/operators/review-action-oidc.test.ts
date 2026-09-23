@@ -40,7 +40,7 @@ beforeAll(async () => {
   fetchKeys = async () => ({ keys: [{ ...publicJwk, kid: 'boundary-key', use: 'sig', alg: 'RS256' }] });
 });
 
-describe('REQ-OPERATOR-053: trusted Action OIDC run identity', () => {
+describe('REQ-OPERATOR-054: trusted Action OIDC run identity', () => {
   it('accepts a signed target workflow on the pinned protected revision and returns verified identity', async () => {
     expect(await verifyBoundaryActionOidc(await token(), expected, fetchKeys)).toEqual({
       repositoryId: 138, repository: 'owner/repo', workflowRef, workflowSha: sha,
