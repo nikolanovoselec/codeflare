@@ -34,6 +34,7 @@ beforeAll(async () => {
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true, ['sign', 'verify'],
   );
+  if (!('privateKey' in keys)) throw Error('Expected a signing key pair');
   privateKey = keys.privateKey;
   const publicJwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
   fetchKeys = async () => ({ keys: [{ ...publicJwk, kid: 'boundary-key', use: 'sig', alg: 'RS256' }] });
@@ -49,7 +50,7 @@ describe('REQ-OPERATOR-053: trusted Action OIDC run identity', () => {
 
   it('rejects tampered signatures and unknown signing keys', async () => {
     const valid = await token();
-    const [header, payload, signature] = valid.split('.');
+    const [header, , signature] = valid.split('.');
     expect(await verifyBoundaryActionOidc(`${header}.${encode({ altered: true })}.${signature}`, expected, fetchKeys)).toBeNull();
     expect(await verifyBoundaryActionOidc(await token({}, { kid: 'unknown' }), expected, fetchKeys)).toBeNull();
   });

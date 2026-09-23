@@ -64,8 +64,11 @@ describe('operator boundary claim route (task #30; proposed contract)', () => {
     }
   });
 
-  it('rejects bodies exceeding 4 KiB without invoking the claim helper', async () => {
-    const response = await webhookRoutes.fetch(request({ ...bindings, head: 'x'.repeat(4096) }), env as never);
+  it('rejects otherwise valid claim JSON padded beyond the 4 KiB request limit', async () => {
+    const response = await webhookRoutes.fetch(new Request(path, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(bindings) + ' '.repeat(4096),
+    }), env as never);
     expect(response.status).toBe(400);
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
