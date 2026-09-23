@@ -65,11 +65,11 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
     const continuing = activity as typeof activity & { continueWebhook?: ReturnType<typeof vi.fn> };
     continuing.continueWebhook = vi.fn(async (_token: string, generation: number) => generation === 1
       ? { ok: true, phase: 'queued' } : { ok: false, reason: 'stale-generation' });
+    const context = { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {
+      OperatorRuntimeCapability: vi.fn(() => ({ fetch: vi.fn() })),
+    } };
     const response = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST', capability,
-      { generation: 1 }), env as never,
-      { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {}, exports: {
-        OperatorRuntimeCapability: vi.fn(() => ({ fetch: vi.fn() })),
-      } });
+      { generation: 1 }), env as never, context);
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     await expect(response.json()).resolves.toEqual({ ok: true, phase: 'queued' });
@@ -79,10 +79,26 @@ describe('REQ-OPERATOR-029: capability-authenticated webhook edge', () => {
       expect(await denied.text()).not.toContain(capability);
     }
     const stale = await webhookRoutes.fetch(request(`/operator-webhook/v1/activities/${activityId}/continue`, 'POST', capability,
-      { generation: 2 }), env as never);
+      { generation: 2 }), env as never, context);
     expect(stale.status).toBe(409);
     await expect(stale.json()).resolves.toMatchObject({ code: 'WEBHOOK_STALE_GENERATION' });
   });
+
+  it('REQ-OPERATOR-053: a stalled continuation body is cancelled and rejected within the read deadline', async () => {
+    const { env } = environment();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"generation":')); },
+      cancel() { cancelled = true; },
+    });
+    const response = await webhookRoutes.fetch(new Request(
+      `https://enterprise.example.test/operator-webhook/v1/activities/${activityId}/continue`, {
+        method: 'POST', headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
+        body, duplex: 'half',
+      } as RequestInit), env as never);
+    expect(response.status).toBe(400);
+    expect(cancelled).toBe(true);
+  }, 4_000);
 
   it('REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes', async () => {
     const { env, activity } = environment();

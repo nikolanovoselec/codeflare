@@ -32,6 +32,8 @@ async function continuationGeneration(request: Request): Promise<number | null> 
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let expired = false;
+  const deadline = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 2000);
   try {
     while (true) {
       const chunk = await reader.read();
@@ -43,14 +45,15 @@ async function continuationGeneration(request: Request): Promise<number | null> 
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    const body: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (expired) return null;
+    const body: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || Object.keys(body).length !== 1 || !('generation' in body)
       || typeof body.generation !== 'number'
       || !Number.isSafeInteger(body.generation) || body.generation < 1) return null;
     return body.generation;
   } catch { return null; }
-  finally { reader.releaseLock(); }
+  finally { clearTimeout(deadline); reader.releaseLock(); }
 }
 function throttle(key: string): boolean {
   const now = Date.now();
@@ -95,8 +98,10 @@ app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
           : await activity.redeemWebhookResult(capability);
     if (result.ok) {
       if ((action === 'start' || action === 'continue') && bindCapability) {
-        c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability,
-          action === 'continue' ? generation! : undefined).catch(() => {}));
+        const drive = action === 'continue'
+          ? runOperatorActivity(activityId, c.env, bindCapability, generation!)
+          : runOperatorActivity(activityId, c.env, bindCapability);
+        c.executionCtx.waitUntil(drive.catch(() => {}));
       }
       if (action === 'status') {
         const { result: _result, ...metadata } = result as { result?: unknown };
