@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-23
+
+- **Uncertain Operator starts require exact activity reconciliation** ([REQ-OPERATOR-049](operator-registry.md#req-operator-049-operators-management-interface)). A successful activity-list refresh no longer permits another start after an uncertain submission; the user must inspect that prepared activity through owner-scoped detail. A failed preparation cannot borrow an earlier activity's identity for reconciliation; a successful list refresh remains available for recovery when no start was attempted. Management grants and activity execution authority are unchanged.
+
 ## 2026-09-22
 
 - **Managed Dispatcher production composition is added, verification remains gated** ([REQ-OPERATOR-047/048](operator-registry.md#req-operator-048-dispatcher-execution)). The existing Activity now owns the pinned Agent/facet lease and interceptor-backed read/inference operation records. Admission never implies waiting, uncertain effects are fenced, and cancellation precedes abort delivery. Legacy/default drivers are unchanged. New behavioral tests are present but unrun in the syntax-only batch; native production-composition and exact-head CI evidence remain outstanding.
