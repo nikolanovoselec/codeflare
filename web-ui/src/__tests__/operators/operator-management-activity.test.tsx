@@ -44,6 +44,37 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
     expect(screen.queryByText('s'.repeat(43))).not.toBeInTheDocument();
   });
+  it('does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1');
+    let indexed = false;
+    serve = (url, init) => {
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') {
+        return json({ activityId: 'activity-2', startCapability: 's'.repeat(43), startExpiresAt: Date.now() + 30000 });
+      }
+      if (url.pathname.endsWith('/activity-2/start')) return json({ error: 'Unavailable' }, 503);
+      if (url.pathname.endsWith('/activity-2')) return indexed
+        ? json({ ...summary, activityId: 'activity-2', checkpoint: null, result: null })
+        : json({ error: 'Not found' }, 404);
+      return json({ items: [summary] });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.input(screen.getByLabelText('Invocation JSON'), { target: { value: '{}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh activity state' })).not.toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh activity state' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/invocation requires its own grant/i);
+    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    indexed = true;
+    fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
+    expect(await screen.findByRole('heading', { name: 'Activity activity-2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled();
+  });
+
   it('denies independent invocation and does not expose activity details on a denied list', async () => {
     serve = () => json({ error: 'Not found' }, 404);
     render(() => <OperatorManagement />);

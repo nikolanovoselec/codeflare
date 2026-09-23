@@ -18,6 +18,7 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
   const [notice, setNotice] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [uncertain, setUncertain] = createSignal(false);
+  const [unresolvedStartId, setUnresolvedStartId] = createSignal('');
   const [invocation, setInvocation] = createSignal('{}');
   const [preparedId, setPreparedId] = createSignal('');
   const [selected, setSelected] = createSignal('');
@@ -28,23 +29,29 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
   onCleanup(() => { active = false; });
   async function refresh() {
     setLoading(true); setError('');
-    try { const result = await api.getOwnedActivities(); if (active) { setItems(result.items); setUncertain(false); } }
+    try { const result = await api.getOwnedActivities(); if (active) {
+      setItems(result.items);
+      if (!unresolvedStartId()) setUncertain(false);
+    } }
     catch (cause) { if (active) { setError(message(cause)); setItems([]); } }
     finally { if (active) setLoading(false); }
   }
   async function read(id: string) {
     const sequence = ++detailSequence;
     setSelected(id); setDetail(undefined); setDetailLoading(true); setError('');
-    try { const value = await api.getOwnedActivity(id); if (active && sequence === detailSequence) setDetail(value); }
+    try { const value = await api.getOwnedActivity(id); if (active && sequence === detailSequence) {
+      setDetail(value);
+      if (unresolvedStartId() === id) { setUnresolvedStartId(''); setUncertain(false); }
+    } }
     catch (cause) { if (active && sequence === detailSequence) setError(message(cause)); }
     finally { if (active && sequence === detailSequence) setDetailLoading(false); }
   }
   createEffect(() => { void refresh(); });
-  async function perform(action: () => Promise<unknown>, success: string) {
+  async function perform(action: () => Promise<unknown>, success: string, onUncertain?: () => void) {
     if (busy() || uncertain()) return;
     setBusy(true); setError(''); setNotice('');
     try { await action(); if (active) { setNotice(success); await refresh(); if (selected()) await read(selected()); } }
-    catch (cause) { if (active) { setError(message(cause)); setUncertain(true); } }
+    catch (cause) { if (active) { setError(message(cause)); setUncertain(true); onUncertain?.(); } }
     finally { if (active) setBusy(false); }
   }
   function invoke() {
@@ -60,7 +67,11 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
       await api.startInstallationActivity(prepared.activityId, prepared.startCapability);
       // The single-use start capability is neither rendered nor retained.
       if (active) setSelected(prepared.activityId);
-    }, 'Activity start accepted. Observe execution and cleanup separately.');
+    }, 'Activity start accepted. Observe execution and cleanup separately.',
+    () => { if (preparedId()) {
+      setUnresolvedStartId(preparedId());
+      setError('Activity start state could not be confirmed. Inspect the prepared activity before preparing more work.');
+    } });
   }
   return <>
     <Show when={error()}><div class="operator-message" role="alert"><p>{error()}</p><button class="admin-secondary-button" disabled={busy() || loading()} onClick={() => void refresh()}>Refresh activity state</button></div></Show>

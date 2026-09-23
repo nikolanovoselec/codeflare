@@ -10,6 +10,7 @@ The source boundaries identified below have focused behavioral evidence; the req
 
 ## Contents
 
+- [Managed Dispatcher host](#managed-dispatcher-host)
 - [Verified human context](#verified-human-context)
 - [Distribution validation](#distribution-validation)
 - [Worker Loader boundary](#worker-loader-boundary)
@@ -26,6 +27,7 @@ The source boundaries identified below have focused behavioral evidence; the req
 - [Operator inference intersection](#operator-inference-intersection)
 - [Owner-scoped activity surface](#owner-scoped-activity-surface)
 - [Owned session and structured Pi](#owned-session-and-structured-pi)
+- [Opaque package attachment restore](#opaque-package-attachment-restore-req-operator-052)
 - [Explicit scoped persistence](#explicit-scoped-persistence)
 - [Independent sync evidence](#independent-sync-evidence)
 - [Consumer contract and dependency inventory](#consumer-contract-and-dependency-inventory)
@@ -35,7 +37,7 @@ The source boundaries identified below have focused behavioral evidence; the req
 
 ## Managed Dispatcher host
 
-Managed receipts selecting `dispatcher` use `driveDispatcherRuntime`: reserve the existing drive once, then admit the pinned generated Flue class into the fixed Activity-private `dispatcher` facet. `OperatorActivity` extends pinned Agents 0.20.1; its constructor resumes the exact lease and its alarm delegates to the SDK before reconciliation. No namespace, migration, container or separate scheduler is introduced. Gate 1 and default-entrypoint dispatch stay unchanged. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->
+Managed receipts selecting `dispatcher` under [REQ-OPERATOR-048](../../sdd/spec/operator-registry.md#req-operator-048-dispatcher-execution) use `driveDispatcherRuntime`: reserve the existing drive once, then admit the pinned generated Flue class into the fixed Activity-private `dispatcher` facet. `OperatorActivity` extends pinned Agents 0.20.1; its constructor resumes the exact lease and its alarm delegates to the SDK before reconciliation. No namespace, migration, container or separate scheduler is introduced. Gate 1 and default-entrypoint dispatch stay unchanged. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->
 
 The non-renewing lease binds generation, submission, input/release digest and the earlier of human expiry or 30 seconds. Admission/status responses remain running. Only persisted exact completed settlement, with all protected operations completed, commits waiting through `commitDrive`. Cancellation fences before sending Flue abort; uncertain admission/effects interrupt rather than retry. <!-- @impl: src/operators/activity.ts::OperatorActivity -->
 
@@ -324,7 +326,9 @@ Current consumers and dependency direction are:
 | Conductor Review package | Generic Operator Interface, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing | Review packet, session, result, history and publication business behavior |
 | Future private Flue adapters | The versioned generic contracts above | Codeflare platform internals; not shipped in Phase 1 |
 
-Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. The stateless `fixtures/operator-gate1` Worker is deployed only by explicit dispatch to the enterprise-integration environment; it requires both the Access assertion and independently provisioned connection secret and has no storage/service binding. Codeflare does not implement Review packet preparation, session orchestration, result collection, history reconciliation, publication policy, or a production Actions workflow. Those behaviors belong to Conductor. Codeflare distributes Conductor Review Pi extensions, skills, and references so repositories can configure their own GitHub Actions, while generic host-side Pi sandbox/security primitives remain Codeflare execution confinement. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
+Dependencies point from Codeflare adapters to these platform interfaces and from loaded private code only to parent-bound capabilities. The stateless `fixtures/operator-gate1` Worker is deployed only by explicit dispatch to the enterprise-integration environment; it requires both the Access assertion and independently provisioned connection secret and has no storage/service binding.
+
+Codeflare does not implement Review packet preparation, session orchestration, result collection, history reconciliation, publication policy, or a production Actions workflow. Those behaviors belong to Conductor. Codeflare distributes Conductor Review Pi extensions, skills, and references so repositories can configure their own GitHub Actions, while generic host-side Pi sandbox/security primitives remain Codeflare execution confinement. The canonical local review packet builder remains unchanged at `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs`; its inspected Phase-1 baseline SHA-256 is `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`. Fixture compatibility is not deployed review/history acceptance and does not activate merge gates.
 
 ## Verification
 
