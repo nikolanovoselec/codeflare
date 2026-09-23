@@ -13,12 +13,12 @@ describe('REQ-OPERATOR-053: independent numeric GitHub PR context', () => {
     expect(await verifyGithubPrBoundary(push, evidence)).toEqual({ repositoryId: 138, pullRequest: 34,
       head, base, mergeBase });
   });
-  it('rejects a different head, fork, moved base, competing PR, merge queue or incomplete GitHub response', async () => {
+  it('rejects a different head, fork, moved base, competing PR, merge queue or incomplete GitHub response', () => {
     for (const changed of [
       { pullRequest: { ...evidence.pullRequest, head: { ...evidence.pullRequest.head, sha: 'd'.repeat(40) } } },
       { pullRequest: { ...evidence.pullRequest, head: { ...evidence.pullRequest.head, repo: { id: 139 } } } },
       { pullRequest: { ...evidence.pullRequest, base: { ...evidence.pullRequest.base, ref: 'gh-readonly-queue/main/pr-34' } } },
       { matchingPulls: [34, 35] }, { compare: null }, { repository: { ...evidence.repository, id: 139 } },
-    ]) await expect(verifyGithubPrBoundary(push, { ...evidence, ...changed })).rejects.toThrow();
+    ]) expect(() => verifyGithubPrBoundary(push, { ...evidence, ...changed })).toThrow();
   });
 });

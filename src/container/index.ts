@@ -737,7 +737,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async getBoundaryInput(ref: { bucket: string; sessionId: string; email: string }): Promise<BoundaryInput | null> {
-    const authority = await openReviewSessionHuman(this, ref);
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
     const record = await this.ctx.storage.get<{
       sessionId: string; subject: string; input: BoundaryInput;
     }>('review:boundary-input');

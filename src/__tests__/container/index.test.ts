@@ -182,11 +182,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const observed = { owner: push.owner, repository: push.repository, ref: push.ref, head: push.head };
       expect(await instance.stageBoundaryInput(staged)).toBeNull();
       expect(await instance.stagePushEvidence(push)).toMatchObject({ generation: 1, input, push: observed });
-      await mockStorage.delete('review:boundary-input');
-      await mockStorage.delete('review:push-evidence');
+      records.delete('review:boundary-input');
+      records.delete('review:push-evidence');
       expect(await instance.stagePushEvidence(push)).toBeNull();
       expect(await instance.stageBoundaryInput(staged)).toMatchObject({ generation: 1, input, push: observed });
-      await mockStorage.delete('review:push-evidence');
+      records.delete('review:push-evidence');
       const creation = { sessionId: 'review1234', generation: 1, pullRequest: 34,
         repositoryId: 138, repositoryNodeId: 'R_node_138', pullRequestNodeId: 'PR_node_34',
         owner: 'owner', repository: 'repo', headRefName: 'feature', baseRefName: 'main' };

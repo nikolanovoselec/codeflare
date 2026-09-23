@@ -31,6 +31,7 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
   const storage = {
     get: vi.fn().mockResolvedValue(null),
     put: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
   };
   return {
     env: {} as any,

@@ -346,7 +346,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const apiJson = async (path: string): Promise<unknown> => {
       const response = await api(path);
       if (response.status !== 200) throw Error('GitHub PR creation context unavailable');
-      return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+      return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
         await readBoundedResponse(response, 128 * 1024, 'GitHub creation metadata'))) as unknown;
     };
     const prepare = async (ready: ReadyBoundary, session: BoundarySession, sessionId: string, generation: number) => {
@@ -418,13 +418,13 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       && submitted.length <= 16_000 && boundaryGeneration && prRead && props?.sessionId
       && request.method === 'GET' && url.hostname === apiHost && !props.operatorPolicy) {
       try {
-        const input = parseBoundedBoundaryInput(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+        const input = parseBoundedBoundaryInput(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
           Uint8Array.from(atob(submitted), char => char.charCodeAt(0)))) as unknown);
         if (input.pullRequest !== Number(prRead[3])) throw Error('PR does not match');
         selectionConsumed = true;
         const metadataBytes = await readBoundedResponse(upstream, 128 * 1024, 'PR boundary response');
         body = new Response(metadataBytes).body;
-        const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(metadataBytes)) as {
+        const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(metadataBytes)) as {
           number?: number; head?: { sha?: string; ref?: string };
         };
         if (metadata.number !== input.pullRequest || metadata.head?.sha !== input.targetHead

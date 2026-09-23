@@ -28,7 +28,7 @@ describe('REQ-OPERATOR-053: approved target Action applicability, not release pr
       { action, repository: { ...repository, id: 139 } },
       { action, contents: { ...contents, content: btoa('name: Tampered\non: pull_request\njobs: {}\n') } },
       { action, contents: null },
-    ]) {
+    ] as const) {
       expect(await resolveBoundaryAction({ repository, workflow, branch, contents,
         event: 'pull_request', ...candidate })).toEqual({ selection: 'unavailable' });
     }

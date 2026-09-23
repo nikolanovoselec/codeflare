@@ -1,6 +1,6 @@
 /** Bounded byte-level receive-pack observation, never a packfile buffer or Git retry. */
 export interface ConfirmedGitUpdate { ref: string; head: string }
-const decoder = new TextDecoder('utf-8', { fatal: true });
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 const MAX_METADATA = 64 * 1024;
 
 type ParsedPackets = { lines: Uint8Array[]; end: number };

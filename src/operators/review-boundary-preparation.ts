@@ -37,7 +37,7 @@ export async function selectVerifiedBoundaryAction(
   async function json(path: string): Promise<unknown> {
     const response = await api(path);
     if (response.status !== 200) throw Error('Boundary Action status unavailable');
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
       await readBoundedResponse(response, 128 * 1024, 'Action selection metadata'))) as unknown;
   }
   try {
@@ -57,7 +57,7 @@ export async function selectVerifiedBoundaryAction(
         const response = await api(path);
         if (response.status === 404) continue;
         if (response.status !== 200) return 'unavailable';
-        const entries = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+        const entries = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
           await readBoundedResponse(response, 128 * 1024, 'Action absence listing'))) as unknown;
         if (!Array.isArray(entries) || entries.length >= 1000) return 'unavailable';
         if (entries.some(entry => entry?.name === next
@@ -106,8 +106,8 @@ export async function prepareVerifiedBoundary(
   const root = `/repos/${owner}/${repository}`;
   async function json(path: string): Promise<unknown> {
     const response = await api(path);
-    if (response.status !== 200 || response.type === 'opaqueredirect') throw Error('GitHub context unavailable');
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+    if (response.status !== 200) throw Error('GitHub context unavailable');
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
       await readBoundedResponse(response, 128 * 1024, 'GitHub boundary metadata')));
   }
   const repo = await json(root) as { id: number; full_name: string; default_branch: string; node_id?: string };
