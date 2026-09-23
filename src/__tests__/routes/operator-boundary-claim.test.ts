@@ -2,8 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import webhookRoutes from '../../routes/operator-webhook';
 
-const claim = vi.hoisted(() => ({ execute: vi.fn() }));
-vi.mock('../../operators/review-boundary-claim', () => ({ claimVerifiedBoundaryAction: claim.execute }));
+const claim = vi.hoisted(() => ({ execute: vi.fn(), publication: vi.fn() }));
+vi.mock('../../operators/review-boundary-claim', () => ({ claimVerifiedBoundaryAction: claim.execute,
+  operateBoundaryPublication: claim.publication }));
 
 const path = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/boundary';
 const token = 'header.payload.signature';
@@ -18,6 +19,8 @@ function request(body: unknown = bindings, authorization: string | null = `Beare
 
 beforeEach(() => {
   claim.execute.mockReset();
+  claim.publication.mockReset();
+  claim.publication.mockResolvedValue({ status: 'new' });
   claim.execute.mockResolvedValue({ activityId: 'review-activity', origin: 'https://enterprise.example.test',
     startCapability: 's'.repeat(43), ...bindings, workflowId: 531, generation: 1 });
 });
@@ -91,4 +94,63 @@ describe('operator boundary claim route (task #30; proposed contract)', () => {
       expect(cancelled).toBe(true);
     } finally { vi.useRealTimers(); }
   }, 4_000);
+});
+
+const publicationPath = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/publication';
+const publication = { ...bindings, activityId: 'review-activity', contextDigest: 'd'.repeat(64),
+  sessionGeneration: 1, activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64), operation: 'begin' };
+function publicationRequest(body: unknown = publication, authorization: string | null = `Bearer ${token}`) {
+  return new Request(publicationPath, { method: 'POST', headers: {
+    ...(authorization === null ? {} : { authorization }), 'content-type': 'application/json',
+  }, body: JSON.stringify(body) });
+}
+
+describe('REQ-OPERATOR-055: trusted publication journal boundary', () => {
+  it('authenticates a protected Action before admitting an exact-context effect without returning secrets', async () => {
+    const response = await webhookRoutes.fetch(publicationRequest(), env as never);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ status: 'new' });
+  });
+
+  it('denies non-enterprise, missing signed identity and caller-selected credentials or principal', async () => {
+    for (const [request, environment, status] of [
+      [publicationRequest(), { ENTERPRISE_MODE: undefined }, 404],
+      [publicationRequest(publication, null), env, 401],
+      [publicationRequest({ ...publication, principal: 'other-user' }), env, 400],
+      [publicationRequest({ ...publication, publisherToken: 'credential' }), env, 400],
+      [publicationRequest({ ...publication, jwt: 'browser-token' }), env, 400],
+    ] as const) {
+      const response = await webhookRoutes.fetch(request, environment as never);
+      expect(response.status).toBe(status);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    }
+  });
+
+  it('exposes only the durable pending or exact-ID receipt to the trusted caller', async () => {
+    claim.publication.mockResolvedValueOnce({ status: 'pending' });
+    const pending = await webhookRoutes.fetch(publicationRequest({ ...publication, operation: 'read' }), env as never);
+    expect(await pending.json()).toEqual({ status: 'pending' });
+    claim.publication.mockResolvedValueOnce({ status: 'published', externalId: 71 });
+    const confirmed = await webhookRoutes.fetch(publicationRequest({ ...publication, operation: 'read' }), env as never);
+    expect(await confirmed.json()).toEqual({ status: 'published', externalId: 71 });
+  });
+
+  it('validates effect identity, operation, digest, exact numeric ID and bounded payload at the edge', async () => {
+    for (const invalid of [{ ...publication, effect: 'required-check' },
+      { ...publication, operation: 'dispatch' }, { ...publication, digest: 'bad' },
+      { ...publication, activityGeneration: 0 }, { ...publication, externalId: 71 },
+      { ...publication, operation: 'complete' }, { ...publication, operation: 'complete', externalId: 0 },
+      { ...publication, operation: 'complete', externalId: '71' }]) {
+      expect((await webhookRoutes.fetch(publicationRequest(invalid), env as never)).status).toBe(400);
+    }
+    const confirmed = await webhookRoutes.fetch(publicationRequest({ ...publication,
+      operation: 'complete', externalId: 71 }), env as never);
+    expect(confirmed.status).toBe(200);
+    const oversized = new Request(publicationPath, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(publication) + ' '.repeat(4096),
+    });
+    expect((await webhookRoutes.fetch(oversized, env as never)).status).toBe(400);
+  });
 });

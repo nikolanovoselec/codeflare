@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-23
 
+- **PR-wide independent Review publication is separated from Action claim** ([REQ-OPERATOR-053/055](operator-registry.md#req-operator-055-pr-wide-publication-ordering)). The planned Registry owner will persist per-effect opaque pending/verified-ID receipts under the current claimed PR reservation; Conductor and a separate protected credential-bearing publisher own evidence, GitHub writes and exact-ID recovery. The new owner tests are RED until implementation; claim/Stop automated CI passed at `6812f243` (run `35903787791`), but protected sandbox publication and required-check activation are not proven or authorized.
+
 - **Protected Action claim/Stop traceability is separated without changing behavior** ([REQ-OPERATOR-054](operator-registry.md#req-operator-054-protected-action-claim-and-stop-fence)). The existing planned Review handoff keeps selection, result and publication in REQ-OPERATOR-053; the already-specified Action identity, one-time claim, Stop fence and lost-response outcomes have their own observable criteria. Neither requirement is implemented or deploy-proven yet.
 
 - **Enterprise PR-boundary Review handoff is planned, not shipped** ([REQ-OPERATOR-053](operator-registry.md#req-operator-053-enterprise-pr-boundary-review-handoff)). An authenticated Codeflare actor will prebind an independent Action-started Review; the existing local review remains unchanged. Generation-fenced webhook collection is under implementation; Action admission, publication and live acceptance are still pending.

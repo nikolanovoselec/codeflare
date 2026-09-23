@@ -11,7 +11,7 @@ const first = { repositoryId: 138, pullRequest: 34, contextDigest: 'a'.repeat(64
   session: { bucket: 'review-owner', sessionId: 'review1234', generation: 1 },
   operatorId: 'review-operator', revision: { head: 'a'.repeat(40), base: 'b'.repeat(40),
     mergeBase: 'c'.repeat(40) } };
-async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>) {
+async function withRegistry(test: (registry: OperatorRegistry, ctx: DurableObjectState) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, protectedEnv);
@@ -35,7 +35,7 @@ async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>)
       'review-install', 1, JSON.stringify({ id: 'review-install', operatorId: 'review-operator',
         name: 'review-install', releaseId: 'review-release', revision: 1, enabled: true, policy,
         configurationJson: '{}', approvedSourceRevision: 1 }));
-    await test(registry);
+    await test(registry, ctx);
   });
 }
 
@@ -173,5 +173,93 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
     }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 });
     expect(changed.ok).toBe(true);
     expect(await registry.claimBoundaryPreparation(claim)).toMatchObject({ ok: false });
+  }));
+});
+
+// Internal parent-only owner API: the trusted publisher separately verifies OIDC, GitHub
+// provenance and immutable bytes before calling these credential-free storage operations.
+type PublicationIdentity = Parameters<OperatorRegistry['claimBoundaryPreparation']>[0] & {
+  activityId: string; contextDigest: string;
+  sessionGeneration: number; activityGeneration: number };
+type PublicationInput = PublicationIdentity & { effect: 'artifact' | 'comment' | 'check'; digest: string };
+type PublicationRegistry = OperatorRegistry & {
+  beginBoundaryPublication(input: PublicationInput): Promise<{ status: string }>;
+  completeBoundaryPublication(input: PublicationInput & { externalId: number }): Promise<{ status: string }>;
+  getBoundaryPublication(input: PublicationInput): Promise<{ status: string; digest?: string; externalId?: number } | null>;
+};
+const publication = (registry: OperatorRegistry) => registry as PublicationRegistry;
+const publicationIdentity = (activityId: string): PublicationIdentity => ({ repositoryId: first.repositoryId,
+  pullRequest: first.pullRequest, head: first.revision.head, base: first.revision.base,
+  mergeBase: first.revision.mergeBase, workflowId: first.workflowId, runId: 87, runAttempt: 1,
+  activityId, contextDigest: first.contextDigest, sessionGeneration: first.session.generation,
+  activityGeneration: 2 });
+async function claimed(registry: OperatorRegistry): Promise<PublicationIdentity> {
+  const reservation = await registry.reserveBoundaryPreparation(first);
+  if (!reservation.ok) throw Error('Expected publication reservation');
+  if (!await registry.markBoundaryPrepared(first.repositoryId, first.pullRequest, reservation.value.activityId,
+    first.contextDigest, 'z'.repeat(43), first.deadline - 1_000)) throw Error('Expected prepared Action handoff');
+  const result = await registry.claimBoundaryPreparation({ repositoryId: first.repositoryId,
+    pullRequest: first.pullRequest, ...first.revision, workflowId: first.workflowId, runId: 87, runAttempt: 1 });
+  if (!result.ok) throw Error('Expected protected Action claim');
+  return publicationIdentity(result.value.activityId);
+}
+
+describe('REQ-OPERATOR-055: durable PR-wide publication ordering', () => {
+  it('records separate pending artifact, comment and shadow-check intents once across owner reconstruction', () => withRegistry(async (registry, ctx) => {
+    const reserved = await registry.reserveBoundaryPreparation(first);
+    if (!reserved.ok) throw Error('Expected unclaimed reservation');
+    expect(await publication(registry).beginBoundaryPublication({ ...publicationIdentity(reserved.value.activityId),
+      effect: 'artifact', digest: '1'.repeat(64) })).toMatchObject({ status: 'stale' });
+    const identity = await claimed(registry);
+    const effects = ['artifact', 'comment', 'check'] as const;
+    for (const effect of effects) {
+      const input = { ...identity, effect, digest: effect === 'artifact' ? '1'.repeat(64) : effect === 'comment'
+        ? '2'.repeat(64) : '3'.repeat(64) };
+      expect(await publication(registry).beginBoundaryPublication(input)).toMatchObject({ status: 'new' });
+      expect(await publication(new OperatorRegistry(ctx, protectedEnv)).beginBoundaryPublication(input))
+        .toMatchObject({ status: 'pending' });
+      const pending = await publication(registry).getBoundaryPublication(input);
+      expect(pending).toMatchObject({ status: 'pending', digest: input.digest });
+      expect(JSON.stringify(pending)).not.toContain('z'.repeat(43));
+      expect(await publication(registry).beginBoundaryPublication({ ...input, digest: '9'.repeat(64) }))
+        .toMatchObject({ status: 'conflict' });
+    }
+  }));
+
+  it('denies a foreign repo, run, session or drive generation and fences late old writes after a new PR reservation', () => withRegistry(async registry => {
+    const identity = await claimed(registry);
+    const old = { ...identity, effect: 'check' as const, digest: '3'.repeat(64) };
+    for (const changed of [{ repositoryId: 139 }, { pullRequest: 35 }, { runAttempt: 2 },
+      { runId: 88 }, { sessionGeneration: 2 }, { activityId: 'another-activity' },
+      { contextDigest: '0'.repeat(64) }]) {
+      expect(await publication(registry).beginBoundaryPublication({ ...old, ...changed }))
+        .toMatchObject({ status: 'stale' });
+    }
+    expect(await publication(registry).beginBoundaryPublication(old)).toMatchObject({ status: 'new' });
+    expect(await publication(registry).beginBoundaryPublication({ ...old, activityGeneration: 3 }))
+      .toMatchObject({ status: 'stale' });
+    const newer = { ...first, contextDigest: 'd'.repeat(64), expectedContextDigest: first.contextDigest,
+      revision: { ...first.revision, head: 'f'.repeat(40) } };
+    expect(await registry.reserveBoundaryPreparation(newer)).toMatchObject({ ok: true });
+    expect(await publication(registry).completeBoundaryPublication({ ...old, externalId: 41 }))
+      .toMatchObject({ status: 'stale' });
+    expect(await publication(registry).beginBoundaryPublication(old)).toMatchObject({ status: 'stale' });
+    expect((await publication(registry).getBoundaryPublication(old))?.status).not.toBe('published');
+  }));
+
+  it('retains a verified exact external ID after a lost acknowledgement without authorizing another create', () => withRegistry(async (registry, ctx) => {
+    const identity = await claimed(registry);
+    const input = { ...identity, effect: 'comment' as const, digest: '2'.repeat(64) };
+    expect(await publication(registry).beginBoundaryPublication(input)).toMatchObject({ status: 'new' });
+    expect(await publication(registry).completeBoundaryPublication({ ...input, externalId: 71 }))
+      .toMatchObject({ status: 'published' });
+    const rebuilt = publication(new OperatorRegistry(ctx, protectedEnv));
+    expect(await rebuilt.getBoundaryPublication(input))
+      .toMatchObject({ status: 'published', digest: input.digest, externalId: 71 });
+    expect(await rebuilt.beginBoundaryPublication(input)).toMatchObject({ status: 'published' });
+    expect(await rebuilt.completeBoundaryPublication({ ...input, externalId: 72 }))
+      .toMatchObject({ status: 'conflict' });
+    expect(await rebuilt.completeBoundaryPublication({ ...input, digest: '8'.repeat(64), externalId: 71 }))
+      .toMatchObject({ status: 'conflict' });
   }));
 });
