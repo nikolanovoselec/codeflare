@@ -39,6 +39,17 @@ vi.mock('../../lib/r2-admin', () => ({
   })),
 }));
 
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return { ...actual, requireOperatorHumanContext: async (request: Request, _env: Env, email: string) => {
+    if (request.headers.get('cf-access-jwt-assertion') !== 'human-credential' || email !== 'test@example.com') {
+      throw new Error('Verified human Access required');
+    }
+    return { human: { subject: 'owner', email, issuer: 'https://team.cloudflareaccess.com',
+      audiences: ['aud'], issuedAt: 1, expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'human-credential' };
+  } };
+});
+
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: vi.fn(async () => ({ written: ['Getting-Started.md'], skipped: [] })),
 }));
@@ -114,6 +125,101 @@ describe('Container Lifecycle Routes', () => {
   function container() {
     return testState.container!;
   }
+
+  // #29: The fake DO records only its public identity binding and configuration
+  // surface. A successful start alone must not imply operator authority.
+  describe('Enterprise lifecycle human binding (#29)', () => {
+    const path = '/container/start?sessionId=abcdef1234567890abcdef12';
+    const principal = 'test@example.com';
+
+    function enterpriseHarness(running: boolean, enterprise = true,
+      pauseConfiguration?: { entered: () => void; wait: Promise<void> }) {
+      let boundHuman: string | null = running ? principal : null;
+      const retainedOwner = principal;
+      let configured = false;
+      let retired = false;
+      const stub = container() as ReturnType<typeof createMockContainer> & {
+        bindReviewHuman: ReturnType<typeof vi.fn>;
+        getReviewHuman: ReturnType<typeof vi.fn>;
+      };
+      stub.getReviewHuman = vi.fn(async () => boundHuman);
+      stub.bindReviewHuman = vi.fn(async (authority: { human: { email: string } } | null) => {
+        if (!configured) throw new Error('binding preceded lifecycle configuration');
+        if (authority && retired) throw new Error('Retired session cannot bind authority');
+        if (authority && authority.human.email !== retainedOwner) throw new Error('Session human mismatch');
+        boundHuman = authority?.human.email ?? null;
+      });
+      stub.getState.mockResolvedValue({ status: running ? 'running' : 'stopped' });
+      stub.fetch.mockImplementation(async (request: Request) => {
+        if (request.url.endsWith('/_internal/getBucketName')) {
+          return Response.json({ bucketName: running ? 'test-bucket' : null });
+        }
+        if (request.url.endsWith('/_internal/setBucketName')) {
+          configured = true;
+          pauseConfiguration?.entered();
+          if (pauseConfiguration) await pauseConfiguration.wait;
+          return new Response(null, { status: running ? 409 : 200 });
+        }
+        throw new Error(`Unexpected DO request: ${request.url}`);
+      });
+      stub.destroy.mockImplementation(async () => { retired = true; boundHuman = null; });
+      return {
+        stub,
+        fetch: createLifecycleApp('test-bucket', enterprise ? { ENTERPRISE_MODE: 'active' } : {}),
+        lookup: () => stub.getReviewHuman() as Promise<string | null>,
+      };
+    }
+
+    for (const running of [false, true]) {
+      it(`#29: authenticated Enterprise ${running ? 'reconnect' : 'cold start'} binds the same human after configuration`, async () => {
+        const { fetch, lookup } = enterpriseHarness(running);
+        const response = await fetch(path, {
+          method: 'POST', headers: { 'cf-access-jwt-assertion': 'human-credential' },
+        });
+        expect(response.status).toBe(200);
+        expect((await response.json() as { status: string }).status).toBe(running ? 'already_running' : 'starting');
+        expect(await lookup()).toBe(principal);
+      });
+    }
+
+    for (const [kind, headers] of [
+      ['missing', {}],
+      ['service-only', { 'cf-access-jwt-assertion': 'service-credential' }],
+      ['expired', { 'cf-access-jwt-assertion': 'expired-human-credential' }],
+      ['mismatched', { 'cf-access-jwt-assertion': 'other-human-credential' }],
+    ] as const) {
+      it(`#29: ${kind} Access allows ordinary start but removes stale operator authority`, async () => {
+        const { fetch, lookup } = enterpriseHarness(false);
+        const response = await fetch(path, { method: 'POST', headers });
+        expect(response.status).toBe(200);
+        expect((await response.json() as { status: string }).status).toBe('starting');
+        expect(await lookup()).toBeNull();
+      });
+    }
+
+    it('#29: teardown during reconnect cannot rebind a retired human', async () => {
+      let entered!: () => void; let release!: () => void;
+      const atConfiguration = new Promise<void>(resolve => { entered = resolve; });
+      const wait = new Promise<void>(resolve => { release = resolve; });
+      const { fetch, lookup } = enterpriseHarness(true, true, { entered, wait });
+      const reconnect = fetch(path, { method: 'POST', headers: { 'cf-access-jwt-assertion': 'human-credential' } });
+      try {
+        await atConfiguration;
+        const teardown = await fetch('/container/destroy?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+        expect(teardown.status).toBe(200);
+      } finally { release(); }
+      await reconnect;
+      expect(await lookup()).toBeNull();
+    });
+
+    it('#29: disabling Enterprise leaves ordinary start without an operator human binding', async () => {
+      const { fetch, lookup } = enterpriseHarness(false, false);
+      const response = await fetch(path, { method: 'POST' });
+      expect(response.status).toBe(200);
+      expect((await response.json() as { status: string }).status).toBe('starting');
+      expect(await lookup()).toBeNull();
+    });
+  });
 
   // =========================================================================
   // POST /container/start

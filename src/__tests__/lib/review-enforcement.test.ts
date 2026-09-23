@@ -1246,3 +1246,74 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.prompts).toHaveLength(1);
   });
 });
+
+// The selection dependency represents the authenticated parent verdict, not a
+// browser credential or an authority that Pi can mint from repository content.
+describe('REQ-OPERATOR-053: Enterprise PR-boundary remote review selection', () => {
+  it('selects remote monitoring exclusively for a confirmed applicable Action and forwards bounded review context', async () => {
+    const input = fixture();
+    const rejectedFindings = [{ finding: 'F-1', reasoning: 'Prior fix covers this case', evidenceRefs: ['review-round-1/F-1'] }];
+    const app = await harness(input, [], {
+      deploymentMode: 'enterprise',
+      queryRemoteReviewSelection: async () => ({ status: 'applicable', activityId: 'activity-42' }),
+      reviewContext: { ackHead: input.base, rejectedFindings },
+    });
+
+    await app.emit('tool_result', boundary('git push origin feature', 'push-remote'));
+
+    expect(app.sent).toHaveLength(1);
+    expect(app.sent[0]?.details).toMatchObject({
+      head: input.head,
+      ackHead: input.base,
+      reviewRange: `${input.base}..${input.head}`,
+      rejectedFindings,
+      requiredLanes: [],
+    });
+    expect(app.sent[0]?.content).toMatch(/remote|operator|activity/i);
+    expect(app.sent[0]?.content).not.toMatch(/start code-reviewer|start spec-reviewer|start doc-updater/i);
+    expect(JSON.stringify(app.sent)).not.toMatch(/workflow_dispatch|browserJwt|publisherToken/i);
+  });
+
+  it('retains local reviewers when the trusted Action is confirmed absent', async () => {
+    const input = fixture();
+    const app = await harness(input, [], {
+      deploymentMode: 'enterprise',
+      queryRemoteReviewSelection: async () => ({ status: 'absent' }),
+    });
+
+    await app.emit('tool_result', boundary('git push origin feature', 'push-absent'));
+
+    expect(app.sent[0]?.details?.requiredLanes).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    expect(app.sent[0]?.content).toContain('output_file=/tmp/codeflare-pr-42-');
+  });
+
+  it.each(['uncertain', 'disabled', 'expired', 'failed'])(
+    'does not fall back to local reviewers or report completion when remote selection is %s',
+    async (status) => {
+      const input = fixture();
+      const app = await harness(input, [], {
+        deploymentMode: 'enterprise',
+        queryRemoteReviewSelection: async () => ({ status }),
+      });
+
+      await app.emit('tool_result', boundary('git push origin feature', `push-${status}`));
+
+      expect(app.sent.some((message) => (message.details?.requiredLanes as ReviewLane[] | undefined)?.length)).toBe(false);
+      expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).not.toBe('complete');
+      expect(app.sent.map((message) => message.content ?? '').join('\n')).not.toMatch(/start code-reviewer|output_file=|CI_RESULT success/i);
+    },
+  );
+
+  it('does not select remote review outside Enterprise even when a remote Action claims applicability', async () => {
+    const input = fixture();
+    const app = await harness(input, [], {
+      deploymentMode: 'standard',
+      queryRemoteReviewSelection: async () => ({ status: 'applicable', activityId: 'activity-42' }),
+    });
+
+    await app.emit('tool_result', boundary('git push origin feature', 'push-standard'));
+
+    expect(app.sent[0]?.details?.requiredLanes).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    expect(app.sent[0]?.content).toContain('output_file=/tmp/codeflare-pr-42-');
+  });
+});
