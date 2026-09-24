@@ -13,7 +13,7 @@ const sourcePicker = await import(pathToFileURL(join(dist, 'modes/interactive/co
 const sourceSettings = await import(pathToFileURL(join(dist, 'modes/interactive/components/settings-selector.js')).href);
 const sourceTheme = await import(pathToFileURL(join(dist, 'modes/interactive/theme/theme.js')).href);
 // The installed CLI executes the bundle, not these source modules. Cover both.
-const bundled = await import(pathToFileURL(join(dist, 'bundle/chunks/chunk-JVUZSMYM.js')).href);
+const bundled = await import(pathToFileURL(join(dist, 'bundle/index.js')).href);
 const plainRender = (component) => component.render(120).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
 
 function thinkingSettings(SettingsSelectorComponent, models, currentModel, onChange) {

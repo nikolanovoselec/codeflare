@@ -445,6 +445,29 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
 // leave nothing to clear the marker or restore 'running', so self-heal declines
 // by design and the authoritative 4503 gate refuses every terminal upgrade.
 describe('Container Lifecycle - restart after a bucket change', () => {
+  it('REQ-SESSION-018 AC7: stale SDK stopped cannot advance an owning D1 execution to a replacement generation', async () => {
+    const kv = createMockKV();
+    kv._set('session:codeflare-test-example-com:sess123', {
+      id: 'sess123', userId: 'codeflare-test-example-com', status: 'running', lifecycleGeneration: 2,
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    });
+    const container = {
+      fetch: vi.fn(), destroy: vi.fn(), getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
+      startAndWaitForPorts: vi.fn(),
+    };
+    await expect(startOrRestartContainer({
+      container, needsBucketUpdate: false, setBucketBody: '{}', containerId: 'container-abc',
+      sessionData: { id: 'sess123', userId: 'codeflare-test-example-com', status: 'running' } as Session,
+      env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
+      shortContainerId: 'cont-abc',
+      logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
+      waitUntil: vi.fn(),
+    })).rejects.toThrow();
+    const stored = await kv.get('session:codeflare-test-example-com:sess123', 'json') as Session & { lifecycleGeneration: number };
+    expect(stored.status).toBe('running');
+    expect(stored.lifecycleGeneration).toBe(2);
+  });
+
   it('REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy', async () => {
     const waitUntil = vi.fn();
     const kv = createMockKV();

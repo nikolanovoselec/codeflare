@@ -10,7 +10,8 @@ const request = { operationId: 'sync-1', requestDigest: 'a'.repeat(64), files: [
 const receipt = { schemaVersion: 1, ...request, status: 'uploaded', manifestDigest: 'c'.repeat(64) };
 function fixture() {
   const calls = [];
-  const coordinator = { async upload(value) { calls.push(['upload', value]); return receipt; },
+  const coordinator = { async inspect(paths) { calls.push(['inspect', paths]); return request.files; },
+    async upload(value) { calls.push(['upload', value]); return receipt; },
     async status(operationId) { calls.push(['status', operationId]); return operationId === 'sync-1' ? receipt : null; } };
   return { controller: new OperatorSyncHttpController(coordinator), calls, coordinator };
 }
@@ -26,6 +27,18 @@ test('REQ-OPERATOR-023: scoped Sync now and GET receipt expose uploaded but not 
   assert.equal(status.status, 200);
   assert.deepEqual(JSON.parse(status.body), receipt);
   assert.deepEqual(f.calls, [['upload', request], ['status', 'sync-1']]);
+});
+
+test('REQ-OPERATOR-023: generic sync inspection returns independently observed bounded file identities', async () => {
+  const f = fixture();
+  const response = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/inspect',
+    body: bytes({ paths: ['report.txt'] }) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { files: request.files });
+  assert.deepEqual(f.calls, [['inspect', ['report.txt']]]);
+  assert.equal((await f.controller.handle({ method: 'POST', pathname: '/internal/operator/sync/inspect',
+    body: bytes({ paths: ['../foreign'] }) })).status, 400);
+  assert.deepEqual(f.calls, [['inspect', ['report.txt']]]);
 });
 
 test('REQ-OPERATOR-023: malformed/oversized/method/unknown requests fail before coordinator effects', async () => {

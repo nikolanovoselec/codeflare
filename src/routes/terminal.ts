@@ -23,7 +23,7 @@ import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMI
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { warnStressTestBypass } from '../middleware/rate-limit';
-import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
+import { getContainerId, safeCheckContainerHealth, forwardExisting } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
 import { isSaasModeActive } from '../lib/onboarding';
 import { isActiveUser } from '../lib/access-tier';
@@ -206,6 +206,15 @@ export async function handleWebSocketUpgrade(
       });
     }
 
+    // Only the owner-scoped D1 lifecycle can confirm a stop. The SDK may
+    // transiently report stopped while the same session's process is alive.
+    if (session.lifecycleState === 'stopping' || session.lifecycleState === 'stopped') {
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(4503, 'container-stopped');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
     // Container is up but may still be initializing: port 8080 binds at
     // ~1.5s while the entrypoint continues R2 sync + .bashrc autostart
     // writes (~10s). The host server gates /terminal WS upgrades on a
@@ -213,21 +222,10 @@ export async function handleWebSocketUpgrade(
     // land before the flag flips would spawn fresh PTYs against pre-sync
     // state (bare bash, no agent autostart) — see PR #365.
     //
-    // Resolve persisted SDK state before touching the rate-limit or forwarding.
-    // KV status is an eventually-consistent dashboard projection and cannot
-    // reject a live terminal. getState() reads the Container SDK's DO-backed
-    // lifecycle state without starting the container; /health then proves that
-    // an up-state is currently reachable before the WebSocket reaches fetch().
+    // Probe the existing runtime without SDK auto-start before spending the
+    // rate-limit budget. A missing process remains retryable, never definitive.
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
-    if (warmProbe.status === 'stopping'
-        || warmProbe.status === 'stopped'
-        || warmProbe.status === 'stopped_with_code') {
-      const pair = new WebSocketPair();
-      pair[1].accept();
-      pair[1].close(4503, 'container-stopped');
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
     if (!warmProbe.healthy || warmProbe.data?.terminalServiceReady === false) {
       logger.info('Rejecting WS upgrade: container not ready', {
         email: user.email,
@@ -244,8 +242,8 @@ export async function handleWebSocketUpgrade(
       warnStressTestBypass();
     } else {
       // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
-      // Runs AFTER session-stopped rejection (see comment above) so failed
-      // reconnects to a hibernated container do not count against the limit.
+      // Runs AFTER D1 stop and SDK readiness gates so failed reconnects to a
+      // hibernated container do not count against the limit.
       // Fail-open on KV errors via shared rate-limit-core (AD35).
       const wsRateResult = await checkRateLimit({
         kv: env.KV,
@@ -310,6 +308,8 @@ export async function handleWebSocketUpgrade(
     let forwardError: unknown;
     let forwardTimer: ReturnType<typeof setTimeout> | undefined;
     const response = await Promise.race([
+      // Native DO fetch transports a 101 WebSocket response; an RPC method
+      // returning that response fails serialization before it reaches the Worker.
       container.fetch(new Request(terminalUrl.toString(), request)).catch((err: unknown) => {
         forwardError = err;
         return FORWARD_FAILED;
@@ -333,6 +333,13 @@ export async function handleWebSocketUpgrade(
         reason: response === TIMED_OUT ? 'timeout' : 'rejected',
         error: response === FORWARD_FAILED ? toErrorMessage(forwardError) : undefined,
       });
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(1013, 'container-unreachable');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    if (response.status === 503) {
       const pair = new WebSocketPair();
       pair[1].accept();
       pair[1].close(1013, 'container-unreachable');
@@ -403,13 +410,11 @@ app.get('/:sessionId/status', async (c) => {
       });
     }
 
-    // Only fetch sessions if the container is healthy — avoids auto-starting via container.fetch()
+    // Only fetch sessions if the existing container is healthy; never auto-start.
     let ptyActive = false;
     try {
       const sessionsResponse = await getContainerSessionsCB(containerId).execute(() =>
-        container.fetch(
-          new Request('http://container/sessions', { method: 'GET' })
-        )
+        forwardExisting(container, new Request('http://container/sessions', { method: 'GET' }))
       );
 
       if (sessionsResponse.ok) {

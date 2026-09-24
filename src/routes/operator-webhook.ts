@@ -10,6 +10,9 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { isEnterpriseMode } from '../lib/subscription';
 import { bindOperatorRuntimeCapability, runOperatorActivity } from '../operators/orchestrator';
+import { claimVerifiedBoundaryAction, operateBoundaryPublication,
+  type BoundaryActionClaimRequest, type BoundaryPublicationRequest } from '../operators/review-boundary-claim';
+import { D1SessionRepository } from '../lib/session-repository';
 
 const app = new Hono<{ Bindings: Env }>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -26,6 +29,35 @@ function bearer(header: string | undefined): string | null {
   const token = header.slice(7);
   return CAPABILITY.test(token) ? token : null;
 }
+async function continuationGeneration(request: Request): Promise<number | null> {
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    || !request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let expired = false;
+  const deadline = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 2000);
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 128) { await reader.cancel(); return null; }
+      chunks.push(chunk.value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    if (expired) return null;
+    const body: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).length !== 1 || !('generation' in body)
+      || typeof body.generation !== 'number'
+      || !Number.isSafeInteger(body.generation) || body.generation < 1) return null;
+    return body.generation;
+  } catch { return null; }
+  finally { clearTimeout(deadline); reader.releaseLock(); }
+}
 function throttle(key: string): boolean {
   const now = Date.now();
   const current = limits.get(key);
@@ -37,39 +69,184 @@ function throttle(key: string): boolean {
   return next.count > 30;
 }
 
+const CLAIM_PATH = '/operator-webhook/v1/activities/claims/boundary';
+const PUBLICATION_PATH = '/operator-webhook/v1/activities/claims/publication';
+const CLAIM_FIELDS = ['repositoryId', 'pullRequest', 'head', 'base', 'mergeBase', 'runId', 'runAttempt'];
+const PUBLICATION_FIELDS = [...CLAIM_FIELDS, 'workflowId', 'activityId', 'contextDigest',
+  'sessionGeneration', 'activityGeneration', 'effect', 'digest', 'operation'];
+const SHA = /^[0-9a-f]{40}$/;
+const OIDC = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+async function claimBody(request: Request): Promise<BoundaryActionClaimRequest | null> {
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    || !request.body) return null;
+  const reader = request.body.getReader();
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  let expired = false;
+  const deadline = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 2000);
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 4096) { await reader.cancel(); return null; }
+      chunks.push(chunk.value);
+    }
+    if (expired) return null;
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const input: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const fields = Object.keys(input);
+    if (fields.length !== CLAIM_FIELDS.length || fields.some(field => !CLAIM_FIELDS.includes(field))) return null;
+    const claim = input as Record<string, unknown>;
+    if (!['repositoryId', 'pullRequest', 'runId', 'runAttempt'].every(field =>
+      typeof claim[field] === 'number' && Number.isSafeInteger(claim[field] as number) && (claim[field] as number) > 0)
+      || !['head', 'base', 'mergeBase'].every(field => typeof claim[field] === 'string' && SHA.test(claim[field] as string))) {
+      return null;
+    }
+    return claim as unknown as BoundaryActionClaimRequest;
+  } catch { return null; }
+  finally { clearTimeout(deadline); reader.releaseLock(); }
+}
+
+async function publicationBody(request: Request): Promise<BoundaryPublicationRequest | null> {
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    || !request.body) return null;
+  const reader = request.body.getReader();
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  let expired = false;
+  const deadline = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 2000);
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 4096) { await reader.cancel(); return null; }
+      chunks.push(chunk.value);
+    }
+    if (expired) return null;
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const input = value as Record<string, unknown>;
+    const fields = Object.keys(input);
+    const completing = input.operation === 'complete';
+    if (fields.length !== PUBLICATION_FIELDS.length + (completing ? 1 : 0)
+      || fields.some(field => !PUBLICATION_FIELDS.includes(field) && (field !== 'externalId' || !completing))
+      || PUBLICATION_FIELDS.some(field => !(field in input))
+      || !['begin', 'read', 'complete'].includes(input.operation as string)
+      || !['artifact', 'comment', 'check'].includes(input.effect as string)
+      || !['repositoryId', 'pullRequest', 'workflowId', 'runId', 'runAttempt',
+        'sessionGeneration', 'activityGeneration'].every(field =>
+        typeof input[field] === 'number' && Number.isSafeInteger(input[field]) && (input[field] as number) > 0)
+      || !['head', 'base', 'mergeBase'].every(field => typeof input[field] === 'string' && SHA.test(input[field] as string))
+      || !['contextDigest', 'digest'].every(field => typeof input[field] === 'string'
+        && /^[a-f0-9]{64}$/.test(input[field] as string))
+      || typeof input.activityId !== 'string' || !ID.test(input.activityId)
+      || (completing && (typeof input.externalId !== 'number'
+        || !Number.isSafeInteger(input.externalId) || input.externalId < 1))) return null;
+    return input as BoundaryPublicationRequest;
+  } catch { return null; }
+  finally { clearTimeout(deadline); reader.releaseLock(); }
+}
+
+app.all(CLAIM_PATH, async c => {
+  if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+  if (c.req.method !== 'POST') return response({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
+  const header = c.req.header('authorization');
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || token.length > 8192 || !OIDC.test(token)) {
+    return response({ error: 'Action identity required', code: 'ACTION_IDENTITY_REQUIRED' }, 401);
+  }
+  const input = await claimBody(c.req.raw);
+  if (!input) return response({ error: 'Invalid claim', code: 'BOUNDARY_CLAIM_INVALID' }, 400);
+  try {
+    const result = await claimVerifiedBoundaryAction(c.env, token, input);
+    if ('status' in result) return response({ error: 'Action claim unavailable', code: 'BOUNDARY_CLAIM_UNAVAILABLE' },
+      result.status === 'unknown' ? 503 : result.status === 'denied' ? 403 : 409);
+    return response(result, 200);
+  } catch { return response({ error: 'Action claim unavailable', code: 'BOUNDARY_CLAIM_UNAVAILABLE' }, 503); }
+});
+
+app.all(PUBLICATION_PATH, async c => {
+  if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+  if (c.req.method !== 'POST') return response({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
+  const header = c.req.header('authorization');
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || token.length > 8192 || !OIDC.test(token)) {
+    return response({ error: 'Action identity required', code: 'ACTION_IDENTITY_REQUIRED' }, 401);
+  }
+  const input = await publicationBody(c.req.raw);
+  if (!input) return response({ error: 'Invalid publication intent', code: 'BOUNDARY_PUBLICATION_INVALID' }, 400);
+  try {
+    const result = await operateBoundaryPublication(c.env, token, input);
+    if (result.status === 'new' || result.status === 'pending' || result.status === 'published') {
+      return response(result, 200);
+    }
+    return response({ error: 'Publication unavailable', code: 'BOUNDARY_PUBLICATION_UNAVAILABLE' },
+      result.status === 'denied' ? 403 : result.status === 'unknown' ? 503 : 409);
+  } catch { return response({ error: 'Publication unavailable', code: 'BOUNDARY_PUBLICATION_UNAVAILABLE' }, 503); }
+});
+
 app.all('/operator-webhook/v1/activities/:activityId/:action', async c => {
   if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
   const activityId = c.req.param('activityId');
   const action = c.req.param('action');
-  if (!ID.test(activityId) || !['start', 'status', 'result'].includes(action)) {
+  if (!ID.test(activityId) || !['start', 'status', 'continue', 'result'].includes(action)) {
     return response({ error: 'Not found', code: 'WEBHOOK_ROUTE_NOT_FOUND' }, 404);
   }
   const expectedMethod = action === 'status' ? 'GET' : 'POST';
   if (c.req.method !== expectedMethod) return response({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
-  if (c.req.raw.body !== null) return response({ error: 'Request body is not accepted', code: 'WEBHOOK_BODY_INVALID' }, 400);
   const limitKey = `${c.req.header('cf-connecting-ip') ?? 'unknown'}:${activityId}`;
   if (throttle(limitKey)) return response({ error: 'Too many requests', code: 'WEBHOOK_THROTTLED' }, 429);
   const capability = bearer(c.req.header('authorization'));
   if (!capability) return response({ error: 'Capability required', code: 'WEBHOOK_CAPABILITY_REQUIRED' }, 401);
+  const generation = action === 'continue' ? await continuationGeneration(c.req.raw) : null;
+  if (action === 'continue' ? generation === null : c.req.raw.body !== null) {
+    return response({ error: 'Request body is not accepted', code: 'WEBHOOK_BODY_INVALID' }, 400);
+  }
   if (!c.env.OPERATOR_ACTIVITY) return response({ error: 'Webhook unavailable', code: 'WEBHOOK_UNAVAILABLE' }, 503);
 
   const activity = c.env.OPERATOR_ACTIVITY.getByName(activityId);
   try {
-    const bindCapability = action === 'start' ? bindOperatorRuntimeCapability(c.executionCtx) : null;
+    const bindCapability = action === 'start' || action === 'continue'
+      ? bindOperatorRuntimeCapability(c.executionCtx) : null;
     const result = action === 'start'
       ? await activity.startWebhook(capability)
       : action === 'status'
         ? await activity.getWebhookStatus(capability)
-        : await activity.redeemWebhookResult(capability);
+        : action === 'continue'
+          ? await activity.continueWebhook(capability, generation!)
+          : await activity.redeemWebhookResult(capability);
     if (result.ok) {
-      if (action === 'start' && bindCapability) {
-        c.executionCtx.waitUntil(runOperatorActivity(activityId, c.env, bindCapability).catch(() => {}));
+      if (action === 'result' && 'status' in result && result.status === 'completed' && c.env.USAGE_DB) {
+        // Terminal result consumption precedes release; a lost release leaves pending authority fenced.
+        const binding = await activity.getBoundaryStartBinding(activityId);
+        if (binding) await new D1SessionRepository(c.env.USAGE_DB).releaseCompletedBoundaryAction(
+          binding.session.bucket, binding.session.sessionId, binding.session.generation, activityId);
+      }
+      if ((action === 'start' || action === 'continue') && bindCapability) {
+        const drive = action === 'continue'
+          ? runOperatorActivity(activityId, c.env, bindCapability, generation!)
+          : runOperatorActivity(activityId, c.env, bindCapability);
+        c.executionCtx.waitUntil(drive.catch(() => {}));
+      }
+      if (action === 'status') {
+        const { result: _result, ...metadata } = result as { result?: unknown };
+        return response(metadata, 200);
       }
       return response(result, 200);
     }
     const status = result.reason === 'not-ready' ? 202
       : result.reason === 'capability-expired' ? 410
-        : result.reason === 'consumed' || result.reason === 'already-started' ? 409
+        : result.reason === 'consumed' || result.reason === 'already-started'
+          || result.reason === 'stale-generation' || result.reason === 'stale-publication' ? 409
           : result.reason === 'not-prepared' ? 404
             : result.reason === 'admission-denied' || result.reason === 'authority-expired' ? 403
               : result.reason === 'admission-uncertain' ? 503 : 401;

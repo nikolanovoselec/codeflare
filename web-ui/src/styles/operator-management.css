@@ -1,0 +1,62 @@
+/* Operators inherits the incumbent admin form, panel and button vocabulary. */
+.operator-management {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  overscroll-behavior: contain;
+}
+.operator-management .admin-page { max-width: 1200px; }
+.operator-management h1:focus { outline: none; }
+.operator-management :is(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.operator-management :is(h1, h2, h3, p, strong, dd, a, button, output) { overflow-wrap: anywhere; }
+.operator-management :is(input, select, textarea) { width: 100%; min-width: 0; max-width: 100%; }
+.operator-management :is(button, a) { min-height: 40px; }
+.operator-management summary { min-height: 44px; padding-block: var(--space-3); cursor: pointer; }
+.operator-management button { white-space: normal; }
+.operator-management a { color: var(--color-info); }
+.operator-management fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.operator-management legend { margin-bottom: var(--space-3); font-weight: var(--font-semibold); }
+.operator-management small { color: var(--color-text-secondary); line-height: 1.5; }
+.operator-panel { margin-top: var(--space-4); padding: var(--space-4); }
+.operator-panel > h2 { margin-top: 0; }
+.operator-panel p { color: var(--color-text-secondary); line-height: 1.5; }
+.operator-section-heading, .operator-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.operator-section-heading { justify-content: space-between; }
+.operator-actions { margin-block: var(--space-3); }
+.operator-actions > a { display: inline-flex; align-items: center; }
+.operator-filters { display: grid; grid-template-columns: minmax(160px, 2fr) repeat(3, minmax(100px, 1fr)) auto; align-items: end; gap: var(--space-3); }
+.operator-list { list-style: none; padding: 0; margin: 0; }
+.operator-list > li { padding-block: var(--space-4); border-bottom: 1px solid var(--color-border-subtle); }
+.operator-list .admin-area-row { gap: var(--space-4); }
+.operator-list .admin-area-row > div { min-width: 0; }
+.operator-list .admin-area-row > button { flex-shrink: 0; }
+.operator-message { padding: var(--space-4); margin-block: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); }
+.operator-message[role='alert'] { border-color: var(--color-error-border); }
+.operator-management .operator-fields { margin-block: var(--space-4); }
+.operator-facts { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 3fr); gap: var(--space-2) var(--space-4); }
+.operator-facts dt { color: var(--color-text-secondary); }
+.operator-facts dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); }
+.operator-installation { border-top: 1px solid var(--color-border-subtle); padding-block: var(--space-4); }
+.operator-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; padding: var(--space-3); background: var(--color-bg-base); }
+@media (max-width: 900px) {
+  .operator-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operator-management .admin-page-header { flex-wrap: wrap; }
+}
+@media (max-width: 600px) {
+  .operator-management .admin-page { padding: var(--space-4); }
+  .operator-panel { padding: var(--space-4); }
+  .operator-management .admin-form-grid, .operator-filters { grid-template-columns: minmax(0, 1fr); }
+  .operator-facts { grid-template-columns: minmax(0, 1fr); }
+  .operator-facts dd { margin-bottom: var(--space-2); }
+  .operator-list .admin-area-row { align-items: flex-start; flex-direction: column; }
+  .operator-list .admin-area-row > button,
+  .operator-section-heading > .admin-primary-button { width: 100%; justify-content: center; }
+  .operator-actions { align-items: stretch; }
+  .operator-actions > :is(button, a) { min-height: 44px; }
+}

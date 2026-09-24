@@ -1,8 +1,11 @@
 import { env } from 'cloudflare:test';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { confirmMonitoredExit } from '../../container/container-lifecycle';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
+import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
@@ -28,6 +31,9 @@ beforeAll(async () => {
   for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
     await db.prepare(statement).run();
   }
+  for (const statement of boundaryMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+    await db.prepare(statement).run();
+  }
 });
 
 beforeEach(async () => {
@@ -47,7 +53,35 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);
   });
 
-  it('forces only owner-scoped stopping rows strictly older than the cutoff to stopped', async () => {
+  it('retries a confirmed exit after a pending boundary cancellation fails, then releases ownership', async () => {
+    await createSession();
+    const repository = new D1SessionRepository(db);
+    await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z');
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running' WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'activity-1')).toBe(true);
+    const binding = { session: { bucket: 'owner-a', sessionId: 'session01', generation: 1 } };
+    const cancelBoundaryStart = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    const actor = { getBoundaryStartBinding: vi.fn().mockResolvedValue(binding), cancelBoundaryStart };
+    const storage = new Map<string, unknown>([['lifecycleGeneration', 1]]);
+    const ctx = { storage: { transaction: async (work: (tx: unknown) => Promise<void>) => work({
+      get: async (key: string) => storage.get(key), put: async (key: string, value: unknown) => { storage.set(key, value); },
+    }) } };
+    const runtimeEnv = { USAGE_DB: db, OPERATOR_ACTIVITY: { getByName: () => actor } };
+    await expect(confirmMonitoredExit(ctx as never, runtimeEnv as never, 'owner-a', 'session01', 1)).rejects.toThrow('cancellation unavailable');
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'activity-1' });
+    expect(await confirmMonitoredExit(ctx as never, runtimeEnv as never, 'owner-a', 'session01', 1)).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopped' });
+  });
+
+  it('rejects an old monitor generation before claiming Stop on a replacement', async () => {
+    await createSession();
+    const repository = new D1SessionRepository(db);
+    expect(await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z')).toMatchObject({ lifecycleGeneration: 1 });
+    expect(await repository.claimStop('owner-a', 'session01', 'old-exit', '2027-01-01T00:00:02.000Z', 0)).toBeNull();
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
+  });
+
+  it('REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed', async () => {
     const repository = new D1SessionRepository(db);
     for (const [owner, sessionId] of [
       ['owner-a', 'expired01'], ['owner-a', 'boundary1'], ['owner-a', 'starting1'],
@@ -56,7 +90,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     ] as const) await createSession(owner, sessionId);
     await db.prepare(`UPDATE runtime_sessions SET
       lifecycle_state='stopping', lifecycle_generation=2, response_revision=4,
-      transitioned_at=?3, lifecycle_reason=NULL, last_started_at='2027-01-01T00:00:10.000Z',
+      transitioned_at=?3, lifecycle_reason='idle-stop', last_started_at='2027-01-01T00:00:10.000Z',
       last_active_at='2027-01-01T00:00:20.000Z', editor_ready=1, editor_ready_error=1,
       unreachable_incident_id='incident', unreachable_first_observed_at=?3, unreachable_deadline_ms=60000,
       termination_intent_id='intent', termination_generation=2, termination_claimed_at=?3,
@@ -76,19 +110,25 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
         WHERE owner_key=?1 AND session_id=?2`).bind('owner-a', sessionId, state).run();
     }
 
-    expect(await repository.forceStopExpired('owner-a', '2027-01-01T00:00:00.001Z')).toBe(1);
-    expect(await repository.forceStopExpired('owner-a', '2027-01-01T00:00:00.001Z')).toBe(0);
-
-    const expired = await db.prepare("SELECT * FROM runtime_sessions WHERE owner_key='owner-a' AND session_id='expired01'").first<Record<string, unknown>>();
+    const expired = await repository.getSession('owner-a', 'expired01');
     expect(expired).toMatchObject({
-      lifecycle_state: 'stopped', lifecycle_generation: 2, response_revision: 5,
-      lifecycle_reason: 'stop_timeout_forced_reset',
-      last_started_at: '2027-01-01T00:00:10.000Z', last_active_at: '2027-01-01T00:00:20.000Z',
-      editor_ready: 0, editor_ready_error: 0,
-      unreachable_incident_id: null, unreachable_first_observed_at: null, unreachable_deadline_ms: null,
-      termination_intent_id: null, termination_generation: null, termination_claimed_at: null,
-      termination_signal_accepted_at: null,
+      lifecycleState: 'stopping', lifecycleGeneration: 2, responseRevision: 4,
+      editorReady: true, editorReadyError: true, terminationIntentId: 'intent',
+      unreachableIncidentId: 'incident', unreachableDeadlineMs: 60000,
     });
+    const reason = async () => (await db.prepare('SELECT lifecycle_reason FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2')
+      .bind('owner-a', 'expired01').first<{ lifecycle_reason: string }>())?.lifecycle_reason;
+    expect(await reason()).toBe('idle-stop');
+    expect(await repository.start('owner-a', 'expired01', '2027-01-01T00:10:00.000Z')).toBeNull();
+    expect(await reason()).toBe('idle-stop');
+    expect(await repository.confirmStopped('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:00.000Z')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:00.000Z')).toBe(true);
+    // A positive process monitor can beat a concurrent completed destroy;
+    // only the matching generation makes the second confirmation idempotent.
+    expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:01.000Z')).toBe(true);
+    expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:01.000Z')).toBe(false);
+    expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
+    expect(await reason()).toBe('idle-stop');
     for (const [owner, sessionId, state] of [
       ['owner-a', 'boundary1', 'stopping'], ['owner-a', 'starting1', 'starting'],
       ['owner-a', 'running01', 'running'], ['owner-a', 'unreach01', 'unreachable'],
@@ -115,6 +155,75 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(start.meta.changes).toBe(1);
     expect(duplicate.meta.changes).toBe(0);
     expect(await row()).toMatchObject({ lifecycle_state: 'starting', lifecycle_generation: 1, response_revision: 1, observation_sequence: -1 });
+  });
+
+  it('REQ-OPERATOR-054: Stop wins before claim or retains the exact Action activity until durable cancellation', async () => {
+    const repository = new D1SessionRepository(db);
+    for (const sessionId of ['session01', 'session02']) {
+      await createSession('owner-a', sessionId);
+      await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=2 WHERE owner_key='owner-a' AND session_id=?1")
+        .bind(sessionId).run();
+    }
+    const firstStop = await repository.claimStop('owner-a', 'session02', 'stop-first', new Date().toISOString());
+    expect(firstStop?.lifecycleState).toBe('stopping');
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session02', 2, 'review-two')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-b', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01'))
+      .toMatchObject({ lifecycleState: 'running', boundaryActivityId: 'review-one' });
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    const stopped = await repository.claimStop('owner-a', 'session01', 'stop-second', new Date().toISOString());
+    expect(stopped).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-other')).toBe(false);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 2, 'review-one', true)).toBe(false);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 1, 'review-one')).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 2, 'review-other')).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-b', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'session01', 2, 'stop-second', new Date().toISOString())).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 2, 'review-one')).toBe(true);
+    expect(await repository.isBoundaryActionPending('owner-a', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'session01', 2, 'stop-second', new Date().toISOString())).toBe(true);
+    const restarted = await repository.start('owner-a', 'session01', new Date().toISOString());
+    expect(restarted?.lifecycleGeneration).toBe(3);
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running' WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 3, 'review-three')).toBe(true);
+  });
+
+  it('REQ-OPERATOR-053: only the exact completed review releases the running session for a second review', async () => {
+    const repository = new D1SessionRepository(db);
+    await createSession();
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=1 WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-two')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 1, 'review-other')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-b', 'session01', 1, 'review-one')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 2, 'review-one')).toBe(false);
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-two')).toBe(true);
+    expect(await repository.claimStop('owner-a', 'session01', 'stop-review-two', new Date().toISOString()))
+      .toMatchObject({ boundaryActivityId: 'review-two' });
+    expect(await repository.releaseCompletedBoundaryAction('owner-a', 'session01', 1, 'review-two')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-review-two', new Date().toISOString())).toBe(false);
+  });
+
+  it('REQ-OPERATOR-054: owner cleanup cannot erase unfenced Action work', async () => {
+    const repository = new D1SessionRepository(db);
+    await createSession();
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=1 WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.claimStop('owner-a', 'session01', 'stop-one', new Date().toISOString()))
+      .toMatchObject({ boundaryActivityId: 'review-one' });
+    expect(await repository.deleteOwnerSessions('owner-a')).toBe(0);
+    expect(await repository.getSession('owner-a', 'session01'))
+      .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
+    expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-one', new Date().toISOString())).toBe(false);
+    expect(await repository.start('owner-a', 'session01', new Date().toISOString())).toBeNull();
+    expect(await repository.deleteConfirmed('owner-a', 'session01')).toBe(false);
+    expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 1, 'review-one')).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', terminationIntentId: 'stop-one' });
   });
 
   it('rejects old generations and delayed or equal observation sequences', async () => {

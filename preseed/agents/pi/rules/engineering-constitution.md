@@ -12,6 +12,7 @@
 - Validate untrusted input at boundaries. Trust typed internals.
 - In repositories with `sdd/`, trace behavior changes to requirements. Keep specifications, anchors, and documentation truthful. Leave no touched requirement `Partial`.
 - Verify before claiming completion. Separate observation, inference, and uncertainty.
+- PR review (repositories with `sdd/README.md`): work in the PR's repository on its checked-out, remote-synced head branch. Creating or reopening a PR targeting `main`, `master`, or `develop`, or pushing that open PR's head triggers a review plan; end the turn and follow it. Startup, resume, clone, switch, checkout or pull may instead offer consented review of an eligible PR. Never invent a plan or launch reviewers on your own.
 
 ## Security
 

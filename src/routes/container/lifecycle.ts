@@ -16,6 +16,7 @@ import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from '../../lib/kv-keys';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { fencePendingBoundaryStart } from '../session/boundary-stop';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { buildCloneTargets } from '../../lib/clone-targets';
 import { installedAgents } from '../../lib/agent-allowlist';
@@ -25,7 +26,7 @@ import type { Logger } from '../../lib/logger';
 import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 import { resolveEffectiveSleepAfter, validateSessionAndCheckLimits } from './lifecycle-validation';
 import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
-import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
+import { resolveSessionAccessGroup, loadEnterpriseRouteConfig, requireOperatorHumanContext } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
 import { getCachedActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
@@ -79,8 +80,12 @@ export async function startOrRestartContainer(params: {
   shortContainerId: string;
   logger: Logger;
   waitUntil: (p: Promise<void>) => void;
+  bindHuman?: (lifecycleGeneration: number) => Promise<void>;
+  expectedLifecycleGeneration?: number;
 }): Promise<{ status: string; containerState?: string }> {
-  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, env, shortContainerId, logger, waitUntil } = params;
+  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, env, shortContainerId,
+    logger, waitUntil, bindHuman, expectedLifecycleGeneration } = params;
+  if (bindHuman && !Number.isSafeInteger(expectedLifecycleGeneration)) throw new Error('Session lifecycle unavailable');
 
   // Check current state
   let currentState;
@@ -98,13 +103,14 @@ export async function startOrRestartContainer(params: {
     const intentId = crypto.randomUUID();
     const stopping = await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
     if (!stopping) throw new Error('Replacement lifecycle could not claim termination ownership');
+    await fencePendingBoundaryStart(env, repository, stopping);
     try {
       await container.destroy();
     } catch (error) {
       logger.error('Failed to destroy container', toError(error));
       throw error;
     }
-    if (!await repository.confirmStopped(
+    if (!await repository.confirmStoppedOrObserved(
       sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
     )) throw new Error('Replacement container exit could not be confirmed');
     currentState = { status: 'stopped' };
@@ -127,31 +133,27 @@ export async function startOrRestartContainer(params: {
   // Marker-protected metrics owns KV convergence; this request path cannot inspect
   // shutdownRequested and must not race a deliberate stop or recreate a deletion.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
+    if (bindHuman) {
+      const current = await new D1SessionRepository(env.USAGE_DB).getSession(sessionData.userId, sessionData.id);
+      if (!current || current.lifecycleGeneration !== expectedLifecycleGeneration
+        || current.lifecycleState === 'stopping' || current.terminationIntentId) throw new Error('Session lifecycle moved');
+      await bindHuman(current.lifecycleGeneration);
+    }
     return {
       status: 'already_running',
       containerState: currentState.status,
     };
   }
 
-  // A definitively stopped process is confirmed before claiming a replacement
-  // generation. Unknown transport/process state is not stopped evidence.
+  // SDK state (including stopped) is not process-exit evidence after DO
+  // reconstruction. Only a D1 generation confirmed by monitor/destroy may
+  // advance to a replacement execution.
   if (currentState.status === 'unknown') throw new Error('Container exit is not confirmed for Start');
   const repository = new D1SessionRepository(env.USAGE_DB);
   const authoritative = await repository.getSession(sessionData.userId, sessionData.id);
   if (!authoritative) throw new Error('Session lifecycle record unavailable for Start');
-  if (authoritative.lifecycleState !== 'stopped') {
-    if (currentState.status !== 'stopped') throw new Error('Container exit is not confirmed for Start');
-    const intentId = authoritative.lifecycleState === 'stopping'
-      ? authoritative.terminationIntentId
-      : crypto.randomUUID();
-    if (!intentId) throw new Error('Session lifecycle could not claim termination ownership');
-    const stopping = authoritative.lifecycleState === 'stopping'
-      ? authoritative
-      : await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
-    if (!stopping || !await repository.confirmStopped(
-      sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
-    )) throw new Error('Confirmed container exit could not be persisted for Start');
-  }
+  if (bindHuman && authoritative.lifecycleGeneration !== expectedLifecycleGeneration) throw new Error('Session lifecycle moved');
+  if (authoritative.lifecycleState !== 'stopped') throw new Error('Container exit is not confirmed for Start');
 
   // D1 claims the replacement generation before process work begins.
   const claimed = await repository.start(
@@ -166,6 +168,9 @@ export async function startOrRestartContainer(params: {
     (async () => {
       try {
         await container.startAndWaitForPorts();
+        // onStart has confirmed the new lifecycle and cleared its old shutdown
+        // marker; only then may the parent attach current human authority.
+        await bindHuman?.(claimed.lifecycleGeneration);
         logger.info('Container started and ports ready', { containerId: shortContainerId });
       } catch (error) {
         logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
@@ -299,6 +304,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       billingStatus: user.billingStatus,
       billingPeriodEnd: user.billingPeriodEnd,
     }));
+    const enterpriseLifecycle = isEnterpriseMode(c.env)
+      ? await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId) : null;
+    if (isEnterpriseMode(c.env) && !enterpriseLifecycle) throw new Error('Session lifecycle unavailable');
     const sessionAgent = sessionData.agentType ?? 'claude-code';
     if (!installedAgents(c.env).includes(sessionAgent)) {
       throw new ValidationError(`Agent type '${sessionAgent}' is not available in this deployment`);
@@ -456,8 +464,21 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       logger: reqLogger,
     });
 
+    // Operator authority is separate from bucket/session ownership and never enters
+    // the container configuration, env vars, or the GitHub credential placeholder.
+    let reviewHuman: Awaited<ReturnType<typeof requireOperatorHumanContext>> | null = null;
+    if (isEnterpriseMode(c.env)) {
+      try { reviewHuman = await requireOperatorHumanContext(c.req.raw, c.env, user.email); }
+      catch { /* Missing or stale human authority leaves ordinary Git available. */ }
+    }
+
     // Step 5: Start or restart the container
     const result = await startOrRestartContainer({
+      ...(enterpriseLifecycle ? { expectedLifecycleGeneration: enterpriseLifecycle.lifecycleGeneration,
+        bindHuman: (generation: number) => (container as unknown as {
+          bindReviewHuman: (value: typeof reviewHuman & { bucket: string; sessionId: string;
+            generation: number } | null) => Promise<void>;
+        }).bindReviewHuman(reviewHuman ? { bucket: bucketName, sessionId, generation, ...reviewHuman } : null) } : {}),
       container,
       needsBucketUpdate,
       setBucketBody,
@@ -503,9 +524,23 @@ app.post('/destroy', async (c) => {
   try {
     const { containerId, container } = getContainerContext(c);
 
-    // Destroy the container
+    // Preserve a D1 termination intent before teardown; cancellation must precede destruction.
+    const bucketName = c.get('bucketName');
+    const sessionId = getSessionIdFromQuery(c);
+    const repository = new D1SessionRepository(c.env.USAGE_DB);
+    const session = await repository.getSession(bucketName, sessionId);
+    if (!session) throw new Error('Session lifecycle unavailable for Destroy');
+    const intentId = session.lifecycleState === 'stopping' ? session.terminationIntentId : crypto.randomUUID();
+    if (!intentId) throw new Error('Session termination intent unavailable');
+    const stopping = session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping'
+      ? session : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
+    if (!stopping) throw new Error('Session termination intent unavailable');
+    await fencePendingBoundaryStart(c.env, repository, stopping);
     // Note: Do NOT call getState() before destroy() - it wakes up hibernated DOs (gotcha #6)
     await container.destroy();
+    if (stopping.lifecycleState !== 'stopped' && !await repository.confirmStoppedOrObserved(
+      bucketName, sessionId, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
+    )) throw new Error('Confirmed container exit could not be persisted');
 
     reqLogger.info('Container destroyed', { containerId });
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -309,6 +309,151 @@ afterEach(() => {
   if (savedActiveRepo === undefined) delete activeRepoMemory[activeRepoKey];
   else activeRepoMemory[activeRepoKey] = savedActiveRepo;
   for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
+});
+
+describe('REQ-OPERATOR-053: exclusive Enterprise boundary selection', () => {
+  it('cannot manually mark remote or uncertain Review complete', async () => {
+    const previous = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      for (const selection of ['remote', 'unavailable', 'local'] as const) {
+        const input = fixture();
+        const app = await harness(input, ['Mark review complete'], { selectBoundary: async () => selection });
+        await app.emit('tool_result', boundary('git pull', `manual-${selection}`));
+        expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status)
+          .toBe(selection === 'local' ? 'complete' : 'missing');
+      }
+    } finally {
+      if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previous;
+    }
+  });
+
+  it('starts no local reviewer wave for remote or uncertain applicability, but keeps confirmed absence local', async () => {
+    const previous = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      for (const selection of ['remote', 'unavailable', 'local'] as const) {
+        const input = fixture();
+        const app = await harness(input, [], { selectBoundary: async () => selection });
+        await app.emit('tool_result', boundary('git push origin feature', `selected-${selection}`));
+        expect(app.sent[0]?.customType).toBe(selection === 'local' ? 'pr-boundary-launch-plan'
+          : selection === 'remote' ? 'pr-boundary-remote-plan' : 'pr-boundary-remote-unavailable');
+        if (selection === 'remote') {
+          expect(app.sent[0]?.content).toContain('Do not start local reviewers');
+          expect(app.sent[0]?.details).toMatchObject({ reviewMode: 'remote', head: input.head });
+        }
+        if (selection === 'unavailable') expect(app.sent[0]?.content).toContain('non-green');
+        if (selection !== 'local') expect(readCompletion(input.identity).status).not.toBe('complete');
+      }
+      const input = fixture();
+      let selection: 'remote' | 'unavailable' = 'unavailable';
+      const app = await harness(input, [], { selectBoundary: async () => selection });
+      await app.emit('tool_result', boundary('git push origin feature', 'uncertain-1'));
+      selection = 'remote';
+      await app.emit('tool_result', boundary('git push origin feature', 'recovered-2'));
+      await app.emit('tool_result', boundary('git push origin feature', 'duplicate-3'));
+      expect(app.sent.map(message => message.customType)).toEqual([
+        'pr-boundary-remote-unavailable', 'pr-boundary-remote-plan',
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previous;
+    }
+  });
+
+  it('coalesces concurrent same-head selections without suppressing a later legitimate session start', async () => {
+    const previous = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const input = fixture();
+      let release!: (selection: 'remote' | 'unavailable') => void;
+      let entered!: () => void;
+      const selecting = new Promise<void>(resolve => { entered = resolve; });
+      const pending = new Promise<'remote' | 'unavailable'>(resolve => { release = resolve; });
+      const app = await harness(input, [], { selectBoundary: async () => { entered(); return pending; } });
+      const first = app.emit('tool_result', boundary('git push origin feature', 'concurrent-a'));
+      await selecting;
+      const second = app.emit('tool_result', boundary('git push origin feature', 'concurrent-b'));
+      release('remote');
+      await Promise.all([first, second]);
+      expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+      await app.emit('session_start', { reason: 'resume' });
+      // A fresh lifecycle may reconsider the same head; a stale in-flight decision may not carry across it.
+      await app.emit('tool_result', boundary('git push origin feature', 'new-session'));
+      expect(app.sent.map(message => message.customType)).toEqual([
+        'pr-boundary-remote-plan', 'pr-boundary-remote-plan',
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previous;
+    }
+  });
+
+  it('discards an old session selection after a lifecycle restart', async () => {
+    const previous = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const input = fixture();
+      let release!: () => void;
+      let entered!: () => void;
+      const selecting = new Promise<void>(resolve => { entered = resolve; });
+      const pending = new Promise<'remote'>(resolve => { release = () => resolve('remote'); });
+      const app = await harness(input, [], { selectBoundary: async () => { entered(); return pending; } });
+      const stale = app.emit('tool_result', boundary('git push origin feature', 'old-session'));
+      await selecting;
+      await app.emit('session_start', { reason: 'restart' });
+      release();
+      await stale;
+      expect(app.sent).toHaveLength(0);
+      await app.emit('tool_result', boundary('git push origin feature', 'current-session'));
+      expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+    } finally {
+      if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previous;
+    }
+  });
+
+  it('recognizes only a bound selection from the existing GitHub transport', async () => {
+    const input = fixture();
+    const bin = tempRoot('review-gh-');
+    const script = join(bin, 'gh');
+    writeFileSync(script, `#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.includes('--jq')) process.stdout.write('138\\n');\nelse process.stdout.write(process.env.REVIEW_FAKE_RESPONSE || '');\n`);
+    chmodSync(script, 0o755);
+    const previousPath = process.env.PATH;
+    const previousMode = process.env.ENTERPRISE_MODE;
+    const previousResponse = process.env.REVIEW_FAKE_RESPONSE;
+    process.env.PATH = `${bin}:${previousPath}`;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const response = (head: string, pr: number, header: string, status = 200) =>
+        `HTTP/2.0 ${status} OK\r\n${header}\r\n\r\n${JSON.stringify({ number: pr, head: { sha: head } })}`;
+      const cases = [
+        { output: response(input.head, input.pr.number, 'x-codeflare-operator-boundary-selection: remote'), expected: 'pr-boundary-remote-plan' },
+        { output: response(input.head, input.pr.number, ''), expected: 'pr-boundary-remote-unavailable' },
+        { output: response(input.head, input.pr.number, 'x-codeflare-operator-boundary-selection: remote\r\nx-codeflare-operator-boundary-selection: local'), expected: 'pr-boundary-remote-unavailable' },
+        { output: response('f'.repeat(40), input.pr.number, 'x-codeflare-operator-boundary-selection: remote'), expected: 'pr-boundary-remote-unavailable' },
+        { output: response(input.head, input.pr.number + 1, 'x-codeflare-operator-boundary-selection: remote'), expected: 'pr-boundary-remote-unavailable' },
+        { output: response(input.head, input.pr.number, 'x-codeflare-operator-boundary-selection: remote', 403), expected: 'pr-boundary-remote-unavailable' },
+        { output: 'HTTP/2.0 200 OK\r\nx-codeflare-operator-boundary-selection: remote\r\n\r\nnot-json', expected: 'pr-boundary-remote-unavailable' },
+      ];
+      for (const { output, expected } of cases) {
+        process.env.REVIEW_FAKE_RESPONSE = output;
+        const app = await harness(input, []);
+        await app.emit('tool_result', boundary('git push origin feature', `bound-${expected}`));
+        expect(app.sent[0]?.customType).toBe(expected);
+        if (expected === 'pr-boundary-remote-plan') {
+          expect(app.sent[0]?.details).toMatchObject({ head: input.head, reviewMode: 'remote' });
+        }
+      }
+    } finally {
+      process.env.PATH = previousPath;
+      if (previousResponse === undefined) delete process.env.REVIEW_FAKE_RESPONSE;
+      else process.env.REVIEW_FAKE_RESPONSE = previousResponse;
+      if (previousMode === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previousMode;
+    }
+  });
 });
 
 describe('Pi marker-or-dialog review ingress', () => {
@@ -1244,5 +1389,96 @@ describe('Pi marker-or-dialog review ingress', () => {
 
     expect(completionPath(input.identity, join(input.home, '.codeflare/review-state/v1'))).not.toContain('/.git/');
     expect(app.prompts).toHaveLength(1);
+  });
+});
+
+// The selection dependency represents the authenticated parent verdict, not a
+// browser credential or an authority that Pi can mint from repository content.
+describe('REQ-OPERATOR-053: Enterprise PR-boundary remote review selection', () => {
+  it('forwards bounded prior triage and original transcript references as untrusted data through the actual selection transport', async () => {
+    const input = fixture();
+    writeCompletion({ ...input.identity, head: input.base }, {
+      root: join(input.home, '.codeflare/review-state/v1'),
+    });
+    append(input.sessionFile,
+      { type: 'custom_message', id: 'prior-launch', customType: 'pr-boundary-launch-plan',
+        details: { head: input.base } },
+      { type: 'custom_message', id: 'prior-report', customType: 'subagent-notification',
+        content: '<task-notification><status>Done</status>Original finding F-1</task-notification>' },
+      { type: 'message', id: 'prior-triage', message: { role: 'assistant', content: [{ type: 'text',
+        text: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| F-1 | Rejected | Prior fix covers this case | Proportional | Keep original evidence |' }] } },
+      { type: 'custom_message', id: 'prior-fix', customType: 'pr-boundary-fix-follow-up',
+        details: { head: input.base } },
+    );
+    const bin = tempRoot('review-evidence-gh-');
+    const script = join(bin, 'gh');
+    writeFileSync(script, `#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.includes('--jq')) process.stdout.write('138\\n');\nelse {\n const header = args.find(arg => arg.startsWith('x-codeflare-operator-boundary-input: '));\n const input = JSON.parse(Buffer.from(header.split(': ')[1], 'base64').toString('utf8'));\n const evidence = input.payload;\n const valid = input.acknowledgedHead === '${input.base}' && input.targetHead === '${input.head}'\n  && evidence.range === '${input.base}..${input.head}' && evidence.rejectedFindingsStatus === 'unverified'\n  && evidence.triageExcerpts?.[0]?.entryId === 'prior-triage'\n  && evidence.triageExcerpts[0].text.includes('Prior fix covers this case')\n  && evidence.originalReferences?.[0]?.entryId === 'prior-report';\n process.stdout.write('HTTP/2.0 200 OK\\r\\nx-codeflare-operator-boundary-selection: ' + (valid ? 'remote' : 'unavailable')\n  + '\\r\\n\\r\\n' + JSON.stringify({number: 42, head: {sha: '${input.head}'}}));\n}\n`);
+    chmodSync(script, 0o755);
+    const previousPath = process.env.PATH;
+    const previousMode = process.env.ENTERPRISE_MODE;
+    process.env.PATH = `${bin}:${previousPath}`;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const app = await harness(input, []);
+      await app.emit('tool_result', boundary('git push origin feature', 'push-remote'));
+      expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+      expect(app.sent[0]?.details).toMatchObject({ head: input.head,
+        acknowledgedHead: input.base, range: `${input.base}..${input.head}` });
+      expect(app.sent[0]?.content).not.toMatch(/start code-reviewer|start spec-reviewer|start doc-updater/i);
+      expect(JSON.stringify(app.sent)).not.toMatch(/workflow_dispatch|browserJwt|publisherToken/i);
+    } finally {
+      process.env.PATH = previousPath;
+      if (previousMode === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previousMode;
+    }
+  });
+
+  it('retains local reviewers when the trusted Action is confirmed absent', async () => {
+    const previous = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const input = fixture();
+      const app = await harness(input, [], { selectBoundary: async () => 'local' });
+      await app.emit('tool_result', boundary('git push origin feature', 'push-absent'));
+      expect(app.sent[0]?.details?.requiredLanes).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+      expect(app.sent[0]?.content).toContain('output_file=/tmp/codeflare-pr-42-');
+    } finally {
+      if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previous;
+    }
+  });
+
+  it.each(['uncertain', 'disabled', 'expired', 'failed'])(
+    'does not fall back to local reviewers or report completion when remote selection is %s',
+    async (status) => {
+      const previous = process.env.ENTERPRISE_MODE;
+      process.env.ENTERPRISE_MODE = 'active';
+      try {
+        const input = fixture();
+        const app = await harness(input, [], { selectBoundary: async () => 'unavailable' });
+        await app.emit('tool_result', boundary('git push origin feature', `push-${status}`));
+        expect(app.sent.some((message) => (message.details?.requiredLanes as ReviewLane[] | undefined)?.length)).toBe(false);
+        expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).not.toBe('complete');
+        expect(app.sent.map((message) => message.content ?? '').join('\n')).not.toMatch(/start code-reviewer|output_file=|CI_RESULT success/i);
+      } finally {
+        if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+        else process.env.ENTERPRISE_MODE = previous;
+      }
+    },
+  );
+
+  it('does not select remote review outside Enterprise even when a remote Action claims applicability', async () => {
+    const previous = process.env.ENTERPRISE_MODE;
+    delete process.env.ENTERPRISE_MODE;
+    try {
+      const input = fixture();
+      const app = await harness(input, [], { selectBoundary: async () => 'remote' });
+      await app.emit('tool_result', boundary('git push origin feature', 'push-standard'));
+      expect(app.sent[0]?.details?.requiredLanes).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+      expect(app.sent[0]?.content).toContain('output_file=/tmp/codeflare-pr-42-');
+    } finally {
+      if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = previous;
+    }
   });
 });

@@ -13,7 +13,7 @@ import { ensureBucketAndSeed, setupR2Credentials } from '../routes/container/lif
 import { reconcileAgentConfigsForBootstrap } from '../routes/storage/seed';
 import { codingAgentProjectionIdentity } from '../../scripts/ci/coding-agent-selection-core.mjs';
 import type { JwtStampingAuthority } from './jwt-stamping';
-import type { Gate1SessionBootstrap } from './gate1-runtime';
+import type { OperatorSessionBootstrap } from './owned-session-runtime';
 
 const logger = createLogger('operator-session-bootstrap');
 
@@ -55,7 +55,7 @@ export async function bootstrapOperatorSession(input: {
   env: Env;
   authority: JwtStampingAuthority;
   ownerBucket: string;
-}): Promise<{ user: AccessUser; bootstrap: Gate1SessionBootstrap }> {
+}): Promise<{ user: AccessUser; bootstrap: OperatorSessionBootstrap }> {
   const { env, authority, ownerBucket } = input;
   const { user, bucketName } = await resolveUser(env, authority);
   if (bucketName !== ownerBucket) throw new Error('Operator bootstrap bucket mismatch');

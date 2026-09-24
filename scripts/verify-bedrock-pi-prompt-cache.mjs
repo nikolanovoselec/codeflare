@@ -1,7 +1,7 @@
 /**
  * Offline interoperability check against the actual locked Pi client.
  *
- * Run with Node's TypeScript support and an installed pi-ai 0.85.1 directory:
+ * Run with Node's TypeScript support and an installed pi-ai 0.87.1 directory:
  *   node scripts/verify-bedrock-pi-prompt-cache.mjs /path/to/@earendil-works/pi-ai
  *
  * No network, API token, real tools, or provider signatures are used. The
@@ -22,8 +22,9 @@ import { compatibilityRequest, compatibilityResponse } from '../src/lib/ai-capab
 
 const piRoot = resolve(process.argv[2] ?? 'preseed/agents/pi/node_modules/@earendil-works/pi-ai');
 const { version } = JSON.parse(await readFile(resolve(piRoot, 'package.json'), 'utf8'));
-assert.equal(version, '0.85.1', 'Update the contract evidence deliberately when Pi changes');
+assert.equal(version, '0.87.1', 'Update the contract evidence deliberately when Pi changes');
 const { stream } = await import(pathToFileURL(resolve(piRoot, 'dist/api/openai-completions.js')).href);
+const { normalizeContext } = await import(pathToFileURL(resolve(piRoot, 'dist/index.js')).href);
 const syntheticSigned = [
   { type: 'thinking', thinking: 'synthetic, not provider thinking', signature: 'SYNTHETIC-NOT-A-PROVIDER-SIGNATURE' },
   { type: 'tool_use', id: 'call_synthetic', name: 'lookup', input: { value: 'ok' } },
@@ -89,9 +90,10 @@ for (const contract of [
     }), 'invoke', replay, true);
   };
   const invoke = async () => {
-    const events = stream(targetModel, context, { apiKey: 'synthetic-placeholder', cacheRetention, fetch, maxRetries: 0, maxTokens: 512 });
+    const events = stream(targetModel, normalizeContext(context), { apiKey: 'synthetic-placeholder', cacheRetention, fetch, maxRetries: 0, maxTokens: 512 });
     for await (const _ of events) { /* Consume Pi's actual incremental parser. */ }
     const result = await events.result();
+    assert.notEqual(result.stopReason, 'error', result.errorMessage ?? 'Pi stream failed');
     assert.deepEqual({ input: result.usage.input, output: result.usage.output, cacheRead: result.usage.cacheRead, cacheWrite: result.usage.cacheWrite },
       { input: 17, output: 5, cacheRead: 1024, cacheWrite: 512 });
     assert.equal(JSON.stringify(result).includes('SYNTHETIC-NOT-A-PROVIDER-SIGNATURE'), false);
@@ -136,8 +138,11 @@ for (const contract of [
       : { role: 'assistant', content: 'Synthetic completed answer.' }, finish_reason: initial ? 'tool_calls' : 'stop' }],
       usage: { prompt_tokens: 10, completion_tokens: 4 } }), wire, true);
   };
-  const call = async () => { const events = stream(target, context, { apiKey: 'synthetic-placeholder', fetch, maxRetries: 0, maxTokens: 512 });
-    for await (const _ of events) { /* Actual Pi parser. */ } return events.result(); };
+  const call = async () => { const events = stream(target, normalizeContext(context), { apiKey: 'synthetic-placeholder', fetch, maxRetries: 0, maxTokens: 512 });
+    for await (const _ of events) { /* Actual Pi parser. */ }
+    const result = await events.result();
+    assert.notEqual(result.stopReason, 'error', result.errorMessage ?? 'Pi stream failed');
+    return result; };
   const first = await call(); assert.equal(first.stopReason, 'toolUse');
   const tool = first.content.find(block => block.type === 'toolCall'); assert.equal(tool.name, 'lookup'); assert.deepEqual(tool.arguments, { value: 'ok' });
   context.messages.push(first, { role: 'toolResult', toolCallId: tool.id, toolName: tool.name, content: [{ type: 'text', text: '{"value":"ok"}' }], isError: false, timestamp: 1 });

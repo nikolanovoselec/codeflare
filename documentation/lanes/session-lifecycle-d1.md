@@ -18,7 +18,7 @@
 
 Codeflare stores every complete non-secret session record and shared lifecycle projection in the existing `USAGE_DB` D1 database. KV remains responsible for credentials, provider tokens, preferences, configuration, entitlements, managed-release records, storage caches, Timekeeper data, and unrelated records. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-028](../../sdd/spec/session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-Backend lifecycle states are `stopped`, `starting`, `running`, `unreachable`, and `stopping`. Creating a session inserts `stopped`; Start conditionally advances a lifecycle generation and enters `starting`. The session Durable Object remains the process controller and retains its assigned generation and monotonic observation sequence. Conditional D1 updates reject older generations and delayed same-generation observations. Confirmed process exit produces `stopped`; the bounded exception resets an owner's `stopping` record once it is strictly older than three minutes on the next batch-status read without claiming exit evidence. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced) [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-records-reset-on-owner-status-read)
+Backend lifecycle states are `stopped`, `starting`, `running`, `unreachable`, and `stopping`. Creating a session inserts `stopped`; Start conditionally advances a lifecycle generation and enters `starting`. The session Durable Object remains the process controller and retains its assigned generation and monotonic observation sequence. Conditional D1 updates reject older generations and delayed same-generation observations. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit produces `stopped`. An aged `stopping` record retains workload ownership and blocks managed mutation; an owner read, elapsed timer, and SDK state cannot reset it. Protected Action cancellation remains a separate fence. [REQ-OPERATOR-054](../../sdd/spec/operator-registry.md#req-operator-054-protected-action-claim-and-stop-fence) <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced) [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
 
 ## Runtime recovery and status
 
@@ -26,7 +26,7 @@ A complete host-transport failure opens one D1 incident with an absolute deadlin
 
 Deadline expiry is earliest termination eligibility. Termination is generation-bound and duplicate-safe; signal acceptance remains `stopping` until exit is confirmed. D1 failure is status uncertainty, not transport or stopped evidence. <!-- @impl: src/lib/session-runtime-policy.ts::openUnreachableIncident --> <!-- @impl: src/lib/session-runtime-policy.ts::claimExpiredTermination --> [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-Visible batch status first conditionally resets owner-scoped `stopping` records strictly older than three minutes, then performs one owner-indexed primary-consistent D1 read with `no-store`. Normal metrics projection is one authenticated combined host observation followed by one conditional D1 update. <!-- @impl: src/routes/session/lifecycle.ts::app --> [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-records-reset-on-owner-status-read)
+Visible batch status reads owner-scoped lifecycle from D1 with `no-store`; an old `stopping` record remains `stopping` until confirmed exit. Uncertain process state retains termination intent and managed-workload blocking. Normal metrics projection is one authenticated combined host observation followed by one conditional D1 update. <!-- @impl: src/routes/session/lifecycle.ts::app --> [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
 
 Optional usage, storage, entitlement, managed-release, preseed, and migration refreshes are not part of frequent status projection. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once)
 
@@ -42,7 +42,7 @@ There is no import, backfill, dual write, shadow read, reverse migration, or aut
 
 ## Schema and mutation design
 
-The concrete schema and conditional mutation design are owned by the additive migration and repository implementation. The design below records the D1 authority boundary without making SQL shape an acceptance criterion. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority)
+The concrete schema and conditional mutation design are owned by the additive migration and repository implementation. The design below records the D1 authority boundary without making SQL shape an acceptance criterion. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: migrations/usage/0004_boundary_activity.sql::ALTER TABLE runtime_sessions --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority)
 
 `runtime_sessions` columns:
 
@@ -56,6 +56,7 @@ The concrete schema and conditional mutation design are owned by the additive mi
 | Latest projection | nullable `cpu TEXT`, `memory TEXT`, `disk TEXT`, `sync_status TEXT`, `metrics_observed_at TEXT`, `last_input_at TEXT` |
 | Incident | nullable `unreachable_incident_id TEXT`, `unreachable_first_observed_at TEXT`, `unreachable_deadline_ms INTEGER` |
 | Termination | nullable `termination_intent_id TEXT`, `termination_generation INTEGER`, `termination_claimed_at TEXT`, `termination_signal_accepted_at TEXT` |
+| Protected Action | nullable `boundary_activity_id TEXT`; retains the exact pending activity until successful completed-result consumption or durable Stop cancellation <!-- @impl: src/routes/operator-webhook.ts::app --> |
 
 The schema checks the lifecycle vocabulary, non-negative counters, boolean integers, paired incident fields and generation-bound termination fields. `response_revision` and `lifecycle_generation` start at zero; `observation_sequence` starts at `-1` so sequence zero may be accepted. The owner query orders by `last_accessed_at DESC, session_id ASC`; one index on that tuple is sufficient.
 
@@ -69,7 +70,7 @@ The schema checks the lifecycle vocabulary, non-negative counters, boolean integ
 - Incident open uses deterministic incident identity and only the matching generation; retry of an already committed open reconciles as idempotent, while a conflicting incident fails closed.
 - Recovery clears only the matching generation and incident.
 - Termination claim changes the matching `unreachable` generation/incident to `stopping` and records intent atomically.
-- Confirmed exit changes only the matching terminating generation to `stopped` and clears incident/intent fields.
+- Only positive process-exit monitoring or awaited destroy confirming exit changes the matching terminating generation to `stopped` and clears incident/intent fields. An owner read or timer never does.
 - Delete uses `DELETE` only after confirmed graceful destruction. Delayed runtime writers use `UPDATE`, never `UPSERT` or `INSERT OR REPLACE`.
 - `meta.changes === 0` triggers a bounded primary read only on exceptional ownership/idempotency reconciliation paths; the normal projection path performs no readback.
 

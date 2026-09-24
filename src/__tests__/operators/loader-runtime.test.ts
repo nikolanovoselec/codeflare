@@ -4,9 +4,10 @@
  * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
  */
 import { fileURLToPath, URL } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { unstable_dev, type Unstable_DevWorker } from 'wrangler';
 import { createHash } from 'node:crypto';
+import { registerNativeDispatcherCases } from './fixtures/flue-native-cases';
 import type { RegistryFixtureCommand, ActivityFixtureCommand } from './fixtures/loader-worker';
 import type { OperatorActivityPreparation } from '../../operators/activity';
 import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../operators/registry';
@@ -14,14 +15,23 @@ import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../ope
 // Real pinned Wrangler/workerd, executed only in the Node CI suite. No deploy,
 // provider requests, secrets, production config or production fixture exports.
 let worker: Unstable_DevWorker | undefined;
-beforeAll(async () => {
+async function startWorker() {
+  console.info('[native-loader] wrangler startup begin');
   worker = await unstable_dev(fileURLToPath(new URL('./fixtures/loader-worker.ts', import.meta.url)), {
     config: fileURLToPath(new URL('./fixtures/wrangler.toml', import.meta.url)),
     local: true, ip: '127.0.0.1', port: 0, inspectorPort: 0, persist: false, logLevel: 'none',
     experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
   });
-}, 60_000);
-afterAll(async () => { await worker?.stop(); });
+  console.info('[native-loader] wrangler startup complete');
+}
+beforeAll(startWorker, 60_000);
+afterAll(async () => {
+  console.info('[native-loader] wrangler shutdown begin');
+  await worker?.stop();
+  console.info('[native-loader] wrangler shutdown complete');
+});
+beforeEach((context) => { console.info(`[native-loader] test begin: ${context.task.name}`); });
+afterEach((context) => { console.info(`[native-loader] test end: ${context.task.name}`); });
 
 describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
   it('loads fresh Workers rather than retaining isolate-local state', async () => {
@@ -45,6 +55,18 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     expect(await response.text()).toBe('denied');
   });
 
+  it('executes the exact compiler-produced Review Conductor through the generic parent capability', async () => {
+    const response = await worker!.fetch('/conductor-bundle');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ schemaVersion: 1, status: 'completed', result: {
+      operationId: 'review-generation-1', cleanup: 'stopped', reports: [
+        { lane: 'code-reviewer', packetDigest: 'a'.repeat(64) },
+        { lane: 'spec-reviewer', packetDigest: 'a'.repeat(64) },
+        { lane: 'doc-updater', packetDigest: 'a'.repeat(64) },
+      ],
+    } });
+  });
+
   it('executes the exact Gate 1 artifact through the native Loader boundary', async () => {
     const direct = await worker!.fetch('/gate1-bundle?case=direct');
     expect(direct.status).toBe(200);
@@ -65,6 +87,15 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     expect(await malformed.json()).toEqual({ error: expect.any(String) });
   });
 });
+
+// Same Wrangler instance and canonical Backend tests (node) lane as Gate 1.
+registerNativeDispatcherCases({
+  fetch: async (path, init): Promise<Response> =>
+    (await worker!.fetch(path, init as unknown as Parameters<Unstable_DevWorker['fetch']>[1])) as unknown as Response,
+  reset: async () => { await worker?.stop(); await startWorker(); },
+  queuedActivity,
+  activity,
+}, 'authority');
 
 const ARTIFACT = 'a'.repeat(64);
 async function registry(fixture: string, command: RegistryFixtureCommand): Promise<OperatorRegistryResult<unknown>> {
@@ -376,6 +407,29 @@ describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
       result: { action: 'resume', activityId, principal: 'fixture-owner', isolateCounter: 1 },
     } });
     expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
+  it('REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction', async () => {
+    const { activityId } = await preparedActivity();
+    const start = await activity(activityId, { action: 'start-webhook', capability: START_TOKEN }) as {
+      ok: boolean; readCapability: string;
+    };
+    expect(start.ok).toBe(true);
+    expect(await activity(activityId, { action: 'drive-runtime' }))
+      .toMatchObject({ ok: true, state: { generation: 1, status: 'waiting' } });
+    expect(await activity(activityId, { action: 'begin-drive' }))
+      .toMatchObject({ ok: true, state: { generation: 2 } });
+    expect(await activity(activityId, { action: 'commit-drive', generation: 2,
+      update: { schemaVersion: 1, status: 'waiting', checkpoint: { step: 2 } } }))
+      .toMatchObject({ ok: true, state: { generation: 2, status: 'waiting' } });
+    expect(await activity(activityId, { action: 'continue-webhook', capability: start.readCapability, generation: 2 }))
+      .toEqual({ ok: true, phase: 'queued' });
+    await activity(activityId, { action: 'evict' });
+    expect(await activity(activityId, { action: 'drive-runtime', expectedGeneration: 1 }))
+      .toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity(activityId, { action: 'drive-runtime', expectedGeneration: 2 }))
+      .toMatchObject({ ok: true, state: { generation: 3, status: 'completed',
+        result: { action: 'resume', activityId, principal: 'fixture-owner' } } });
   });
 
   it.each(['throw', 'oversized'] as const)('fences %s output as unknown without automatic replay', async failure => {

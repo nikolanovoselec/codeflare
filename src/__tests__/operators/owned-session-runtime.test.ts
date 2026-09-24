@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ContainerOwnedSessionRuntime, type Gate1ContainerStub,
-  type Gate1SessionBootstrap } from '../../operators/gate1-runtime';
+import { ContainerOwnedSessionRuntime, type OperatorContainerStub,
+  type OperatorSessionBootstrap } from '../../operators/owned-session-runtime';
 import type { OperatorContainerProfile } from '../../container/operator-context';
 
 const profile = { schemaVersion: 1, activityId: 'activity-gate1', operatorId: 'codeflare-gate1-fixture',
@@ -20,7 +20,7 @@ const routes = { routeCatalog: ['route'], defaultRoute: 'route', defaultReasonin
   modelDisplayNames: { route: 'Route' }, promptCacheTargets: [] };
 const userEmail = 'owner@example.test';
 const userGroups = ['engineering'];
-const bootstrap: Gate1SessionBootstrap = {
+const bootstrap: OperatorSessionBootstrap = {
   r2AccessKeyId: 'scoped-key', r2SecretAccessKey: 'scoped-secret', r2AccountId: 'account',
   r2Endpoint: 'https://account.r2.cloudflarestorage.com', r2SseDisabled: true,
   workspaceSyncEnabled: false, fastStartEnabled: true, sessionMode: 'advanced',
@@ -31,14 +31,58 @@ const bootstrap: Gate1SessionBootstrap = {
 };
 
 describe('REQ-OPERATOR-005: owned container runtime', () => {
+  it('configures package resources before context and prevents start after failed restore', async () => {
+    const order: string[] = [];
+    const packageResources = { schemaVersion: 1 as const, artifactDigest: 'f'.repeat(64), files: [{
+      destination: '/home/user/.config/operator/resource.md', content: 'resource', size: 8, sha256: 'e'.repeat(64),
+    }] };
+    const stub: OperatorContainerStub = {
+      setBucketName: vi.fn(async () => { order.push('bucket'); }),
+      configureOperatorResources: vi.fn(async () => { order.push('resources'); throw new Error('restore failed'); }),
+      configureOperatorContext: vi.fn(async () => { order.push('context'); }),
+      startAndWaitForPorts: vi.fn(async () => { order.push('start'); }),
+      getState: vi.fn(async () => ({ status: 'stopped' })), fetch: vi.fn(),
+      stopOperatorSession: vi.fn(async () => 'stopped' as const),
+    };
+    const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap,
+      packageResources, resolve: () => stub });
+    await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow(/configuration failed/i);
+    expect(order).toEqual(['bucket', 'resources']);
+    expect(stub.configureOperatorContext).not.toHaveBeenCalled();
+    expect(stub.startAndWaitForPorts).not.toHaveBeenCalled();
+  });
+
+  it('configures opaque attachment declarations before context and prevents start after failed restore', async () => {
+    const order: string[] = [];
+    const attachments = { schemaVersion: 1 as const, activityId: profile.activityId, files: [{
+      name: 'packet.json', mediaType: 'application/json', size: 12, sha256: 'f'.repeat(64), locator: 'packet-1',
+    }] };
+    const stub: OperatorContainerStub = {
+      setBucketName: vi.fn(async () => { order.push('bucket'); }),
+      configureOperatorAttachments: vi.fn(async () => { order.push('attachments'); throw new Error('restore failed'); }),
+      configureOperatorContext: vi.fn(async () => { order.push('context'); }),
+      startAndWaitForPorts: vi.fn(async () => { order.push('start'); }),
+      getState: vi.fn(async () => ({ status: 'stopped' })), fetch: vi.fn(),
+      stopOperatorSession: vi.fn(async () => 'stopped' as const),
+    };
+    const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
+      ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap,
+      attachments, resolve: () => stub });
+    await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow(/configuration failed/i);
+    expect(order).toEqual(['bucket', 'attachments']);
+    expect(stub.configureOperatorContext).not.toHaveBeenCalled();
+    expect(stub.startAndWaitForPorts).not.toHaveBeenCalled();
+  });
+
   it('uses the exact parent-owned container identity for configure, readiness and restricted stop', async () => {
     let boundSessionId: string | null = null;
-    const stub: Gate1ContainerStub = {
+    const stub: OperatorContainerStub = {
       setBucketName: vi.fn(async (_name: string, options: { sessionId: string }) => {
         boundSessionId = options.sessionId;
       }),
       configureOperatorContext: vi.fn(async (_profile: unknown,
-        _authority: Parameters<Gate1ContainerStub['configureOperatorContext']>[1]) => {
+        _authority: Parameters<OperatorContainerStub['configureOperatorContext']>[1]) => {
         if (boundSessionId !== profile.sessionId) throw new Error('Operator container ownership mismatch');
       }),
       startAndWaitForPorts: vi.fn(async () => {}),
@@ -74,8 +118,8 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
       ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups, routes, bootstrap,
       resolve: () => stub as never });
-    await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow('Gate 1 session configuration failed');
-    await expect(runtime.start(profile.sessionId)).rejects.toThrow('Gate 1 session startup failed:init-not-ready');
+    await expect(runtime.configure(profile.sessionId, profile, authority)).rejects.toThrow('Operator session configuration failed');
+    await expect(runtime.start(profile.sessionId)).rejects.toThrow('Operator session startup failed:init-not-ready');
   });
 
   it('fails closed for mismatched ownership and maps uncertain observations without starting replacement compute', async () => {

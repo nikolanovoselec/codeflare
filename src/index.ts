@@ -22,6 +22,7 @@ import operatorWebhookRoutes from './routes/operator-webhook';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
 import adminOperatorsRoutes from './routes/admin/operators';
+import operatorManagementRoutes from './routes/operator-management';
 import operatorActivitiesRoutes from './routes/operator-activities';
 import adminConfigurationRoutes from './routes/admin/configuration';
 import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
@@ -298,6 +299,7 @@ app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/admin/operators', adminOperatorsRoutes);
+app.route('/api/operator-management', operatorManagementRoutes);
 app.route('/api/operator-activities', operatorActivitiesRoutes);
 app.route('/api/admin/configuration', adminConfigurationRoutes);
 app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
@@ -561,7 +563,7 @@ export default {
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
-export { OperatorActivity } from './operators/activity';
+export { OperatorActivity, OperatorDispatcherCapability } from './operators/activity';
 export { OperatorRuntimeCapability } from './operators/gate1-production';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the

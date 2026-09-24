@@ -12,22 +12,23 @@ import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 
-// Native storage/context supplies instrumented state coverage. The separate
-// Wrangler fixture remains the authority for cross-DO RPC, SQLite and eviction.
+// Native SQLite Activity storage/context supplies instrumented state coverage.
+// The separate Wrangler fixture remains the authority for cross-DO RPC and eviction.
 async function withActivity(
   test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
     ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
   admitted = true,
   started = true,
 ): Promise<void> {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const stub = namespace.get(namespace.newUniqueId());
   await runInDurableObject(stub, async (_instance, ctx) => {
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
     const activityEnv = {
+      ...env,
       OPERATOR_REGISTRY: { getByName: () => registry } as unknown as DurableObjectNamespace<OperatorRegistry>,
-    };
+    } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
     if (admitted) {
@@ -141,6 +142,30 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
   }, false));
 
+  it('REQ-OPERATOR-053: stopping the bound session durably fences a prepared Action activity before either start path', () => withActivity(async ({ ctx, activityEnv, token }) => {
+    const human: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      expiresAt: Math.floor(Date.now() / 1000) + 300 };
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const secured = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human, accessJwt: 'private.jwt' }, encryption);
+    const binding = { repositoryId: 138, pullRequest: 34, contextDigest: 'c'.repeat(64),
+      session: { bucket: 'owner-bucket', sessionId: 'session01', generation: 1 } };
+    const verifier = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))]
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const deadline = human.expiresAt * 1000;
+    const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+    expect(await secured.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
+      expectedRevision: 1, deadline, startExpiresAt: deadline - 1_000, startVerifier: verifier }, context,
+    'null', binding)).toMatchObject({ ok: true, phase: 'prepared' });
+    expect(await secured.cancelBoundaryStart(binding)).toMatchObject({ ok: true });
+    expect(await secured.getAdmission()).toMatchObject({ phase: 'cancelled' });
+    expect(await secured.start(token)).toMatchObject({ ok: false });
+    expect(await secured.startWebhook(token)).toMatchObject({ ok: false });
+    expect(await secured.getRuntimePlan()).toBeNull();
+  }, false));
+
   it('queues authorized intent only when registry artifact and policy identities match', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
     const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
       storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
@@ -194,7 +219,44 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       .toEqual({ ok: true, phase: 'verified' });
     expect(await secured.getSync('sync-1')).toMatchObject({ phase: 'verified', manifestDigest: 'e'.repeat(64),
       evidence: { filesVerified: 1, bytesVerified: 6 } });
+    expect(await secured.authorizeSyncRead(`${sync.prefix}manifest.json`, 64 * 1024)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncRead(sync.keys[0], 64 * 1024)).toEqual({ ok: true });
+    expect(await secured.authorizeSyncRead('Operators/foreign.txt', 64 * 1024)).toEqual({ ok: false });
     expect(JSON.stringify(await secured.getSync('sync-1'))).not.toContain('private.jwt');
+
+    expect(await secured.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await secured.operatorGenerationCurrent(1)).toBe(true);
+    expect(await secured.operatorGenerationCurrent(2)).toBe(false);
+    const review = { generation: 1, repositoryId: 12, pullRequest: 34, head: '1'.repeat(40),
+      releaseDigest: 'a'.repeat(64), packageDigest: '6'.repeat(64), resourceDigest: '7'.repeat(64),
+      packetDigest: '2'.repeat(64), requiredLanes: ['security', 'contract'] };
+    expect(await secured.prepareReviewState(review)).toMatchObject({ ok: true, state: { requiredLanes: ['security', 'contract'] } });
+    expect(await secured.recordReviewLane(2, review.head, 'security', '3'.repeat(64)))
+      .toEqual({ ok: false, reason: 'stale-generation' });
+    expect(await secured.recordReviewLane(1, review.head, 'undeclared', '3'.repeat(64)))
+      .toEqual({ ok: false, reason: 'invalid' });
+    expect(await secured.recordReviewLane(1, review.head, 'security', '3'.repeat(64))).toMatchObject({ ok: true });
+    expect(await secured.sealReview(1, review.head, 'sync-1')).toEqual({ ok: false, reason: 'incomplete' });
+    expect(await secured.recordReviewLane(1, review.head, 'contract', '4'.repeat(64))).toMatchObject({ ok: true });
+    expect(await secured.sealReview(1, review.head, 'sync-1')).toMatchObject({ ok: true, state: { sealedSyncOperationId: 'sync-1' } });
+
+    expect(await secured.reserveReviewPublication(1, review.head, 'publish-1', '5'.repeat(64)))
+      .toMatchObject({ ok: true, state: { publication: { phase: 'reserved' } } });
+    expect(await secured.reserveReviewPublication(1, review.head, 'publish-1', '6'.repeat(64)))
+      .toEqual({ ok: false, reason: 'conflict' });
+    expect(await secured.markReviewPublicationUnknown(1, review.head, 'publish-1', '5'.repeat(64)))
+      .toMatchObject({ ok: true, state: { publication: { phase: 'unknown' } } });
+    expect(await secured.reserveReviewPublication(1, review.head, 'publish-1', '5'.repeat(64)))
+      .toEqual({ ok: false, reason: 'unknown' });
+    expect(await secured.completeReviewPublication(1, review.head, 'publish-1', '5'.repeat(64), { checkId: 1, recordId: 2 }))
+      .toEqual({ ok: false, reason: 'unknown' });
+    expect(await secured.reconcileReviewPublication(1, review.head, 'publish-1', '5'.repeat(64), { checkId: 1, recordId: 2 }))
+      .toMatchObject({ ok: true, state: { publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } } });
+    expect(await secured.reconcileReviewPublication(1, review.head, 'publish-1', '8'.repeat(64), { checkId: 1, recordId: 2 }))
+      .toEqual({ ok: false, reason: 'conflict' });
+    const reconstructed = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    expect(await reconstructed.getReviewState()).toMatchObject({ ...review,
+      sealedSyncOperationId: 'sync-1', publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } });
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {
@@ -233,6 +295,41 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(redemptions.filter(result => result.ok)).toHaveLength(1);
     expect(redemptions.filter(result => !result.ok)).toEqual([{ ok: false, reason: 'consumed' }]);
     expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
+  }, true, false));
+
+  it('REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
+    const started = await activity.startWebhook(token);
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error('expected webhook start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.continueWebhook(started.readCapability, 1)).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } }))
+      .toMatchObject({ ok: true });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, terminal: false, status: 'waiting', generation: 1 });
+    const contenders = await Promise.all([
+      activity.continueWebhook(started.readCapability, 1), activity.continueWebhook(started.readCapability, 1),
+    ]);
+    expect(contenders.filter(outcome => outcome.ok)).toEqual([{ ok: true, phase: 'queued' }]);
+    expect(contenders.filter(outcome => !outcome.ok)).toEqual([{ ok: false, reason: 'already-started' }]);
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
+    expect(await reconstructed.continueWebhook(started.readCapability, 1))
+      .toEqual({ ok: false, reason: 'already-started' });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, status: 'waiting', generation: 1 });
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
+    expect(await activity.commitDrive(2, { schemaVersion: 1, status: 'waiting', checkpoint: { step: 2 } }))
+      .toMatchObject({ ok: true });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, status: 'waiting', generation: 2 });
+    expect(await activity.continueWebhook(started.readCapability, 1))
+      .toEqual({ ok: false, reason: 'stale-generation' });
+    expect(await activity.beginDrive(1)).toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity.fenceRuntimeFailure(1)).toEqual({ ok: false, reason: 'stale-drive' });
+    expect(await activity.getWebhookStatus(started.readCapability))
+      .toMatchObject({ ok: true, status: 'waiting', generation: 2 });
+    expect(await activity.continueWebhook(started.readCapability, 2)).toEqual({ ok: true, phase: 'queued' });
+    expect(await activity.beginDrive(2)).toMatchObject({ ok: true, state: { generation: 3 } });
   }, true, false));
 
   it('denies drive operations when admission does not exist', () => withActivity(async ({ activity }) => {

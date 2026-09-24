@@ -293,6 +293,9 @@ function applyManagedReleaseBatch(
   if (!preseedAttempts.has(target)) void performPreseedUpgrade();
 }
 
+// A local Stop owns its own confirmation poll; persisted stopping does not.
+const localStopAttempts = new Set<string>();
+
 // Register polling dependencies (extracted to session-polling.ts)
 registerPollingDeps({
   getState: () => state,
@@ -300,6 +303,7 @@ registerPollingDeps({
   setStateRaw: (...args: any[]) => (setState as any)(...args),
   updateSessionStatus,
   isSessionInitializing,
+  isLocallyStopping: (id) => localStopAttempts.has(id),
   shouldRetainNegativeKv,
   setAuthExpired,
   applyMetricsUpdate,
@@ -346,10 +350,32 @@ async function loadSessions(): Promise<void> {
     const oldIds = new Set(state.sessions.map(s => s.id));
     const listedIds = new Set(sessions.map(s => s.id));
 
-    const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => ({
-      ...s,
-      status: existingStatuses.get(s.id) || s.status || ('stopped' as SessionStatus),
-    }));
+    const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => {
+      const local = existingSessions.get(s.id);
+      const listedStatus = s.status ?? local?.status ?? 'stopped';
+      const listed = {
+        lifecycle: (s.lifecycle ?? listedStatus) as BackendLifecycle,
+        generation: s.generation,
+        revision: s.revision,
+      };
+      const localNewer = local && applyOrderedProjection({
+        lifecycle: (local.lifecycle ?? (local.status === 'initializing' || local.status === 'error'
+          ? 'running' : local.status)) as BackendLifecycle,
+        generation: local.generation,
+        revision: local.revision,
+      }, listed) !== listed;
+      const keepLocalStatus = local && (localNewer || local.status === 'initializing'
+        || localStopAttempts.has(s.id) || isSessionInitializing(s.id));
+      return {
+        ...s,
+        ...(localNewer && {
+          lifecycle: local.lifecycle, generation: local.generation, revision: local.revision,
+          editorReady: local.editorReady, editorReadyError: local.editorReadyError,
+          unreachableDeadlineMs: local.unreachableDeadlineMs,
+        }),
+        status: keepLocalStatus && local ? local.status : listedStatus,
+      };
+    });
     // KV LIST may temporarily omit a recently written record. The same negative-
     // evidence gate used by polling decides whether local lifecycle ownership wins.
     for (const existing of existingSessions.values()) {
@@ -404,8 +430,8 @@ async function loadSessions(): Promise<void> {
       }
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
-      if (currentStatus === 'initializing' || currentStatus === 'stopping') continue;
-      if (batchStatus.status === 'stopped' && shouldRetainNegativeKv(session.id)) continue;
+      if (currentStatus === 'initializing' || localStopAttempts.has(session.id)) continue;
+      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping' && shouldRetainNegativeKv(session.id)) continue;
 
       const current = state.sessions.find((candidate) => candidate.id === session.id);
       const incomingProjection = {
@@ -439,6 +465,14 @@ async function loadSessions(): Promise<void> {
         // Container stopped externally (hibernation/crash) — kill WS retry loops
         // so reconnect attempts don't keep waking the DO. Fresh connect() calls
         // are made when the user starts the session again.
+        terminalStore.disposeSession(session.id);
+      }
+    }
+    // Resolve list and batch order before disposing a previously stopping
+    // transport: a newer running batch must retain the surviving connection.
+    if (thisGen !== loadSessionsGeneration) return;
+    for (const session of state.sessions) {
+      if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
         terminalStore.disposeSession(session.id);
       }
     }
@@ -613,6 +647,7 @@ async function stopSession(id: string): Promise<void> {
         delete s.initProgressBySession[id];
       })
     );
+    localStopAttempts.add(id);
     updateSessionStatus(id, 'stopping');
     await api.stopSession(id);
 
@@ -667,6 +702,8 @@ async function stopSession(id: string): Promise<void> {
     await pollForStopped();
   } catch (err) {
     setState('error', err instanceof Error ? err.message : 'Failed to stop session');
+  } finally {
+    localStopAttempts.delete(id);
   }
 }
 

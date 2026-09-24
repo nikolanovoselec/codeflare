@@ -36,6 +36,7 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     termination_generation: session.terminationGeneration ?? null,
     termination_claimed_at: session.terminationClaimedAt ?? null,
     termination_signal_accepted_at: session.terminationSignalAcceptedAt ?? null,
+    boundary_activity_id: session.boundaryActivityId ?? null,
   };
 }
 
@@ -75,24 +76,6 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           return { results: [] };
         },
         async run() {
-          if (sql.includes("lifecycle_reason='stop_timeout_forced_reset'")) {
-            const found = await kv.list({ prefix: `session:${String(args[0])}:` });
-            let changes = 0;
-            for (const item of found.keys) {
-              const session = await kv.get(item.name, 'json') as Record<string, any> | null;
-              if (!session || session.status !== 'stopping' || String(session.transitionedAt) >= String(args[1])) continue;
-              session.status = 'stopped';
-              session.responseRevision = (session.responseRevision ?? 0) + 1;
-              session.lifecycleReason = 'stop_timeout_forced_reset';
-              session.editorReady = false; session.editorReadyError = false;
-              session.unreachableIncidentId = undefined; session.unreachableFirstObservedAt = undefined; session.unreachableDeadlineMs = undefined;
-              session.terminationIntentId = undefined; session.terminationGeneration = undefined; session.terminationClaimedAt = undefined;
-              session.terminationSignalAcceptedAt = undefined;
-              await put(args[0], session);
-              changes += 1;
-            }
-            return { success: true, meta: { changes } };
-          }
           if (sql.includes('INSERT INTO runtime_sessions')) {
             const session = { id: args[1], userId: args[0], name: args[2], createdAt: args[3], lastAccessedAt: args[4], agentType: args[5] ?? undefined, workspace: args[6], terminalMode: args[7], tabConfig: args[8] ? JSON.parse(String(args[8])) : undefined, clone: args[9] ? JSON.parse(String(args[9])) : undefined, clones: args[10] ? JSON.parse(String(args[10])) : undefined, status: 'stopped' };
             await put(args[0], session); return { success: true, meta: { changes: 1 } };
@@ -103,17 +86,31 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           }
           const session = await get(args[0], args[1]);
           if (!session) return { success: true, meta: { changes: 0 } };
-          if (/SET\s+lifecycle_state='starting'/.test(sql)) {
+          if (sql.includes('SET boundary_activity_id=NULL')) {
+            const completing = sql.includes("lifecycle_state='running'");
+            if (session.status !== (completing ? 'running' : 'stopping')
+                || session.boundaryActivityId !== args[3]
+                || (session.lifecycleGeneration ?? 0) !== args[2]
+                || (completing ? !!session.terminationIntentId : !session.terminationIntentId)) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            session.boundaryActivityId = undefined;
+          }
+          else if (/SET\s+lifecycle_state='starting'/.test(sql)) {
             if (session.status !== 'stopped' || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
             session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1;
             session.editorReady = false; session.editorReadyError = false;
           }
           else if (/SET\s+lifecycle_state='stopping'/.test(sql)) {
-            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
+            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId
+              || (sql.includes('lifecycle_generation=?5') && args[4] != null && (session.lifecycleGeneration ?? 0) !== args[4])) {
+              return { success: true, meta: { changes: 0 } };
+            }
             session.status = 'stopping'; session.terminationIntentId = args[2]; session.terminationGeneration = session.lifecycleGeneration ?? 0;
           }
           else if (/SET\s+lifecycle_state='stopped'/.test(sql)) {
-            if (session.status !== 'stopping' || session.terminationIntentId !== args[3] || (session.lifecycleGeneration ?? 0) !== args[2]) return { success: true, meta: { changes: 0 } };
+            if (session.status !== 'stopping' || session.terminationIntentId !== args[3]
+              || (session.lifecycleGeneration ?? 0) !== args[2] || session.boundaryActivityId) return { success: true, meta: { changes: 0 } };
             session.status = 'stopped'; session.lastActiveAt = args[4]; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
           }
           else if (sql.includes('lifecycle_state=COALESCE') && sql.includes('observation_sequence=?4')) {

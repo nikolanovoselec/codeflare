@@ -11,11 +11,12 @@
  * canonical description of when the SDK invokes each hook.
  */
 import { toError, toErrorMessage } from '../lib/error-types';
+import type { Env } from '../types';
 import { D1SessionRepository } from '../lib/session-repository';
+import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
   collectMetrics as doCollectMetrics,
-  updateKvStatus,
   openNotRunningConfirmation,
   beginMonitorTransportRecovery,
   SHUTDOWN_REQUESTED_KEY,
@@ -27,6 +28,8 @@ import {
   type MetricsState,
   type MetricsCallbacks,
 } from './container-metrics';
+
+import { discardReviewSessionHuman } from './review-session-human';
 
 const SESSION_ID_KEY = '_sessionId';
 
@@ -209,6 +212,14 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       if (timer) clearTimeout(timer);
     }
   };
+  // Fence protected admissions before any teardown I/O yields. Cleanup failures
+  // do not prevent the existing bounded final sync and guaranteed stop path.
+  try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, start)); }
+  catch (err) { host.logger.warn('Shutdown fence could not be persisted', { error: toError(err).message }); }
+  try { await withinDeadline(discardReviewSessionHuman(host as unknown as Parameters<typeof discardReviewSessionHuman>[0])); }
+  catch (err) { host.logger.warn('Review authority cleanup failed', { error: toError(err).message }); }
+  try { await withinDeadline(host.ctx.storage.delete(['review:boundary-input', 'review:push-evidence', 'review:pr-creation'])); }
+  catch (err) { host.logger.warn('Boundary input cleanup failed', { error: toError(err).message }); }
   host.logger.info('Destroying container, clearing operational storage');
   // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
   // so the final-sync audit (recorded after the drain) stays correlatable.
@@ -228,7 +239,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // persisted marker, so the surviving collectMetrics alarm cannot self-heal a
   // session the user is deliberately stopping back to running (REQ-SESSION-018
   // AC4). onStart() clears the marker on the next fresh start.
-  try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now())); } catch { /* storage racing teardown */ }
+  // The durable shutdown fence was persisted before the first teardown await.
 
   // REQ-SESSION-027 AC1: give pending away notifications one final,
   // independently bounded delivery attempt before final sync or destructive
@@ -266,6 +277,11 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       // Drop auth and vault keys before the next lifecycle can reuse this DO.
       host.ctx.storage.delete('containerAuthToken'),
       host.ctx.storage.delete('vaultKey'),
+      host.ctx.storage.delete('review:session-human'),
+      host.ctx.storage.delete('review:session-principal'),
+      host.ctx.storage.delete('review:boundary-input'),
+      host.ctx.storage.delete('review:push-evidence'),
+      host.ctx.storage.delete('review:pr-creation'),
     ]));
     host._bucketName = null;
     host._sessionId = null;
@@ -291,8 +307,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
 
   // REQ-SESSION-011 + #516: ALWAYS attempt the final drain on a deliberate
   // stop/delete, even when ctx.container.running reads transiently false (a DO
-  // wake / deploy-roll can report false while the container is alive - the same
-  // transient NOT_RUNNING_CONFIRM_MS guards in collectMetrics). Skipping the
+  // wake / deploy-roll can report false while the container is alive; no
+  // duration of such readings certifies exit). Skipping the
   // drain on that transient silently lost the last edits on delete (#516). The
   // drain is best-effort and bounded; a genuinely-dead container errors out fast
   // and is swallowed. The teardown clock starts here so the 135s hard force-kill
@@ -374,14 +390,70 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   }
 }
 
-/** Called when the container stops. */
+/**
+ * Positive low-level monitor completion for the process captured at attachment.
+ * Its generation is captured before awaiting the monitor; an old completion
+ * cannot stop a newer execution. SDK callbacks and flags never call this path.
+ */
+export async function confirmMonitoredExit(
+  ctx: DurableObjectState,
+  env: Env,
+  ownerKey: string,
+  sessionId: string,
+  generation: number,
+): Promise<boolean> {
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const current = await repository.getSession(ownerKey, sessionId);
+  if (!current || current.lifecycleGeneration !== generation || current.lifecycleState === 'stopped') return false;
+  const intentId = current.lifecycleState === 'stopping'
+    ? current.terminationIntentId
+    : `monitored-exit-${generation}`;
+  if (!intentId) return false;
+  if (current.lifecycleState !== 'stopping') {
+    const claimed = await repository.claimStop(ownerKey, sessionId, intentId, new Date().toISOString(), generation);
+    if (!claimed) return false;
+  }
+  // A pending boundary start must be cancelled before exit releases ownership.
+  const stopping = await repository.getSession(ownerKey, sessionId);
+  if (!stopping || stopping.lifecycleGeneration !== generation || stopping.terminationIntentId !== intentId) return false;
+  await fencePendingBoundaryStart(env, repository, stopping);
+  const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
+  if (confirmed) {
+    try {
+      // A replacement may claim a new generation while the exit callback
+      // completes. Never leave the replacement with the old shutdown marker.
+      await ctx.storage.transaction(async (txn) => {
+        if (await txn.get<number>('lifecycleGeneration') === generation) {
+          await txn.put(SHUTDOWN_REQUESTED_KEY, Date.now());
+        }
+      });
+    } catch { /* D1 exit confirmation, not best-effort coordinator cleanup, owns authority */ }
+  }
+  return confirmed;
+}
+
+/** An SDK onStop can be synthetic after DO reconstruction; it is not exit proof. */
 export async function onStop(host: LifecycleHost): Promise<void> {
-  // Kill the collectMetrics alarm loop - without this, the schedule
-  // continues firing on a dead container indefinitely (zombie alarms).
-  try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   const shutdownElapsedMs = host._shutdownStartedAt > 0 ? Date.now() - host._shutdownStartedAt : null;
-  host.logger.info('Container stopped', { shutdownElapsedMs });
-  await updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt');
+  host.logger.info('Container SDK stop observed (exit unverified)', { shutdownElapsedMs });
+  let shutdownRequested: number | undefined;
+  try { shutdownRequested = await host.ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY); } catch { return; }
+  if (typeof shutdownRequested === 'number') {
+    try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+    return;
+  }
+  const owner = host._bucketName ?? await host.ctx.storage.get<string>('bucketName');
+  const sessionId = host._sessionId ?? await host.ctx.storage.get<string>(SESSION_ID_KEY);
+  if (owner && sessionId) {
+    try {
+      const current = await new D1SessionRepository(host.env.USAGE_DB).getSession(owner, sessionId);
+      if (current?.lifecycleState === 'stopped') {
+        try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+        return;
+      }
+    } catch { /* D1 uncertainty keeps ownership and retry cadence */ }
+  }
+  try { await host.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
 }
 
 /** Called when the container encounters an error. */
@@ -404,28 +476,9 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
     );
     if (recovery !== 'fallback') return;
   }
-  // The SDK (@cloudflare/containers v0.3.5) calls onError - and awaits it -
-  // when its monitor flags the container as exited (crash, deploy-roll,
-  // platform reap); it does NOT call onStop on that path, so without a write
-  // here the session could dangle 'running' forever (codeflare#153). But onError
-  // ALSO fires on TRANSIENT errors where the container is actually alive (a
-  // deploy-roll the container survives, a brief monitor blip): observed in prod
-  // a spurious "Container error" fired onError on a live Pi session, the
-  // !running guard passed on a momentary false reading, and an immediate
-  // 'stopped' write then stuck - the collectMetrics clobber guard refused to
-  // correct it and the session hung falsely-stopped for ~14 min until a real
-  // restart. So onError no longer writes 'stopped' itself. Monitor-side network
-  // loss first enters bounded coordinator reconstruction above; other not-running
-  // errors, and exhausted monitor recovery, open the SAME confirmation window
-  // collectMetrics uses and
-  // re-arms a single tick (deleteSchedules first so onError can't stack a
-  // duplicate alarm onto a still-armed loop), delegating the stopped decision
-  // to that window: a container that stays down is confirmed stopped within
-  // NOT_RUNNING_CONFIRM_MS, and one that recovers clears the window with no
-  // false stopped (REQ-SESSION-018 AC3). openNotRunningConfirmation only writes
-  // DO storage, never KV, so a post-destroy onError cannot resurrect the record;
-  // the re-armed tick bails as a zombie DO once destroy() has cleared the
-  // identifiers. onStart() re-asserts 'running' on the next start.
+  // SDK monitor errors can be transport loss while the process survives.
+  // Record the not-running observation for diagnostics and re-arm the retry
+  // loop, but never infer process exit or release the D1 generation from it.
   if (!host.ctx.container?.running) {
     await openNotRunningConfirmation(host.ctx);
     try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }

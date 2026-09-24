@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { OperatorPiConversation, type OperatorPiMetadata, type OperatorPiStore } from './operator-pi.js';
 import { OperatorPiHttpController } from './operator-pi-http.js';
 import { createProvisionedOperatorPiFactory, type OperatorPiSdkProfile } from './operator-pi-sdk.js';
+import type { OperatorPiReviewConfig } from './operator-pi-review.js';
 
 const MAX_METADATA = 256 * 1024;
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -84,6 +85,19 @@ interface SerializedConfig {
   sessionId: string;
   root: string;
   profile: OperatorPiSdkProfile;
+  mode?: 'review';
+  review?: OperatorPiReviewConfig;
+}
+
+function parseReviewConfig(value: unknown): OperatorPiReviewConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator Pi configuration');
+  const review = value as Record<string, unknown>;
+  if (Object.keys(review).length !== 3 || typeof review.packetDigest !== 'string' || !DIGEST.test(review.packetDigest)
+    || typeof review.head !== 'string' || !/^[0-9a-f]{40}$/.test(review.head)
+    || typeof review.generation !== 'number' || !Number.isSafeInteger(review.generation) || review.generation <= 0) {
+    throw new Error('Invalid operator Pi configuration');
+  }
+  return { packetDigest: review.packetDigest, head: review.head, generation: review.generation };
 }
 
 function parseConfig(serialized: string, allowedRoot: string): SerializedConfig {
@@ -94,7 +108,10 @@ function parseConfig(serialized: string, allowedRoot: string): SerializedConfig 
   const profile = record.profile;
   const root = typeof record.root === 'string' ? path.resolve(record.root) : '';
   const boundary = path.resolve(allowedRoot);
-  if (Object.keys(record).length !== 5 || record.schemaVersion !== 1
+  const keys = Object.keys(record);
+  const standard = keys.length === 5 && record.mode === undefined && record.review === undefined;
+  const reviewMode = keys.length === 7 && record.mode === 'review';
+  if ((!standard && !reviewMode) || record.schemaVersion !== 1
     || typeof record.activityId !== 'string' || !ID.test(record.activityId)
     || typeof record.sessionId !== 'string' || !ID.test(record.sessionId)
     || typeof record.root !== 'string' || !path.isAbsolute(record.root)
@@ -110,7 +127,8 @@ function parseConfig(serialized: string, allowedRoot: string): SerializedConfig 
   }
   return { schemaVersion: 1, activityId: record.activityId, sessionId: record.sessionId, root,
     profile: { provider: p.provider, model: p.model, thinkingLevel: p.thinkingLevel,
-      systemPrompt: p.systemPrompt, tools: p.tools as string[] } };
+      systemPrompt: p.systemPrompt, tools: p.tools as string[] },
+    ...(reviewMode ? { mode: 'review' as const, review: parseReviewConfig(record.review) } : {}) };
 }
 
 export function createOperatorPiService(options: {
@@ -128,6 +146,7 @@ export function createOperatorPiService(options: {
     factory: createProvisionedOperatorPiFactory({
       cwd: path.join(config.root, 'work'), agentDir: path.join(config.root, 'agent'),
       sessionDir: path.join(config.root, 'sessions'), profile: config.profile,
+      ...(config.review ? { review: config.review } : {}),
       ...(options.importSdk ? { importSdk: options.importSdk } : {}),
       ...(options.importPiAi ? { importPiAi: options.importPiAi } : {}),
     }),

@@ -4,6 +4,8 @@ import lifecycleRoutes from '../../routes/session/lifecycle';
 import type { Session } from '../../types';
 import { MAX_SESSION_NAME_LENGTH } from '../../lib/constants';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { hasOwningSessionContainer } from '../../lib/session-helpers';
 import { createTestApp } from '../helpers/test-app';
 
 // Mock container
@@ -56,6 +58,27 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       bucketName,
     });
   }
+
+  it.each(['stopped', 'starting', 'running', 'unreachable', 'stopping'] as const)(
+    'REQ-SESSION-010 AC2/3/5: list and detail project D1 %s with generation and revision', async (lifecycle) => {
+      const id = 'lifecycle12345678';
+      mockKV._set(`session:test-bucket:${id}`, {
+        id, userId: 'test-bucket', name: 'Lifecycle', status: lifecycle,
+        lifecycleGeneration: 7, responseRevision: 19,
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      });
+      const app = createCrudApp();
+      const list = await app.request('/sessions');
+      const detail = await app.request(`/sessions/${id}`);
+      expect(list.status).toBe(200);
+      expect(detail.status).toBe(200);
+      const listed = (await list.json() as { sessions: Array<Record<string, unknown>> }).sessions.find(s => s.id === id);
+      const fetched = (await detail.json() as { session: Record<string, unknown> }).session;
+      for (const session of [listed, fetched]) {
+        expect(session).toMatchObject({ id, status: lifecycle, lifecycle, generation: 7, revision: 19 });
+      }
+    },
+  );
 
   describe('GET /sessions', () => {
     it('returns empty array when no sessions exist', async () => {
@@ -747,7 +770,7 @@ describe('GET /sessions/batch-status', () => {
     expect(body.statuses['batchsession5678def']).toMatchObject({ status: 'running', lifecycle: 'running' });
   });
 
-  it('forces an owner session stuck stopping for over three minutes to stopped before responding', async () => {
+  it('REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence', async () => {
     mockKV._set('session:test-bucket:expiredstop1234', {
       id: 'expiredstop1234', name: 'Expired stop', userId: 'test-bucket', status: 'stopping',
       createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
@@ -771,21 +794,16 @@ describe('GET /sessions/batch-status', () => {
     const res = await createBatchStatusApp().request('/sessions/batch-status');
     const body = await res.json() as { statuses: Record<string, { status: string; revision: number }> };
 
-    expect(body.statuses.expiredstop1234).toMatchObject({ status: 'stopped', revision: 8 });
+    expect(body.statuses.expiredstop1234).toMatchObject({ status: 'stopping', revision: 7 });
     expect(body.statuses.recentstop12345).toMatchObject({ status: 'stopping' });
     expect(body.statuses.expiredstop5678).toBeUndefined();
     const stored = await mockKV.get('session:test-bucket:expiredstop1234', 'json') as Record<string, unknown>;
     expect(stored).toMatchObject({
-      status: 'stopped', lifecycleReason: 'stop_timeout_forced_reset', responseRevision: 8,
-      editorReady: false, editorReadyError: false,
+      status: 'stopping', responseRevision: 7, editorReady: true, editorReadyError: true,
+      terminationIntentId: 'intent', terminationGeneration: 2,
+      unreachableIncidentId: 'incident', unreachableDeadlineMs: 60_000,
     });
-    expect(stored.unreachableIncidentId).toBeUndefined();
-    expect(stored.unreachableFirstObservedAt).toBeUndefined();
-    expect(stored.unreachableDeadlineMs).toBeUndefined();
-    expect(stored.terminationIntentId).toBeUndefined();
-    expect(stored.terminationGeneration).toBeUndefined();
-    expect(stored.terminationClaimedAt).toBeUndefined();
-    expect(stored.terminationSignalAcceptedAt).toBeUndefined();
+    expect(await hasOwningSessionContainer({ USAGE_DB: createMockSessionD1(mockKV) }, 'test-bucket')).toBe(true);
     expect(await mockKV.get('session:other-bucket:expiredstop5678', 'json')).toMatchObject({ status: 'stopping' });
   });
 

@@ -415,6 +415,7 @@ export interface UserInfo {
   hasSubscribed?: boolean;
   subscribedMode?: 'default' | 'advanced';
   enterpriseMode?: boolean;
+  operatorManagementEligible?: boolean;
   downloadsDisabled?: boolean;
   /** REQ-ENTERPRISE-003: creation-selectable agents (wizard-governed in enterprise). */
   allowedAgents?: AgentType[];

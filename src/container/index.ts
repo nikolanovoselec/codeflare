@@ -29,11 +29,15 @@
 import { Container } from '@cloudflare/containers';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { getR2Config } from '../lib/r2-config';
+import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { wireContainerInterception, type InterceptionHost } from './container-interception';
 import type { OperatorPolicy } from '../operators/policy';
+import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
+  type OperatorPackageResourceProjection } from '../operators/package-resources';
+import { parseOperatorAttachmentProjection, type OperatorAttachmentProjection } from '../operators/attachments';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import {
   bindOperatorAuthority as contextBindOperatorAuthority,
@@ -55,8 +59,12 @@ import {
   type ContainerHost,
 } from './container-config';
 import { dispatchInternalRoute } from './container-router';
+import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
+import type { VerifiedHumanAccessClaims } from '../lib/jwt';
+import { parseBoundedBoundaryInput, type BoundaryInput } from '../operators/boundary-input';
 import {
   onStart as lifecycleOnStart,
+  confirmMonitoredExit,
   collectMetrics as lifecycleCollectMetrics,
   destroy as lifecycleDestroy,
   onStop as lifecycleOnStop,
@@ -85,6 +93,8 @@ const SESSION_ID_KEY = '_sessionId';
 // each call site - the same pattern the previous metricsState getter used -
 // rather than an `implements` clause that would couple to the base class's
 // member modifiers.
+type ExitEvidence = { owner: string; session: string; generation: number };
+
 export class container extends Container<Env> implements ContainerEnvState {
   logger = createLogger('container');
 
@@ -203,6 +213,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   _gitCloneRef: string | null = null;
 /** Durable non-secret origin/profile. Raw Access authority remains memory-only. */
   _operatorContainerProfile?: OperatorContainerProfile;
+  _operatorPackageResources?: OperatorPackageResourceProjection;
+  _operatorAttachments?: OperatorAttachmentProjection;
   _operatorPolicy?: OperatorPolicy;
   _jwtStamping?: JwtStampingPolicy;
   _jwtAuthority?: JwtStampingAuthority;
@@ -222,6 +234,110 @@ export class container extends Container<Env> implements ContainerEnvState {
   containerStartedAt = 0;
   /** Last seen lastInputAt from /activity - used to detect NEW input for renewal. */
   lastSeenInputAt: number | null = null;
+  private monitoredGeneration: number | null = null;
+  private pendingExit: ExitEvidence | null = null;
+  private static readonly EXIT_OBSERVED_KEY = 'monitoredExitGeneration';
+
+  private async retryObservedExit(): Promise<boolean> {
+    const pending = this.pendingExit;
+    if (pending) {
+      const persisted = await this.ctx.storage.transaction(async (txn) => {
+        if (await txn.get<number>('lifecycleGeneration') !== pending.generation
+            || await txn.get<string>('bucketName') !== pending.owner
+            || await txn.get<string>(SESSION_ID_KEY) !== pending.session) return false;
+        await txn.put(container.EXIT_OBSERVED_KEY, pending);
+        return true;
+      });
+      if (this.pendingExit === pending) this.pendingExit = null;
+      if (!persisted) return false;
+    }
+    const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+    if (!evidence || !this._bucketName || !this._sessionId) return false;
+    const { owner, session, generation } = evidence;
+    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation
+        || await this.ctx.storage.get<string>('bucketName') !== owner
+        || await this.ctx.storage.get<string>(SESSION_ID_KEY) !== session
+        || owner !== this._bucketName || session !== this._sessionId) {
+      await this.ctx.storage.transaction(async (txn) => {
+        const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+        if (stored?.generation === generation && stored.owner === owner && stored.session === session
+            && (await txn.get<number>('lifecycleGeneration') !== generation
+              || await txn.get<string>('bucketName') !== owner
+              || await txn.get<string>(SESSION_ID_KEY) !== session
+              || owner !== this._bucketName || session !== this._sessionId)) {
+          await txn.delete(container.EXIT_OBSERVED_KEY);
+        }
+      });
+      return false;
+    }
+    const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation);
+    if (!confirmed) {
+      const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(owner, session);
+      if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) return false;
+    }
+    await this.ctx.storage.transaction(async (txn) => {
+      const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+      if (stored?.generation === generation && stored.owner === owner && stored.session === session) {
+        await txn.delete(container.EXIT_OBSERVED_KEY);
+      }
+    });
+    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
+    this.monitoredGeneration = generation;
+    return true;
+  }
+
+  private async monitorExistingRuntime(verifiedByPort = false): Promise<void> {
+    const runtime = this.ctx.container;
+    if (!runtime || !this._bucketName || !this._sessionId) return;
+    const generation = await this.ctx.storage.get<number>('lifecycleGeneration');
+    if (!generation || !Number.isSafeInteger(generation) || this.monitoredGeneration === generation
+        || (await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY))?.generation === generation) return;
+    if (!runtime.running && !verifiedByPort) {
+      const token = await this.ctx.storage.get<string>('containerAuthToken');
+      if (!token) return;
+      try {
+        const response = await runtime.getTcpPort(8080).fetch('http://container/health', {
+          headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) return;
+      } catch { return; } // Probe failure cannot establish process exit.
+    }
+    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return;
+    const owner = this._bucketName;
+    const session = this._sessionId;
+    this.monitoredGeneration = generation;
+    const recordExit = async () => {
+      if (this.pendingExit && this.pendingExit.generation > generation) return;
+      this.pendingExit = { owner, session, generation };
+      try {
+        if (!await this.retryObservedExit()) await this.schedule(60, 'collectMetrics');
+      } catch (error) {
+        this.logger.warn('Container exit confirmation failed', { error: toErrorMessage(error) });
+        try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+          this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
+        }
+      }
+    };
+    try {
+      const exit = runtime.monitor();
+      void exit.then(recordExit, error => {
+        // The pinned SDK 0.3.7 recognizes these explicit exit messages.
+        // Bare numbers, no-instance and transport failures are not proof here.
+        const exitCode = error instanceof Error
+          ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit:)\s*(\d+)$/i.exec(error.message)?.[1]
+          : undefined;
+        if (exitCode !== undefined && Number.isSafeInteger(Number(exitCode)) && Number(exitCode) >= 0) {
+          void recordExit();
+          return;
+        }
+        if (this.monitoredGeneration === generation) this.monitoredGeneration = null;
+        this.logger.warn('Container monitor failed', { error: toErrorMessage(error) });
+      });
+    } catch (error) {
+      this.monitoredGeneration = null;
+      this.logger.warn('Container monitor registration failed', { error: toErrorMessage(error) });
+    }
+  }
 
   constructor(ctx: DurableObjectState<Env>, env: Env) {
     super(ctx, env);
@@ -313,9 +429,16 @@ export class container extends Container<Env> implements ContainerEnvState {
       // byte-identical to today.
       if (this._strictEgress) this.enableInternet = false;
 
-      // Operator restrictions are restored before env construction or a later
-      // pre-start interception pass. Authority is intentionally absent after
-      // wake and must be rebound by the owning activity before protected I/O.
+      // Operator restrictions and package resources are restored before env construction
+      // or a later pre-start interception pass. No credential or authority is persisted.
+      const [storedPackageResources, storedAttachments] = await Promise.all([
+        this.ctx.storage.get<unknown>('operatorPackageResources'),
+        this.ctx.storage.get<unknown>('operatorAttachments'),
+      ]);
+      if (storedPackageResources != null) {
+        this._operatorPackageResources = parseOperatorPackageResourceProjection(storedPackageResources);
+      }
+      if (storedAttachments != null) this._operatorAttachments = parseOperatorAttachmentProjection(storedAttachments);
       await contextRestoreOperatorContext(this.operatorContextHost);
       if (this._operatorContainerProfile) this.enableInternet = false;
 
@@ -323,6 +446,22 @@ export class container extends Container<Env> implements ContainerEnvState {
         this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
         this.updateEnvVars();
       }
+      try {
+        if (await this.retryObservedExit()) return;
+        const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+        if (evidence && evidence.generation === await this.ctx.storage.get<number>('lifecycleGeneration')) {
+          try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+            this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
+          }
+          return;
+        }
+      } catch (error) {
+        this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
+        try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+          this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
+        }
+      }
+      await this.monitorExistingRuntime();
     });
   }
 
@@ -345,6 +484,22 @@ export class container extends Container<Env> implements ContainerEnvState {
   async configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void> {
     await contextConfigureOperatorContext(this.operatorContextHost, profile, authority);
     this.enableInternet = false;
+  }
+
+  /** Persist inert, digest-bound package bytes before context/start. */
+  async configureOperatorResources(input: unknown): Promise<void> {
+    const projection = await verifyOperatorPackageResourceProjection(input);
+    await this.ctx.storage.put('operatorPackageResources', projection);
+    this._operatorPackageResources = structuredClone(projection);
+    this.updateEnvVars();
+  }
+
+  /** Persist activity-owned opaque attachment declarations before startup. */
+  async configureOperatorAttachments(input: unknown): Promise<void> {
+    const projection = parseOperatorAttachmentProjection(input);
+    await this.ctx.storage.put('operatorAttachments', projection);
+    this._operatorAttachments = structuredClone(projection);
+    this.updateEnvVars();
   }
 
   /** Rebind current exact-human authority after wake without persisting the JWT. */
@@ -413,8 +568,45 @@ export class container extends Container<Env> implements ContainerEnvState {
     return configEnsureVaultKey(this.host);
   }
 
+  /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
+  async forwardExisting(request: Request): Promise<Response> {
+    const token = await this.ctx.storage.get<string>('containerAuthToken');
+    if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
+    try {
+      // The private port accepts HTTP only. Preserve the public request's path,
+      // query, method and upgrade headers, but never forward its HTTPS origin.
+      const url = new URL(request.url);
+      const privateUrl = new URL('http://container');
+      privateUrl.pathname = url.pathname;
+      privateUrl.search = url.search;
+      const forwarded = new Request(privateUrl, request);
+      forwarded.headers.set('Authorization', `Bearer ${token}`);
+      // `running` can itself transiently read false after DO reconstruction.
+      // Only an answer from the existing private port proves it survived.
+      const response = await this.ctx.container.getTcpPort(8080).fetch(forwarded);
+      if (response.ok && this.monitoredGeneration === null) {
+        // A port answer can establish survival even while the SDK running flag
+        // is stale. Attach exit observation without delaying the response.
+        void this.monitorExistingRuntime(true).catch(error => {
+          this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+        });
+      }
+      return response;
+    } catch (error) {
+      this.logger.warn('Existing container port unavailable', { error: toErrorMessage(error) });
+      return new Response('Existing container unavailable', { status: 503 });
+    }
+  }
+
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
+    // WebSocket responses cannot cross the DO RPC serialization boundary.
+    // Stub.fetch has native WebSocket response transport; keep the terminal
+    // path on the same no-start private-port forwarding used for health probes.
+    if (new URL(request.url).pathname === '/terminal' &&
+        request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+      return this.forwardExisting(request);
+    }
     const internal = dispatchInternalRoute(this.host, request);
     if (internal) return internal;
 
@@ -462,62 +654,18 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /**
-   * CONTAINER LIFECYCLE + KV STATUS CONTRACT
-   * (canonical reference - collectMetrics() and kv-keys.ts point here)
-   *
-   * KV `status` ('running' | 'stopped') is the single source of truth the
-   * dashboard reads (REQ-SESSION-010). Keeping it accurate is the job of these
-   * hooks. @cloudflare/containers v0.3.5 invokes them as follows:
-   *
-   *   onStart()            container is up -> write 'running'; (re)arm the
-   *                        collectMetrics alarm loop.
-   *   onStop(params)       GRACEFUL stop ONLY - reached via stop() / destroy()
-   *                        or the SDK's default onActivityExpired -> write
-   *                        'stopped'. (this._shutdownStartedAt is set only by
-   *                        destroy(), so onStop's shutdownElapsedMs is non-null
-   *                        ONLY for a user Stop/Delete; null for other stops.)
-   *   onError(error)       UNEXPECTED exit caught by the SDK container monitor:
-   *                        a process crash, a Worker code DEPLOY that resets the
-   *                        DO ("Durable Object reset because its code was
-   *                        updated") and rolls the running container, or
-   *                        Cloudflare reaping an idle container at the platform
-   *                        level. The SDK does NOT call onStop here, so without
-   *                        an exit-writes-stopped path the session would dangle
-   *                        'running' forever (codeflare#153). onError does NOT
-   *                        write 'stopped' directly, though: it ALSO fires on
-   *                        TRANSIENT errors where the container is actually alive
-   *                        (a deploy-roll the container survives, a brief monitor
-   *                        blip), and an immediate write there flips a live
-   *                        session to stopped and then sticks (REQ-SESSION-018
-   *                        AC3). A monitor `Network connection lost` first enters
-   *                        bounded DO reconstruction so a surviving container can
-   *                        be rediscovered. Other errors open the not-running
-   *                        confirmation window. Exhausted recovery returns a
-   *                        genuinely not-running container to that window; if the
-   *                        SDK instead leaves `running` stale at true, another
-   *                        complete probe failure writes `stopped`, requests
-   *                        `SIGTERM`, and retains non-billable retry ownership
-   *                        until both terminal operations succeed. Empirically
-   *                        onError is the COMMON way idle containers die: over a 96h prod sample
-   *                        onActivityExpired fired 0x and the idle-stop 3x, while
-   *                        onError fired on every unexpected exit (including a
-   *                        near-daily ~00:00 UTC platform reap and any deploy
-   *                        that lands while a session is live).
-   *   onActivityExpired()  SDK sleepAfter timer (pinned to 24h, see the
-   *                        `sleepAfter` field) -> default stop() -> onStop.
-   *                        Effectively never fires; collectMetrics owns idle.
-   *   destroy()            user Stop/Delete -> graceful SIGTERM -> onStop.
-   *
-   * There is NO legacy 30-minute (or any other) hard idle timeout anywhere -
-   * a recurring misconception. The only idle stops we own are collectMetrics'
-   * idle-stop at idleTimeoutPref (default 4h, logs "idle exceeded threshold")
-   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 4h safety net). A
-   * container can still vanish well before any of those via onError
-   * (deploy / platform reap), which is unrelated to any configured timeout.
+   * D1 is the shared lifecycle authority (REQ-SESSION-018). onStart projects
+   * the current generation and arms metrics; onStop/onError are SDK observations
+   * that may be synthetic or transient and cannot alone declare exit. The
+   * low-level process monitor resolves on exit and confirms only its captured
+   * generation. User Stop/Delete await destruction before confirming D1 stopped.
+   * Idle/quota stop signals are not exit proof. Bounded transport recovery
+   * preserves ownership if it cannot establish whether a process survived.
    */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
     await lifecycleOnStart(this.lifecycleHost);
+    await this.monitorExistingRuntime();
   }
 
   /**
@@ -548,6 +696,25 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async collectMetrics(): Promise<void> {
+    try {
+      if (await this.retryObservedExit()) return;
+      const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+      if (evidence && evidence.generation === await this.ctx.storage.get<number>('lifecycleGeneration')) {
+        await this.schedule(60, 'collectMetrics');
+        return;
+      }
+    } catch (error) {
+      this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
+      try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+        this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
+      }
+      return;
+    }
+    // A failed monitor attachment can be retried on a later healthy tick;
+    // neither its rejection nor a missing SDK running flag is exit evidence.
+    try { await this.monitorExistingRuntime(); } catch (error) {
+      this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+    }
     await lifecycleCollectMetrics(this.lifecycleHost);
   }
 
@@ -559,6 +726,159 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   override async destroy(): Promise<void> {
     await lifecycleDestroy(this.lifecycleHost);
+  }
+
+  /** Parent-only Enterprise session authority; never exported to container env vars. */
+  async bindReviewHuman(input: {
+    bucket: string; sessionId: string; generation: number;
+    human: VerifiedHumanAccessClaims; accessJwt: string;
+  } | null): Promise<void> {
+    await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input);
+  }
+
+  async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+    human: VerifiedHumanAccessClaims; accessJwt: string;
+  }> {
+    return openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+  }
+
+  /** Join Pi evidence and observed Git success in either arrival order, without starting work. */
+  async getReviewLifecycleGeneration(ref: { bucket: string; sessionId: string; email: string }): Promise<number> {
+    await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+    const generation = await this.ctx.storage.get<number>('lifecycleGeneration');
+    if (!Number.isSafeInteger(generation) || !generation || generation < 1) throw Error('Lifecycle unavailable');
+    return generation;
+  }
+
+  private async putReviewEvidence<T extends { generation: number }>(key: string, value: T): Promise<void> {
+    await this.ctx.storage.transaction(async txn => {
+      const [generation, shutdown] = await Promise.all([
+        txn.get<number>('lifecycleGeneration'), txn.get('shutdownRequested'),
+      ]);
+      if (generation !== value.generation || shutdown !== undefined) throw Error('Review lifecycle changed');
+      await txn.put(key, value);
+    });
+  }
+
+  async stageBoundaryInput(value: { sessionId: string; generation: number; input: BoundaryInput;
+    owner?: string; repository?: string; ref?: string }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+  } | null> {
+    if (!this._bucketName || !this._userEmail || value.sessionId !== this._sessionId) {
+      throw new Error('Boundary session unavailable');
+    }
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], {
+      bucket: this._bucketName, sessionId: value.sessionId, email: this._userEmail,
+    });
+    const input = parseBoundedBoundaryInput(value.input);
+    await this.putReviewEvidence('review:boundary-input', {
+      sessionId: value.sessionId, generation: value.generation, subject: authority.human.subject, input,
+      owner: value.owner, repository: value.repository, ref: value.ref,
+    });
+    return this.getReadyBoundary({ bucket: this._bucketName, sessionId: value.sessionId,
+      email: this._userEmail, generation: value.generation });
+  }
+
+  async stagePushEvidence(value: { sessionId: string; generation: number; owner: string; repository: string;
+    ref: string; head: string }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+  } | null> {
+    if (!this._bucketName || !this._userEmail || this._sessionId !== value.sessionId
+      || !/^[A-Za-z0-9_.-]+$/.test(value.owner) || !/^[A-Za-z0-9_.-]+$/.test(value.repository)
+      || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(value.ref) || !/^[a-f0-9]{40}$/i.test(value.head)) {
+      throw new Error('Invalid push evidence');
+    }
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], {
+      bucket: this._bucketName, sessionId: value.sessionId, email: this._userEmail,
+    });
+    await this.putReviewEvidence('review:push-evidence', { ...value, subject: authority.human.subject,
+      observedAt: Date.now() });
+    return this.getReadyBoundary({ bucket: this._bucketName, sessionId: value.sessionId,
+      email: this._userEmail, generation: value.generation });
+  }
+
+  async stagePrCreationEvidence(value: { sessionId: string; generation: number; pullRequest: number;
+    repositoryId: number; repositoryNodeId: string; pullRequestNodeId: string;
+    owner: string; repository: string; head: string;
+    headRefName: string; baseRefName: string }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+    creation?: { repositoryNodeId: string; pullRequestNodeId: string;
+      headRefName: string; baseRefName: string };
+  } | null> {
+    if (!this._bucketName || !this._userEmail || this._sessionId !== value.sessionId
+      || !Number.isSafeInteger(value.pullRequest) || value.pullRequest < 1
+      || !Number.isSafeInteger(value.repositoryId) || value.repositoryId < 1
+      || !/^[A-Za-z0-9_.-]+$/.test(value.owner) || !/^[A-Za-z0-9_.-]+$/.test(value.repository)
+      || !/^[a-f0-9]{40}$/i.test(value.head)
+      || !/^[A-Za-z0-9_=-]{1,256}$/.test(value.pullRequestNodeId)
+      || !/^[A-Za-z0-9_=-]{1,256}$/.test(value.repositoryNodeId)
+      || !/^[A-Za-z0-9._/-]{1,200}$/.test(value.headRefName)
+      || !/^[A-Za-z0-9._/-]{1,200}$/.test(value.baseRefName)) throw Error('Invalid PR creation evidence');
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], {
+      bucket: this._bucketName, sessionId: value.sessionId, email: this._userEmail,
+    });
+    await this.putReviewEvidence('review:pr-creation', { ...value, subject: authority.human.subject,
+      observedAt: Date.now() });
+    return this.getReadyBoundary({ bucket: this._bucketName, sessionId: value.sessionId,
+      email: this._userEmail, generation: value.generation });
+  }
+
+  async getReadyBoundary(ref: { bucket: string; sessionId: string; email: string; generation: number }): Promise<{
+    generation: number; input: BoundaryInput; push: { owner: string; repository: string; ref: string; head: string };
+    creation?: { repositoryNodeId: string; pullRequestNodeId: string;
+      headRefName: string; baseRefName: string };
+  } | null> {
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+    const current = await this.getReviewLifecycleGeneration(ref);
+    if (current !== ref.generation) return null;
+    const [staged, push, creation] = await Promise.all([
+      this.ctx.storage.get<{ sessionId: string; generation: number; subject: string; input: BoundaryInput;
+        owner?: string; repository?: string; ref?: string }>('review:boundary-input'),
+      this.ctx.storage.get<{ sessionId: string; generation: number; subject: string; owner: string; repository: string;
+        ref: string; head: string; observedAt: number }>('review:push-evidence'),
+      this.ctx.storage.get<{ sessionId: string; generation: number; subject: string; pullRequest: number;
+        repositoryId: number; repositoryNodeId: string; pullRequestNodeId: string;
+        owner: string; repository: string; head: string;
+        headRefName: string; baseRefName: string; observedAt: number }>('review:pr-creation'),
+    ]);
+    if (!staged || staged.sessionId !== ref.sessionId || staged.generation !== ref.generation
+      || staged.subject !== authority.human.subject) return null;
+    if (push && push.sessionId === ref.sessionId && push.generation === ref.generation
+      && push.subject === authority.human.subject
+      && push.head === staged.input.targetHead && Number.isFinite(push.observedAt)
+      && push.observedAt <= Date.now() && push.observedAt >= Date.now() - 5 * 60_000
+      && (!staged.owner || staged.owner.toLowerCase() === push.owner.toLowerCase())
+      && (!staged.repository || staged.repository.toLowerCase() === push.repository.toLowerCase())) {
+      return { generation: ref.generation, input: structuredClone(staged.input), push: {
+        owner: push.owner, repository: push.repository, ref: push.ref, head: push.head,
+      } };
+    }
+    if (creation && creation.sessionId === ref.sessionId && creation.generation === ref.generation
+      && creation.subject === authority.human.subject
+      && creation.pullRequest === staged.input.pullRequest
+      && creation.repositoryId === staged.input.repositoryId
+      && creation.head === staged.input.targetHead && Number.isFinite(creation.observedAt)
+      && creation.observedAt <= Date.now() && creation.observedAt >= Date.now() - 5 * 60_000
+      && staged.owner?.toLowerCase() === creation.owner.toLowerCase()
+      && staged.repository?.toLowerCase() === creation.repository.toLowerCase()
+      && staged.ref === `refs/heads/${creation.headRefName}`) {
+      return { generation: ref.generation, input: structuredClone(staged.input), push: {
+        owner: creation.owner, repository: creation.repository,
+        ref: staged.ref, head: creation.head,
+      }, creation: { repositoryNodeId: creation.repositoryNodeId,
+        pullRequestNodeId: creation.pullRequestNodeId,
+        headRefName: creation.headRefName, baseRefName: creation.baseRefName } };
+    }
+    return null;
+  }
+
+  async getBoundaryInput(ref: { bucket: string; sessionId: string; email: string }): Promise<BoundaryInput | null> {
+    const authority = await openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
+    const record = await this.ctx.storage.get<{
+      sessionId: string; subject: string; input: BoundaryInput;
+    }>('review:boundary-input');
+    return record?.sessionId === ref.sessionId && record.subject === authority.human.subject
+      ? structuredClone(record.input) : null;
   }
 
   /** Invoke the superclass destroy (SDK teardown). Used by container-lifecycle. */

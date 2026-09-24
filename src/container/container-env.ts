@@ -74,6 +74,8 @@ export interface ContainerEnvState {
   _gitCloneRef: string | null;
   /** Parent-persisted non-secret restrictions; presence selects the restricted startup lane. */
   _operatorContainerProfile?: OperatorContainerProfile;
+  _operatorPackageResources?: import('../operators/package-resources').OperatorPackageResourceProjection;
+  _operatorAttachments?: import('../operators/attachments').OperatorAttachmentProjection;
   /** REQ-GITHUB-015 AC4: encoded `repo[#ref]` list of every tracked repository. */
   _gitCloneTargets?: string | null;
 }
@@ -350,6 +352,12 @@ export function buildEnvVars(
     SYNC_MODE: !restrictedOperator && state._workspaceSyncEnabled ? 'full' : 'none',
     ...(operatorProfile && {
       CODEFLARE_OPERATOR_SESSION: 'true',
+      ...(state._operatorPackageResources && {
+        CODEFLARE_OPERATOR_PACKAGE_RESOURCES: JSON.stringify(state._operatorPackageResources),
+      }),
+      ...(state._operatorAttachments && {
+        CODEFLARE_OPERATOR_ATTACHMENTS: JSON.stringify(state._operatorAttachments),
+      }),
       CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1,
         activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
         root: `/home/user/.codeflare/operators/${operatorProfile.activityId}`,

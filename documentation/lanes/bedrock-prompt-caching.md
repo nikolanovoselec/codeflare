@@ -44,7 +44,7 @@ Cache writes are not cache reads, and thinking is already included in output tok
 
 In a later 2026-09-13 discovery incident, existing logs showed a 29,779-token Native cache write followed by provider refusal; no paired read was sent. The checkpoint was preserved. Discovery now reports the refusal/write/unattempted-read boundary without treating refused output as cache success or casting doubt on prior positive Native read evidence. An optional cache refusal does not erase independently completed tools/replay; fatal authentication, quota, server, framing, transport and timeout boundaries remain unchanged. The independent Dynamic MISS cause remains unresolved; diagnostic changes do not alter cache policy or guarantee future reuse.
 
-The locked `@earendil-works/pi-ai` 0.85.1 OpenAI parser subtracts reads and writes from total prompt tokens to recover uncached input. Missing or malformed optional cache counters remain absent; a provider-reported zero is preserved. The aggregate write counter includes all TTL buckets and must not be added to its own TTL breakdown again.
+The lock-installed `@earendil-works/pi-ai` OpenAI parser subtracts reads and writes from total prompt tokens to recover uncached input. Missing or malformed optional cache counters remain absent; a provider-reported zero is preserved. The aggregate write counter includes all TTL buckets and must not be added to its own TTL breakdown again.
 
 Invoke JSON, Invoke's synthesized SSE and Eventstream's terminal SSE use this one conversion. The accounting converter itself changes no request controls or transport selection. Pi's OpenAI parser does not separately price one-hour writes; do not claim exact mixed-TTL billing from the aggregate alone.
 
@@ -52,7 +52,7 @@ Invoke JSON, Invoke's synthesized SSE and Eventstream's terminal SSE use this on
 
 <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent -->
 
-The second change enables the already-existing Pi 0.85.1 OpenAI serializer's Anthropic cache format **only for eligible native Runtime handles**. It is a per-model capability, not a provider-wide switch. For nested v2 discovery evidence, every enabled selectable semantic mapping/operation needs positive same-target provider-prefix reads. Mixed profiles remain usable without the model-wide flag; their per-level cache facts remain visible. Gateway HIT, including replayed positive counters, cannot grant prefix permission. Historical authority retains its original rules. The Worker remains authoritative for provider binding, target model, region, reasoning profile and credentials, and rejects checkpoints without permission before inference.
+The second change enables the lock-installed Pi OpenAI serializer's Anthropic cache format **only for eligible native Runtime handles**. It is a per-model capability, not a provider-wide switch. For nested v2 discovery evidence, every enabled selectable semantic mapping/operation needs positive same-target provider-prefix reads. Mixed profiles remain usable without the model-wide flag; their per-level cache facts remain visible. Gateway HIT, including replayed positive counters, cannot grant prefix permission. Historical authority retains its original rules. The Worker remains authoritative for provider binding, target model, region, reasoning profile and credentials, and rejects checkpoints without permission before inference.
 
 | Boundary | Responsibility | Why it exists |
 | --- | --- | --- |
@@ -135,7 +135,7 @@ Run the relevant Vitest adapter/interceptor, native authority, lifecycle, contai
 
 The completed local run passed 577 tests across 14 relevant Vitest files, 20 real-entrypoint jq tests, TypeScript checking, and the offline locked-Pi check below. The cache-accounting regressions and eight encrypted-replay dispatch regressions were observed failing before their respective repairs. New tests hold upstream EOF open while requiring public text from the actual interceptor. This is bounded verification of the changed paths, not a claim that the entire repository or a deployed session was tested.
 
-For the locked client's serializer and parser, install the existing `@earendil-works/pi-ai@0.85.1` dependency in a temporary directory, then run:
+For the current locked client's serializer and parser, install `@earendil-works/pi-ai@0.87.1` in a temporary directory, then run:
 
 ```sh
 node scripts/verify-bedrock-pi-prompt-cache.mjs /path/to/@earendil-works/pi-ai
@@ -158,7 +158,7 @@ The native adapter streams Eventstream public text incrementally. At the inspect
 - [Cloudflare: Gateway response caching](https://developers.cloudflare.com/ai-gateway/features/caching/).
 - [Cloudflare: DLP response buffering](https://developers.cloudflare.com/ai-gateway/features/dlp/).
 - [Cloudflare: Dynamic Route `/compat` contract](https://developers.cloudflare.com/ai-gateway/features/dynamic-routing/usage/).
-- Pi accounting source: `package/dist/api/openai-completions.js::parseChunkUsage` in the [locked 0.85.1 package](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz), verified against `preseed/agents/pi/package-lock.json` integrity.
+- Pi accounting source: `package/dist/api/openai-completions.js::parseChunkUsage` in the [locked 0.87.1 package](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz), verified against `preseed/agents/pi/package-lock.json` integrity.
 
 Documentation accessed 2026-09-12. Regression fixtures are synthetic; they contain no live provider thinking or signatures.
 

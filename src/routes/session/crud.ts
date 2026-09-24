@@ -8,6 +8,7 @@ import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
 import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
 import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
+import { fencePendingBoundaryStart } from './boundary-stop';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
@@ -62,7 +63,7 @@ function toWorkspaceApiSession(session: Session | D1Session) {
     userId: session.ownerKey,
     createdAt: session.createdAt,
     lastAccessedAt: session.lastAccessedAt,
-    status: session.lifecycleState === 'running' ? 'running' : 'stopped',
+    status: session.lifecycleState,
     agentType: session.agentType,
     workspace: session.workspace,
     terminalMode: session.terminalMode,
@@ -252,6 +253,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
     ? session
     : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
   if (!claimed) throw new Error('Session delete ownership unavailable');
+  await fencePendingBoundaryStart(c.env, repository, claimed);
   const containerId = getContainerId(bucketName, sessionId);
   const container = getContainer(c.env.CONTAINER, containerId);
 
@@ -270,7 +272,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
     throw err;
   }
 
-  if (claimed.lifecycleState !== 'stopped' && !await repository.confirmStopped(
+  if (claimed.lifecycleState !== 'stopped' && !await repository.confirmStoppedOrObserved(
     bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString(),
   )) throw new Error('Confirmed exit could not be persisted');
   if (!await repository.deleteConfirmed(bucketName, sessionId)) throw new Error('Session exit is not confirmed');

@@ -395,20 +395,23 @@ ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
 COPY image/oxlint/package.json image/oxlint/package-lock.json /opt/codeflare/oxlint/
-COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
+COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh /opt/codeflare/scripts/
 RUN cd /opt/codeflare/oxlint && \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
     node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
     [ -e node_modules/.bin/oxlint ] && \
     ln -sf "$(readlink -f node_modules/.bin/oxlint)" /usr/local/bin/oxlint && \
     oxlint --version
+# npm ci already installs the locked production tree for the full agent selection.
+# For reduced selections, remove omitted agent roots without re-resolving the
+# already integrity-checked tree; npm prune fails on the Pi-only image.
 RUN cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
     cp package.json /tmp/npm-tools-package.json && \
     cp package-lock.json /tmp/npm-tools-package-lock.json && \
     node /opt/codeflare/scripts/coding-agent-selection.mjs select-manifest "$CODEFLARE_CODING_AGENTS" package.json && \
-    npm prune --omit=dev --ignore-scripts --no-audit --no-fund && \
+    sh /opt/codeflare/scripts/prune-selected-npm-tools.sh /tmp/npm-tools-package.json package.json "$CODEFLARE_CODING_AGENTS" && \
     mv /tmp/npm-tools-package.json package.json && \
     mv /tmp/npm-tools-package-lock.json package-lock.json && \
     for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp; do \
@@ -852,6 +855,7 @@ COPY host/package.json /app/host/
 
 # Copy entrypoint script and its phase-oriented Vault compaction helper.
 COPY entrypoint.sh /entrypoint.sh
+COPY --chmod=0555 scripts/restore-operator-attachments.mjs /opt/codeflare/scripts/restore-operator-attachments.mjs
 COPY transcript-retention.mjs /transcript-retention.mjs
 COPY --chmod=0755 scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs
 COPY --chmod=0555 preseed/agents/pi/scripts/merge-vault-graph.py /opt/codeflare/scripts/merge-vault-graph.py

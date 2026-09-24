@@ -8,6 +8,7 @@
 export const NODE_SUITE_FILES = [
   // Isolated Wrangler/workerd fixture verifies the real Worker Loader boundary.
   'src/__tests__/operators/loader-runtime.test.ts',
+  'src/__tests__/operators/loader-flue.test.ts',
   // Phase-1 regression fence for canonical local-review packet bytes.
   'src/__tests__/operators/legacy-review-unchanged.test.ts',
   // CI gate scripts: spawned as subprocesses against temp trees.
@@ -38,3 +39,13 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/vault-browser-bundle.test.ts',
   'src/__tests__/lib/vault-manifest-detection.test.ts',
 ];
+
+// Both real Wrangler/workerd fixtures get independent process boundaries.
+// Ordinary filesystem tests cannot obscure a native hang.
+export function nodeSuiteFiles(group = 'all') {
+  if (group === 'all') return NODE_SUITE_FILES;
+  if (group === 'native') return ['src/__tests__/operators/loader-runtime.test.ts'];
+  if (group === 'flue') return ['src/__tests__/operators/loader-flue.test.ts'];
+  if (group === 'rest') return NODE_SUITE_FILES.filter(file => !nodeSuiteFiles('native').includes(file) && !nodeSuiteFiles('flue').includes(file));
+  throw new Error(`Unsupported Node test group: ${group}`);
+}

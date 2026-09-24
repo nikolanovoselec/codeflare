@@ -647,23 +647,24 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-020: WS-upgrade rate-limit short-circuits
 
-**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Persisted Container SDK state and current readiness—not eventually-consistent KV status—drive pre-rate-limit close codes, and the container forward is time-bounded so a hung or unreachable container fails fast instead of leaving the client connecting for tens of seconds.
+**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Owner-scoped D1 lifecycle alone confirms a stop; Container SDK state and current readiness gate retryable transport before rate limiting. The container forward is time-bounded so a hung or unreachable container fails fast instead of leaving the client connecting for tens of seconds.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Persisted Container SDK states `stopping`, `stopped`, and `stopped_with_code` return container-stopped close code 4503 before the WS rate-limit check. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns 4503 without rate-limit use for Container state %s) -->
-2. A stale KV `stopped` value cannot reject a running or healthy persisted Container state. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (forwards stale-KV stopped when persisted Container state is healthy) -->
+1. A verified surviving workload after coordinator reconstruction forwards through no-start despite a transient SDK stopped flag, following authenticated owner-scoped D1 authorization. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting) -->
+2. Owner-scoped D1 `stopping` or `stopped` produces definitive 4503 before any SDK probe, container forward, or WS rate-limit use, even if the SDK would report healthy. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC3 / REQ-SEC-020 AC2: D1 %s closes 4503 without probing a healthy SDK container) -->
 3. A running or healthy container whose terminal service is not ready returns retryable close code 1013 before rate limiting and forwarding. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns 1013 close without burning rate-limit when /health reports terminalServiceReady=false) -->
-4. Unavailable persisted state or failed readiness returns retryable close code 1013 before rate limiting and forwarding. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without rate-limit use when Container state is unavailable) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without forwarding or rate-limit use when /health fails) -->
+4. A failed no-start health verification returns retryable 1013 without forwarding the WebSocket or consuming its rate-limit budget. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/container-helpers.ts::safeCheckContainerHealth --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without rate-limit use when the existing runtime is unavailable) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC2 / REQ-SEC-020 AC4: D1 %s remains retryable despite transient SDK stop) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without forwarding or rate-limit use when /health fails) -->
 5. A healthy container's WebSocket forward answers or fails within ten seconds. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/constants.ts::CONTAINER_WS_FORWARD_TIMEOUT_MS --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (fast-fails with a 101 close (not an indefinite hang) when the container WS forward never answers) -->
 6. Terminal-ID authorization runs only after authentication and persisted session lookup: classic permits IDs `1` through `6`, Herdr permits only `1`, and missing/invalid mode resolves classic. <!-- @impl: src/routes/terminal.ts::isTerminalIdAllowed --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (mode-aware terminal authorization) -->
+7. A D1 read failure cannot invent a definitive stopped close. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (D1 read outage does not invent an authoritative stopped close) -->
 
 **Constraints:**
 
-- The order is load-bearing: persisted-state and readiness short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up; the forward timeout (AC5) runs after the rate-limit check at the forward step.
-- Reading persisted Container SDK state must not start or wake the container.
+- Authenticate and check owner-scoped D1 before the no-start probe, verify survival before rate limiting, and bound the forward.
+- Reading persisted Container SDK state must not start or wake the container; SDK state alone cannot veto verified survival or authorize a definitive stop.
 
 **Priority:** P0
 

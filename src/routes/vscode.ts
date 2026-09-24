@@ -31,7 +31,7 @@ import {
   WS_RATE_LIMIT_TTL_SECONDS,
 } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
-import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
+import { getContainerId, safeCheckContainerHealth, forwardExisting } from '../lib/container-helpers';
 import { createLogger } from '../lib/logger';
 import { toError, toErrorMessage } from '../lib/error-types';
 import { checkVaultOrigin, authenticateVaultRequest, assertActiveTier } from './vault/auth';
@@ -280,7 +280,7 @@ export async function handleVscodeRequest(
     // independently compares it with the canonical external Host; synthesizing
     // a same-origin value here would neutralize that defense-in-depth check.
     if (!request.headers.has('Origin')) forwardedRequest.headers.delete('Origin');
-    const response = await container.fetch(forwardedRequest);
+    const response = await forwardExisting(container, forwardedRequest);
 
     // Successful proxy traffic proves this editor is ready. Fresh-read after
     // the container response so this activity write cannot restore a stale

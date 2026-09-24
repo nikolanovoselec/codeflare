@@ -32,6 +32,14 @@ import { getValidGithubToken } from './lib/github-token';
 import { decideOperatorGithub } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
+import { requireOperatorHumanContext } from './lib/access';
+import { parseBoundedBoundaryInput } from './operators/boundary-input';
+import { getContainerId } from './lib/container-helpers';
+import { createReviewPushObserver } from './operators/review-git-protocol';
+import { readBoundedResponse } from './lib/bounded-stream';
+import { prepareVerifiedBoundary, selectVerifiedBoundaryAction,
+  type ReadyBoundary } from './operators/review-boundary-preparation';
+import type { BoundaryInput } from './operators/boundary-input';
 
 /** Pinned default GitHub REST API version (set only when the client didn't pin one). */
 const GITHUB_API_VERSION = '2022-11-28';
@@ -66,7 +74,11 @@ export function interceptedGithubHosts(env: Env): string[] {
  * credential is stamped fresh below. host/content-length are recomputed by the
  * runtime for the rebuilt request.
  */
-const STRIPPED_REQUEST_HEADERS: readonly string[] = ['authorization', 'x-api-key', 'host', 'content-length'];
+const STRIPPED_REQUEST_HEADERS: readonly string[] = [
+  'authorization', 'x-api-key', 'host', 'content-length',
+  'cf-access-jwt-assertion', 'x-codeflare-operator-boundary-input',
+  'x-codeflare-operator-boundary-select',
+];
 
 /**
  * Response headers stripped before the upstream response re-enters the container.
@@ -86,6 +98,21 @@ const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
 ];
 
 /** Per-session props attached when the DO instantiates this entrypoint. */
+interface BoundarySession {
+  getReviewLifecycleGeneration(ref: { bucket: string; sessionId: string; email: string }): Promise<number>;
+  openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+    human: Awaited<ReturnType<typeof requireOperatorHumanContext>>['human']; accessJwt: string;
+  }>;
+  stageBoundaryInput(value: { sessionId: string; generation: number; input: BoundaryInput;
+    owner?: string; repository?: string; ref?: string }): Promise<ReadyBoundary | null>;
+  stagePrCreationEvidence(value: { sessionId: string; generation: number; pullRequest: number;
+    repositoryId: number; repositoryNodeId: string; pullRequestNodeId: string;
+    owner: string; repository: string; head: string;
+    headRefName: string; baseRefName: string }): Promise<ReadyBoundary | null>;
+  stagePushEvidence(value: { sessionId: string; generation: number; owner: string; repository: string; ref: string;
+    head: string }): Promise<ReadyBoundary | null>;
+}
+
 interface GithubInterceptorProps {
   /** The user's email — for the per-user audit line; never used to resolve the token. */
   user: string;
@@ -103,6 +130,42 @@ interface GithubInterceptorProps {
   operatorPolicy?: OperatorPolicy;
   jwtStamping?: JwtStampingPolicy;
   jwtAuthority?: JwtStampingAuthority;
+  /** Parent-bound ordinary Enterprise session reference, never human credentials. */
+  sessionId?: string;
+  /** Pinned at container interception wiring from the D1 lifecycle owner. */
+  lifecycleGeneration?: number;
+}
+
+function observeBoundedMetadata(source: ReadableStream<Uint8Array>,
+  completed: (bytes: Uint8Array | null) => void): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let valid = true;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          if (valid) {
+            const bytes = new Uint8Array(size);
+            let offset = 0;
+            for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+            completed(bytes);
+          } else completed(null);
+          controller.close();
+          return;
+        }
+        if (valid) {
+          size += next.value.byteLength;
+          if (size > 64 * 1024) { valid = false; chunks.length = 0; }
+          else chunks.push(next.value.slice());
+        }
+        controller.enqueue(next.value);
+      } catch (error) { completed(null); controller.error(error); }
+    },
+    async cancel(reason) { completed(null); await reader.cancel(reason); },
+  });
 }
 
 function jsonError(status: number, code: string, error: string): Response {
@@ -188,13 +251,55 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       `GitHubInterceptor: injected credential user=${props?.user ?? 'unknown'} ${request.method} ${url.hostname}${url.pathname}`,
     );
 
-    // Stream the request body through unbuffered (git packfile uploads can be large);
-    // GET/HEAD carry none. No timeout: a clone/fetch may legitimately run long.
+    // Attach both observers inline; the packfile still streams with backpressure.
+    // Positive status is evidence only after the forwarded response completes.
+    const pushPath = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.git\/git-receive-pack$/.exec(url.pathname);
+    const prRead = /^\/repos\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pulls\/([1-9][0-9]*)$/.exec(url.pathname);
+    const submitted = request.headers.get('x-codeflare-operator-boundary-input');
+    const watching = this.env.ENTERPRISE_MODE === 'active' && !props?.operatorPolicy && props?.sessionId
+      && ((request.method === 'POST' && url.hostname === gitWebHost(this.env) && pushPath)
+        || (request.method === 'POST' && url.hostname === apiHost && url.pathname === '/graphql')
+        || (request.method === 'GET' && url.hostname === apiHost && prRead && submitted));
+    const boundarySession = watching
+      ? (this.env.CONTAINER.getByName(getContainerId(bucket, props.sessionId!)) as unknown as BoundarySession)
+      : null;
+    const pinnedGeneration = props?.lifecycleGeneration;
+    const boundaryGeneration = boundarySession && Number.isSafeInteger(pinnedGeneration)
+      && pinnedGeneration! > 0 && await boundarySession.getReviewLifecycleGeneration({
+        bucket, sessionId: props!.sessionId!, email: props!.user,
+      }).catch(() => null) === pinnedGeneration ? pinnedGeneration : null;
+    const observedPush = boundaryGeneration && pushPath && request.body
+      && request.method === 'POST' && url.hostname === gitWebHost(this.env)
+      ? createReviewPushObserver() : null;
+    const observedCreation = boundaryGeneration && url.hostname === apiHost && url.pathname === '/graphql'
+      && request.method === 'POST' && request.body;
+    let creationRequest: { repositoryNodeId: string; headRefName: string; baseRefName: string } | null = null;
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    const upload = observedPush ? observedPush.wrapUpload(request.body!)
+      : observedCreation ? observeBoundedMetadata(request.body!, bytes => {
+        if (!bytes) return;
+        try {
+          const payload = JSON.parse(new TextDecoder().decode(bytes)) as {
+            query?: unknown; variables?: { input?: { repositoryId?: unknown; headRefName?: unknown;
+              baseRefName?: unknown } };
+          };
+          // An exact supported mutation, not comments, aliases or a self-reported result.
+          const query = payload?.query;
+          const input = payload?.variables?.input;
+          const supported = typeof query === 'string' && /^\s*mutation\s+PullRequestCreate\s*\(\s*\$input:\s*CreatePullRequestInput!\s*\)\s*\{\s*createPullRequest\s*\(\s*input:\s*\$input\s*\)\s*\{\s*pullRequest\s*\{\s*id\s+url\s*\}\s*\}\s*\}\s*$/.test(query);
+          if (supported && typeof input?.repositoryId === 'string'
+            && /^[A-Za-z0-9_=-]{1,256}$/.test(input.repositoryId)
+            && typeof input.headRefName === 'string' && /^[A-Za-z0-9._/-]{1,200}$/.test(input.headRefName)
+            && typeof input.baseRefName === 'string' && /^[A-Za-z0-9._/-]{1,200}$/.test(input.baseRefName)) {
+            creationRequest = { repositoryNodeId: input.repositoryId,
+              headRefName: input.headRefName, baseRefName: input.baseRefName };
+          }
+        } catch { /* An ambiguous mutation cannot supply creation evidence. */ }
+      }) : request.body;
     let forward = new Request(url.toString(), {
       method: request.method,
       headers,
-      body: hasBody ? request.body : undefined,
+      body: hasBody ? upload : undefined,
       // Do not transparently follow redirects to an arbitrary Location host;
       // surface the 3xx to the agent's client instead.
       redirect: 'manual',
@@ -207,15 +312,192 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     try {
       upstream = await send(forward);
     } catch (err) {
+      observedPush?.abort();
       console.error('GitHubInterceptor: upstream fetch failed', {
         error: err instanceof Error ? err.message : String(err),
       });
       return jsonError(502, 'GITHUB_FETCH_FAILED', 'Failed to reach GitHub');
     }
 
+    // A bounded session-bound Pi evidence submission rides only a successful
+    // matching PR metadata read. Never forward its header or treat it as authority.
+    let body = upstream.body;
+    if (observedPush) {
+      if (upstream.status === 200 && body
+        && upstream.headers.get('content-type')?.startsWith('application/x-git-receive-pack-result')) {
+        body = observedPush.wrapDownload(body);
+        const sessionId = props!.sessionId!;
+        const owner = pushPath![1], repository = pushPath![2];
+        this.ctx.waitUntil(observedPush.result.then(async update => {
+          if (!update) return;
+          try {
+            const session = this.env.CONTAINER.getByName(getContainerId(bucket, sessionId)) as unknown as BoundarySession;
+            const ready = await session.stagePushEvidence({ sessionId, generation: boundaryGeneration!,
+              owner, repository, ...update });
+            if (ready) await prepare(ready, session, sessionId, boundaryGeneration!);
+          } catch { /* No authorization or uncertain I/O never prepares. */ }
+        }));
+      } else observedPush.abort();
+    }
+    const api = (path: string) => send(new Request(`https://${apiHost}${path}`, {
+      headers: { authorization: `Bearer ${token}`, 'x-github-api-version': GITHUB_API_VERSION },
+      redirect: 'manual', signal: AbortSignal.timeout(3_000),
+    }));
+    const apiJson = async (path: string): Promise<unknown> => {
+      const response = await api(path);
+      if (response.status !== 200) throw Error('GitHub PR creation context unavailable');
+      return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+        await readBoundedResponse(response, 128 * 1024, 'GitHub creation metadata'))) as unknown;
+    };
+    const prepare = async (ready: ReadyBoundary, session: BoundarySession, sessionId: string, generation: number) => {
+      const ref = { bucket, sessionId, email: props!.user };
+      if (ready.generation !== generation || await session.getReviewLifecycleGeneration(ref) !== generation) {
+        throw Error('Review lifecycle changed');
+      }
+      const sealed = await session.openReviewHuman(ref);
+      const authority = await requireOperatorHumanContext(new Request(url, {
+        headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+      }), this.env, props!.user);
+      if (authority.human.subject !== sealed.human.subject) throw Error('Session human changed');
+      await prepareVerifiedBoundary(ready, authority, this.env, api, { bucket, sessionId },
+        async () => { if (await session.getReviewLifecycleGeneration(ref) !== generation) {
+          throw Error('Review lifecycle changed');
+        } });
+    };
+    if (body && observedCreation && upstream.status === 200) {
+      const sessionId = props!.sessionId!;
+      body = observeBoundedMetadata(body, metadataBytes => {
+        if (!metadataBytes || !creationRequest) return;
+        this.ctx.waitUntil((async () => {
+          try {
+            const metadata = JSON.parse(new TextDecoder().decode(metadataBytes)) as {
+              errors?: unknown; data?: { createPullRequest?: { pullRequest?: { id?: unknown; url?: unknown } } };
+            };
+            if (metadata.errors !== undefined) return;
+            const created = metadata.data?.createPullRequest?.pullRequest;
+            if (typeof created?.id !== 'string' || !/^[A-Za-z0-9_=-]{1,256}$/.test(created.id)
+              || typeof created.url !== 'string') return;
+            const createdUrl = new URL(created.url);
+            const path = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)$/.exec(createdUrl.pathname);
+            if (!path || createdUrl.protocol !== 'https:' || createdUrl.host !== gitWebHost(this.env)
+              || createdUrl.username || createdUrl.password || createdUrl.search || createdUrl.hash) return;
+            const [, owner, repository, number] = path;
+            const pullRequest = Number(number);
+            if (!Number.isSafeInteger(pullRequest)) return;
+            const root = `/repos/${owner}/${repository}`;
+            const [repo, pr] = await Promise.all([
+              apiJson(root) as Promise<{ id?: unknown; node_id?: unknown; full_name?: unknown }>,
+              apiJson(`${root}/pulls/${pullRequest}`) as Promise<{ number?: unknown; node_id?: unknown;
+                state?: unknown; head?: { sha?: unknown; ref?: unknown; repo?: { id?: unknown } };
+                base?: { ref?: unknown; repo?: { id?: unknown } } }>,
+            ]);
+            if (!Number.isSafeInteger(repo?.id) || (repo.id as number) < 1
+              || repo.node_id !== creationRequest!.repositoryNodeId
+              || typeof repo.full_name !== 'string'
+              || repo.full_name.toLowerCase() !== `${owner}/${repository}`.toLowerCase()
+              || pr?.number !== pullRequest || pr.node_id !== created.id || pr.state !== 'open'
+              || pr.head?.ref !== creationRequest!.headRefName
+              || pr.base?.ref !== creationRequest!.baseRefName
+              || pr.head?.repo?.id !== repo.id || pr.base?.repo?.id !== repo.id
+              || typeof pr.head?.sha !== 'string' || !/^[a-f0-9]{40}$/i.test(pr.head.sha)) return;
+            const session = this.env.CONTAINER.getByName(getContainerId(bucket, sessionId)) as unknown as BoundarySession;
+            const ready = await session.stagePrCreationEvidence({ sessionId, generation: boundaryGeneration!,
+              pullRequest, repositoryId: repo.id as number, repositoryNodeId: creationRequest!.repositoryNodeId,
+              pullRequestNodeId: created.id, owner, repository, head: pr.head.sha,
+              headRefName: creationRequest!.headRefName, baseRefName: creationRequest!.baseRefName });
+            if (ready) await prepare(ready, session, sessionId, boundaryGeneration!);
+          } catch { /* Ambiguous PR creation never prepares work. */ }
+        })());
+      });
+    }
+    const selectionMode = request.headers.get('x-codeflare-operator-boundary-select');
+    const selectionRequested = selectionMode === '1' || selectionMode === 'check';
+    let selection: 'local' | 'remote' | 'unavailable' | null = selectionRequested ? 'unavailable' : null;
+    let selectionConsumed = false;
+    if (selectionRequested && body && upstream.status === 200 && submitted
+      && submitted.length <= 16_000 && boundaryGeneration && prRead && props?.sessionId
+      && request.method === 'GET' && url.hostname === apiHost && !props.operatorPolicy) {
+      try {
+        const input = parseBoundedBoundaryInput(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+          Uint8Array.from(atob(submitted), char => char.charCodeAt(0)))) as unknown);
+        if (input.pullRequest !== Number(prRead[3])) throw Error('PR does not match');
+        selectionConsumed = true;
+        const metadataBytes = await readBoundedResponse(upstream, 128 * 1024, 'PR boundary response');
+        body = new Response(metadataBytes).body;
+        const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(metadataBytes)) as {
+          number?: number; head?: { sha?: string; ref?: string };
+        };
+        if (metadata.number !== input.pullRequest || metadata.head?.sha !== input.targetHead
+          || !metadata.head.ref || !/^[A-Za-z0-9._/-]+$/.test(metadata.head.ref)) throw Error('PR moved');
+        const sessionId = props.sessionId;
+        const session = boundarySession!;
+        const ref = { bucket, sessionId, email: props.user };
+        if (await session.getReviewLifecycleGeneration(ref) !== boundaryGeneration) throw Error('Session moved');
+        const sealed = await session.openReviewHuman(ref);
+        const authority = await requireOperatorHumanContext(new Request(url, {
+          headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+        }), this.env, props.user);
+        if (authority.human.subject !== sealed.human.subject) throw Error('Human changed');
+        selection = await selectVerifiedBoundaryAction(this.env, authority.human, {
+          owner: prRead[1], repository: prRead[2], repositoryId: input.repositoryId,
+        }, api);
+        if (selection === 'remote' && selectionMode === '1') {
+          const ready = await session.stageBoundaryInput({ sessionId, generation: boundaryGeneration,
+            input, owner: prRead[1], repository: prRead[2], ref: `refs/heads/${metadata.head.ref}` });
+          if (ready) {
+            try { await prepare(ready, session, sessionId, boundaryGeneration); }
+            catch { /* Remote remains exclusive even when preparation is uncertain. */ }
+          }
+        }
+      } catch {
+        selection = 'unavailable';
+        if (selectionConsumed && body === upstream.body) {
+          return jsonError(502, 'BOUNDARY_RESPONSE_UNAVAILABLE', 'PR boundary response could not be verified');
+        }
+      }
+    }
+    if (body && !selectionRequested && submitted && submitted.length <= 16_000 && boundaryGeneration && !props?.operatorPolicy && props?.sessionId
+      && this.env.ENTERPRISE_MODE === 'active' && url.hostname === apiHost && request.method === 'GET'
+      && prRead && upstream.status === 200) {
+      try {
+        const bytes = Uint8Array.from(atob(submitted), char => char.charCodeAt(0));
+        const input = parseBoundedBoundaryInput(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
+        if (input.pullRequest !== Number(prRead[3])) throw Error('Wrong PR');
+        const sessionId = props.sessionId;
+        body = observeBoundedMetadata(body, metadataBytes => {
+          if (!metadataBytes) return;
+          this.ctx.waitUntil((async () => {
+            try {
+              const metadata = JSON.parse(new TextDecoder().decode(metadataBytes)) as {
+                number?: number; head?: { sha?: string; ref?: string };
+              };
+              if (metadata.number !== input.pullRequest || metadata.head?.sha !== input.targetHead) return;
+              const session = this.env.CONTAINER.getByName(getContainerId(bucket, sessionId)) as unknown as BoundarySession;
+              const sealed = await session.openReviewHuman({ bucket, sessionId, email: props.user });
+              await requireOperatorHumanContext(new Request(url, { headers: { 'cf-access-jwt-assertion': sealed.accessJwt } }),
+                this.env, props.user);
+              const headRef = metadata.head?.ref;
+              const ready = await session.stageBoundaryInput({ sessionId, generation: boundaryGeneration, input,
+                owner: prRead[1], repository: prRead[2],
+                ...(headRef && /^[A-Za-z0-9._/-]+$/.test(headRef)
+                  ? { ref: `refs/heads/${headRef}` } : {}),
+              });
+              if (ready) await prepare(ready, session, sessionId, boundaryGeneration);
+            } catch { /* Optional staging cannot break GitHub reads. */ }
+          })());
+        });
+      } catch { /* Invalid evidence is never forwarded or staged. */ }
+    }
+
     // Stream the response back without buffering; strip hop-by-hop + cookie headers.
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
-    return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+    responseHeaders.delete('x-codeflare-operator-boundary-selection');
+    if (selection) responseHeaders.set('x-codeflare-operator-boundary-selection', selection);
+    if (selectionConsumed) {
+      responseHeaders.delete('content-length');
+      responseHeaders.delete('content-encoding');
+    }
+    return new Response(body, { status: upstream.status, headers: responseHeaders });
   }
 }

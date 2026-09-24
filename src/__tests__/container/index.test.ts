@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
@@ -131,9 +133,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockContainerRuntime = {
       running: true,
       getTcpPort: vi.fn().mockReturnValue({ fetch: mockTcpPortFetch }),
-      start: vi.fn(),
+      start: vi.fn(() => { throw new Error('unexpected container start'); }),
       destroy: vi.fn(),
-      monitor: vi.fn(),
+      monitor: vi.fn(() => new Promise<void>(() => {})),
       signal: vi.fn(),
     };
     mockCtx = {
@@ -149,6 +151,60 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       R2_SECRET_ACCESS_KEY: 'test-secret',
       KV: {},
     };
+  });
+
+  describe('REQ-OPERATOR-053: session-owned PR boundary join', () => {
+    it('joins push and Pi input in either order, and refuses a delayed previous lifecycle', async () => {
+      const records = new Map<string, unknown>([
+        ['lifecycleGeneration', 1], ['bucketName', 'review-owner'],
+        ['_sessionId', 'review1234'], ['userEmail', 'owner@example.test'],
+      ]);
+      mockStorage.get.mockImplementation(async (key: string) => records.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { records.set(key, value); });
+      mockStorage.delete.mockImplementation(async (key: string) => { records.delete(key); });
+      mockStorage.transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+        get: (key: string) => Promise.resolve(records.get(key)),
+        put: async (key: string, value: unknown) => { records.set(key, value); },
+        delete: async (key: string) => { records.delete(key); },
+      }));
+      mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)?.value;
+      const human = { subject: 'owner', email: 'owner@example.test',
+        issuer: 'https://team.cloudflareaccess.com', audiences: ['aud'],
+        issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.floor(Date.now() / 1000) + 300 };
+      await instance.bindReviewHuman({ bucket: 'review-owner', sessionId: 'review1234', generation: 1,
+        human, accessJwt: 'private.jwt' });
+      const input = { repositoryId: 138, pullRequest: 34, acknowledgedHead: null,
+        targetHead: 'a'.repeat(40), payload: { rejectedFindings: [] } };
+      const push = { sessionId: 'review1234', generation: 1, owner: 'owner', repository: 'repo',
+        ref: 'refs/heads/feature', head: input.targetHead };
+      const staged = { sessionId: 'review1234', generation: 1, input,
+        owner: 'owner', repository: 'repo', ref: 'refs/heads/feature' };
+      const observed = { owner: push.owner, repository: push.repository, ref: push.ref, head: push.head };
+      expect(await instance.stageBoundaryInput(staged)).toBeNull();
+      expect(await instance.stagePushEvidence(push)).toMatchObject({ generation: 1, input, push: observed });
+      records.delete('review:boundary-input');
+      records.delete('review:push-evidence');
+      expect(await instance.stagePushEvidence(push)).toBeNull();
+      expect(await instance.stageBoundaryInput(staged)).toMatchObject({ generation: 1, input, push: observed });
+      records.delete('review:push-evidence');
+      const creation = { sessionId: 'review1234', generation: 1, pullRequest: 34,
+        repositoryId: 138, repositoryNodeId: 'R_node_138', pullRequestNodeId: 'PR_node_34',
+        owner: 'owner', repository: 'repo', headRefName: 'feature', baseRefName: 'main' };
+      expect(await instance.stagePrCreationEvidence({ ...creation, head: 'f'.repeat(40) })).toBeNull();
+      expect(await instance.stagePrCreationEvidence({ ...creation, head: input.targetHead }))
+        .toMatchObject({ input, creation: { repositoryNodeId: 'R_node_138', pullRequestNodeId: 'PR_node_34' } });
+      expect(await instance.stageBoundaryInput({ ...staged, repository: 'other-repo' })).toBeNull();
+      expect(await instance.stageBoundaryInput(staged)).toMatchObject({ generation: 1, input, push: observed });
+      records.set('shutdownRequested', Date.now());
+      await expect(instance.stagePushEvidence(push)).rejects.toThrow();
+      records.delete('shutdownRequested');
+      records.set('lifecycleGeneration', 2);
+      await expect(instance.stagePushEvidence(push)).rejects.toThrow();
+      await expect(instance.getReadyBoundary({ bucket: 'review-owner', sessionId: 'review1234',
+        email: human.email, generation: 1 })).rejects.toThrow();
+    });
   });
 
   describe('constructor', () => {
@@ -667,6 +723,279 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
   });
 
+  describe('REQ-SESSION-012 AC1/AC4: forwardExisting never starts a replacement workload', () => {
+    it('forwards to the surviving runtime with its existing auth token despite stale persisted SDK state', async () => {
+      const token = 'existing-container-token';
+      const persisted = new Map<string, unknown>([['containerAuthToken', token], ['lifecycleGeneration', 7]]);
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      mockTcpPortFetch.mockImplementation(async (forwarded: Request) => {
+        const url = new URL(forwarded.url);
+        if (url.protocol !== 'http:') throw new Error('Container port does not support HTTPS');
+        return url.hostname === 'container' && url.pathname === '/api/terminal/testsession123-1/ws'
+          && url.search === '?tab=1' && forwarded.headers.get('Upgrade') === 'websocket'
+          && forwarded.headers.get('Authorization') === `Bearer ${token}`
+          ? new Response('surviving terminal', { status: 200 })
+          : new Response('Unauthorized forwarding', { status: 401 });
+      });
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; throw new Error('unexpected container start'); });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance._containerAuthToken).toBe(token));
+      const request = new Request('https://enterprise.codeflare.ch/api/terminal/testsession123-1/ws?tab=1', {
+        headers: { Upgrade: 'websocket', Authorization: 'Bearer forged' },
+      });
+      const response = await (instance as any).forwardExisting(request);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('surviving terminal');
+      expect(mockContainerRuntime.running).toBe(true);
+      expect(started).toBe(false);
+      expect(persisted.get('lifecycleGeneration')).toBe(7);
+    });
+
+    it('native terminal upgrade fails closed when the existing runtime is absent', async () => {
+      mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
+      mockTcpPortFetch.mockRejectedValue(new Error('no existing process'));
+      mockContainerRuntime.start.mockImplementation(() => { mockContainerRuntime.running = true; });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const response = await instance.fetch(new Request('https://example.com/terminal', {
+        headers: { Upgrade: 'websocket' },
+      }));
+      expect(response.status).toBe(503);
+      expect(mockContainerRuntime.running).toBe(false);
+    });
+
+    it('reaches a surviving process when the coordinator running flag is transiently false', async () => {
+      mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
+      mockTcpPortFetch.mockResolvedValue(new Response('healthy survivor', { status: 200 }));
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; throw new Error('unexpected container start'); });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const response = await instance.forwardExisting(new Request('http://container/health'));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('healthy survivor');
+      expect(started).toBe(false);
+    });
+
+    it('returns unavailable when no runtime exists and does not allocate a replacement generation', async () => {
+      mockContainerRuntime.running = false;
+      const persisted = new Map<string, unknown>([['containerAuthToken', 'existing-token'], ['lifecycleGeneration', 7]]);
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      mockTcpPortFetch.mockRejectedValue(new Error('no existing process'));
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; throw new Error('unexpected container start'); });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const response = await (instance as any).forwardExisting(new Request('http://container/health'));
+      expect(response.status).toBe(503);
+      expect(started).toBe(false);
+      expect(persisted.get('lifecycleGeneration')).toBe(7);
+    });
+  });
+
+  describe('REQ-SESSION-018 AC7: only a resolved process monitor confirms its captured generation', () => {
+    const owner = 'test-bucket';
+    const sessionId = 'abcdef1234567890';
+
+    async function attachedMonitor(generation: number, sdkRunning = true) {
+      const kv = createMockKV();
+      const key = `session:${owner}:${sessionId}`;
+      kv._set(key, {
+        id: sessionId, userId: owner, status: 'running', lifecycleGeneration: generation,
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const persisted = new Map<string, unknown>([
+        ['bucketName', owner], ['_sessionId', sessionId], ['lifecycleGeneration', generation],
+        ['containerAuthToken', 'existing-token'],
+      ]);
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      mockStorage.delete.mockImplementation(async (key: string) => { persisted.delete(key); });
+      mockStorage.transaction.mockImplementation(async (work: (txn: unknown) => Promise<unknown>) => work({
+        get: (key: string) => Promise.resolve(persisted.get(key)),
+        put: async (key: string, value: unknown) => { persisted.set(key, value); },
+        delete: async (key: string) => { persisted.delete(key); },
+      }));
+      mockEnv.USAGE_DB = createMockSessionD1(kv);
+      mockContainerRuntime.running = sdkRunning;
+      if (!sdkRunning) mockTcpPortFetch.mockResolvedValue(new Response('healthy'));
+      let resolveExit!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve) => { resolveExit = resolve; }));
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance._sessionId).toBe(sessionId));
+      await vi.waitFor(() => expect(resolveExit).toBeDefined());
+      const completeExit = async () => {
+        resolveExit();
+        await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
+      };
+      return { kv, key, completeExit, resolveExit, persisted, instance };
+    }
+
+    async function reconstruct() {
+      let completion!: Promise<void>;
+      mockCtx.blockConcurrencyWhile.mockImplementation((work: () => Promise<void>) => {
+        completion = work();
+        return completion;
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await completion;
+      return instance;
+    }
+
+    it('does not release ownership after a transport monitor rejection', async () => {
+      const { kv, key, persisted } = await attachedMonitor(12);
+      let rejectExit!: (error: unknown) => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((_, reject) => { rejectExit = reject; }));
+      const reconstructed = await reconstruct();
+      await vi.waitFor(() => expect(rejectExit).toBeDefined());
+      rejectExit(new Error('network connection lost'));
+      await vi.waitFor(() => expect((reconstructed as any).logger.warn).toHaveBeenCalledWith(
+        'Container monitor failed', { error: 'network connection lost' },
+      ));
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('running');
+      expect(persisted.has('monitoredExitGeneration')).toBe(false);
+    });
+
+    it('confirms an explicit nonzero process exit from the low-level monitor', async () => {
+      const { kv, key } = await attachedMonitor(13);
+      let rejectExit!: (error: unknown) => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((_, reject) => { rejectExit = reject; }));
+      await reconstruct();
+      await vi.waitFor(() => expect(rejectExit).toBeDefined());
+      rejectExit(new Error('container exited with unexpected exit code: 137'));
+      await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
+    });
+
+    it('observes an existing process after reconstruction with a false SDK running flag, without starting it', async () => {
+      const { kv, key, completeExit } = await attachedMonitor(9, false);
+      expect(mockTcpPortFetch).toHaveBeenCalled();
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+      await completeExit();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+    });
+
+    it('discards obsolete exit evidence and observes the replacement generation', async () => {
+      const { kv, key, persisted } = await attachedMonitor(8);
+      persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 7 });
+      let resolveReplacement!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve) => { resolveReplacement = resolve; }));
+      await reconstruct();
+      await vi.waitFor(() => expect(resolveReplacement).toBeDefined());
+      expect(persisted.has('monitoredExitGeneration')).toBe(false);
+      resolveReplacement();
+      await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
+    });
+
+    it('does not attach an exit monitor to an unverified absent runtime', async () => {
+      mockContainerRuntime.running = false;
+      mockTcpPortFetch.mockRejectedValue(new Error('port unavailable'));
+      mockStorage.get.mockImplementation(async (key: string) => ({ bucketName: 'owner', _sessionId: 'session1234', lifecycleGeneration: 2, containerAuthToken: 'token' })[key as 'bucketName']);
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance._sessionId).toBe('session1234'));
+      await vi.waitFor(() => expect(mockTcpPortFetch).toHaveBeenCalled());
+      expect(mockContainerRuntime.monitor).not.toHaveBeenCalled();
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+    });
+
+    it('reconciles pending boundary cancellation after coordinator reconstruction', async () => {
+      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(10);
+      kv._set(key, {
+        id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 10,
+        boundaryActivityId: 'boundary-activity',
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const binding = { session: { bucket: owner, sessionId, generation: 10 } };
+      const cancelBoundaryStart = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+      mockEnv.OPERATOR_ACTIVITY = { getByName: () => ({
+        getBoundaryStartBinding: async () => binding, cancelBoundaryStart,
+      }) };
+      let scheduled!: () => void;
+      const firstRetry = new Promise<void>((resolve) => { scheduled = resolve; });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
+      resolveExit();
+      await firstRetry;
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
+      await vi.waitFor(() => expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 10 }));
+      const reconstructed = await reconstruct();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+      await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
+      expect(reconstructed._sessionId).toBe(sessionId);
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+    });
+
+    it('retains positive exit evidence through a failed D1 confirmation and retries it', async () => {
+      const { kv, key, resolveExit, persisted } = await attachedMonitor(11);
+      const original = mockEnv.USAGE_DB as D1Database;
+      let failOnce = true;
+      mockEnv.USAGE_DB = {
+        prepare(sql: string) {
+          const statement = original.prepare(sql);
+          if (!sql.includes("SET lifecycle_state='stopped'")) return statement;
+          return { bind(...values: unknown[]) {
+            const bound = statement.bind(...values);
+            return { run: async () => {
+              if (failOnce) { failOnce = false; throw new Error('D1 temporarily unavailable'); }
+              return bound.run();
+            } };
+          } };
+        },
+      };
+      resolveExit();
+      await vi.waitFor(() => expect(failOnce).toBe(false));
+      expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 11 });
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
+      await reconstruct();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+      await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+    });
+
+    it('confirms a running session only when its attached process monitor resolves', async () => {
+      const { kv, key, completeExit } = await attachedMonitor(7);
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('running');
+      await completeExit();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+    });
+
+    it('cannot stop a replacement when the old monitor resolves late', async () => {
+      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
+      let retryScheduled!: () => void;
+      const retry = new Promise<void>((resolve) => { retryScheduled = resolve; });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { retryScheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
+      kv._set(key, {
+        id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 8,
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+      resolveExit();
+      await retry;
+      expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 7 });
+      expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 8 });
+    });
+
+    it('does not overwrite newer positive exit evidence when an old callback resolves', async () => {
+      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
+      const newer = { owner, session: sessionId, generation: 8 };
+      persisted.set('lifecycleGeneration', 8);
+      persisted.set('monitoredExitGeneration', newer);
+      kv._set(key, {
+        id: sessionId, userId: owner, status: 'stopping', lifecycleGeneration: 8,
+        terminationIntentId: 'newer-intent',
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+      let scheduled!: () => void;
+      const oldRetry = new Promise<void>((resolve) => { scheduled = resolve; });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
+      resolveExit();
+      await oldRetry;
+      expect(persisted.get('monitoredExitGeneration')).toEqual(newer);
+      await reconstruct();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+      await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
+    });
+  });
+
   describe('fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: HTTP remains gated while volatile WS state stays retryable)', () => {
     it('should return 503 for non-internal routes when container is not running', async () => {
       mockContainerRuntime.running = false;
@@ -681,23 +1010,21 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(response.status).toBe(503);
     });
 
-    it('REQ-SESSION-012 AC4: returns retryable 1013 when volatile runtime state reads not-running', async () => {
+    it('REQ-SESSION-012 AC4: native terminal fetch probes only the existing port when SDK state is stale', async () => {
       mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
+      mockTcpPortFetch.mockResolvedValue(new Response('surviving terminal', { status: 200 }));
+      mockContainerRuntime.start.mockImplementation(() => { throw new Error('replacement started'); });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
       const superFetchSpy = vi.spyOn(proto, 'fetch');
-
       try {
-        const response = await instance.fetch(new Request('http://container/terminal', {
+        const response = await instance.fetch(new Request('https://example.com/terminal?tab=1', {
           headers: { Upgrade: 'websocket' },
         }));
-        const ws = response.webSocket!;
-        const closeCode = new Promise<number>((resolve) => {
-          ws.addEventListener('close', (event) => resolve((event as unknown as { code: number }).code));
-        });
-        ws.accept();
-
-        expect(await closeCode).toBe(1013);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('surviving terminal');
+        expect(mockTcpPortFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET' }));
         expect(superFetchSpy).not.toHaveBeenCalled();
       } finally {
         superFetchSpy.mockRestore();
@@ -1243,7 +1570,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         await instance.onStop();
 
         const stoppedCall = loggerInfo.mock.calls.find(
-          (call) => call[0] === 'Container stopped',
+          (call) => call[0] === 'Container SDK stop observed (exit unverified)',
         );
         expect(stoppedCall).toBeDefined();
         const meta = stoppedCall![1] as { shutdownElapsedMs: number | null };

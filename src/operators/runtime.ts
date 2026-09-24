@@ -6,7 +6,7 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import type { OperatorActivity, OperatorDriveResult } from './activity';
-import type { OperatorBundle } from './distribution';
+import type { DispatcherBundle, OperatorBundle } from './distribution';
 import { loadOperatorWorker, type OperatorLoaderBinding } from './loader';
 
 /** Parent-selected activity/artifact and generation-bound capability construction. */
@@ -14,11 +14,31 @@ interface OperatorRuntimeOptions {
   activity: Pick<OperatorActivity, 'beginDrive' | 'commitDrive' | 'interruptDrive'>;
   activityId: string;
   deadline: number;
+  expectedGeneration?: number;
   loader: OperatorLoaderBinding;
   bundle: OperatorBundle;
   invocation?: unknown;
   bind: (generation: number) => { capability: Fetcher; outbound: Fetcher | null }
     | Promise<{ capability: Fetcher; outbound: Fetcher | null }>;
+}
+
+/** REQ-OPERATOR-048: reserve once; asynchronous admission never manufactures a checkpoint. */
+export async function driveDispatcherRuntime(options: {
+  activity: Pick<OperatorActivity, 'beginDrive' | 'admitDispatcher' | 'interruptDrive'>;
+  deadline: number; bundle: DispatcherBundle; artifactDigest: string; invocation: unknown;
+  expectedGeneration?: number;
+}): Promise<OperatorDriveResult> {
+  if (!Number.isFinite(options.deadline) || Date.now() >= options.deadline) {
+    return { ok: false, reason: 'authority-expired' };
+  }
+  const reserved = await options.activity.beginDrive(options.expectedGeneration);
+  if (!reserved.ok) return reserved;
+  try {
+    return await options.activity.admitDispatcher(reserved.state.generation,
+      options.bundle, options.artifactDigest, options.invocation);
+  } catch {
+    return options.activity.interruptDrive(reserved.state.generation);
+  }
 }
 
 /**
@@ -33,7 +53,7 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
   if (!Number.isFinite(options.deadline) || Date.now() >= options.deadline) {
     return { ok: false, reason: 'authority-expired' };
   }
-  const reserved = await options.activity.beginDrive();
+  const reserved = await options.activity.beginDrive(options.expectedGeneration);
   if (!reserved.ok) return reserved;
   const { generation, checkpoint } = reserved.state;
   const controller = new AbortController();

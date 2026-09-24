@@ -290,7 +290,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- The canary retains its validated Pi 0.84.4 streaming-envelope baseline; the separately pinned installed runtime is Pi 0.85.1.
+- The canary retains its validated Pi 0.84.4 streaming-envelope baseline; the separately pinned installed runtime is Pi 0.87.1.
 - Logical probes are counted separately from HTTP attempts.
 - Each attempt deadline includes response-body consumption and cancels stalled reads before any fallback or further probe.
 - Missing replay terminators may be repaired, but an empty, non-SSE, or error-only response cannot prove final assistant completion.

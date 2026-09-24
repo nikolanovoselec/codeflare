@@ -16,6 +16,7 @@ const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const claimsSchema = z.strictObject({
   subject: z.string().min(1).max(512), email: z.string().email().max(320), issuer: z.string().url().max(2048),
   audiences: z.array(z.string().min(1).max(512)).min(1).max(16),
+  groups: z.array(z.string().min(1).max(256)).max(1024).optional(),
   issuedAt: z.number().int().nonnegative(), expiresAt: z.number().int().positive(),
 });
 const protectedPayloadSchema = z.strictObject({

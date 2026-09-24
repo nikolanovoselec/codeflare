@@ -8,6 +8,7 @@ import { terminalStore } from '../../stores/terminal';
 // Mock stores
 vi.mock('../../stores/session', () => {
   let _preseedUpgrading = false;
+  let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
   return {
     sessionStore: {
       getMetricsForSession: vi.fn(() => ({
@@ -19,7 +20,9 @@ vi.mock('../../stores/session', () => {
       getInitProgressForSession: vi.fn(() => ({ progress: 50 })),
       preferences: { sleepAfter: '30m' },
       get preseedUpgrading() { return _preseedUpgrading; },
+      get managedReleaseStatus() { return _managedReleaseStatus; },
       _setPreseedUpgrading: (v: boolean) => { _preseedUpgrading = v; },
+      _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
     },
   };
 });
@@ -354,13 +357,19 @@ describe('SessionStatCard', () => {
     });
   });
 
-  describe('REQ-AGENT-175 AC3: stopped card dimmed during preseed upgrade', () => {
+  describe('REQ-AGENT-175 AC3: stopped card disabled throughout managed seed update', () => {
     afterEach(() => {
       (sessionStore as any)._setPreseedUpgrading(false);
+      (sessionStore as any)._setManagedReleaseStatus(null);
     });
 
-    it('applies reduced opacity and blocks clicks on stopped card during upgrade', () => {
-      (sessionStore as any)._setPreseedUpgrading(true);
+    it.each([
+      ['page-local sync', true, null],
+      ['pending reconciliation', false, 'update_pending'],
+      ['managed reconciliation after the update request returns', false, 'upgrading'],
+    ] as const)('applies reduced opacity and blocks clicks during %s', (_phase, localUpgrade, managedStatus) => {
+      (sessionStore as any)._setPreseedUpgrading(localUpgrade);
+      (sessionStore as any)._setManagedReleaseStatus(managedStatus);
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'stopped' })} onSelect={onSelect} />);
       const card = screen.getByTestId('session-stat-card-test-1');
@@ -373,18 +382,42 @@ describe('SessionStatCard', () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
+    it.each(['running', 'starting', 'unreachable'] as const)(
+      'REQ-AGENT-175 AC3: pending managed update keeps active %s terminal selectable', (status) => {
+        (sessionStore as any)._setManagedReleaseStatus('update_pending');
+        const onSelect = vi.fn();
+        render(() => <SessionStatCard {...defaultProps} session={createSession({ status, workspace: 'terminal' })} onSelect={onSelect} />);
+        const selector = screen.getByTestId('session-stat-card-test-1-select');
+        expect(selector).toBeEnabled();
+        fireEvent.click(selector);
+        expect(onSelect).toHaveBeenCalledOnce();
+      },
+    );
+
+    it('REQ-SESSION-012 AC3 / REQ-AGENT-175 AC3: pending update allows reopening a ready unreachable editor without starting it', () => {
+      (sessionStore as any)._setManagedReleaseStatus('update_pending');
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({
+        workspace: 'vscode', status: 'unreachable', editorReady: true,
+      })} onSelect={onSelect} />);
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      fireEvent.click(selector);
+      expect(onSelect).toHaveBeenCalledOnce();
+    });
+
     it('does not dim running card during upgrade', () => {
-      (sessionStore as any)._setPreseedUpgrading(true);
+      (sessionStore as any)._setManagedReleaseStatus('upgrading');
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
       const card = screen.getByTestId('session-stat-card-test-1');
       expect(card.style.opacity).not.toBe('0.6');
     });
 
-    it('does not dim stopped card when upgrade is not running', () => {
-      (sessionStore as any)._setPreseedUpgrading(false);
+    it.each([null, 'current'] as const)('allows a stopped card when managed release status is %s', (managedStatus) => {
+      (sessionStore as any)._setManagedReleaseStatus(managedStatus);
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'stopped' })} />);
       const card = screen.getByTestId('session-stat-card-test-1');
       expect(card.style.opacity).not.toBe('0.6');
+      expect(screen.getByTestId('session-stat-card-test-1-select')).toBeInTheDocument();
     });
   });
 });

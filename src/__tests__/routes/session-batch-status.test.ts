@@ -34,7 +34,7 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
         const statement = {
           bind: vi.fn().mockReturnThis(),
           all,
-          run: vi.fn(async () => ({ success: true, meta: { changes: 0 } })),
+          run: vi.fn(async () => { throw new Error('batch status cannot write D1'); }),
         };
         return statement;
       }),
@@ -49,7 +49,7 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     });
   }
 
-  it('resets a stale stopping session before returning the fresh owner projection', async () => {
+  it('REQ-SESSION-035: a stale stopping owner status read does not invent exit evidence', async () => {
     const sessionId = 'stale001';
     await kv.put(`session:test-bucket:${sessionId}`, JSON.stringify({
       id: sessionId,
@@ -71,23 +71,23 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { statuses: Record<string, unknown> };
     expect(body.statuses[sessionId]).toMatchObject({
-      status: 'stopped', lifecycle: 'stopped', revision: 10,
-      editorReady: false, editorReadyError: false,
+      status: 'stopping', lifecycle: 'stopping', revision: 9,
+      editorReady: true, editorReadyError: true,
     });
     expect(await kv.get(`session:test-bucket:${sessionId}`, 'json')).toMatchObject({
-      status: 'stopped', responseRevision: 10,
-      lifecycleReason: 'stop_timeout_forced_reset',
-      editorReady: false, editorReadyError: false,
+      status: 'stopping', responseRevision: 9, terminationIntentId: 'intent-1',
+      editorReady: true, editorReadyError: true,
     });
   });
 
-  it('uses one owner-indexed read and performs no session or ancillary KV operations', async () => {
+  it('returns the owner D1 projection without ancillary KV I/O or session writes', async () => {
+    kv.get.mockImplementation(async () => { throw new Error('batch status cannot read KV'); });
+    kv.list.mockImplementation(async () => { throw new Error('batch status cannot enumerate KV'); });
+    kv.put.mockImplementation(async () => { throw new Error('batch status cannot write KV'); });
     const response = await app().request('/sessions/batch-status?include=storage,usage&includePreseedCheck=true');
     expect(response.status).toBe(200);
-    expect(db.prepare).toHaveBeenCalledTimes(2);
-    expect(all).toHaveBeenCalledTimes(1);
-    expect(kv.list).not.toHaveBeenCalled();
-    expect(kv.get).not.toHaveBeenCalled();
+    const body = await response.json() as { statuses: Record<string, { status: string }> };
+    expect(body.statuses[row.session_id]?.status).toBe('unreachable');
   });
 
   it('returns ordered lifecycle, metrics, readiness, and incident fields', async () => {

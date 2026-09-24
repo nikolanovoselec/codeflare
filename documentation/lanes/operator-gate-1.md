@@ -80,7 +80,7 @@ A row is accepted only from that combination. A deployment, 202 response, upload
 - Generic input/source/revision/run/resource contracts: `src/operators/consumer-contracts.ts` and its tests.
 - Native Loader behavior: `src/__tests__/operators/loader-runtime.test.ts` plus the isolated Wrangler fixture.
 - Deployable distribution fixture: `fixtures/operator-gate1/` and `.github/workflows/deploy-operator-gate1.yml` ([REQ-OPERATOR-009](../../sdd/spec/operators.md#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures)).
-- Fixed acceptance composition: `src/operators/gate1-production.ts`, `src/operators/session-bootstrap.ts`, `src/operators/gate1-capability.ts`, `src/operators/gate1-runtime.ts` and `src/operators/gate1-resources.ts`.
+- Fixed acceptance composition: `src/operators/gate1-production.ts`, `src/operators/session-bootstrap.ts`, `src/operators/gate1-capability.ts`, `src/operators/owned-session-runtime.ts` and `src/operators/gate1-resources.ts`.
 - Canonical local-review fence: `src/__tests__/operators/legacy-review-unchanged.test.ts`; inspected packet-builder SHA-256 `110adda054e4e7569b3043cdffee030bef20a8dbc1136ff777dd35300ffcc80d`.
 
 ## Gate execution rule
@@ -92,7 +92,7 @@ Unknown or lost effects stay unknown and are never replayed automatically. Succe
 ## Requirement and Source Map
 
 - [Gate 1 acceptance](../../sdd/spec/operators.md#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures): `src/__tests__/operators/platform-acceptance-fixtures.test.ts`, `src/__tests__/operators/loader-runtime.test.ts`, and `fixtures/operator-gate1/`.
-- [Owned lifecycle and sync](../../sdd/spec/operators.md#req-operator-005-owned-operator-session-lifecycle): `src/operators/gate1-production.ts`, `src/operators/gate1-capability.ts`, `src/operators/session-bootstrap.ts`, and `src/operators/gate1-runtime.ts`.
+- [Owned lifecycle and sync](../../sdd/spec/operators.md#req-operator-005-owned-operator-session-lifecycle): `src/operators/gate1-production.ts`, `src/operators/gate1-capability.ts`, `src/operators/session-bootstrap.ts`, and `src/operators/owned-session-runtime.ts`.
 - [Admission, webhook, and owner boundaries](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity): `src/operators/activity.ts`, `src/routes/operator-webhook.ts`, and `src/routes/operator-activities.ts`.
 - [Evidence environments](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration): `.github/workflows/deploy-operator-gate1.yml` and the `enterprise-integration` / `integration` deployment observations recorded above.
 

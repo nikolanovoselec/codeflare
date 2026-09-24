@@ -1,6 +1,6 @@
 # Operators
 
-Enterprise-only Codeflare Operator Interface, registration, activity execution and administration. This domain specifies the Codeflare foundation only. Private Flue implementation, operational Remote Reviews adapters/publisher and required merge-check activation are outside this phase. Root sessions and existing human/local-review behavior remain unchanged.
+Enterprise-only Codeflare Operator Interface, registration, activity execution and administration. This domain specifies the delivered Codeflare foundation. The directed registry release extends its existing owners as specified in [Operator Registry](operator-registry.md), including the planned Flue facet host and Review integration; required merge-check activation remains out of scope. Root sessions and existing human/local-review behavior remain unchanged.
 
 **Domain owner:** Backend (Worker), container host and enterprise frontend
 
@@ -215,7 +215,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Child code inherits neither unrestricted bindings nor durable isolate state. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 4. Native-runtime fixtures prove parent-bound identity and outbound allow/deny behavior, but do not count as deployment acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 
-**Constraints:** Child code receives no unrestricted binding or inherited outbound access.
+**Constraints:** Child code receives no unrestricted binding or inherited outbound access. Default-entrypoint rules remain the legacy/Gate 1 contract; [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) owns the bounded Dispatcher extension.
 
 **Priority:** P0
 
@@ -271,7 +271,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 6. Drive begin and commit recheck actual human-authority expiry. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-017: durable drive generation and checkpoint) -->
 7. The owning human explicitly resumes durable waiting work through a protected request. <!-- @impl: src/routes/operator-activities.ts::handleContinue --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
-**Constraints:** Generation transitions do not extend human authority.
+**Constraints:** Generation transitions do not extend human authority. [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) reuses this generation authority without treating admission or status reads as renewal.
 
 **Priority:** P0
 
@@ -299,7 +299,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 6. Preparation or transport uncertainty fences the drive as unknown. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 7. Request-attached bundle transport and runtime share one 25-second deadline that never exceeds invoking-human authority. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 
-**Constraints:** Runtime deadlines never exceed verified human authority.
+**Constraints:** Runtime deadlines never exceed verified human authority. Legacy/Gate 1 remains request-attached; [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) owns asynchronous Dispatcher execution.
 
 **Priority:** P0
 
@@ -403,11 +403,11 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 1. Owned-session services preserve distinct activity, Codeflare session, Pi conversation and task identities. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/gate1-resources.ts::resolveGate1Resources --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/gate1-resources.test.ts (REQ-OPERATOR-005: parent-owned Gate 1 resource mapping) -->
 2. Session ownership and restrictions persist before startup. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/activity.ts::saveOwnedSession --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
-3. Lost startup responses reconcile against the same reservation, while uncertain configuration remains uncertain. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/gate1-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/gate1-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
-4. Stop affects only the owned session. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/container/index.ts::stopOperatorSession --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/gate1-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
+3. Lost startup responses reconcile against the same reservation, while uncertain configuration remains uncertain. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/owned-session-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
+4. Stop affects only the owned session. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/container/index.ts::stopOperatorSession --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 5. Wake restores restrictions but requires same-human authority rebind. <!-- @impl: src/container/operator-context.ts --> <!-- @test: src/__tests__/container/operator-context.test.ts (operator container context) -->
 6. Operator/operator and operator/human overlap cannot corrupt unrelated state or stop another activity. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) -->
-7. Before startup, the parent programmatically reconciles the verified human's bucket and passes fresh bucket-scoped credentials plus the applied managed-resource identity to the owned container. <!-- @impl: src/operators/session-bootstrap.ts::bootstrapOperatorSession --> <!-- @impl: src/operators/gate1-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @test: src/__tests__/operators/session-bootstrap.test.ts (REQ-OPERATOR-005: programmatic operator session bootstrap) --> <!-- @test: src/__tests__/operators/gate1-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
+7. Before startup, the parent programmatically reconciles the verified human's bucket and passes fresh bucket-scoped credentials plus the applied managed-resource identity to the owned container. <!-- @impl: src/operators/session-bootstrap.ts::bootstrapOperatorSession --> <!-- @impl: src/operators/owned-session-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @test: src/__tests__/operators/session-bootstrap.test.ts (REQ-OPERATOR-005: programmatic operator session bootstrap) --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 
 **Constraints:** Non-operator sessions remain unchanged.
 
@@ -459,7 +459,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 1. Restricted startup restores only approved inputs. <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-OPERATOR-022: operator startup selects only restricted initialization) -->
 2. Restricted startup never enters ordinary whole-home restore, bisync or baseline-daemon paths. <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-OPERATOR-022: operator startup selects only restricted initialization) -->
-3. Restricted shutdown may drain an accepted explicit upload but never starts bisync. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @impl: src/container/index.ts::stopOperatorSession --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) --> <!-- @test: src/__tests__/operators/gate1-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
+3. Restricted shutdown may drain an accepted explicit upload but never starts bisync. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @impl: src/container/index.ts::stopOperatorSession --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 4. A stop under valid authority drains explicit persistence. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) -->
 5. Expired authority blocks persistence before an upload is accepted. <!-- @impl: src/operators/activity.ts::prepareSync --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
 6. Expired authority blocks persistence during shutdown drain. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) -->

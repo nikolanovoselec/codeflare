@@ -311,6 +311,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('editor');
   });
 
+  it('REQ-SESSION-010 AC5 / REQ-AGENT-175 AC3: unreachable ready editor opens during pending update without starting', () => {
+    (sessionStore as any)._setManagedReleaseStatus('update_pending');
+    render(() => <Dashboard {...defaultProps} sessions={[{
+      id: 'editor', name: 'Editor', workspace: 'vscode', status: 'unreachable', editorReady: true,
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }]} />);
+    fireEvent.click(screen.getByTestId('select-editor'));
+    expect(defaultProps.onOpenVscodeSession).toHaveBeenCalledWith('editor');
+    expect(defaultProps.onStartSession).not.toHaveBeenCalled();
+  });
+
   it('REQ-IDE-054 AC3: opens from the whole card only after editor readiness', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'running', editorReady: false,

@@ -35,7 +35,7 @@ import {
 } from '../../lib/constants';
 import { checkRateLimit } from '../../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../../middleware/auth';
-import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
+import { getContainerId, safeCheckContainerHealth, forwardExisting } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
 import { NotFoundError, toError, toErrorMessage } from '../../lib/error-types';
 import {
@@ -417,7 +417,7 @@ export async function handleVaultRequest(
     // line: `maybeSynthesizeCsrfHeader` is a no-op for GET (and WS upgrades
     // are always GET), so `requestForAuth === request` for the WS case and
     // the Upgrade / Sec-WebSocket-* headers are preserved verbatim.
-    const response = await container.fetch(new Request(vaultUrl.toString(), requestForAuth));
+    const response = await forwardExisting(container, new Request(vaultUrl.toString(), requestForAuth));
 
     // SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML so
     // every relative asset reference (e.g. `.client/client.js`) resolves
@@ -580,9 +580,7 @@ app.get('/:sessionId/status', async (c) => {
 
     let vaultReady = false;
     try {
-      const probe = await container.fetch(
-        new Request('http://container/vault/', { method: 'GET' }),
-      );
+      const probe = await forwardExisting(container, new Request('http://container/vault/', { method: 'GET' }));
       vaultReady = probe.ok;
     } catch {
       // Container is healthy but SilverBullet supervisor may still be

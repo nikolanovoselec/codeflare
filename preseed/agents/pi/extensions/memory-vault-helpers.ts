@@ -291,7 +291,7 @@ function notificationFacts(entry: any): { toolUseId: string; status: string } | 
 }
 
 function isCompletedNotification(status: string | undefined): boolean {
-  return status === "Done" || status === "Completed" || status === "Wrapped up (turn limit)";
+  return status === "Done" || status === "Completed" || status === "Wrapped up (turn limit)" || status === "Wrapped up (reached turn limit)";
 }
 
 export function extractionTranscriptFacts(input: {

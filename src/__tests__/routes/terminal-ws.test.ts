@@ -50,15 +50,16 @@ const defaultContainerFetch = async (request: Request): Promise<Response> => {
   return new Response('ws upgrade', { status: 200 });
 };
 const mockContainerFetch = vi.fn(defaultContainerFetch);
-// safeCheckContainerHealth() reads container.getState() before fetching /health
-// to avoid auto-starting a hibernated container; mock it as "running" so the
-// warming-up probe in handleWebSocketUpgrade reaches the fetch path.
+// SDK getState may remain stale across DO reconstruction; no-start forwarding
+// probes the existing runtime independently of this cached status.
 const mockContainerGetState = vi.fn().mockResolvedValue({ status: 'running' });
+const mockForwardExisting = vi.fn(defaultContainerFetch);
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
     fetch: mockContainerFetch,
     getState: mockContainerGetState,
+    forwardExisting: mockForwardExisting,
   })),
 }));
 
@@ -94,6 +95,7 @@ describe('handleWebSocketUpgrade', () => {
       userId: 'test-bucket',
       createdAt: '2024-01-15T10:00:00.000Z',
       lastAccessedAt: '2024-01-15T10:00:00.000Z',
+      status: 'running',
     };
     mockKV._set('session:test-bucket:testsession123', session);
   });
@@ -106,6 +108,7 @@ describe('handleWebSocketUpgrade', () => {
     // previous one's behaviour and fails by declaration order.
     mockContainerFetch.mockReset().mockImplementation(defaultContainerFetch);
     mockContainerGetState.mockReset().mockResolvedValue({ status: 'running' });
+    mockForwardExisting.mockReset().mockImplementation((request: Request) => mockContainerFetch(request));
   });
 
   function createRequest(headers: Record<string, string> = {}): Request {
@@ -411,7 +414,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('CF-015 / REQ-SEC-020 AC1-AC4: Container state owns terminal admission', () => {
+  describe('CF-015 / REQ-SEC-020 AC1-AC4: D1 stop authority and SDK readiness gate', () => {
     const requestFor = (sessionId: string) => new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
       headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
     });
@@ -431,61 +434,71 @@ describe('handleWebSocketUpgrade', () => {
       )).toHaveLength(0);
     };
 
-    it('forwards stale-KV stopped when persisted Container state is healthy', async () => {
-      const sessionId = 'abcdef1234567890';
-      mockKV._set(`session:test-bucket:${sessionId}`, {
-        id: sessionId,
-        name: 'Test',
-        userId: 'test-bucket',
-        createdAt: '2026-01-01T00:00:00Z',
-        lastAccessedAt: '2026-01-01T00:00:00Z',
-        status: 'stopped',
+    it('REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting', async () => {
+      mockContainerGetState.mockResolvedValue({ status: 'stopped' });
+      mockForwardExisting.mockImplementation(async (req: Request) => {
+        if (new URL(req.url).pathname === '/terminal') throw new Error('WebSocket cannot cross RPC');
+        return defaultContainerFetch(req);
       });
-      mockContainerGetState.mockResolvedValue({ status: 'healthy', lastChange: Date.now() });
-      mockContainerFetch.mockImplementation(async (req: Request) => {
-        if (new URL(req.url).pathname === '/health') {
-          return new Response(JSON.stringify({ terminalServiceReady: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        return new Response('ws upgrade', { status: 200 });
-      });
-      const request = requestFor(sessionId);
-      const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
-
-      const result = await handleWebSocketUpgrade(
-        request,
-        { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env,
-        ctx,
-        validateWebSocketRoute(request) as any,
-      );
-
+      const request = createRequest();
+      const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
       expect(result.status).toBe(200);
-      expect(mockContainerFetch).toHaveBeenCalledTimes(2);
+      expect(await result.text()).toBe('ws upgrade');
+      expect(mockContainerFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET' }));
     });
 
-    it.each(['stopped', 'stopped_with_code', 'stopping'])('returns 4503 without rate-limit use for Container state %s', async (status) => {
+    it('REQ-SESSION-012 AC1: absent runtime returns retryable 1013 without invoking auto-starting SDK fetch', async () => {
+      mockContainerGetState.mockResolvedValue({ status: 'stopped' });
+      mockForwardExisting.mockResolvedValue(new Response('Container not running', { status: 503 }));
+      mockContainerFetch.mockResolvedValue(new Response('Container not running', { status: 503 }));
+      const request = createRequest();
+      const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+      expect(await readCloseCode(result)).toBe(1013);
+      expectNoRateLimitWrite();
+    });
+
+    it.each(['running', 'starting', 'unreachable'] as const)('REQ-SESSION-012 AC2 / REQ-SEC-020 AC4: D1 %s remains retryable despite transient SDK stop', async (lifecycle) => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
-        id: sessionId,
-        name: 'Test',
-        userId: 'test-bucket',
-        createdAt: '2026-01-01T00:00:00Z',
-        lastAccessedAt: '2026-01-01T00:00:00Z',
-        status: 'running',
+        id: sessionId, name: 'Test', userId: 'test-bucket', status: lifecycle,
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z',
       });
-      mockContainerGetState.mockResolvedValue({ status, lastChange: Date.now() });
+      for (const sdkStatus of ['stopped', 'stopping', 'stopped_with_code']) {
+        mockContainerGetState.mockResolvedValue({ status: sdkStatus });
+        mockForwardExisting.mockResolvedValue(new Response('Container not running', { status: 503 }));
+        const request = requestFor(sessionId);
+        const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request) as any);
+        expect(await readCloseCode(result)).toBe(1013);
+        expect(mockContainerFetch).not.toHaveBeenCalled();
+        expectNoRateLimitWrite();
+      }
+    });
+
+    it.each(['stopped', 'stopping'] as const)('REQ-SESSION-012 AC3 / REQ-SEC-020 AC2: D1 %s closes 4503 without probing a healthy SDK container', async (lifecycle) => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId, name: 'Test', userId: 'test-bucket', status: lifecycle,
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z',
+      });
+      mockContainerGetState.mockResolvedValue({ status: 'healthy' });
       const request = requestFor(sessionId);
-
-      const result = await handleWebSocketUpgrade(
-        request,
-        { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), CONTAINER: {} } as unknown as Env,
-        { waitUntil: vi.fn() } as unknown as ExecutionContext,
-        validateWebSocketRoute(request) as any,
-      );
-
+      const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request) as any);
       expect(await readCloseCode(result)).toBe(4503);
+      expect(mockContainerGetState).not.toHaveBeenCalled();
+      expect(mockContainerFetch).not.toHaveBeenCalled();
+      expectNoRateLimitWrite();
+    });
+
+    it('REQ-SEC-020 AC7: D1 read outage does not invent an authoritative stopped close', async () => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId, name: 'Test', userId: 'test-bucket', status: 'stopped',
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z',
+      });
+      const unavailableD1 = { prepare: () => { throw new Error('D1 unavailable'); } } as unknown as D1Database;
+      const request = requestFor(sessionId);
+      const result = await handleWebSocketUpgrade(request, { ...mockEnv, USAGE_DB: unavailableD1 }, mockCtx, validateWebSocketRoute(request) as any);
+      expect(result.status).not.toBe(101);
       expect(mockContainerFetch).not.toHaveBeenCalled();
       expectNoRateLimitWrite();
     });
@@ -501,7 +514,7 @@ describe('handleWebSocketUpgrade', () => {
         status: 'running',
       });
       mockContainerGetState.mockResolvedValue({ status, lastChange: Date.now() });
-      mockContainerFetch.mockRejectedValue(new Error('Network connection lost.'));
+      mockForwardExisting.mockRejectedValue(new Error('Network connection lost.'));
       const request = requestFor(sessionId);
 
       const result = await handleWebSocketUpgrade(
@@ -515,7 +528,7 @@ describe('handleWebSocketUpgrade', () => {
       expectNoRateLimitWrite();
     });
 
-    it('returns retryable 1013 without rate-limit use when Container state is unavailable', async () => {
+    it('returns retryable 1013 without rate-limit use when the existing runtime is unavailable', async () => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
         id: sessionId,
@@ -526,6 +539,7 @@ describe('handleWebSocketUpgrade', () => {
         status: 'running',
       });
       mockContainerGetState.mockRejectedValue(new Error('state unavailable'));
+      mockForwardExisting.mockRejectedValue(new Error('existing process unavailable'));
       const request = requestFor(sessionId);
 
       const result = await handleWebSocketUpgrade(

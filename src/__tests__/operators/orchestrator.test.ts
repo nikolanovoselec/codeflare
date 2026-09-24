@@ -23,6 +23,24 @@ afterEach(() => {
 });
 
 describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
+  it('uses only a parent-reserved activity identity when preparing a boundary handoff', async () => {
+    const reserved = 'reservation-activity';
+    let persisted: { activityId: string; operatorId: string } | null = null;
+    const env = { ...encryption,
+      OPERATOR_REGISTRY: { getByName: () => ({ resolveForExecution: async () => ({ ok: true, value: {
+        operatorId: 'reviewer', revision: 7, artifactDigest: 'a'.repeat(64), manifestJson: '{}', policyJson: '{}',
+      } }) }) },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized: async (intent: typeof persisted) => {
+        persisted = intent; return { ok: true, phase: 'prepared' };
+      } }) },
+    } as unknown as Env;
+    const result = await prepareOperatorActivity({ operatorId: 'reviewer',
+      invocation: { activityId: 'caller-selected' } }, { human: claims, accessJwt: 'private.jwt' }, env,
+    { activityId: reserved });
+    expect(result.activityId).toBe(reserved);
+    expect(persisted).toMatchObject({ activityId: reserved, operatorId: 'reviewer' });
+    expect(result.activityId).not.toBe('caller-selected');
+  });
   it('server-generates activity authority and persists bounded invocation before returning a start capability', async () => {
     const prepareAuthorized = vi.fn(async () => ({ ok: true, phase: 'prepared' }));
     const registry = { resolveForExecution: vi.fn(async () => ({ ok: true, value: {
