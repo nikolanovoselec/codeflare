@@ -33,6 +33,7 @@ import {
 import type { SessionManager } from './session-manager.js';
 import type { OperatorPiHttpController } from './operator-pi-http.js';
 import type { OperatorSyncHttpController } from './operator-sync-http.js';
+import type { ApprovedPacketInput } from './operator-approved-packet.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
 import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE, SYNC_RUNTIME_DIR } from './runtime-paths.js';
 
@@ -89,6 +90,8 @@ export interface RequestRouterDeps {
   operatorPi?: OperatorPiHttpController;
   /** Fixed explicit-upload service; presence also disables ordinary bisync endpoints. */
   operatorSync?: OperatorSyncHttpController;
+  /** Installed only by a trusted parent configuration; no credential, command, URL or script in the request. */
+  operatorPacket?: { run(input: ApprovedPacketInput, options: { signal: AbortSignal }): Promise<Uint8Array> };
   /** Production composition and focused router tests can provide the queue owner directly. */
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
@@ -213,6 +216,35 @@ async function readBoundedBody(req: http.IncomingMessage, limit: number): Promis
   });
 }
 
+const MAX_APPROVED_PACK = 32 * 1024 * 1024;
+const MAX_APPROVED_OUTPUT = 8 * 1024 * 1024;
+const APPROVED_PACKET_KEYS = ['acknowledgedHead', 'deadline', 'head', 'lane', 'maxCheckoutBytes',
+  'maxOutputBytes', 'maxPackBytes'];
+function approvedPacketMetadata(header: string | string[] | undefined): Omit<ApprovedPacketInput, 'pack'> | null {
+  if (typeof header !== 'string' || header.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(header)) return null;
+  try {
+    const bytes = Buffer.from(header, 'base64url');
+    if (bytes.toString('base64url') !== header) return null;
+    const input: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const value = input as Record<string, unknown>;
+    if (Object.keys(value).sort().join(',') !== [...APPROVED_PACKET_KEYS].sort().join(',')
+      || typeof value.head !== 'string' || !/^[a-f0-9]{40}$/.test(value.head)
+      || value.acknowledgedHead !== null && (typeof value.acknowledgedHead !== 'string'
+        || !/^[a-f0-9]{40}$/.test(value.acknowledgedHead))
+      || typeof value.lane !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(value.lane)
+      || typeof value.deadline !== 'number' || !Number.isSafeInteger(value.deadline)
+      || value.deadline <= Date.now() || value.deadline > Date.now() + 5 * 60_000
+      || typeof value.maxPackBytes !== 'number' || !Number.isSafeInteger(value.maxPackBytes)
+      || value.maxPackBytes < 1 || value.maxPackBytes > MAX_APPROVED_PACK
+      || typeof value.maxCheckoutBytes !== 'number' || !Number.isSafeInteger(value.maxCheckoutBytes)
+      || value.maxCheckoutBytes < 1 || value.maxCheckoutBytes > 128 * 1024 * 1024
+      || typeof value.maxOutputBytes !== 'number' || !Number.isSafeInteger(value.maxOutputBytes)
+      || value.maxOutputBytes < 1 || value.maxOutputBytes > MAX_APPROVED_OUTPUT) return null;
+    return value as Omit<ApprovedPacketInput, 'pack'>;
+  } catch { return null; }
+}
+
 function safeJsonResponseBody(body: string): string {
   // Operator observations may contain user-controlled text. Re-encode the
   // controller JSON and escape HTML-significant characters before reflecting it.
@@ -237,6 +269,43 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    // This route is absent unless a trusted host composition installs the fixed runner.
+    // Authentication above always precedes body reads and protected effects.
+    if (deps.operatorPacket && pathname === '/internal/operator/approved-packet') {
+      const reply = (status: number): void => {
+        if (res.destroyed) return;
+        res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff' });
+        res.end(JSON.stringify({ error: 'Approved packet unavailable' }));
+      };
+      if (method !== 'POST') { req.resume(); reply(405); return; }
+      if (singleHeader(req.headers['content-type']) !== 'application/x-git-packed-objects') {
+        req.resume(); reply(415); return;
+      }
+      const metadata = approvedPacketMetadata(req.headers['x-codeflare-packet-input']);
+      if (!metadata) { req.resume(); reply(400); return; }
+      const declared = Number(singleHeader(req.headers['content-length']) ?? NaN);
+      if (Number.isFinite(declared) && declared > metadata.maxPackBytes) { req.resume(); reply(413); return; }
+      const controller = new AbortController();
+      res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+      req.setTimeout(30_000, () => req.destroy());
+      try {
+        const pack = await readBoundedBody(req, metadata.maxPackBytes);
+        if (pack.byteLength > metadata.maxPackBytes) { reply(413); return; }
+        if (pack.byteLength === 0 || controller.signal.aborted || Date.now() >= metadata.deadline) {
+          reply(400); return;
+        }
+        const output = await deps.operatorPacket.run({ ...metadata, pack }, { signal: controller.signal });
+        if (controller.signal.aborted || Date.now() >= metadata.deadline
+          || !(output instanceof Uint8Array) || output.byteLength < 1
+          || output.byteLength > metadata.maxOutputBytes) { reply(503); return; }
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff' });
+        res.end(Buffer.from(output));
+      } catch { reply(503); }
       return;
     }
 
