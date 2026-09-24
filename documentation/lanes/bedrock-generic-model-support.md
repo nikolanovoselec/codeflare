@@ -106,7 +106,7 @@ After review and Save, normal next session/container start publishes current opa
 
 Synthetic future-name regressions cover the real admin endpoint → server-issued receipt → Save validation → authorization → Pi publication and interceptor dispatch. They prove absence of release-name coupling, not availability of an unreleased model. Real historical profile hashes exercise collection-level upgrading. Temporal tests withhold later text/stop/EOF while requiring the first public delta. Existing provider, lifecycle, replay, and checkpoint regressions remain in scope.
 
-The existing CI `pi-prompt` lane now executes `scripts/verify-bedrock-pi-prompt-cache.mjs` against its already installed locked Pi 0.85.1 package. It injects every HTTP response, uses unmistakably synthetic private blocks, and makes zero network calls. No dependency upgrade or separate framework was added.
+The existing CI `pi-prompt` lane executes `scripts/verify-bedrock-pi-prompt-cache.mjs` against its installed, locked Pi package. It injects every HTTP response, uses unmistakably synthetic private blocks, and makes zero network calls. No separate framework is required.
 
 Official documentation accessed 2026-09-13:
 

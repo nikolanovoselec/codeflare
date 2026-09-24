@@ -3709,7 +3709,7 @@ COPILOT_BYOK_EOF
             | (if ($displaynames | has($route))
                then "Native Route - " else "Dynamic Route - " end)
               + (if $display != "" then $display else $route end);
-        # Pi 0.85.1 emits block-level checkpoints and honors cacheRetention:none.
+        # The locked Pi serializer emits block-level checkpoints and honors cacheRetention:none.
         # Only Worker-authorized native Runtime handles opt in; no provider-wide
         # switch may leak these Anthropic fields into Dynamic/other-provider calls.
         def prompt_cache($route):

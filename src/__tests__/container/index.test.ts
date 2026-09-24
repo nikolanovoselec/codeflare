@@ -729,16 +729,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const persisted = new Map<string, unknown>([['containerAuthToken', token], ['lifecycleGeneration', 7]]);
       mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
-      mockTcpPortFetch.mockImplementation(async (forwarded: Request) =>
-        forwarded.headers.get('Authorization') === `Bearer ${token}` && new URL(forwarded.url).pathname === '/terminal'
+      mockTcpPortFetch.mockImplementation(async (forwarded: Request) => {
+        const url = new URL(forwarded.url);
+        if (url.protocol !== 'http:') throw new Error('Container port does not support HTTPS');
+        return url.hostname === 'container' && url.pathname === '/api/terminal/testsession123-1/ws'
+          && url.search === '?tab=1' && forwarded.headers.get('Upgrade') === 'websocket'
+          && forwarded.headers.get('Authorization') === `Bearer ${token}`
           ? new Response('surviving terminal', { status: 200 })
-          : new Response('Unauthorized forwarding', { status: 401 }),
-      );
+          : new Response('Unauthorized forwarding', { status: 401 });
+      });
       let started = false;
       mockContainerRuntime.start.mockImplementation(() => { started = true; throw new Error('unexpected container start'); });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance._containerAuthToken).toBe(token));
-      const request = new Request('http://container/terminal?session=testsession123-1', {
+      const request = new Request('https://enterprise.codeflare.ch/api/terminal/testsession123-1/ws?tab=1', {
         headers: { Upgrade: 'websocket', Authorization: 'Bearer forged' },
       });
       const response = await (instance as any).forwardExisting(request);

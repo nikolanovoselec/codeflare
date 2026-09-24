@@ -1,7 +1,7 @@
 /**
  * Offline interoperability check against the actual locked Pi client.
  *
- * Run with Node's TypeScript support and an installed pi-ai 0.85.1 directory:
+ * Run with Node's TypeScript support and an installed pi-ai 0.87.1 directory:
  *   node scripts/verify-bedrock-pi-prompt-cache.mjs /path/to/@earendil-works/pi-ai
  *
  * No network, API token, real tools, or provider signatures are used. The
@@ -22,7 +22,7 @@ import { compatibilityRequest, compatibilityResponse } from '../src/lib/ai-capab
 
 const piRoot = resolve(process.argv[2] ?? 'preseed/agents/pi/node_modules/@earendil-works/pi-ai');
 const { version } = JSON.parse(await readFile(resolve(piRoot, 'package.json'), 'utf8'));
-assert.equal(version, '0.85.1', 'Update the contract evidence deliberately when Pi changes');
+assert.equal(version, '0.87.1', 'Update the contract evidence deliberately when Pi changes');
 const { stream } = await import(pathToFileURL(resolve(piRoot, 'dist/api/openai-completions.js')).href);
 const syntheticSigned = [
   { type: 'thinking', thinking: 'synthetic, not provider thinking', signature: 'SYNTHETIC-NOT-A-PROVIDER-SIGNATURE' },

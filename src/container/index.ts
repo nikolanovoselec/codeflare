@@ -572,12 +572,18 @@ export class container extends Container<Env> implements ContainerEnvState {
   async forwardExisting(request: Request): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
     if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
-    const headers = new Headers(request.headers);
-    headers.set('Authorization', `Bearer ${token}`);
     try {
+      // The private port accepts HTTP only. Preserve the public request's path,
+      // query, method and upgrade headers, but never forward its HTTPS origin.
+      const url = new URL(request.url);
+      const privateUrl = new URL('http://container');
+      privateUrl.pathname = url.pathname;
+      privateUrl.search = url.search;
+      const forwarded = new Request(privateUrl, request);
+      forwarded.headers.set('Authorization', `Bearer ${token}`);
       // `running` can itself transiently read false after DO reconstruction.
       // Only an answer from the existing private port proves it survived.
-      const response = await this.ctx.container.getTcpPort(8080).fetch(new Request(request, { headers }));
+      const response = await this.ctx.container.getTcpPort(8080).fetch(forwarded);
       if (response.ok && this.monitoredGeneration === null) {
         // A port answer can establish survival even while the SDK running flag
         // is stale. Attach exit observation without delaying the response.

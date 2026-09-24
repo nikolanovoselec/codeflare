@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Pi 0.85.1 renders IDs even when providers publish names. Patch presentation
+// Pi 0.87.1 renders IDs even when providers publish names. Patch presentation
 // only, including the CLI bundle; selection, settings keys and wire IDs stay intact.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,7 +24,7 @@ const files = [
     ['this.showStatus(persist ? `Default model: ${model.provider}/${model.id}` : `Model: ${model.id}`);',
       `this.showStatus(persist ? \`Default model: \${model.provider}/\${${label}}\` : \`Model: \${${label}}\`);`],
   ]],
-  ['dist/bundle/chunks/chunk-JVUZSMYM.js', [
+  ['dist/bundle/chunks/chunk-OJP47DM6.js', [
     ['modelText=isSelected?theme.fg("accent",item.id):item.id',
       'codeflareModelLabel=item.provider==="codeflare-gateway"?(item.model.name||item.id):item.id,modelText=isSelected?theme.fg("accent",codeflareModelLabel):codeflareModelLabel'],
     ['function modelDisplayLabel(model){return`${model.id} [${model.provider}]`}',
@@ -40,8 +40,8 @@ const files = [
 
 export function patchPiNativeModelDisplay(root) {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  if (manifest.name !== '@earendil-works/pi-coding-agent' || manifest.version !== '0.85.1') {
-    throw new Error('Native model display patch requires Pi 0.85.1');
+  if (manifest.name !== '@earendil-works/pi-coding-agent' || manifest.version !== '0.87.1') {
+    throw new Error('Native model display patch requires Pi 0.87.1');
   }
   const states = new Set();
   const staged = files.map(([relative, replacements]) => {
