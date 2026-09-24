@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { GitHubInterceptor } from '../../github-interceptor';
+import { parseOperatorConsumerInvocation } from '../../operators/consumer-contracts';
 import type { BoundaryActivityBinding } from '../../operators/activity';
 
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'user-github-token' }));
@@ -82,7 +83,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   const operatorActivity = { prepareAuthorized: async (intent: { activityId: string },
     _executionContext: unknown, invocationJson: string, binding?: BoundaryActivityBinding) => {
     boundary = binding ?? null;
-    admittedInvocation = JSON.parse(invocationJson);
+    admittedInvocation = parseOperatorConsumerInvocation(JSON.parse(invocationJson));
     activity = { activityId: intent.activityId, phase: 'prepared' }; return { ok: true, phase: 'prepared' };
   }, getBrowserDetail: async () => activity, getBoundaryStartBinding: async () => boundary,
     getPreparedInvocation: async () => admittedInvocation };
