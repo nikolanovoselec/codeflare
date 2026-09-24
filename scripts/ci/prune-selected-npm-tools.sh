@@ -33,4 +33,21 @@ for entry in \
   fi
   rm -rf -- "node_modules/$package"
   rm -f -- "node_modules/.bin/$bin"
+  case "$agent" in
+    claude-code) payloads='node_modules/@anthropic-ai/claude-code-' ;;
+    codex) payloads='node_modules/@openai/codex-' ;;
+    copilot) payloads='node_modules/@github/copilot-' ;;
+    opencode) payloads='node_modules/opencode-' ;;
+    pi) payloads='node_modules/@earendil-works/pi-coding-agent-' ;;
+  esac
+  for payload in "${payloads}"*; do
+    [ -e "$payload" ] || [ -L "$payload" ] || continue
+    rm -rf -- "$payload"
+  done
+  if [ "$agent" = copilot ]; then
+    for platform_bin in node_modules/.bin/copilot-*; do
+      [ -e "$platform_bin" ] || [ -L "$platform_bin" ] || continue
+      rm -f -- "$platform_bin"
+    done
+  fi
 done
