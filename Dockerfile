@@ -395,7 +395,7 @@ ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
 COPY image/oxlint/package.json image/oxlint/package-lock.json /opt/codeflare/oxlint/
-COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
+COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh /opt/codeflare/scripts/
 RUN cd /opt/codeflare/oxlint && \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
     node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
@@ -410,7 +410,7 @@ RUN cd /opt/codeflare/npm-tools && \
     cp package.json /tmp/npm-tools-package.json && \
     cp package-lock.json /tmp/npm-tools-package-lock.json && \
     node /opt/codeflare/scripts/coding-agent-selection.mjs select-manifest "$CODEFLARE_CODING_AGENTS" package.json && \
-    { cmp -s package.json /tmp/npm-tools-package.json || npm prune --omit=dev --ignore-scripts --no-audit --no-fund; } && \
+    sh /opt/codeflare/scripts/prune-selected-npm-tools.sh /tmp/npm-tools-package.json package.json && \
     mv /tmp/npm-tools-package.json package.json && \
     mv /tmp/npm-tools-package-lock.json package-lock.json && \
     for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp; do \
