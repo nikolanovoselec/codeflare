@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -73,6 +73,7 @@ test('REQ-OPERATOR-050/053: wrong head, missing ancestor and corrupt pack never 
   await assert.rejects(run(f, { head: 'a'.repeat(40) }));
   await assert.rejects(run(f, { acknowledgedHead: 'b'.repeat(40) }));
   await assert.rejects(run(f, { pack: Buffer.from('not a Git pack') }));
+  assert.equal((await readdir(f.root)).some(name => name.startsWith('operator-packet-')), false);
 });
 
 test('REQ-OPERATOR-050/053: hostile checkout symlinks and candidate scripts cannot become packet authority', async t => {
@@ -87,9 +88,36 @@ test('REQ-OPERATOR-050/053: expiry, cancellation and byte ceilings fail closed',
   const cancelled = new AbortController();
   cancelled.abort();
   await assert.rejects(run(f, {}, { signal: cancelled.signal }));
+  const inFlight = new AbortController();
+  const running = run(f, {}, { signal: inFlight.signal });
+  setTimeout(() => inFlight.abort(), 25);
+  await assert.rejects(running);
+  assert.equal((await readdir(f.root)).some(name => name.startsWith('operator-packet-')), false);
   await assert.rejects(run(f, { maxPackBytes: 16 }));
   await assert.rejects(run(f, { maxCheckoutBytes: 16 }));
   await assert.rejects(run(f, { maxOutputBytes: 16 }));
+});
+
+test('REQ-OPERATOR-050/053: inherited Git diff drivers and hooks cannot execute', async t => {
+  const f = await fixture(t);
+  const marker = path.join(f.root, 'untrusted-command-ran');
+  const executable = path.join(f.root, 'untrusted-command');
+  await writeFile(executable, `#!/bin/sh\necho ran > '${marker}'\nexit 1\n`, { mode: 0o755 });
+  const config = path.join(f.root, 'untrusted.gitconfig');
+  await writeFile(config, `[core]\n\thooksPath = ${f.root}\n[diff "run-candidate"]\n\tcommand = ${executable}\n`);
+  const previous = [process.env.GIT_CONFIG_GLOBAL, process.env.GIT_EXTERNAL_DIFF];
+  process.env.GIT_CONFIG_GLOBAL = config;
+  process.env.GIT_EXTERNAL_DIFF = executable;
+  try {
+    const packet = JSON.parse(Buffer.from(await run(f)).toString('utf8'));
+    assert.ok(packet.files.includes('src/app.ts'));
+    await assert.rejects(readFile(marker));
+  } finally {
+    if (previous[0] === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous[0];
+    if (previous[1] === undefined) delete process.env.GIT_EXTERNAL_DIFF;
+    else process.env.GIT_EXTERNAL_DIFF = previous[1];
+  }
 });
 
 test('REQ-OPERATOR-050/053: the received pack cannot choose an executable, URL, checkout path or lane', async t => {
