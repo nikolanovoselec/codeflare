@@ -293,6 +293,7 @@ This release extends the existing Operator foundation with GitHub package instal
 5. Only a separate trusted publisher holds credentials for Review publication; neither local Pi nor the compiled child may publish. Journal ordering and independent publication are governed by [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) and [REQ-OPERATOR-056](#req-operator-056-independent-review-publication).
 6. The existing owner-scoped Operator activity view shows real waiting, running, cleanup and terminal states; local Pi monitors independently verified published Review and ordinary CI and retains triage/FIX without running a second reviewer wave.
 7. The protected Action redeems the terminal result once with its read capability. <!-- @impl: src/operators/activity.ts::OperatorActivity.redeemWebhookResult --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity) -->
+8. The prepared Conductor invocation binds eligible inference and the selected installation's resource-profile scope. <!-- @impl: src/operators/review-boundary-preparation.ts::prepareVerifiedBoundary --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation) -->
 
 **Constraints:**
 

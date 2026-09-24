@@ -6,7 +6,11 @@ import type { BoundaryActivityBinding } from '../../operators/activity';
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'user-github-token' }));
 vi.mock('../../lib/access', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/access')>();
-  return { ...original, requireOperatorHumanContext: async () => ({ human: {
+  return { ...original,
+    resolveSessionAccessGroup: async () => [],
+    loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['route-one'], defaultRoute: 'route-one',
+      defaultReasoning: 'off', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} }),
+    requireOperatorHumanContext: async () => ({ human: {
     subject: 'human', email: 'owner@example.test', issuer: 'https://team.cloudflareaccess.com',
     audiences: ['aud'], issuedAt: 1, expiresAt: Math.floor(Date.now() / 1000) + 300,
   }, accessJwt: 'private.jwt' }) };
@@ -30,6 +34,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let activity: { activityId: string; phase: string } | null = null;
   let boundary: BoundaryActivityBinding | null = null;
+  let admittedInvocation: unknown = null;
   let visible: { activityId: string; executionStatus: string; attention: boolean } | null = null;
   const registry = {
     resolveManagementExecution: async () => ({ ok: true, value: {
@@ -75,10 +80,12 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
           headRefName: evidence.headRefName, baseRefName: evidence.baseRefName } },
   };
   const operatorActivity = { prepareAuthorized: async (intent: { activityId: string },
-    _executionContext: unknown, _invocationJson: string, binding?: BoundaryActivityBinding) => {
+    _executionContext: unknown, invocationJson: string, binding?: BoundaryActivityBinding) => {
     boundary = binding ?? null;
+    admittedInvocation = JSON.parse(invocationJson);
     activity = { activityId: intent.activityId, phase: 'prepared' }; return { ok: true, phase: 'prepared' };
-  }, getBrowserDetail: async () => activity, getBoundaryStartBinding: async () => boundary };
+  }, getBrowserDetail: async () => activity, getBoundaryStartBinding: async () => boundary,
+    getPreparedInvocation: async () => admittedInvocation };
   const env = { ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)),
     CONTAINER: { getByName: () => container }, OPERATOR_REGISTRY: { getByName: () => registry },
     OPERATOR_ACTIVITY: { getByName: () => operatorActivity } } as unknown as Env;
@@ -182,6 +189,10 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     const reserved = await registry.getBoundaryPreparation();
     expect(reserved).toMatchObject({ activityId: 'reserved-activity' });
     expect(await operatorActivity.getBrowserDetail()).toEqual({ activityId: 'reserved-activity', phase: 'prepared' });
+    expect(await operatorActivity.getPreparedInvocation()).toMatchObject({ resources: {
+      inference: { routeId: 'route-one', reasoningLevel: 'off' },
+      session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' },
+    } });
     expect(await operatorActivity.getBoundaryStartBinding()).toMatchObject({ repositoryId: 138,
       pullRequest: 34, contextDigest: reserved?.contextDigest,
       session: { bucket: 'review-owner', sessionId: 'review1234', generation: 1 } });
