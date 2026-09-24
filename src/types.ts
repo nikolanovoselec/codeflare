@@ -205,7 +205,7 @@ export interface Session {
   userId: string;
   createdAt: string;
   lastAccessedAt: string;
-  status?: 'stopped' | 'running';
+  status?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
   lastStatusCheck?: number;
   lastStartedAt?: string;
   lastActiveAt?: string;

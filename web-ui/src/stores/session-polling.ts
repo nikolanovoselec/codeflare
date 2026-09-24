@@ -57,6 +57,7 @@ let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
 let isSessionInitializingFn: InitChecker;
+let isLocallyStoppingFn: InitChecker;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
@@ -68,6 +69,7 @@ export function registerPollingDeps(deps: {
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
   isSessionInitializing: InitChecker;
+  isLocallyStopping: InitChecker;
   shouldRetainNegativeKv: NegativeKvGuard;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
@@ -78,6 +80,7 @@ export function registerPollingDeps(deps: {
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
   isSessionInitializingFn = deps.isSessionInitializing;
+  isLocallyStoppingFn = deps.isLocallyStopping;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
   setAuthExpiredFn = deps.setAuthExpired;
   applyMetricsUpdateFn = deps.applyMetricsUpdate;
@@ -237,8 +240,9 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
         });
       }
 
-      // Guard 1: Manual stop - don't overwrite local termination ownership.
-      if (session.status === 'stopping') continue;
+      // Guard 1: Only the local Stop poll owns termination; persisted stopping
+      // can accept a newer D1 stopped projection.
+      if (isLocallyStoppingFn(session.id)) continue;
 
       // Guard 2: Startup - block ALL KV transitions while session is initializing.
       // isSessionInitializing tracks the full startup flow (SSE stream), not just
@@ -248,7 +252,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       // Guard 3: Delayed negative evidence cannot stop a newly started session or a
       // session whose terminal transport still owns a socket/retry loop. Manual
       // stop and persisted-state 4503 bypass this path in session.ts/terminal.ts.
-      if (remote.status === 'stopped' && shouldRetainNegativeKvFn(session.id)) continue;
+      if (remote.status === 'stopped' && session.status !== 'stopping' && shouldRetainNegativeKvFn(session.id)) continue;
 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.

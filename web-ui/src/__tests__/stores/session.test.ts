@@ -123,6 +123,23 @@ describe('Session Store', () => {
   });
 
   describe('loadSessions', () => {
+    it.each(['list', 'poll'] as const)(
+      'REQ-SESSION-012 AC3/AC6: persisted stopping converges to stopped through %s status', async (source) => {
+        const base = { id: 'd1-stopping', name: 'Stopping', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
+        mockGetSessions.mockResolvedValue([{ ...base, status: 'stopping', lifecycle: 'stopping', generation: 2, revision: 3 }] as never);
+        await sessionStore.loadSessions();
+        expect(sessionStore.sessions.find(s => s.id === base.id)?.status).toBe('stopping');
+        // A lingering terminal cannot veto a D1-confirmed stop of a persisted transition.
+        terminalLifecycle.ownedSessionIds.add(base.id);
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+          [base.id]: { status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 },
+        } });
+        if (source === 'list') await sessionStore.loadSessions();
+        else await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.sessions.find(s => s.id === base.id)).toMatchObject({ status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 });
+      },
+    );
+
     it.each(['starting', 'unreachable', 'running'] as const)(
       'REQ-SESSION-010 AC3 / REQ-SESSION-012 AC6: D1 %s supersedes stale local stopped when batch is unavailable', async (lifecycle) => {
         const base = { id: 'd1-recovery', name: 'Recovery', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };

@@ -94,6 +94,7 @@ describe('handleWebSocketUpgrade', () => {
       userId: 'test-bucket',
       createdAt: '2024-01-15T10:00:00.000Z',
       lastAccessedAt: '2024-01-15T10:00:00.000Z',
+      status: 'running',
     };
     mockKV._set('session:test-bucket:testsession123', session);
   });
@@ -462,7 +463,7 @@ describe('handleWebSocketUpgrade', () => {
       expectNoRateLimitWrite();
     });
 
-    it('REQ-SEC-020 AC2: D1 read outage does not invent an authoritative stopped close', async () => {
+    it('REQ-SEC-020 AC7: D1 read outage does not invent an authoritative stopped close', async () => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
         id: sessionId, name: 'Test', userId: 'test-bucket', status: 'stopped',
