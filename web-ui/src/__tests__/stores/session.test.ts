@@ -123,6 +123,28 @@ describe('Session Store', () => {
   });
 
   describe('loadSessions', () => {
+    it.each(['starting', 'unreachable', 'running'] as const)(
+      'REQ-SESSION-010 AC3 / REQ-SESSION-012 AC6: D1 %s supersedes stale local stopped when batch is unavailable', async (lifecycle) => {
+        const base = { id: 'd1-recovery', name: 'Recovery', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
+        mockGetSessions.mockResolvedValueOnce([{ ...base, status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 3 }] as never)
+          .mockResolvedValueOnce([{ ...base, status: lifecycle, lifecycle, generation: 3, revision: 4 }] as never);
+        await sessionStore.loadSessions();
+        mockGetBatchSessionStatus.mockRejectedValue(new Error('batch unavailable'));
+        await sessionStore.loadSessions();
+        expect(sessionStore.sessions.find(s => s.id === base.id)).toMatchObject({ status: lifecycle, lifecycle, generation: 3, revision: 4 });
+      },
+    );
+
+    it('REQ-SESSION-012 AC6: stale list cannot overwrite a newer local generation and revision', async () => {
+      const base = { id: 'd1-newer', name: 'Newer', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
+      mockGetSessions.mockResolvedValueOnce([{ ...base, status: 'running', lifecycle: 'running', generation: 8, revision: 12 }] as never)
+        .mockResolvedValueOnce([{ ...base, status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 99 }] as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockRejectedValue(new Error('batch unavailable'));
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(s => s.id === base.id)).toMatchObject({ status: 'running', lifecycle: 'running', generation: 8, revision: 12 });
+    });
+
     it('should load sessions from API', async () => {
       const mockSessions = [
         {

@@ -382,6 +382,29 @@ describe('SessionStatCard', () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
+    it.each(['running', 'starting', 'unreachable'] as const)(
+      'REQ-AGENT-175 AC3: pending managed update keeps active %s terminal selectable', (status) => {
+        (sessionStore as any)._setManagedReleaseStatus('update_pending');
+        const onSelect = vi.fn();
+        render(() => <SessionStatCard {...defaultProps} session={createSession({ status, workspace: 'terminal' })} onSelect={onSelect} />);
+        const selector = screen.getByTestId('session-stat-card-test-1-select');
+        expect(selector).toBeEnabled();
+        fireEvent.click(selector);
+        expect(onSelect).toHaveBeenCalledOnce();
+      },
+    );
+
+    it('REQ-SESSION-012 AC3 / REQ-AGENT-175 AC3: pending update allows reopening a ready unreachable editor without starting it', () => {
+      (sessionStore as any)._setManagedReleaseStatus('update_pending');
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({
+        workspace: 'vscode', status: 'unreachable', editorReady: true,
+      })} onSelect={onSelect} />);
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      fireEvent.click(selector);
+      expect(onSelect).toHaveBeenCalledOnce();
+    });
+
     it('does not dim running card during upgrade', () => {
       (sessionStore as any)._setManagedReleaseStatus('upgrading');
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);

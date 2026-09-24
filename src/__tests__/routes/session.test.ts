@@ -57,6 +57,27 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
     });
   }
 
+  it.each(['stopped', 'starting', 'running', 'unreachable', 'stopping'] as const)(
+    'REQ-SESSION-010 AC2/3/5: list and detail project D1 %s with generation and revision', async (lifecycle) => {
+      const id = 'lifecycle12345678';
+      mockKV._set(`session:test-bucket:${id}`, {
+        id, userId: 'test-bucket', name: 'Lifecycle', status: lifecycle,
+        lifecycleGeneration: 7, responseRevision: 19,
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      });
+      const app = createCrudApp();
+      const list = await app.request('/sessions');
+      const detail = await app.request(`/sessions/${id}`);
+      expect(list.status).toBe(200);
+      expect(detail.status).toBe(200);
+      const listed = (await list.json() as { sessions: Array<Record<string, unknown>> }).sessions.find(s => s.id === id);
+      const fetched = (await detail.json() as { session: Record<string, unknown> }).session;
+      for (const session of [listed, fetched]) {
+        expect(session).toMatchObject({ id, status: lifecycle, lifecycle, generation: 7, revision: 19 });
+      }
+    },
+  );
+
   describe('GET /sessions', () => {
     it('returns empty array when no sessions exist', async () => {
       const app = createCrudApp();
