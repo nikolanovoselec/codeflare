@@ -114,6 +114,7 @@ describe('deployment container image input hash', () => {
       'scripts/ci/coding-agent-selection-core.mjs',
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
+      'scripts/ci/prune-selected-npm-tools.sh',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'src/lib/agent-seed.generated.ts',
@@ -187,9 +188,14 @@ describe('deployment container image input hash', () => {
     const pruningTag = imageHashResult().tag;
     assert.notEqual(pruningTag, planPatchTag);
 
+    write('scripts/ci/prune-selected-npm-tools.sh', 'selected npm prune change\n');
+    commit('selected npm prune change');
+    const selectedPruningTag = imageHashResult().tag;
+    assert.notEqual(selectedPruningTag, pruningTag);
+
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
-    assert.notEqual(imageHashResult().tag, pruningTag);
+    assert.notEqual(imageHashResult().tag, selectedPruningTag);
 
     for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py']) {
       const before = imageHashResult().tag;
