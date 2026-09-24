@@ -1005,6 +1005,15 @@ jobs:
         # without assets and the test fails.
         run: mkdir -p web-ui/dist
 
+      - name: Install and verify approved-packet sandbox
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          /usr/bin/bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net \
+            --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin \
+            --size 1048576 --tmpfs /work -- /usr/bin/true
+
       - name: Build host (TypeScript)
         run: npm run build
         working-directory: host
