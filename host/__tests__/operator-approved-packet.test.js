@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +16,7 @@ function git(repo, args, input) {
   return result.stdout;
 }
 
-async function fixture(t, { unsafeLink = false } = {}) {
+async function fixture(t, { unsafeLink = false, historicalBlob = false } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'approved-packet-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = path.join(root, 'source');
@@ -28,6 +29,12 @@ async function fixture(t, { unsafeLink = false } = {}) {
   git(repo, ['add', '.']);
   git(repo, ['commit', '-qm', 'base']);
   const base = git(repo, ['rev-parse', 'HEAD']).toString().trim();
+  if (historicalBlob) {
+    await writeFile(path.join(repo, 'history.bin'), randomBytes(2 * 1024 * 1024));
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-qm', 'historical object']);
+    await rm(path.join(repo, 'history.bin'));
+  }
   await writeFile(path.join(repo, 'src/app.ts'), 'export const value = 2;\n');
   await mkdir(path.join(repo, '.githooks'));
   await writeFile(path.join(repo, '.githooks/post-checkout'), `#!/bin/sh\necho ran > '${path.join(root, 'hook-ran')}'\n`, { mode: 0o755 });
@@ -52,7 +59,7 @@ function binding(f, overrides = {}) {
 }
 
 async function run(f, overrides = {}, options = {}) {
-  return runApprovedPacket(binding(f, overrides), { root: f.root, scriptPath: script, ...options });
+  return runApprovedPacket(binding(f, overrides), { scriptPath: script, ...options });
 }
 
 test('REQ-OPERATOR-050/053: trusted script builds the exact acknowledged-head packet from received Git objects', async t => {
@@ -62,6 +69,7 @@ test('REQ-OPERATOR-050/053: trusted script builds the exact acknowledged-head pa
   assert.equal(packet.range, `${f.base}..${f.head}`);
   assert.ok(packet.files.includes('src/app.ts'));
   assert.match(packet.patch, /\+export const value = 2;/);
+  assert.equal(packet.evidenceOmitted, undefined);
   const wholeTree = JSON.parse(Buffer.from(await run(f, { acknowledgedHead: null })).toString('utf8'));
   assert.equal(wholeTree.scope, 'all');
   assert.ok(wholeTree.files.includes('src/app.ts'));
@@ -73,7 +81,7 @@ test('REQ-OPERATOR-050/053: wrong head, missing ancestor and corrupt pack never 
   await assert.rejects(run(f, { head: 'a'.repeat(40) }));
   await assert.rejects(run(f, { acknowledgedHead: 'b'.repeat(40) }));
   await assert.rejects(run(f, { pack: Buffer.from('not a Git pack') }));
-  assert.equal((await readdir(f.root)).some(name => name.startsWith('operator-packet-')), false);
+  assert.ok(JSON.parse(Buffer.from(await run(f)).toString('utf8')).files.includes('src/app.ts'));
 });
 
 test('REQ-OPERATOR-050/053: hostile checkout symlinks and candidate scripts cannot become packet authority', async t => {
@@ -92,10 +100,18 @@ test('REQ-OPERATOR-050/053: expiry, cancellation and byte ceilings fail closed',
   const running = run(f, {}, { signal: inFlight.signal });
   setTimeout(() => inFlight.abort(), 25);
   await assert.rejects(running);
-  assert.equal((await readdir(f.root)).some(name => name.startsWith('operator-packet-')), false);
   await assert.rejects(run(f, { maxPackBytes: 16 }));
   await assert.rejects(run(f, { maxCheckoutBytes: 16 }));
   await assert.rejects(run(f, { maxOutputBytes: 16 }));
+});
+
+test('REQ-OPERATOR-050/053: historical objects fail closed under aggregate scratch and Git address-space limits', async t => {
+  const f = await fixture(t, { historicalBlob: true });
+  const ordinary = JSON.parse(Buffer.from(await run(f)).toString('utf8'));
+  assert.ok(ordinary.files.includes('src/app.ts'));
+  await assert.rejects(run(f, {}, { sandboxBytes: 1024 * 1024 }));
+  await assert.rejects(run(f, {}, { gitAddressSpaceBytes: 16 * 1024 * 1024 }));
+  assert.ok(JSON.parse(Buffer.from(await run(f)).toString('utf8')).files.includes('src/app.ts'));
 });
 
 test('REQ-OPERATOR-050/053: inherited Git diff drivers and hooks cannot execute', async t => {
