@@ -1007,13 +1007,50 @@ jobs:
         run: mkdir -p web-ui/dist
 
       - name: Install and verify approved-packet sandbox
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap
-          /usr/bin/bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net \
-            --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin \
-            --size 1048576 --tmpfs /work -- /usr/bin/true
+          sudo apt-get install -y --no-install-recommends bubblewrap apparmor
+          /usr/bin/bwrap --version
+          uname -r
+          cat /sys/module/apparmor/parameters/enabled || true
+          probe_sandbox() {
+            /usr/bin/bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net \
+              --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin \
+              --size 1048576 --tmpfs /work -- /usr/bin/true
+          }
+          if probe_sandbox; then
+            echo 'Original sandbox probe succeeded'
+          else
+            initial_status=$?
+            echo "Original sandbox probe failed with exit status $initial_status"
+            cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns || true
+            sudo journalctl -k --since '-2 minutes' --no-pager -o cat 2>/dev/null \
+              | grep -E 'apparmor="DENIED".*(bwrap|userns|capability)' | tail -n 5 || true
+            if [ "$RUNNER_ENVIRONMENT" != 'github-hosted' ]; then
+              echo '::error::Sandbox unavailable on non-hosted runner; refusing to change its policy'; exit "$initial_status"
+            fi
+            # Hypothesis: Ubuntu's executable-scoped userns permission permits
+            # bwrap to configure loopback in its private network namespace.
+            if ! sudo test -r /sys/kernel/security/apparmor/profiles; then
+              echo '::error::Cannot inspect existing AppArmor profiles'; exit 1
+            fi
+            if sudo grep -Eq '^(/usr/bin/bwrap|bwrap) \(' /sys/kernel/security/apparmor/profiles; then
+              echo '::error::Existing bwrap AppArmor policy must not be replaced'; exit 1
+            fi
+            cat <<'EOF' > "$RUNNER_TEMP/codeflare-bwrap.apparmor"
+          abi <abi/4.0>,
+          include <tunables/global>
+          /usr/bin/bwrap flags=(default_allow) {
+            userns,
+          }
+          EOF
+            sudo apparmor_parser --add "$RUNNER_TEMP/codeflare-bwrap.apparmor"
+          fi
+          # The identical user/PID/network-isolated probe must succeed after setup.
+          probe_sandbox
 
       - name: Build host (TypeScript)
         run: npm run build
