@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+selector="$(dirname "$0")/coding-agent-selection.mjs"
+selection="$(node "$selector" resolve "$3")"
+
 if cmp -s "$1" "$2"; then
   exit 0
 else
@@ -12,4 +15,22 @@ if [ "$status" -ne 1 ]; then
   exit "$status"
 fi
 
-exec npm prune --omit=dev --ignore-scripts --no-audit --no-fund
+# npm ci already installed the integrity-checked tree. npm prune fails while
+# re-resolving its reduced Pi selection, so remove only omitted agent roots and
+# launchers; leave shared and selected packages untouched.
+for entry in \
+  claude-code:@anthropic-ai/claude-code:claude \
+  codex:@openai/codex:codex \
+  copilot:@github/copilot:copilot \
+  opencode:opencode-ai:opencode \
+  pi:@earendil-works/pi-coding-agent:pi; do
+  agent="${entry%%:*}"
+  package="${entry#*:}"
+  package="${package%:*}"
+  bin="${entry##*:}"
+  if node "$selector" has "$selection" "$agent"; then
+    continue
+  fi
+  rm -rf -- "node_modules/$package"
+  rm -f -- "node_modules/.bin/$bin"
+done
