@@ -997,23 +997,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(response.status).toBe(503);
     });
 
-    it('REQ-SESSION-012 AC4: returns retryable 1013 when volatile runtime state reads not-running', async () => {
+    it('REQ-SESSION-012 AC4: native terminal fetch probes only the existing port when SDK state is stale', async () => {
       mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
+      mockTcpPortFetch.mockResolvedValue(new Response('surviving terminal', { status: 200 }));
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
       const superFetchSpy = vi.spyOn(proto, 'fetch');
-
       try {
-        const response = await instance.fetch(new Request('http://container/terminal', {
+        const response = await instance.fetch(new Request('https://example.com/terminal?tab=1', {
           headers: { Upgrade: 'websocket' },
         }));
-        const ws = response.webSocket!;
-        const closeCode = new Promise<number>((resolve) => {
-          ws.addEventListener('close', (event) => resolve((event as unknown as { code: number }).code));
-        });
-        ws.accept();
-
-        expect(await closeCode).toBe(1013);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('surviving terminal');
+        expect(mockTcpPortFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET' }));
         expect(superFetchSpy).not.toHaveBeenCalled();
       } finally {
         superFetchSpy.mockRestore();

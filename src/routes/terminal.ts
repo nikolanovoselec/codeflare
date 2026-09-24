@@ -308,7 +308,9 @@ export async function handleWebSocketUpgrade(
     let forwardError: unknown;
     let forwardTimer: ReturnType<typeof setTimeout> | undefined;
     const response = await Promise.race([
-      forwardExisting(container, new Request(terminalUrl.toString(), request)).catch((err: unknown) => {
+      // Native DO fetch transports a 101 WebSocket response; an RPC method
+      // returning that response fails serialization before it reaches the Worker.
+      container.fetch(new Request(terminalUrl.toString(), request)).catch((err: unknown) => {
         forwardError = err;
         return FORWARD_FAILED;
       }),
@@ -331,6 +333,13 @@ export async function handleWebSocketUpgrade(
         reason: response === TIMED_OUT ? 'timeout' : 'rejected',
         error: response === FORWARD_FAILED ? toErrorMessage(forwardError) : undefined,
       });
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(1013, 'container-unreachable');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    if (response.status === 503) {
       const pair = new WebSocketPair();
       pair[1].accept();
       pair[1].close(1013, 'container-unreachable');

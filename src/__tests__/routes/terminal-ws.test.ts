@@ -436,20 +436,21 @@ describe('handleWebSocketUpgrade', () => {
 
     it('REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting', async () => {
       mockContainerGetState.mockResolvedValue({ status: 'stopped' });
-      mockContainerFetch.mockImplementation(() => { throw new Error('auto-starting SDK fetch must not be used'); });
-      mockForwardExisting.mockImplementation(defaultContainerFetch);
+      mockForwardExisting.mockImplementation(async (req: Request) => {
+        if (new URL(req.url).pathname === '/terminal') throw new Error('WebSocket cannot cross RPC');
+        return defaultContainerFetch(req);
+      });
       const request = createRequest();
       const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
       expect(result.status).toBe(200);
       expect(await result.text()).toBe('ws upgrade');
-      // The auto-starting SDK fetch throws if called; successful terminal
-      // transport is the observable no-wake contract.
+      expect(mockContainerFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET' }));
     });
 
     it('REQ-SESSION-012 AC1: absent runtime returns retryable 1013 without invoking auto-starting SDK fetch', async () => {
       mockContainerGetState.mockResolvedValue({ status: 'stopped' });
       mockForwardExisting.mockResolvedValue(new Response('Container not running', { status: 503 }));
-      mockContainerFetch.mockImplementation(() => { throw new Error('auto-starting SDK fetch must not be used'); });
+      mockContainerFetch.mockResolvedValue(new Response('Container not running', { status: 503 }));
       const request = createRequest();
       const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
       expect(await readCloseCode(result)).toBe(1013);
