@@ -8,14 +8,13 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import { CLOUDFLARE_TEST_OPTIONS } from '../../../vitest.config';
 import { NODE_SUITE_FILES, nodeSuiteFiles } from '../../../vitest.node-suite.mjs';
 import { sharedCacheEnabled } from '../../../scripts/ci/container-build-cache-policy.mjs';
-import BackendTimingReporter from '../../../scripts/ci/backend-timing-reporter.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { assignWeightedFiles } from '../../../scripts/ci/select-weighted-backend-tests.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
@@ -430,7 +429,9 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
   });
 
-  it('REQ-OPS-045 AC3: records per-file collection and execution cost without replacing the suite report', () => {
+  it('REQ-OPS-045 AC3: records per-file collection and execution cost', async () => {
+    const reporterUrl = pathToFileURL(join(REPO, 'scripts/ci/backend-timing-reporter.mjs')).href;
+    const { default: BackendTimingReporter } = await import(reporterUrl);
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
       new BackendTimingReporter().onTestRunEnd([{
