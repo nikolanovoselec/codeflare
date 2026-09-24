@@ -402,13 +402,15 @@ RUN cd /opt/codeflare/oxlint && \
     [ -e node_modules/.bin/oxlint ] && \
     ln -sf "$(readlink -f node_modules/.bin/oxlint)" /usr/local/bin/oxlint && \
     oxlint --version
+# npm ci already installs the locked production tree for the full agent selection.
+# Only re-resolve the tree when selection actually removes a root dependency.
 RUN cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
     cp package.json /tmp/npm-tools-package.json && \
     cp package-lock.json /tmp/npm-tools-package-lock.json && \
     node /opt/codeflare/scripts/coding-agent-selection.mjs select-manifest "$CODEFLARE_CODING_AGENTS" package.json && \
-    npm prune --omit=dev --ignore-scripts --no-audit --no-fund && \
+    { cmp -s package.json /tmp/npm-tools-package.json || npm prune --omit=dev --ignore-scripts --no-audit --no-fund; } && \
     mv /tmp/npm-tools-package.json package.json && \
     mv /tmp/npm-tools-package-lock.json package-lock.json && \
     for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp; do \
