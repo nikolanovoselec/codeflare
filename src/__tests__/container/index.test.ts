@@ -753,6 +753,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(persisted.get('lifecycleGeneration')).toBe(7);
     });
 
+    it('native terminal upgrade fails closed when the existing runtime is absent', async () => {
+      mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
+      mockTcpPortFetch.mockRejectedValue(new Error('no existing process'));
+      mockContainerRuntime.start.mockImplementation(() => { mockContainerRuntime.running = true; });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const response = await instance.fetch(new Request('https://example.com/terminal', {
+        headers: { Upgrade: 'websocket' },
+      }));
+      expect(response.status).toBe(503);
+      expect(mockContainerRuntime.running).toBe(false);
+    });
+
     it('reaches a surviving process when the coordinator running flag is transiently false', async () => {
       mockContainerRuntime.running = false;
       mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
@@ -1001,6 +1014,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockContainerRuntime.running = false;
       mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
       mockTcpPortFetch.mockResolvedValue(new Response('surviving terminal', { status: 200 }));
+      mockContainerRuntime.start.mockImplementation(() => { throw new Error('replacement started'); });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
       const superFetchSpy = vi.spyOn(proto, 'fetch');
