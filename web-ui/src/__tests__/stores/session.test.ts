@@ -12,7 +12,7 @@ const terminalLifecycle = vi.hoisted(() => ({
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
     dispose: vi.fn(),
-    disposeSession: vi.fn(),
+    disposeSession: vi.fn((sessionId: string) => { terminalLifecycle.ownedSessionIds.delete(sessionId); }),
     triggerLayoutResize: vi.fn(),
     ownsSession: vi.fn((sessionId: string) => terminalLifecycle.ownedSessionIds.has(sessionId)),
     registerSessionStoppedCallback: vi.fn((callback: (sessionId: string) => void) => {
@@ -123,22 +123,45 @@ describe('Session Store', () => {
   });
 
   describe('loadSessions', () => {
-    it.each(['list', 'poll'] as const)(
+    it.each(['list', 'list+batch', 'poll'] as const)(
       'REQ-SESSION-012 AC3/AC6: persisted stopping converges to stopped through %s status', async (source) => {
-        const base = { id: 'd1-stopping', name: 'Stopping', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
+        const base = { id: `d1-stopping-${source}`, name: 'Stopping', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
         mockGetSessions.mockResolvedValue([{ ...base, status: 'stopping', lifecycle: 'stopping', generation: 2, revision: 3 }] as never);
         await sessionStore.loadSessions();
         expect(sessionStore.sessions.find(s => s.id === base.id)?.status).toBe('stopping');
         // A lingering terminal cannot veto a D1-confirmed stop of a persisted transition.
+        sessionStore.initializeTerminalsForSession(base.id);
+        const tabs = sessionStore.getTerminalsForSession(base.id)?.tabs.map((tab) => tab.id);
         terminalLifecycle.ownedSessionIds.add(base.id);
-        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
-          [base.id]: { status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 },
-        } });
-        if (source === 'list') await sessionStore.loadSessions();
-        else await sessionStore.refreshSessionStatuses();
+        if (source === 'list') {
+          mockGetSessions.mockResolvedValueOnce([{ ...base, status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 }] as never);
+          await sessionStore.loadSessions();
+        } else {
+          mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+            [base.id]: { status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 },
+          } });
+          if (source === 'list+batch') await sessionStore.loadSessions();
+          else await sessionStore.refreshSessionStatuses();
+        }
         expect(sessionStore.sessions.find(s => s.id === base.id)).toMatchObject({ status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 });
+        expect(terminal.terminalStore.ownsSession?.(base.id)).toBe(false);
+        expect(sessionStore.getTerminalsForSession(base.id)?.tabs.map((tab) => tab.id)).toEqual(tabs);
       },
     );
+
+    it('REQ-SESSION-012 AC6: newer running batch overrides a listed stop without ending transport ownership', async () => {
+      const base = { id: 'd1-stop-order', name: 'Ordering', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
+      mockGetSessions.mockResolvedValueOnce([{ ...base, status: 'stopping', lifecycle: 'stopping', generation: 2, revision: 3 }] as never)
+        .mockResolvedValueOnce([{ ...base, status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 }] as never);
+      await sessionStore.loadSessions();
+      terminalLifecycle.ownedSessionIds.add(base.id);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        [base.id]: { status: 'running', lifecycle: 'running', generation: 2, revision: 5 },
+      } });
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(s => s.id === base.id)).toMatchObject({ status: 'running', revision: 5 });
+      expect(terminal.terminalStore.ownsSession?.(base.id)).toBe(true);
+    });
 
     it.each(['starting', 'unreachable', 'running'] as const)(
       'REQ-SESSION-010 AC3 / REQ-SESSION-012 AC6: D1 %s supersedes stale local stopped when batch is unavailable', async (lifecycle) => {

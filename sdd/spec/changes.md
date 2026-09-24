@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-24
 
-- **Owner-scoped D1 lifecycle determines terminal stop and session display** ([REQ-SEC-020](security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) AC1, AC2, AC7; [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-status-observable-from-dashboard); [REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention)). D1 `stopping`/`stopped` alone confirms terminal close 4503; transient SDK stop on a D1-owned session remains retryable 1013 without waking the container. List/detail and browser hydration preserve ordered lifecycle state, and a ready unreachable editor can reopen without starting during managed updates. Exact-head CI is pending; this entry does not claim deployment proof.
+- **Owner-scoped D1 lifecycle determines terminal stop and session display** ([REQ-SEC-020](security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) AC1, AC2, AC7; [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection); [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)). D1 `stopping`/`stopped` alone confirms terminal close 4503; transient SDK stop on a D1-owned session remains retryable 1013 without waking the container. List/detail and browser hydration preserve ordered lifecycle state, and a ready unreachable editor can reopen without starting during managed updates.
 
 ## 2026-09-23
 

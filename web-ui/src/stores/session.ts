@@ -468,6 +468,14 @@ async function loadSessions(): Promise<void> {
         terminalStore.disposeSession(session.id);
       }
     }
+    // Resolve list and batch order before disposing a previously stopping
+    // transport: a newer running batch must retain the surviving connection.
+    if (thisGen !== loadSessionsGeneration) return;
+    for (const session of state.sessions) {
+      if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
+        terminalStore.disposeSession(session.id);
+      }
+    }
   } catch (err) {
     if (thisGen !== loadSessionsGeneration) return;
     setState('error', err instanceof Error ? err.message : 'Failed to load sessions');
