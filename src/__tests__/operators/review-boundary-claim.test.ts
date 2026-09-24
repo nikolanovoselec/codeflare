@@ -225,7 +225,8 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     expect(await f.activity.start(f.startCapability)).toMatchObject({ ok: false });
     expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: false });
     expect(await f.claim()).toMatchObject({ activityId: f.activityId, startCapability: f.startCapability,
-      repositoryId: 138, pullRequest: 34, head, base, mergeBase, workflowId: 531, runId: 87, runAttempt: 1 });
+      repositoryId: 138, pullRequest: 34, head, base, mergeBase, workflowId: 531, runId: 87, runAttempt: 1,
+      generation: 1, contextDigest: 'f'.repeat(64) });
     expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
     expect(await f.activity.start(f.startCapability)).toMatchObject({ ok: false });
     expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: true, phase: 'queued' });
