@@ -110,7 +110,7 @@ test('REQ-OPERATOR-050/053: historical objects fail closed under aggregate scrat
   const ordinary = JSON.parse(Buffer.from(await run(f)).toString('utf8'));
   assert.ok(ordinary.files.includes('src/app.ts'));
   await assert.rejects(run(f, {}, { sandboxBytes: 1024 * 1024 }));
-  await assert.rejects(run(f, {}, { gitAddressSpaceBytes: 16 * 1024 * 1024 }));
+  await assert.rejects(run(f, {}, { gitAddressSpaceBytes: 1024 * 1024 }));
   assert.ok(JSON.parse(Buffer.from(await run(f)).toString('utf8')).files.includes('src/app.ts'));
 });
 
