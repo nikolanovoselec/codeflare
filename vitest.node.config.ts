@@ -26,7 +26,7 @@ export default defineConfig({
     // One native failure can leave workerd intentionally fenced or evicted.
     // Do not spend another 30 seconds on every later case against that failed
     // fixture; the dedicated native report still records the first real failure.
-    bail: process.env.VITEST_NODE_SUITE_GROUP === 'native' ? 1 : 0,
+    bail: ['native', 'flue'].includes(process.env.VITEST_NODE_SUITE_GROUP ?? '') ? 1 : 0,
     // Compact per-test output in CI (dots + summary); full reporter locally.
     reporters: process.env.CI ? ['dot'] : ['default'],
   },

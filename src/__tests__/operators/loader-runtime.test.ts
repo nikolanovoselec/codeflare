@@ -95,7 +95,7 @@ registerNativeDispatcherCases({
   reset: async () => { await worker?.stop(); await startWorker(); },
   queuedActivity,
   activity,
-});
+}, 'authority');
 
 const ARTIFACT = 'a'.repeat(64);
 async function registry(fixture: string, command: RegistryFixtureCommand): Promise<OperatorRegistryResult<unknown>> {

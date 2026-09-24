@@ -26,8 +26,8 @@ type Harness = {
   activity(id: string, command: ActivityFixtureCommand): Promise<unknown>;
 };
 
-/** Registered only from loader-runtime.test.ts; not a new runner or fake Loader. */
-export function registerNativeDispatcherCases(harness: Harness) {
+/** Each native group runs against its own real Wrangler/workerd fixture. */
+export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 'authority') {
   async function command<T>(id: string, value: FlueFixtureCommand, timeoutMs = 15_000): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`native fixture ${value.action} timed out`)), timeoutMs);
@@ -121,7 +121,7 @@ export function registerNativeDispatcherCases(harness: Harness) {
     return { id, value };
   }
 
-  describe('REQ-OPERATOR-048/051: pinned generated Flue in native workerd', () => {
+  if (group === 'flue') describe('REQ-OPERATOR-048/051: pinned generated Flue in native workerd', () => {
     beforeEach(() => harness.reset(), 60_000);
 
     it('executes a real model/tool submission through root alarms and records read-only Renovate evidence without a session', async () => {
@@ -339,7 +339,7 @@ export function registerNativeDispatcherCases(harness: Harness) {
     });
   });
 
-  describe('REQ-OPERATOR-047/048: captured generation native Flue authority', () => {
+  if (group === 'authority') describe('REQ-OPERATOR-047/048: captured generation native Flue authority', () => {
     beforeEach(() => harness.reset(), 60_000);
 
     it.each(['stale', 'expiry', 'cancel'] as const)('rejects a warmed %s caller before its protected operation and result commitment', async reason => {

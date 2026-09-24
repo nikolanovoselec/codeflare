@@ -455,6 +455,7 @@ jobs:
           balance-group: ${{ matrix.balance-group }}
           script: ${{ matrix.script }}
           artifact-name: backend-${{ matrix.slug }}
+          timing-reporter: 'true'
           pre-run: ${{ matrix.pre-run }}
           tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
           coverage: ${{ matrix.coverage }}
@@ -471,16 +472,16 @@ jobs:
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    # The native workerd group normally completes in about 40 seconds. Bound it
-    # independently so a stuck generated facet does not hold ordinary Node tests
-    # or the complete backend lane for ten minutes.
+    # Native workerd groups run separately from ordinary Node tests so a stuck
+    # generated facet cannot hold the complete backend lane for ten minutes.
     timeout-minutes: 3
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 3
       matrix:
         include:
           - { slug: native, group: native }
+          - { slug: flue, group: flue }
           - { slug: rest, group: rest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -492,7 +493,7 @@ jobs:
           node-version: '22'
 
       - name: Verify exact compiler-produced Dispatcher fixture
-        if: matrix.group == 'native'
+        if: matrix.group != 'rest'
         run: |
           echo 'cda68ed8d2ba47c479f5daa636b00701f0ef079bedb55649c0d659de73cc910e  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
           grep -qF '"sourceCommit":"7e32feb95b470b961da4607956274f641a9abf29"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
@@ -510,7 +511,7 @@ jobs:
           script: test:node
           artifact-name: backend-node-${{ matrix.slug }}
           pre-run: npm run pretest
-          human-reporter: ${{ matrix.group == 'native' && 'verbose' || 'dot' }}
+          human-reporter: ${{ matrix.group != 'rest' && 'verbose' || 'dot' }}
 
   workflow-audit:
     name: Workflow audit

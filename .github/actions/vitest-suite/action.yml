@@ -51,6 +51,10 @@ inputs:
     description: 'Human Vitest reporter: dot (default) or verbose for a bounded diagnostic lane.'
     required: false
     default: 'dot'
+  timing-reporter:
+    description: 'Emit per-module collection and test timings alongside the normal reports.'
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -70,6 +74,7 @@ runs:
         TOLERATE: ${{ inputs.tolerate-pool-crash }}
         COVERAGE: ${{ inputs.coverage }}
         HUMAN_REPORTER: ${{ inputs.human-reporter }}
+        TIMING_REPORTER: ${{ inputs.timing-reporter }}
       run: |
         # Belt and braces with RUNNER_TEMP: if a report from a previous run
         # survived, the gate would parse IT — >0 tests, 0 failures, and for the
@@ -114,11 +119,17 @@ runs:
           dot|verbose) ;;
           *) echo "::error::unsupported human reporter: $HUMAN_REPORTER"; exit 1 ;;
         esac
+        timing_args=()
+        case "$TIMING_REPORTER" in
+          true) timing_args=(--reporter="$GITHUB_WORKSPACE/scripts/ci/backend-timing-reporter.mjs") ;;
+          false) ;;
+          *) echo "::error::unsupported timing reporter: $TIMING_REPORTER"; exit 1 ;;
+        esac
         set +e
         # CLI reporters replace the config one; JSON remains mandatory for the gate.
         npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
           "${coverage_args[@]}" \
-          --reporter="$HUMAN_REPORTER" --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
+          --reporter="$HUMAN_REPORTER" --reporter=json "${timing_args[@]}" --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
           2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
         status=${PIPESTATUS[0]}
         set -e

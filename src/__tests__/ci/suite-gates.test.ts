@@ -442,6 +442,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       const record = output.mock.calls.map(([chunk]) => String(chunk)).find(line => line.startsWith('BACKEND_TIMING '));
       expect(JSON.parse(record!.slice('BACKEND_TIMING '.length))).toEqual({
         file: 'src/__tests__/example.test.ts', totalMs: 35,
+        componentsMs: { environment: 2, prepare: 3, collect: 17, setup: 4, tests: 9 },
       });
     } finally {
       output.mockRestore();
