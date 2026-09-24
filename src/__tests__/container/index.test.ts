@@ -737,7 +737,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       let started = false;
       mockContainerRuntime.start.mockImplementation(() => { started = true; throw new Error('unexpected container start'); });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(token));
+      await vi.waitFor(() => expect(instance._containerAuthToken).toBe(token));
       const request = new Request('http://container/terminal?session=testsession123-1', {
         headers: { Upgrade: 'websocket', Authorization: 'Bearer forged' },
       });
@@ -782,7 +782,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     const owner = 'test-bucket';
     const sessionId = 'abcdef1234567890';
 
-    async function attachedMonitor(generation: number) {
+    async function attachedMonitor(generation: number, sdkRunning = true) {
       const kv = createMockKV();
       const key = `session:${owner}:${sessionId}`;
       kv._set(key, {
@@ -795,16 +795,145 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       ]);
       mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
-      mockEnv.USAGE_DB = createMockSessionD1(kv);
-      let completeExit: (() => Promise<void>) | undefined;
-      mockContainerRuntime.monitor.mockImplementation(() => ({
-        then(onExit: () => Promise<void>) { completeExit = onExit; return Promise.resolve(); },
+      mockStorage.delete.mockImplementation(async (key: string) => { persisted.delete(key); });
+      mockStorage.transaction.mockImplementation(async (work: (txn: unknown) => Promise<unknown>) => work({
+        get: (key: string) => Promise.resolve(persisted.get(key)),
+        put: async (key: string, value: unknown) => { persisted.set(key, value); },
+        delete: async (key: string) => { persisted.delete(key); },
       }));
+      mockEnv.USAGE_DB = createMockSessionD1(kv);
+      mockContainerRuntime.running = sdkRunning;
+      if (!sdkRunning) mockTcpPortFetch.mockResolvedValue(new Response('healthy'));
+      let resolveExit!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve) => { resolveExit = resolve; }));
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance._sessionId).toBe(sessionId));
-      await vi.waitFor(() => expect(completeExit).toBeDefined());
-      return { kv, key, completeExit: completeExit! };
+      await vi.waitFor(() => expect(resolveExit).toBeDefined());
+      const completeExit = async () => {
+        resolveExit();
+        await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
+      };
+      return { kv, key, completeExit, resolveExit, persisted, instance };
     }
+
+    async function reconstruct() {
+      let completion!: Promise<void>;
+      mockCtx.blockConcurrencyWhile.mockImplementation((work: () => Promise<void>) => {
+        completion = work();
+        return completion;
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await completion;
+      return instance;
+    }
+
+    it('does not release ownership after a transport monitor rejection', async () => {
+      const { kv, key, persisted } = await attachedMonitor(12);
+      let rejectExit!: (error: unknown) => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((_, reject) => { rejectExit = reject; }));
+      const reconstructed = await reconstruct();
+      await vi.waitFor(() => expect(rejectExit).toBeDefined());
+      rejectExit(new Error('network connection lost'));
+      await vi.waitFor(() => expect((reconstructed as any).logger.warn).toHaveBeenCalledWith(
+        'Container monitor failed', { error: 'network connection lost' },
+      ));
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('running');
+      expect(persisted.has('monitoredExitGeneration')).toBe(false);
+    });
+
+    it('confirms an explicit nonzero process exit from the low-level monitor', async () => {
+      const { kv, key } = await attachedMonitor(13);
+      let rejectExit!: (error: unknown) => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((_, reject) => { rejectExit = reject; }));
+      await reconstruct();
+      await vi.waitFor(() => expect(rejectExit).toBeDefined());
+      rejectExit(new Error('container exited with unexpected exit code: 137'));
+      await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
+    });
+
+    it('observes an existing process after reconstruction with a false SDK running flag, without starting it', async () => {
+      const { kv, key, completeExit } = await attachedMonitor(9, false);
+      expect(mockTcpPortFetch).toHaveBeenCalled();
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+      await completeExit();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+    });
+
+    it('discards obsolete exit evidence and observes the replacement generation', async () => {
+      const { kv, key, persisted } = await attachedMonitor(8);
+      persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 7 });
+      let resolveReplacement!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve) => { resolveReplacement = resolve; }));
+      await reconstruct();
+      await vi.waitFor(() => expect(resolveReplacement).toBeDefined());
+      expect(persisted.has('monitoredExitGeneration')).toBe(false);
+      resolveReplacement();
+      await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
+    });
+
+    it('does not attach an exit monitor to an unverified absent runtime', async () => {
+      mockContainerRuntime.running = false;
+      mockTcpPortFetch.mockRejectedValue(new Error('port unavailable'));
+      mockStorage.get.mockImplementation(async (key: string) => ({ bucketName: 'owner', _sessionId: 'session1234', lifecycleGeneration: 2, containerAuthToken: 'token' })[key as 'bucketName']);
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance._sessionId).toBe('session1234'));
+      await vi.waitFor(() => expect(mockTcpPortFetch).toHaveBeenCalled());
+      expect(mockContainerRuntime.monitor).not.toHaveBeenCalled();
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+    });
+
+    it('reconciles pending boundary cancellation after coordinator reconstruction', async () => {
+      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(10);
+      kv._set(key, {
+        id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 10,
+        boundaryActivityId: 'boundary-activity',
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const binding = { session: { bucket: owner, sessionId, generation: 10 } };
+      const cancelBoundaryStart = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+      mockEnv.OPERATOR_ACTIVITY = { getByName: () => ({
+        getBoundaryStartBinding: async () => binding, cancelBoundaryStart,
+      }) };
+      let scheduled!: () => void;
+      const firstRetry = new Promise<void>((resolve) => { scheduled = resolve; });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); });
+      resolveExit();
+      await firstRetry;
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
+      await vi.waitFor(() => expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 10 }));
+      const reconstructed = await reconstruct();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+      await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
+      expect(reconstructed._sessionId).toBe(sessionId);
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+    });
+
+    it('retains positive exit evidence through a failed D1 confirmation and retries it', async () => {
+      const { kv, key, resolveExit, persisted } = await attachedMonitor(11);
+      const original = mockEnv.USAGE_DB as D1Database;
+      let failOnce = true;
+      mockEnv.USAGE_DB = {
+        prepare(sql: string) {
+          const statement = original.prepare(sql);
+          if (!sql.includes("SET lifecycle_state='stopped'")) return statement;
+          return { bind(...values: unknown[]) {
+            const bound = statement.bind(...values);
+            return { run: async () => {
+              if (failOnce) { failOnce = false; throw new Error('D1 temporarily unavailable'); }
+              return bound.run();
+            } };
+          } };
+        },
+      };
+      resolveExit();
+      await vi.waitFor(() => expect(failOnce).toBe(false));
+      expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 11 });
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
+      await reconstruct();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+      await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+    });
 
     it('confirms a running session only when its attached process monitor resolves', async () => {
       const { kv, key, completeExit } = await attachedMonitor(7);
@@ -814,13 +943,39 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
 
     it('cannot stop a replacement when the old monitor resolves late', async () => {
-      const { kv, key, completeExit } = await attachedMonitor(7);
+      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
+      let retryScheduled!: () => void;
+      const retry = new Promise<void>((resolve) => { retryScheduled = resolve; });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { retryScheduled(); });
       kv._set(key, {
         id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 8,
         createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
       });
-      await completeExit();
+      resolveExit();
+      await retry;
+      expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 7 });
       expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 8 });
+    });
+
+    it('does not overwrite newer positive exit evidence when an old callback resolves', async () => {
+      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
+      const newer = { owner, session: sessionId, generation: 8 };
+      persisted.set('lifecycleGeneration', 8);
+      persisted.set('monitoredExitGeneration', newer);
+      kv._set(key, {
+        id: sessionId, userId: owner, status: 'stopping', lifecycleGeneration: 8,
+        terminationIntentId: 'newer-intent',
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+      let scheduled!: () => void;
+      const oldRetry = new Promise<void>((resolve) => { scheduled = resolve; });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); });
+      resolveExit();
+      await oldRetry;
+      expect(persisted.get('monitoredExitGeneration')).toEqual(newer);
+      await reconstruct();
+      expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
+      await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
     });
   });
 
@@ -1400,7 +1555,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         await instance.onStop();
 
         const stoppedCall = loggerInfo.mock.calls.find(
-          (call) => call[0] === 'Container stopped',
+          (call) => call[0] === 'Container SDK stop observed (exit unverified)',
         );
         expect(stoppedCall).toBeDefined();
         const meta = stoppedCall![1] as { shutdownElapsedMs: number | null };

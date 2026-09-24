@@ -36,6 +36,7 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     termination_generation: session.terminationGeneration ?? null,
     termination_claimed_at: session.terminationClaimedAt ?? null,
     termination_signal_accepted_at: session.terminationSignalAcceptedAt ?? null,
+    boundary_activity_id: session.boundaryActivityId ?? null,
   };
 }
 
@@ -85,17 +86,28 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           }
           const session = await get(args[0], args[1]);
           if (!session) return { success: true, meta: { changes: 0 } };
-          if (/SET\s+lifecycle_state='starting'/.test(sql)) {
+          if (sql.includes('SET boundary_activity_id=NULL')) {
+            if (session.status !== 'stopping' || session.boundaryActivityId !== args[3]
+                || (session.lifecycleGeneration ?? 0) !== args[2] || !session.terminationIntentId) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            session.boundaryActivityId = undefined;
+          }
+          else if (/SET\s+lifecycle_state='starting'/.test(sql)) {
             if (session.status !== 'stopped' || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
             session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1;
             session.editorReady = false; session.editorReadyError = false;
           }
           else if (/SET\s+lifecycle_state='stopping'/.test(sql)) {
-            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
+            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId
+              || (sql.includes('lifecycle_generation=?5') && args[4] != null && (session.lifecycleGeneration ?? 0) !== args[4])) {
+              return { success: true, meta: { changes: 0 } };
+            }
             session.status = 'stopping'; session.terminationIntentId = args[2]; session.terminationGeneration = session.lifecycleGeneration ?? 0;
           }
           else if (/SET\s+lifecycle_state='stopped'/.test(sql)) {
-            if (session.status !== 'stopping' || session.terminationIntentId !== args[3] || (session.lifecycleGeneration ?? 0) !== args[2]) return { success: true, meta: { changes: 0 } };
+            if (session.status !== 'stopping' || session.terminationIntentId !== args[3]
+              || (session.lifecycleGeneration ?? 0) !== args[2] || session.boundaryActivityId) return { success: true, meta: { changes: 0 } };
             session.status = 'stopped'; session.lastActiveAt = args[4]; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
           }
           else if (sql.includes('lifecycle_state=COALESCE') && sql.includes('observation_sequence=?4')) {

@@ -1346,7 +1346,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(timekeeperStub.fetch).not.toHaveBeenCalled();
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        'collectMetrics: failed to read terminal recovery ownership',
+        'collectMetrics: failed to read transport recovery ownership',
         expect.objectContaining({ error: `storage read failed: ${TRANSPORT_RECOVERY_KEY}` }),
       );
     });

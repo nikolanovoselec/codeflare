@@ -112,13 +112,13 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes === 1 ? this.getSession(ownerKey, sessionId) : null;
   }
 
-  async claimStop(ownerKey: string, sessionId: string, intentId: string, claimedAt: string): Promise<D1Session | null> {
+  async claimStop(ownerKey: string, sessionId: string, intentId: string, claimedAt: string, expectedGeneration?: number): Promise<D1Session | null> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='stopping',
       termination_intent_id=?3, termination_generation=lifecycle_generation,
       termination_claimed_at=?4, transitioned_at=?4, response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state IN ('starting','running','unreachable')
-        AND termination_intent_id IS NULL`)
-      .bind(ownerKey, sessionId, intentId, claimedAt).run();
+        AND termination_intent_id IS NULL AND (?5 IS NULL OR lifecycle_generation=?5)`)
+      .bind(ownerKey, sessionId, intentId, claimedAt, expectedGeneration ?? null).run();
     return result.meta.changes === 1 ? this.getSession(ownerKey, sessionId) : null;
   }
 

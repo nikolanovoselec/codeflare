@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { confirmMonitoredExit } from '../../container/container-lifecycle';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
@@ -52,6 +53,34 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);
   });
 
+  it('retries a confirmed exit after a pending boundary cancellation fails, then releases ownership', async () => {
+    await createSession();
+    const repository = new D1SessionRepository(db);
+    await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z');
+    await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running' WHERE owner_key='owner-a' AND session_id='session01'").run();
+    expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'activity-1')).toBe(true);
+    const binding = { session: { bucket: 'owner-a', sessionId: 'session01', generation: 1 } };
+    const cancelBoundaryStart = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    const actor = { getBoundaryStartBinding: vi.fn().mockResolvedValue(binding), cancelBoundaryStart };
+    const storage = new Map<string, unknown>([['lifecycleGeneration', 1]]);
+    const ctx = { storage: { transaction: async (work: (tx: unknown) => Promise<void>) => work({
+      get: async (key: string) => storage.get(key), put: async (key: string, value: unknown) => { storage.set(key, value); },
+    }) } };
+    const runtimeEnv = { USAGE_DB: db, OPERATOR_ACTIVITY: { getByName: () => actor } };
+    await expect(confirmMonitoredExit(ctx as never, runtimeEnv as never, 'owner-a', 'session01', 1)).rejects.toThrow('cancellation unavailable');
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'activity-1' });
+    expect(await confirmMonitoredExit(ctx as never, runtimeEnv as never, 'owner-a', 'session01', 1)).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopped' });
+  });
+
+  it('rejects an old monitor generation before claiming Stop on a replacement', async () => {
+    await createSession();
+    const repository = new D1SessionRepository(db);
+    expect(await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z')).toMatchObject({ lifecycleGeneration: 1 });
+    expect(await repository.claimStop('owner-a', 'session01', 'old-exit', '2027-01-01T00:00:02.000Z', 0)).toBeNull();
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
+  });
+
   it('REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed', async () => {
     const repository = new D1SessionRepository(db);
     for (const [owner, sessionId] of [
@@ -61,7 +90,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     ] as const) await createSession(owner, sessionId);
     await db.prepare(`UPDATE runtime_sessions SET
       lifecycle_state='stopping', lifecycle_generation=2, response_revision=4,
-      transitioned_at=?3, lifecycle_reason=NULL, last_started_at='2027-01-01T00:00:10.000Z',
+      transitioned_at=?3, lifecycle_reason='idle-stop', last_started_at='2027-01-01T00:00:10.000Z',
       last_active_at='2027-01-01T00:00:20.000Z', editor_ready=1, editor_ready_error=1,
       unreachable_incident_id='incident', unreachable_first_observed_at=?3, unreachable_deadline_ms=60000,
       termination_intent_id='intent', termination_generation=2, termination_claimed_at=?3,
@@ -85,7 +114,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(expired).toMatchObject({
       lifecycleState: 'stopping', lifecycleGeneration: 2, responseRevision: 4,
       editorReady: true, editorReadyError: true, terminationIntentId: 'intent',
-      unreachableIncidentId: 'incident', unreachableDeadlineMs: 60000,
+      lifecycleReason: 'idle-stop', unreachableIncidentId: 'incident', unreachableDeadlineMs: 60000,
     });
     expect(await repository.start('owner-a', 'expired01', '2027-01-01T00:10:00.000Z')).toBeNull();
     expect(await repository.confirmStopped('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:00.000Z')).toBe(false);
@@ -94,7 +123,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     // only the matching generation makes the second confirmation idempotent.
     expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:01.000Z')).toBe(true);
     expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:01.000Z')).toBe(false);
-    expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
+    expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2, lifecycleReason: 'idle-stop' });
     for (const [owner, sessionId, state] of [
       ['owner-a', 'boundary1', 'stopping'], ['owner-a', 'starting1', 'starting'],
       ['owner-a', 'running01', 'running'], ['owner-a', 'unreach01', 'unreachable'],

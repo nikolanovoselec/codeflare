@@ -13,6 +13,7 @@
 import { toError, toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
 import { D1SessionRepository } from '../lib/session-repository';
+import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
   collectMetrics as doCollectMetrics,
@@ -409,9 +410,13 @@ export async function confirmMonitoredExit(
     : `monitored-exit-${generation}`;
   if (!intentId) return false;
   if (current.lifecycleState !== 'stopping') {
-    const claimed = await repository.claimStop(ownerKey, sessionId, intentId, new Date().toISOString());
-    if (!claimed || claimed.lifecycleGeneration !== generation) return false;
+    const claimed = await repository.claimStop(ownerKey, sessionId, intentId, new Date().toISOString(), generation);
+    if (!claimed) return false;
   }
+  // A pending boundary start must be cancelled before exit releases ownership.
+  const stopping = await repository.getSession(ownerKey, sessionId);
+  if (!stopping || stopping.lifecycleGeneration !== generation || stopping.terminationIntentId !== intentId) return false;
+  await fencePendingBoundaryStart(env, repository, stopping);
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
     try {

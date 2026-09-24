@@ -748,11 +748,11 @@ describe('Container Lifecycle Routes', () => {
       expect(body.code).toBe('QUOTA_EXCEEDED');
     });
 
-    it('excludes the session being started from running count (restart)', async () => {
+    it('excludes an already running session from its own concurrent cap', async () => {
       const fetch = createLifecycleApp();
-      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().getState.mockResolvedValue({ status: 'running' });
       container().fetch.mockResolvedValue(
-        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+        new Response(JSON.stringify({ bucketName: 'test-bucket' }), { status: 200 })
       );
 
       // Seed 3 running sessions, one of which is the session being restarted

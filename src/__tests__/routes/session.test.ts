@@ -770,7 +770,7 @@ describe('GET /sessions/batch-status', () => {
     expect(body.statuses['batchsession5678def']).toMatchObject({ status: 'running', lifecycle: 'running' });
   });
 
-  it('REQ-SESSION-035: old stopping remains owner-scoped and blocks managed mutation without exit evidence', async () => {
+  it('REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence', async () => {
     mockKV._set('session:test-bucket:expiredstop1234', {
       id: 'expiredstop1234', name: 'Expired stop', userId: 'test-bucket', status: 'stopping',
       createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
