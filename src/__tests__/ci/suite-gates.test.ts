@@ -420,7 +420,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 12], ['backend-node-tests', 3], ['frontend-tests', 4], ['host-tests', 5]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 12], ['backend-node-tests', 2], ['frontend-tests', 4], ['host-tests', 4]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -503,11 +503,36 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(node.strategy.matrix.include).toEqual([
       { slug: 'native', group: 'native' },
       { slug: 'flue', group: 'flue' },
-      { slug: 'rest', group: 'rest' },
+    ]);
+    const nodeJob = testWorkflow.jobs['backend-node-tests'] as {
+      env: { VITEST_NODE_SUITE_GROUP: string };
+      steps: Array<{ if?: string; uses?: string; env?: Record<string, string>; with?: Record<string, string> }>;
+    };
+    const nodeSuiteRuns = nodeJob.steps.filter(step => step.uses === './.github/actions/vitest-suite');
+    expect(nodeSuiteRuns).toHaveLength(2);
+    // Each job executes its own native/Flue invocation; only the native job
+    // executes rest afterward. Reject conditions this inventory cannot model.
+    const invocations = node.strategy.matrix.include.flatMap(leg => nodeSuiteRuns
+      .filter(step => {
+        if (!step.if) return true;
+        const condition = /^matrix\.group\s*==\s*['"](native|flue|rest)['"]$/.exec(step.if);
+        if (!condition) throw new Error(`Unsupported Node suite condition: ${step.if}`);
+        return condition[1] === leg.group;
+      })
+      .map(step => ({
+        group: (step.env?.VITEST_NODE_SUITE_GROUP ?? nodeJob.env.VITEST_NODE_SUITE_GROUP)
+          .replace('${{ matrix.group }}', leg.group),
+        artifact: step.with?.['artifact-name']?.replace('${{ matrix.slug }}', leg.slug),
+        script: step.with?.script,
+      })));
+    expect(invocations.map(({ group }) => group).sort()).toEqual(['flue', 'native', 'rest']);
+    expect(invocations.map(({ script }) => script)).toEqual(['test:node', 'test:node', 'test:node']);
+    expect(invocations.map(({ artifact }) => artifact).sort()).toEqual([
+      'backend-node-flue', 'backend-node-native', 'backend-node-rest',
     ]);
     expect(nodeSuiteFiles('native')).toEqual(['src/__tests__/operators/loader-runtime.test.ts']);
     expect(nodeSuiteFiles('flue')).toEqual(['src/__tests__/operators/loader-flue.test.ts']);
-    const nodeGroups = ['native', 'flue', 'rest'].map(group => nodeSuiteFiles(group));
+    const nodeGroups = invocations.map(({ group }) => nodeSuiteFiles(group));
     expect(nodeGroups.every(group => group.length > 0)).toBe(true);
     expect(nodeGroups.flat().sort()).toEqual([...NODE_SUITE_FILES].sort());
     expect(new Set(nodeGroups.flat()).size).toBe(NODE_SUITE_FILES.length);
@@ -523,10 +548,10 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       strategy: { matrix: { include: Array<{ shards: string }> } };
     };
     expect(host.strategy.matrix.include.map((leg) => leg.shards)).toEqual([
-      '1/5', '2/5', '3/5', '4/5', '5/5',
+      '1/4', '2/4', '3/4', '4/4',
     ]);
     const partitions = host.strategy.matrix.include.flatMap((leg) => leg.shards.split(' ')).sort();
-    expect(partitions).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
+    expect(partitions).toEqual(['1/4', '2/4', '3/4', '4/4']);
 
     const action = parseYaml(readFileSync(join(REPO, '.github/actions/vitest-suite/action.yml'), 'utf8')) as {
       runs: { steps: Array<{ name?: string; run?: string }> };
