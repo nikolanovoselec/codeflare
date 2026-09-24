@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
-import { canInvokeOperator, requireOperatorHumanContext } from '../lib/access';
+import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
+  resolveSessionAccessGroup } from '../lib/access';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { operatorOwnerKey } from './browser-activity';
 import { parseBoundedBoundaryInput, verifyBoundedBoundaryInput } from './boundary-input';
@@ -187,6 +188,15 @@ export async function prepareVerifiedBoundary(
     || JSON.stringify(currentAuthority.human.audiences) !== JSON.stringify(authority.human.audiences)
     || currentAuthority.human.expiresAt * 1000 <= Date.now()
     || !canInvokeOperator(currentAuthority.human, installation.value.operator)) throw Error('Human authority changed');
+  const profileId = installation.value.installation.policy.resourceProfileId;
+  if (!profileId) throw Error('Conductor resource profile unavailable');
+  const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+    headers: { 'cf-access-jwt-assertion': currentAuthority.accessJwt },
+  }), env);
+  const routes = await loadEnterpriseRouteConfig(env, groups);
+  if (!routes.defaultRoute || !routes.routeCatalog.includes(routes.defaultRoute)) {
+    throw Error('Conductor inference unavailable');
+  }
   await checkLifecycle();
   const pinned = { controlsRevision: selected.controlsRevision,
     installationRevision: installation.value.installation.revision,
@@ -215,10 +225,9 @@ export async function prepareVerifiedBoundary(
     activityId, operatorId, runId: activityId, source: { kind: 'session', reference: `${owner}/${repository}` },
     revision: { reference: head, digest: contextDigest }, inputDigest: await digest(consumerInput),
     input: consumerInput,
-    attachments: [], resources: { inference: null,
-      session: installation.value.installation.policy.resourceProfileId
-        ? { profileId: installation.value.installation.policy.resourceProfileId } : null,
-      storage: { scopeId: activityId } } };
+    attachments: [], resources: { inference: { routeId: routes.defaultRoute,
+      reasoningLevel: routes.defaultReasoning || null },
+      session: { profileId }, storage: { scopeId: profileId } } };
   await checkLifecycle();
   const prepared = await prepareOperatorActivity({ installationId: selected.installationId, invocation },
     currentAuthority, env, { activityId, expectedManagement: pinned,
