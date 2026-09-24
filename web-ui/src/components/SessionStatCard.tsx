@@ -72,7 +72,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || props.session.status === 'stopped'
     || props.session.status === 'error'
     || props.session.editorReadyError === true
-    || (props.session.status === 'running' && props.session.editorReady === true);
+    || ((props.session.status === 'running' || props.session.status === 'unreachable') && props.session.editorReady === true);
   const managedSeedUpdateActive = () => sessionStore.preseedUpgrading
     || sessionStore.managedReleaseStatus === 'update_pending'
     || sessionStore.managedReleaseStatus === 'upgrading';

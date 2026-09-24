@@ -346,10 +346,32 @@ async function loadSessions(): Promise<void> {
     const oldIds = new Set(state.sessions.map(s => s.id));
     const listedIds = new Set(sessions.map(s => s.id));
 
-    const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => ({
-      ...s,
-      status: existingStatuses.get(s.id) || s.status || ('stopped' as SessionStatus),
-    }));
+    const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => {
+      const local = existingSessions.get(s.id);
+      const listedStatus = s.status ?? local?.status ?? 'stopped';
+      const listed = {
+        lifecycle: (s.lifecycle ?? listedStatus) as BackendLifecycle,
+        generation: s.generation,
+        revision: s.revision,
+      };
+      const localNewer = local && applyOrderedProjection({
+        lifecycle: (local.lifecycle ?? (local.status === 'initializing' || local.status === 'error'
+          ? 'running' : local.status)) as BackendLifecycle,
+        generation: local.generation,
+        revision: local.revision,
+      }, listed) !== listed;
+      const keepLocalStatus = local && (localNewer || local.status === 'initializing'
+        || local.status === 'stopping' || isSessionInitializing(s.id));
+      return {
+        ...s,
+        ...(localNewer && {
+          lifecycle: local.lifecycle, generation: local.generation, revision: local.revision,
+          editorReady: local.editorReady, editorReadyError: local.editorReadyError,
+          unreachableDeadlineMs: local.unreachableDeadlineMs,
+        }),
+        status: keepLocalStatus && local ? local.status : listedStatus,
+      };
+    });
     // KV LIST may temporarily omit a recently written record. The same negative-
     // evidence gate used by polling decides whether local lifecycle ownership wins.
     for (const existing of existingSessions.values()) {

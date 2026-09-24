@@ -206,6 +206,15 @@ export async function handleWebSocketUpgrade(
       });
     }
 
+    // Only the owner-scoped D1 lifecycle can confirm a stop. The SDK may
+    // transiently report stopped while the same session's process is alive.
+    if (session.lifecycleState === 'stopping' || session.lifecycleState === 'stopped') {
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(4503, 'container-stopped');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
     // Container is up but may still be initializing: port 8080 binds at
     // ~1.5s while the entrypoint continues R2 sync + .bashrc autostart
     // writes (~10s). The host server gates /terminal WS upgrades on a
@@ -213,21 +222,11 @@ export async function handleWebSocketUpgrade(
     // land before the flag flips would spawn fresh PTYs against pre-sync
     // state (bare bash, no agent autostart) — see PR #365.
     //
-    // Resolve persisted SDK state before touching the rate-limit or forwarding.
-    // KV status is an eventually-consistent dashboard projection and cannot
-    // reject a live terminal. getState() reads the Container SDK's DO-backed
-    // lifecycle state without starting the container; /health then proves that
-    // an up-state is currently reachable before the WebSocket reaches fetch().
+    // Resolve SDK state before touching the rate-limit or forwarding. An
+    // unavailable SDK state remains retryable; getState() prevents waking a
+    // hibernated container, and /health verifies readiness before fetch().
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
-    if (warmProbe.status === 'stopping'
-        || warmProbe.status === 'stopped'
-        || warmProbe.status === 'stopped_with_code') {
-      const pair = new WebSocketPair();
-      pair[1].accept();
-      pair[1].close(4503, 'container-stopped');
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
     if (!warmProbe.healthy || warmProbe.data?.terminalServiceReady === false) {
       logger.info('Rejecting WS upgrade: container not ready', {
         email: user.email,
@@ -244,8 +243,8 @@ export async function handleWebSocketUpgrade(
       warnStressTestBypass();
     } else {
       // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
-      // Runs AFTER session-stopped rejection (see comment above) so failed
-      // reconnects to a hibernated container do not count against the limit.
+      // Runs AFTER D1 stop and SDK readiness gates so failed reconnects to a
+      // hibernated container do not count against the limit.
       // Fail-open on KV errors via shared rate-limit-core (AD35).
       const wsRateResult = await checkRateLimit({
         kv: env.KV,

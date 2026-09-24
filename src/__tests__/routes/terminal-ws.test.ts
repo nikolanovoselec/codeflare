@@ -411,7 +411,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('CF-015 / REQ-SEC-020 AC1-AC4: Container state owns terminal admission', () => {
+  describe('CF-015 / REQ-SEC-020 AC1-AC4: D1 stop authority and SDK readiness gate', () => {
     const requestFor = (sessionId: string) => new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
       headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
     });

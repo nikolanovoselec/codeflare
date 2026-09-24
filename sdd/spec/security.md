@@ -647,14 +647,14 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-020: WS-upgrade rate-limit short-circuits
 
-**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Persisted Container SDK state and current readiness—not eventually-consistent KV status—drive pre-rate-limit close codes, and the container forward is time-bounded so a hung or unreachable container fails fast instead of leaving the client connecting for tens of seconds.
+**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Owner-scoped D1 lifecycle alone confirms a stop; Container SDK state and current readiness gate retryable transport before rate limiting. The container forward is time-bounded so a hung or unreachable container fails fast instead of leaving the client connecting for tens of seconds.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Persisted Container SDK states `stopping`, `stopped`, and `stopped_with_code` return container-stopped close code 4503 before the WS rate-limit check. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns 4503 without rate-limit use for Container state %s) -->
-2. A stale KV `stopped` value cannot reject a running or healthy persisted Container state. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (forwards stale-KV stopped when persisted Container state is healthy) -->
+1. Owner-scoped D1 `starting`, `running`, or `unreachable` cannot produce definitive 4503 merely because the Container SDK transiently reports `stopping`, `stopped`, or `stopped_with_code`; these SDK observations return retryable 1013 without forwarding or spending the WS rate-limit budget. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (D1 %s remains retryable despite transient SDK stop) -->
+2. Owner-scoped D1 `stopping` or `stopped` produces definitive 4503 before any SDK probe, container forward, or WS rate-limit use, even if the SDK would report healthy; a D1 read failure cannot invent a definitive stop. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (D1 %s closes 4503 without probing a healthy SDK container) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (D1 read outage does not invent an authoritative stopped close) -->
 3. A running or healthy container whose terminal service is not ready returns retryable close code 1013 before rate limiting and forwarding. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns 1013 close without burning rate-limit when /health reports terminalServiceReady=false) -->
 4. Unavailable persisted state or failed readiness returns retryable close code 1013 before rate limiting and forwarding. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without rate-limit use when Container state is unavailable) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns retryable 1013 without forwarding or rate-limit use when /health fails) -->
 5. A healthy container's WebSocket forward answers or fails within ten seconds. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/constants.ts::CONTAINER_WS_FORWARD_TIMEOUT_MS --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (fast-fails with a 101 close (not an indefinite hang) when the container WS forward never answers) -->
@@ -662,7 +662,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- The order is load-bearing: persisted-state and readiness short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up; the forward timeout (AC5) runs after the rate-limit check at the forward step.
+- The order is load-bearing: D1 lifecycle and SDK readiness short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up; the forward timeout (AC5) runs after the rate-limit check at the forward step.
 - Reading persisted Container SDK state must not start or wake the container.
 
 **Priority:** P0

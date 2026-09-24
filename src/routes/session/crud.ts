@@ -63,7 +63,7 @@ function toWorkspaceApiSession(session: Session | D1Session) {
     userId: session.ownerKey,
     createdAt: session.createdAt,
     lastAccessedAt: session.lastAccessedAt,
-    status: session.lifecycleState === 'running' ? 'running' : 'stopped',
+    status: session.lifecycleState,
     agentType: session.agentType,
     workspace: session.workspace,
     terminalMode: session.terminalMode,

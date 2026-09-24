@@ -286,7 +286,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     }
     if (session.status === 'stopped' || session.status === 'error' || session.editorReadyError === true) {
       props.onStartSession(session.id);
-    } else if (session.status === 'running' && session.editorReady === true) {
+    } else if ((session.status === 'running' || session.status === 'unreachable') && session.editorReady === true) {
       props.onOpenVscodeSession(session.id);
     }
   };
