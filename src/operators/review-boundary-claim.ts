@@ -83,7 +83,7 @@ export function verifyBoundaryActionRun(input: {
 }
 
 /** Authenticated GitHub and protected workflow bytes must still match the exact current PR. */
-export async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action: BoundaryActionBinding,
+async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action: BoundaryActionBinding,
   identity: BoundaryActionIdentity, input: BoundaryActionClaimRequest, githubToken: string): Promise<BoundaryActionClaimContext | null> {
   const [repoOwner, repoName] = identity.repository.split('/');
   const root = `/repos/${repoOwner}/${repoName}`;
