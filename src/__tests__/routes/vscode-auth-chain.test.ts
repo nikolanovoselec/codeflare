@@ -51,8 +51,9 @@ vi.mock('../../lib/cors-cache', () => ({
 }));
 
 const mockContainerFetch = vi.fn().mockResolvedValue(new Response('ide', { status: 200 }));
+const mockAutoStartingFetch = vi.fn(async () => { throw new Error('SDK fetch may start a replacement'); });
 vi.mock('@cloudflare/containers', () => ({
-  getContainer: vi.fn(() => ({ fetch: mockContainerFetch })),
+  getContainer: vi.fn(() => ({ fetch: mockAutoStartingFetch, forwardExisting: mockContainerFetch })),
 }));
 
 const mockHealth = vi.hoisted(() => ({ healthy: true }));
@@ -128,6 +129,13 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
   function route(request: Request) {
     return validateVscodeRoute(request);
   }
+
+  it('REQ-SESSION-012 AC4: an owning IDE session is forwarded without the auto-starting SDK fetch', async () => {
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/`, { headers: { Origin: 'https://codeflare.ch' } });
+    const result = await handleVscodeRequest(request, mockEnv, mockCtx, validateVscodeRoute(request));
+    expect(result.status).toBe(200);
+    expect(await result.text()).toBe('ide');
+  });
 
   it('REQ-IDE-001 AC3: forwards the external path and exact query with canonical host identity', async () => {
     const query = '?resource=a%2Fb&resource=two+words&empty=&bare';

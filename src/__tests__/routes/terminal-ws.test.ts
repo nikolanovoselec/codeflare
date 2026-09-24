@@ -54,11 +54,13 @@ const mockContainerFetch = vi.fn(defaultContainerFetch);
 // to avoid auto-starting a hibernated container; mock it as "running" so the
 // warming-up probe in handleWebSocketUpgrade reaches the fetch path.
 const mockContainerGetState = vi.fn().mockResolvedValue({ status: 'running' });
+const mockForwardExisting = vi.fn(defaultContainerFetch);
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
     fetch: mockContainerFetch,
     getState: mockContainerGetState,
+    forwardExisting: mockForwardExisting,
   })),
 }));
 
@@ -107,6 +109,7 @@ describe('handleWebSocketUpgrade', () => {
     // previous one's behaviour and fails by declaration order.
     mockContainerFetch.mockReset().mockImplementation(defaultContainerFetch);
     mockContainerGetState.mockReset().mockResolvedValue({ status: 'running' });
+    mockForwardExisting.mockReset().mockImplementation(defaultContainerFetch);
   });
 
   function createRequest(headers: Record<string, string> = {}): Request {
@@ -432,6 +435,27 @@ describe('handleWebSocketUpgrade', () => {
       )).toHaveLength(0);
     };
 
+    it('REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting', async () => {
+      mockContainerGetState.mockResolvedValue({ status: 'stopped' });
+      mockContainerFetch.mockImplementation(() => { throw new Error('auto-starting SDK fetch must not be used'); });
+      const request = createRequest();
+      const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+      expect(result.status).toBe(200);
+      expect(await result.text()).toBe('ws upgrade');
+      // The auto-starting SDK fetch throws if called; successful terminal
+      // transport is the observable no-wake contract.
+    });
+
+    it('REQ-SESSION-012 AC1: absent runtime returns retryable 1013 without invoking auto-starting SDK fetch', async () => {
+      mockContainerGetState.mockResolvedValue({ status: 'stopped' });
+      mockForwardExisting.mockResolvedValue(new Response('Container not running', { status: 503 }));
+      mockContainerFetch.mockImplementation(() => { throw new Error('auto-starting SDK fetch must not be used'); });
+      const request = createRequest();
+      const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+      expect(await readCloseCode(result)).toBe(1013);
+      expectNoRateLimitWrite();
+    });
+
     it.each(['running', 'starting', 'unreachable'] as const)('REQ-SESSION-012 AC2 / REQ-SEC-020 AC1: D1 %s remains retryable despite transient SDK stop', async (lifecycle) => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
@@ -440,6 +464,7 @@ describe('handleWebSocketUpgrade', () => {
       });
       for (const sdkStatus of ['stopped', 'stopping', 'stopped_with_code']) {
         mockContainerGetState.mockResolvedValue({ status: sdkStatus });
+        mockForwardExisting.mockResolvedValue(new Response('Container not running', { status: 503 }));
         const request = requestFor(sessionId);
         const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request) as any);
         expect(await readCloseCode(result)).toBe(1013);

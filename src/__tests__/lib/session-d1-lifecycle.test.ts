@@ -52,7 +52,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);
   });
 
-  it('forces only owner-scoped stopping rows strictly older than the cutoff to stopped', async () => {
+  it('REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed', async () => {
     const repository = new D1SessionRepository(db);
     for (const [owner, sessionId] of [
       ['owner-a', 'expired01'], ['owner-a', 'boundary1'], ['owner-a', 'starting1'],
@@ -81,19 +81,16 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
         WHERE owner_key=?1 AND session_id=?2`).bind('owner-a', sessionId, state).run();
     }
 
-    expect(await repository.forceStopExpired('owner-a', '2027-01-01T00:00:00.001Z')).toBe(1);
-    expect(await repository.forceStopExpired('owner-a', '2027-01-01T00:00:00.001Z')).toBe(0);
-
-    const expired = await db.prepare("SELECT * FROM runtime_sessions WHERE owner_key='owner-a' AND session_id='expired01'").first<Record<string, unknown>>();
+    const expired = await repository.getSession('owner-a', 'expired01');
     expect(expired).toMatchObject({
-      lifecycle_state: 'stopped', lifecycle_generation: 2, response_revision: 5,
-      lifecycle_reason: 'stop_timeout_forced_reset',
-      last_started_at: '2027-01-01T00:00:10.000Z', last_active_at: '2027-01-01T00:00:20.000Z',
-      editor_ready: 0, editor_ready_error: 0,
-      unreachable_incident_id: null, unreachable_first_observed_at: null, unreachable_deadline_ms: null,
-      termination_intent_id: null, termination_generation: null, termination_claimed_at: null,
-      termination_signal_accepted_at: null,
+      lifecycleState: 'stopping', lifecycleGeneration: 2, responseRevision: 4,
+      editorReady: true, editorReadyError: true, terminationIntentId: 'intent',
+      unreachableIncidentId: 'incident', unreachableDeadlineMs: 60000,
     });
+    expect(await repository.start('owner-a', 'expired01', '2027-01-01T00:10:00.000Z')).toBeNull();
+    expect(await repository.confirmStopped('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:00.000Z')).toBe(false);
+    expect(await repository.confirmStopped('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:00.000Z')).toBe(true);
+    expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
     for (const [owner, sessionId, state] of [
       ['owner-a', 'boundary1', 'stopping'], ['owner-a', 'starting1', 'starting'],
       ['owner-a', 'running01', 'running'], ['owner-a', 'unreach01', 'unreachable'],
@@ -174,14 +171,13 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-review-two', new Date().toISOString())).toBe(false);
   });
 
-  it('REQ-OPERATOR-054: timeout reset and owner cleanup cannot erase unfenced Action work', async () => {
+  it('REQ-OPERATOR-054: owner cleanup cannot erase unfenced Action work', async () => {
     const repository = new D1SessionRepository(db);
     await createSession();
     await db.prepare("UPDATE runtime_sessions SET lifecycle_state='running', lifecycle_generation=1 WHERE owner_key='owner-a' AND session_id='session01'").run();
     expect(await repository.recordBoundaryActionStart('owner-a', 'session01', 1, 'review-one')).toBe(true);
     expect(await repository.claimStop('owner-a', 'session01', 'stop-one', new Date().toISOString()))
       .toMatchObject({ boundaryActivityId: 'review-one' });
-    expect(await repository.forceStopExpired('owner-a', new Date(Date.now() + 60_000).toISOString())).toBe(0);
     expect(await repository.deleteOwnerSessions('owner-a')).toBe(0);
     expect(await repository.getSession('owner-a', 'session01'))
       .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
@@ -189,7 +185,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.start('owner-a', 'session01', new Date().toISOString())).toBeNull();
     expect(await repository.deleteConfirmed('owner-a', 'session01')).toBe(false);
     expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 1, 'review-one')).toBe(true);
-    expect(await repository.forceStopExpired('owner-a', new Date(Date.now() + 60_000).toISOString())).toBe(1);
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', terminationIntentId: 'stop-one' });
   });
 
   it('rejects old generations and delayed or equal observation sequences', async () => {

@@ -59,10 +59,12 @@ const mockEnsureVaultKey = vi.fn().mockResolvedValue('AAAA-base64-key-AAAA');
 const mockContainerFetch = vi.fn().mockResolvedValue(
   new Response('proxied', { status: 200, headers: { 'content-type': 'text/markdown' } }),
 );
+const mockAutoStartingFetch = vi.fn(async () => { throw new Error('SDK fetch may start a replacement'); });
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
-    fetch: mockContainerFetch,
+    fetch: mockAutoStartingFetch,
+    forwardExisting: mockContainerFetch,
     ensureVaultKey: mockEnsureVaultKey,
   })),
 }));
@@ -155,6 +157,13 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
   function route(request: Request) {
     return validateVaultRoute(request);
   }
+
+  it('REQ-SESSION-012 AC4: a surviving vault session remains accessible without SDK auto-start', async () => {
+    const request = tokenRequest();
+    const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('proxied');
+  });
 
   it('forwards to the container on the bucket-stable path when the full auth chain passes', async () => {
     const request = tokenRequest();

@@ -721,6 +721,41 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
   });
 
+  describe('REQ-SESSION-012 AC1/AC4: forwardExisting never starts a replacement workload', () => {
+    it('forwards to the surviving runtime with its existing auth token despite stale persisted SDK state', async () => {
+      const token = 'existing-container-token';
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'containerAuthToken') return token;
+        if (key === 'lifecycleGeneration') return 7;
+        return null;
+      });
+      mockTcpPortFetch.mockImplementation(async (forwarded: Request) =>
+        forwarded.headers.get('Authorization') === `Bearer ${token}` && new URL(forwarded.url).pathname === '/terminal'
+          ? new Response('surviving terminal', { status: 200 })
+          : new Response('Unauthorized forwarding', { status: 401 }),
+      );
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(token));
+      const request = new Request('http://container/terminal?session=testsession123-1', {
+        headers: { Upgrade: 'websocket' },
+      });
+      const response = await (instance as any).forwardExisting(request);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('surviving terminal');
+      expect(mockContainerRuntime.running).toBe(true);
+      expect(await mockStorage.get('lifecycleGeneration')).toBe(7);
+    });
+
+    it('returns unavailable when no runtime exists and does not allocate a replacement generation', async () => {
+      mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'lifecycleGeneration' ? 7 : null);
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const response = await (instance as any).forwardExisting(new Request('http://container/health'));
+      expect(response.status).toBe(503);
+      expect(await mockStorage.get('lifecycleGeneration')).toBe(7);
+    });
+  });
+
   describe('fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: HTTP remains gated while volatile WS state stays retryable)', () => {
     it('should return 503 for non-internal routes when container is not running', async () => {
       mockContainerRuntime.running = false;
