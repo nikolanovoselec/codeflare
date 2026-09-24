@@ -114,16 +114,21 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(expired).toMatchObject({
       lifecycleState: 'stopping', lifecycleGeneration: 2, responseRevision: 4,
       editorReady: true, editorReadyError: true, terminationIntentId: 'intent',
-      lifecycleReason: 'idle-stop', unreachableIncidentId: 'incident', unreachableDeadlineMs: 60000,
+      unreachableIncidentId: 'incident', unreachableDeadlineMs: 60000,
     });
+    const reason = async () => (await db.prepare('SELECT lifecycle_reason FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2')
+      .bind('owner-a', 'expired01').first<{ lifecycle_reason: string }>())?.lifecycle_reason;
+    expect(await reason()).toBe('idle-stop');
     expect(await repository.start('owner-a', 'expired01', '2027-01-01T00:10:00.000Z')).toBeNull();
+    expect(await reason()).toBe('idle-stop');
     expect(await repository.confirmStopped('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:00.000Z')).toBe(false);
     expect(await repository.confirmStopped('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:00.000Z')).toBe(true);
     // A positive process monitor can beat a concurrent completed destroy;
     // only the matching generation makes the second confirmation idempotent.
     expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:01.000Z')).toBe(true);
     expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:01.000Z')).toBe(false);
-    expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2, lifecycleReason: 'idle-stop' });
+    expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
+    expect(await reason()).toBe('idle-stop');
     for (const [owner, sessionId, state] of [
       ['owner-a', 'boundary1', 'stopping'], ['owner-a', 'starting1', 'starting'],
       ['owner-a', 'running01', 'running'], ['owner-a', 'unreach01', 'unreachable'],

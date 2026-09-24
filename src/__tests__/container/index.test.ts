@@ -896,7 +896,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       }) };
       let scheduled!: () => void;
       const firstRetry = new Promise<void>((resolve) => { scheduled = resolve; });
-      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
       resolveExit();
       await firstRetry;
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
@@ -946,7 +946,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
       let retryScheduled!: () => void;
       const retry = new Promise<void>((resolve) => { retryScheduled = resolve; });
-      vi.spyOn(instance, 'schedule').mockImplementation(async () => { retryScheduled(); });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { retryScheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
       kv._set(key, {
         id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 8,
         createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
@@ -969,7 +969,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       let scheduled!: () => void;
       const oldRetry = new Promise<void>((resolve) => { scheduled = resolve; });
-      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); });
+      vi.spyOn(instance, 'schedule').mockImplementation(async () => { scheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
       resolveExit();
       await oldRetry;
       expect(persisted.get('monitoredExitGeneration')).toEqual(newer);

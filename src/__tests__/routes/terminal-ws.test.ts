@@ -456,7 +456,7 @@ describe('handleWebSocketUpgrade', () => {
       expectNoRateLimitWrite();
     });
 
-    it.each(['running', 'starting', 'unreachable'] as const)('REQ-SESSION-012 AC2 / REQ-SEC-020 AC8: D1 %s remains retryable despite transient SDK stop', async (lifecycle) => {
+    it.each(['running', 'starting', 'unreachable'] as const)('REQ-SESSION-012 AC2 / REQ-SEC-020 AC4: D1 %s remains retryable despite transient SDK stop', async (lifecycle) => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
         id: sessionId, name: 'Test', userId: 'test-bucket', status: lifecycle,

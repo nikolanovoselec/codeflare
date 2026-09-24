@@ -87,8 +87,11 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           const session = await get(args[0], args[1]);
           if (!session) return { success: true, meta: { changes: 0 } };
           if (sql.includes('SET boundary_activity_id=NULL')) {
-            if (session.status !== 'stopping' || session.boundaryActivityId !== args[3]
-                || (session.lifecycleGeneration ?? 0) !== args[2] || !session.terminationIntentId) {
+            const completing = sql.includes("lifecycle_state='running'");
+            if (session.status !== (completing ? 'running' : 'stopping')
+                || session.boundaryActivityId !== args[3]
+                || (session.lifecycleGeneration ?? 0) !== args[2]
+                || (completing ? !!session.terminationIntentId : !session.terminationIntentId)) {
               return { success: true, meta: { changes: 0 } };
             }
             session.boundaryActivityId = undefined;
