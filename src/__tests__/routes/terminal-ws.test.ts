@@ -50,9 +50,8 @@ const defaultContainerFetch = async (request: Request): Promise<Response> => {
   return new Response('ws upgrade', { status: 200 });
 };
 const mockContainerFetch = vi.fn(defaultContainerFetch);
-// safeCheckContainerHealth() reads container.getState() before fetching /health
-// to avoid auto-starting a hibernated container; mock it as "running" so the
-// warming-up probe in handleWebSocketUpgrade reaches the fetch path.
+// SDK getState may remain stale across DO reconstruction; no-start forwarding
+// probes the existing runtime independently of this cached status.
 const mockContainerGetState = vi.fn().mockResolvedValue({ status: 'running' });
 const mockForwardExisting = vi.fn(defaultContainerFetch);
 
@@ -109,7 +108,7 @@ describe('handleWebSocketUpgrade', () => {
     // previous one's behaviour and fails by declaration order.
     mockContainerFetch.mockReset().mockImplementation(defaultContainerFetch);
     mockContainerGetState.mockReset().mockResolvedValue({ status: 'running' });
-    mockForwardExisting.mockReset().mockImplementation(defaultContainerFetch);
+    mockForwardExisting.mockReset().mockImplementation((request: Request) => mockContainerFetch(request));
   });
 
   function createRequest(headers: Record<string, string> = {}): Request {
@@ -438,6 +437,7 @@ describe('handleWebSocketUpgrade', () => {
     it('REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting', async () => {
       mockContainerGetState.mockResolvedValue({ status: 'stopped' });
       mockContainerFetch.mockImplementation(() => { throw new Error('auto-starting SDK fetch must not be used'); });
+      mockForwardExisting.mockImplementation(defaultContainerFetch);
       const request = createRequest();
       const result = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
       expect(result.status).toBe(200);
@@ -513,7 +513,7 @@ describe('handleWebSocketUpgrade', () => {
         status: 'running',
       });
       mockContainerGetState.mockResolvedValue({ status, lastChange: Date.now() });
-      mockContainerFetch.mockRejectedValue(new Error('Network connection lost.'));
+      mockForwardExisting.mockRejectedValue(new Error('Network connection lost.'));
       const request = requestFor(sessionId);
 
       const result = await handleWebSocketUpgrade(
@@ -527,7 +527,7 @@ describe('handleWebSocketUpgrade', () => {
       expectNoRateLimitWrite();
     });
 
-    it('returns retryable 1013 without rate-limit use when Container state is unavailable', async () => {
+    it('returns retryable 1013 without rate-limit use when the existing runtime is unavailable', async () => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
         id: sessionId,
@@ -538,6 +538,7 @@ describe('handleWebSocketUpgrade', () => {
         status: 'running',
       });
       mockContainerGetState.mockRejectedValue(new Error('state unavailable'));
+      mockForwardExisting.mockRejectedValue(new Error('existing process unavailable'));
       const request = requestFor(sessionId);
 
       const result = await handleWebSocketUpgrade(

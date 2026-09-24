@@ -23,7 +23,7 @@ import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMI
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { warnStressTestBypass } from '../middleware/rate-limit';
-import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
+import { getContainerId, safeCheckContainerHealth, forwardExisting } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
 import { isSaasModeActive } from '../lib/onboarding';
 import { isActiveUser } from '../lib/access-tier';
@@ -222,9 +222,8 @@ export async function handleWebSocketUpgrade(
     // land before the flag flips would spawn fresh PTYs against pre-sync
     // state (bare bash, no agent autostart) — see PR #365.
     //
-    // Resolve SDK state before touching the rate-limit or forwarding. An
-    // unavailable SDK state remains retryable; getState() prevents waking a
-    // hibernated container, and /health verifies readiness before fetch().
+    // Probe the existing runtime without SDK auto-start before spending the
+    // rate-limit budget. A missing process remains retryable, never definitive.
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
     if (!warmProbe.healthy || warmProbe.data?.terminalServiceReady === false) {
@@ -309,7 +308,7 @@ export async function handleWebSocketUpgrade(
     let forwardError: unknown;
     let forwardTimer: ReturnType<typeof setTimeout> | undefined;
     const response = await Promise.race([
-      container.fetch(new Request(terminalUrl.toString(), request)).catch((err: unknown) => {
+      forwardExisting(container, new Request(terminalUrl.toString(), request)).catch((err: unknown) => {
         forwardError = err;
         return FORWARD_FAILED;
       }),
@@ -402,13 +401,11 @@ app.get('/:sessionId/status', async (c) => {
       });
     }
 
-    // Only fetch sessions if the container is healthy — avoids auto-starting via container.fetch()
+    // Only fetch sessions if the existing container is healthy; never auto-start.
     let ptyActive = false;
     try {
       const sessionsResponse = await getContainerSessionsCB(containerId).execute(() =>
-        container.fetch(
-          new Request('http://container/sessions', { method: 'GET' })
-        )
+        forwardExisting(container, new Request('http://container/sessions', { method: 'GET' }))
       );
 
       if (sessionsResponse.ok) {

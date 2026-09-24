@@ -10,9 +10,13 @@ type ContainerVariables = {
   bucketName: string;
 };
 
-/** DurableObjectStub extended with container getState() method */
+/** Narrow authenticated DO RPC to an already-existing container port. */
 interface ContainerStubWithState extends DurableObjectStub {
-  getState(): Promise<{ status: string }>;
+  forwardExisting(request: Request): Promise<Response>;
+}
+
+export function forwardExisting(container: DurableObjectStub, request: Request): Promise<Response> {
+  return (container as ContainerStubWithState).forwardExisting(request);
 }
 
 /** Extracts sessionId from query param (?sessionId=). Used by container routes. Session CRUD routes use Hono path params (c.req.param('id')) instead. */
@@ -86,7 +90,7 @@ async function checkContainerHealth(
 ): Promise<ContainerHealthResult> {
   try {
     const response = await getContainerHealthCB(containerId).execute(() =>
-      container.fetch(new Request('http://container/health', { method: 'GET' }))
+      forwardExisting(container, new Request('http://container/health', { method: 'GET' }))
     );
 
     if (!response.ok) {
@@ -104,9 +108,9 @@ async function checkContainerHealth(
 }
 
 /**
- * Safe health check that avoids auto-starting stopped containers.
- * Uses container.getState() (read-only) to check if the container is running
- * before calling checkContainerHealth() which uses container.fetch() (auto-starts).
+ * Safe health check that never invokes the SDK auto-starting fetch. A response
+ * from the existing private port proves transport readiness even when the
+ * persisted SDK state is stale; no response remains retryable uncertainty.
  *
  * @param container - The container stub to check
  * @returns Health check result with status and optional data
@@ -115,18 +119,5 @@ export async function safeCheckContainerHealth(
   container: DurableObjectStub,
   containerId: string
 ): Promise<ContainerHealthResult> {
-  let containerStatus: string;
-  try {
-    const state = await (container as ContainerStubWithState).getState();
-    containerStatus = state.status;
-    const isUp = state.status === 'running' || state.status === 'healthy';
-    if (!isUp) {
-      return { healthy: false, status: state.status };
-    }
-  } catch {
-    // getState() failed — container is not available
-    return { healthy: false, status: 'unknown' };
-  }
-
-  return { ...await checkContainerHealth(container, containerId), status: containerStatus };
+  return checkContainerHealth(container, containerId);
 }

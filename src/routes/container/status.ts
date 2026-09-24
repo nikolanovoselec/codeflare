@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { resolveSessionWorkspace, type Env } from '../../types';
-import { getContainerContext, safeCheckContainerHealth, type HealthData } from '../../lib/container-helpers';
+import { getContainerContext, safeCheckContainerHealth, forwardExisting, type HealthData } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
 import {
@@ -229,7 +229,7 @@ app.get('/startup-status', async (c) => {
     let healthRes: Response | null = null;
     try {
       healthRes = await fetchWithTimeout(() =>
-        getContainerHealthCB(containerId).execute(() => container.fetch(healthRequest))
+        getContainerHealthCB(containerId).execute(() => forwardExisting(container, healthRequest))
       );
     } catch (err) {
       reqLogger.debug('Container health endpoint is not ready', { containerId, error: toErrorMessage(err) });
@@ -312,7 +312,7 @@ app.get('/startup-status', async (c) => {
     let sessionsRes: Response | null = null;
     try {
       sessionsRes = await fetchWithTimeout(() =>
-        getContainerSessionsCB(containerId).execute(() => container.fetch(sessionsRequest))
+        getContainerSessionsCB(containerId).execute(() => forwardExisting(container, sessionsRequest))
       );
     } catch (err) {
       reqLogger.debug('Container sessions endpoint is not ready', { containerId, error: toErrorMessage(err) });

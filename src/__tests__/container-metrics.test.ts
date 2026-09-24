@@ -1468,8 +1468,6 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
       testState.tcpFetchShouldFail = true;
       testState.scheduleCalls = [];
-      mockKV.put.mockRejectedValueOnce(new Error('KV PUT failed: 429 Too Many Requests'));
-
       await containerInstance.collectMetrics();
 
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('running');
@@ -1546,11 +1544,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.stopCalls).toBe(0);
       expect(testState.agentFinalDrainCalls).toBe(0);
       expect(testState.scheduleCalls.at(-1)?.[1]).toBe('collectMetrics');
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
     });
 
-    it('REQ-SESSION-025 AC3 + REQ-SESSION-026 AC2: logs and propagates terminal retry scheduling failure', async () => {
+    it('REQ-SESSION-022 AC6: scheduling failure cannot manufacture exit evidence', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -1574,15 +1571,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.stopFailuresRemaining = 1;
       testState.scheduleFailuresRemaining = 1;
 
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
+      await containerInstance.collectMetrics();
 
       expect((await mockKV.get(sessionKey, 'json') as Session).status).not.toBe('stopped');
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'collectMetrics: failed to schedule terminal convergence retry',
-        undefined,
-        expect.objectContaining({ error: 'schedule failed' }),
-      );
     });
 
     it('REQ-SESSION-022 AC1: a responding probe clears exhausted recovery without stopping the session', async () => {
@@ -2411,74 +2403,18 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
   });
 
-  // CF-042
-  // updateKvStatus's missing-identifier guard (container-metrics.ts: the
-  // `if (!sessionId || !bucketName)` early-return). When neither the sessionId
-  // nor the bucketName can be resolved from storage, the function must log and
-  // return WITHOUT touching KV - otherwise it would build a key from a null
-  // identifier and corrupt an unrelated record. Driven through onStop(), which
-  // is the production caller of updateKvStatus.
-  describe('updateKvStatus missing-identifier guard', () => {
-    it('does NOT write to KV when both sessionId and bucketName are missing', async () => {
-      testState.storedSessionId = undefined;
-      testState.storedBucketName = null;
-
-      // Rebuild the instance so the constructor loads the (absent) bucketName.
-      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
-        {},
-        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
-      );
-      (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
-
-      // Seed a session whose key would collide if a null identifier somehow
-      // produced a write - the assertion below proves it does not.
-      const session: Session = {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      };
-      mockKV._set('session:test-bucket:testsession123456', session);
-      mockKV.put.mockClear();
-
-      await instance.onStop();
-
-      // Guard fires before getSessionKey / KV.put - no session write at all.
-      const sessionPuts = mockKV.put.mock.calls.filter(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('session:')
-      );
-      expect(sessionPuts).toHaveLength(0);
-    });
-
-    it('does NOT write to KV when only the bucketName is missing', async () => {
-      testState.storedSessionId = 'testsession123456';
-      testState.storedBucketName = null;
-
-      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
-        {},
-        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent' },
-      );
-      (instance as unknown as { env: { KV: MockKV; USAGE_DB: D1Database } }).env = { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV) };
-
-      const session: Session = {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      };
-      mockKV._set('session:test-bucket:testsession123456', session);
-      mockKV.put.mockClear();
-
-      await instance.onStop();
-
-      const sessionPuts = mockKV.put.mock.calls.filter(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('session:')
-      );
-      expect(sessionPuts).toHaveLength(0);
+  it('REQ-SESSION-018 AC7: an SDK callback with missing identity cannot alter another session', async () => {
+    testState.storedSessionId = undefined;
+    testState.storedBucketName = null;
+    const other: Session = {
+      id: 'testsession123456', name: 'Other', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    };
+    mockKV._set('session:test-bucket:testsession123456', other);
+    const instance = createContainerInstance();
+    await instance.onStop();
+    expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({
+      status: 'running', userId: 'test-bucket',
     });
   });
 
@@ -2492,6 +2428,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         status: 'running',
         createdAt: '2024-01-15T09:00:00.000Z',
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        lastActiveAt: '2024-01-15T09:25:00.000Z',
         metrics: {
           cpu: '25%',
           mem: '512MB',
@@ -2508,7 +2445,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       const stored = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
       expect(stored.status).toBe('running');
       expect(stored.metrics?.cpu).toBe('25%');
-      expect(stored.lastActiveAt).toBeDefined();
+      expect(stored.lastActiveAt).toBe('2024-01-15T09:25:00.000Z');
+      expect(testState.scheduleCalls.at(-1)).toEqual([60, 'collectMetrics']);
     });
   });
 });

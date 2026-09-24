@@ -49,20 +49,17 @@ const sessionsSyncRateLimiter = createRateLimiter({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
-const STOPPING_RESET_AFTER_MS = 3 * 60 * 1000;
-
 /**
  * GET /api/sessions/batch-status
- * Get status for all sessions in a single call (eliminates N+1 on page load)
- * First resets owner-scoped stopping records older than three minutes, then
- * returns the fresh D1 lifecycle projection in one primary-consistent read.
+ * Get status for all sessions in a single call (eliminates N+1 on page load).
+ * An old stopping row still owns its workload: a read cannot infer process exit.
+ * Return the D1 lifecycle projection in one primary-consistent read.
  * Ancillary usage, storage, entitlement, release, and migration polling is owned
  * separately and is intentionally absent from this frequent endpoint.
  */
 app.get('/batch-status', async (c) => {
   const ownerKey = c.get('bucketName');
   const repository = new D1SessionRepository(c.env.USAGE_DB);
-  await repository.forceStopExpired(ownerKey, new Date(Date.now() - STOPPING_RESET_AFTER_MS).toISOString());
   const sessions = await repository.listSessions(ownerKey);
   const statuses = Object.fromEntries(sessions.map((session) => [session.sessionId, {
     status: session.lifecycleState,
@@ -232,7 +229,7 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   await fencePendingBoundaryStart(c.env, repository, claimed);
   const containerId = getContainerId(bucketName, sessionId);
   await getContainer(c.env.CONTAINER, containerId).destroy();
-  if (!await repository.confirmStopped(bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString())) {
+  if (!await repository.confirmStoppedOrObserved(bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString())) {
     throw new Error('Confirmed exit could not be persisted');
   }
 

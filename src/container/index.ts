@@ -63,6 +63,7 @@ import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { parseBoundedBoundaryInput, type BoundaryInput } from '../operators/boundary-input';
 import {
   onStart as lifecycleOnStart,
+  confirmMonitoredExit,
   collectMetrics as lifecycleCollectMetrics,
   destroy as lifecycleDestroy,
   onStop as lifecycleOnStop,
@@ -230,6 +231,38 @@ export class container extends Container<Env> implements ContainerEnvState {
   containerStartedAt = 0;
   /** Last seen lastInputAt from /activity - used to detect NEW input for renewal. */
   lastSeenInputAt: number | null = null;
+  private monitoredGeneration: number | null = null;
+
+  private async monitorExistingRuntime(verifiedByPort = false): Promise<void> {
+    if ((!this.ctx.container?.running && !verifiedByPort) || !this._bucketName || !this._sessionId) return;
+    const generation = await this.ctx.storage.get<number>('lifecycleGeneration');
+    if (!generation || !Number.isSafeInteger(generation) || this.monitoredGeneration === generation) return;
+    const owner = this._bucketName;
+    const session = this._sessionId;
+    this.monitoredGeneration = generation;
+    try {
+      const exit = this.ctx.container.monitor();
+      void exit.then(
+        async () => {
+          try {
+            if (await confirmMonitoredExit(this.ctx, this.env, owner, session, generation)
+                && await this.ctx.storage.get<number>('lifecycleGeneration') === generation) {
+              this.deleteSchedules('collectMetrics');
+            }
+          } catch (error) {
+            this.logger.warn('Container exit confirmation failed', { error: toErrorMessage(error) });
+          }
+        },
+        error => {
+          if (this.monitoredGeneration === generation) this.monitoredGeneration = null;
+          this.logger.warn('Container monitor failed', { error: toErrorMessage(error) });
+        },
+      );
+    } catch (error) {
+      this.monitoredGeneration = null;
+      this.logger.warn('Container monitor registration failed', { error: toErrorMessage(error) });
+    }
+  }
 
   constructor(ctx: DurableObjectState<Env>, env: Env) {
     super(ctx, env);
@@ -338,6 +371,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
         this.updateEnvVars();
       }
+      await this.monitorExistingRuntime();
     });
   }
 
@@ -444,6 +478,30 @@ export class container extends Container<Env> implements ContainerEnvState {
     return configEnsureVaultKey(this.host);
   }
 
+  /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
+  async forwardExisting(request: Request): Promise<Response> {
+    const token = await this.ctx.storage.get<string>('containerAuthToken');
+    if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
+    const headers = new Headers(request.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    try {
+      // `running` can itself transiently read false after DO reconstruction.
+      // Only an answer from the existing private port proves it survived.
+      const response = await this.ctx.container.getTcpPort(8080).fetch(new Request(request, { headers }));
+      if (response.ok && this.monitoredGeneration === null) {
+        // A port answer can establish survival even while the SDK running flag
+        // is stale. Attach exit observation without delaying the response.
+        void this.monitorExistingRuntime(true).catch(error => {
+          this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+        });
+      }
+      return response;
+    } catch (error) {
+      this.logger.warn('Existing container port unavailable', { error: toErrorMessage(error) });
+      return new Response('Existing container unavailable', { status: 503 });
+    }
+  }
+
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
     const internal = dispatchInternalRoute(this.host, request);
@@ -493,62 +551,18 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /**
-   * CONTAINER LIFECYCLE + KV STATUS CONTRACT
-   * (canonical reference - collectMetrics() and kv-keys.ts point here)
-   *
-   * KV `status` ('running' | 'stopped') is the single source of truth the
-   * dashboard reads (REQ-SESSION-010). Keeping it accurate is the job of these
-   * hooks. @cloudflare/containers v0.3.5 invokes them as follows:
-   *
-   *   onStart()            container is up -> write 'running'; (re)arm the
-   *                        collectMetrics alarm loop.
-   *   onStop(params)       GRACEFUL stop ONLY - reached via stop() / destroy()
-   *                        or the SDK's default onActivityExpired -> write
-   *                        'stopped'. (this._shutdownStartedAt is set only by
-   *                        destroy(), so onStop's shutdownElapsedMs is non-null
-   *                        ONLY for a user Stop/Delete; null for other stops.)
-   *   onError(error)       UNEXPECTED exit caught by the SDK container monitor:
-   *                        a process crash, a Worker code DEPLOY that resets the
-   *                        DO ("Durable Object reset because its code was
-   *                        updated") and rolls the running container, or
-   *                        Cloudflare reaping an idle container at the platform
-   *                        level. The SDK does NOT call onStop here, so without
-   *                        an exit-writes-stopped path the session would dangle
-   *                        'running' forever (codeflare#153). onError does NOT
-   *                        write 'stopped' directly, though: it ALSO fires on
-   *                        TRANSIENT errors where the container is actually alive
-   *                        (a deploy-roll the container survives, a brief monitor
-   *                        blip), and an immediate write there flips a live
-   *                        session to stopped and then sticks (REQ-SESSION-018
-   *                        AC3). A monitor `Network connection lost` first enters
-   *                        bounded DO reconstruction so a surviving container can
-   *                        be rediscovered. Other errors open the not-running
-   *                        confirmation window. Exhausted recovery returns a
-   *                        genuinely not-running container to that window; if the
-   *                        SDK instead leaves `running` stale at true, another
-   *                        complete probe failure writes `stopped`, requests
-   *                        `SIGTERM`, and retains non-billable retry ownership
-   *                        until both terminal operations succeed. Empirically
-   *                        onError is the COMMON way idle containers die: over a 96h prod sample
-   *                        onActivityExpired fired 0x and the idle-stop 3x, while
-   *                        onError fired on every unexpected exit (including a
-   *                        near-daily ~00:00 UTC platform reap and any deploy
-   *                        that lands while a session is live).
-   *   onActivityExpired()  SDK sleepAfter timer (pinned to 24h, see the
-   *                        `sleepAfter` field) -> default stop() -> onStop.
-   *                        Effectively never fires; collectMetrics owns idle.
-   *   destroy()            user Stop/Delete -> graceful SIGTERM -> onStop.
-   *
-   * There is NO legacy 30-minute (or any other) hard idle timeout anywhere -
-   * a recurring misconception. The only idle stops we own are collectMetrics'
-   * idle-stop at idleTimeoutPref (default 4h, logs "idle exceeded threshold")
-   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 4h safety net). A
-   * container can still vanish well before any of those via onError
-   * (deploy / platform reap), which is unrelated to any configured timeout.
+   * D1 is the shared lifecycle authority (REQ-SESSION-018). onStart projects
+   * the current generation and arms metrics; onStop/onError are SDK observations
+   * that may be synthetic or transient and cannot alone declare exit. The
+   * low-level process monitor resolves on exit and confirms only its captured
+   * generation. User Stop/Delete await destruction before confirming D1 stopped.
+   * Idle/quota stop signals are not exit proof. Bounded transport recovery
+   * preserves ownership if it cannot establish whether a process survived.
    */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
     await lifecycleOnStart(this.lifecycleHost);
+    await this.monitorExistingRuntime();
   }
 
   /**
@@ -579,6 +593,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async collectMetrics(): Promise<void> {
+    // A failed monitor attachment can be retried on a later healthy tick;
+    // neither its rejection nor a missing SDK running flag is exit evidence.
+    try { await this.monitorExistingRuntime(); } catch (error) {
+      this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+    }
     await lifecycleCollectMetrics(this.lifecycleHost);
   }
 

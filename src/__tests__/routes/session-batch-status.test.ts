@@ -34,7 +34,7 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
         const statement = {
           bind: vi.fn().mockReturnThis(),
           all,
-          run: vi.fn(async () => ({ success: true, meta: { changes: 0 } })),
+          run: vi.fn(async () => { throw new Error('batch status cannot write D1'); }),
         };
         return statement;
       }),
@@ -80,7 +80,10 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     });
   });
 
-  it('uses one owner-indexed read and performs no session or ancillary KV operations', async () => {
+  it('returns the owner D1 projection without ancillary KV I/O or session writes', async () => {
+    kv.get.mockImplementation(async () => { throw new Error('batch status cannot read KV'); });
+    kv.list.mockImplementation(async () => { throw new Error('batch status cannot enumerate KV'); });
+    kv.put.mockImplementation(async () => { throw new Error('batch status cannot write KV'); });
     const response = await app().request('/sessions/batch-status?include=storage,usage&includePreseedCheck=true');
     expect(response.status).toBe(200);
     const body = await response.json() as { statuses: Record<string, { status: string }> };

@@ -7,8 +7,10 @@ import { createTestApp } from '../helpers/test-app';
 // Mock container stub
 // ---------------------------------------------------------------------------
 function createMockContainer() {
+  const fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
   return {
-    fetch: vi.fn().mockResolvedValue(new Response('', { status: 200 })),
+    fetch,
+    forwardExisting: fetch,
     destroy: vi.fn().mockResolvedValue(undefined),
     getState: vi.fn().mockResolvedValue({ status: 'running' }),
     startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),

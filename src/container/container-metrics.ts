@@ -78,16 +78,8 @@ const NOT_RUNNING_SINCE_KEY = 'metricsNotRunningSince';
 // metrics alarm would then resurrect a session the user just stopped. destroy()
 // sets this before it clears identifiers; onStart() clears it on a fresh start.
 export const SHUTDOWN_REQUESTED_KEY = 'shutdownRequested';
-// A container must read not-running continuously for at least this long before
-// collectMetrics writes 'stopped'. Spans more than one 60s alarm tick so a
-// single transient `ctx.container.running === false` (DO hibernation wake or
-// deploy-roll, while the container is actually alive) cannot flip a live
-// session to stopped. This catch-all covers exits the SDK never surfaces as
-// onError; onError itself now feeds the SAME window rather than writing stopped
-// directly (openNotRunningConfirmation), so a transient error that fires onError
-// while the container is actually alive can no longer flip a live session to
-// stopped (REQ-SESSION-018 AC3).
-const NOT_RUNNING_CONFIRM_MS = 90_000;
+// The not-running timestamp is diagnostic only. Even a long sequence of false
+// SDK readings after DO reconstruction cannot prove the process exited.
 
 // A running process is not proof that the Durable Object can still reach it.
 // Cloudflare's Containers SDK already resets the DO during startup when the
@@ -178,11 +170,9 @@ function raceBudget<T>(work: Promise<T>, budgetMs: number): Promise<T | null> {
 /**
  * Open the not-running confirmation window without writing 'stopped'.
  *
- * Called by onError (container-lifecycle.ts) on a not-running reading so the
- * stopped decision is deferred to collectMetrics' confirmation window instead
- * of being written immediately on a single, possibly-transient reading. Sets
- * the marker only if not already open, so an in-progress streak is not reset.
- * The caller re-arms a collectMetrics tick so the window gets evaluated.
+ * Called by onError (container-lifecycle.ts) after a not-running observation.
+ * The marker supports logging and retry cadence only; it never authorizes a
+ * D1 stopped write. A later successful probe clears the marker.
  */
 export async function openNotRunningConfirmation(ctx: DurableObjectState): Promise<void> {
   const since = await ctx.storage.get<number>(NOT_RUNNING_SINCE_KEY);
@@ -203,67 +193,6 @@ export function parseSleepAfterMs(s: string): number {
   }
   logger.warn('parseSleepAfterMs: unrecognized value, falling back to 4h', { input: s });
   return SLEEP_AFTER_FALLBACK_MS;
-}
-
-// ---------------------------------------------------------------------------
-// updateKvStatus
-// ---------------------------------------------------------------------------
-
-/**
- * Update a timestamp field on the KV session record (best-effort).
- * Optionally sets session.status (e.g. 'stopped' on hibernation).
- */
-export type KvStatusUpdateResult = 'written' | 'absent' | 'failed';
-
-export async function updateKvStatus(
-  ctx: DurableObjectState,
-  env: Env,
-  bucketNameOverride: string | null,
-  status: 'running' | 'stopped' | null,
-  field: 'lastStartedAt' | 'lastActiveAt',
-): Promise<KvStatusUpdateResult> {
-  try {
-    const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
-    // Fallback: if _bucketName isn't set on the instance, try loading from storage
-    const bucketName = bucketNameOverride || await ctx.storage.get<string>('bucketName') || null;
-    if (!sessionId || !bucketName) {
-      logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
-      return 'failed';
-    }
-    const generation = await ctx.storage.get<number>('lifecycleGeneration');
-    if (typeof generation !== 'number') return 'failed';
-    const timestamp = new Date().toISOString();
-    if (status === 'stopped') {
-      const repository = new D1SessionRepository(env.USAGE_DB);
-      const session = await repository.getSession(bucketName, sessionId);
-      if (!session || session.lifecycleGeneration !== generation) return 'absent';
-      let intentId = session.terminationIntentId;
-      if (session.lifecycleState !== 'stopping') {
-        intentId = `confirmed-exit-${generation}`;
-        const claimed = await repository.claimStop(bucketName, sessionId, intentId, timestamp);
-        if (!claimed) return 'absent';
-      }
-      if (!intentId) return 'absent';
-      return await repository.confirmStopped(bucketName, sessionId, generation, intentId, timestamp)
-        ? 'written'
-        : 'absent';
-    }
-    const state = status === 'running' ? 'running' : null;
-    const result = await env.USAGE_DB.prepare(`UPDATE runtime_sessions SET
-      lifecycle_state=COALESCE(?4,lifecycle_state),
-      last_started_at=CASE WHEN ?5='lastStartedAt' THEN ?6 ELSE last_started_at END,
-      last_active_at=CASE WHEN ?5='lastActiveAt' OR (?4='running' AND ?5='lastStartedAt') THEN ?6 ELSE last_active_at END,
-      transitioned_at=CASE WHEN ?4 IS NULL THEN transitioned_at ELSE ?6 END,
-      response_revision=response_revision+1
-      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
-        AND lifecycle_state IN ('starting','running','unreachable')
-        AND termination_intent_id IS NULL`)
-      .bind(bucketName, sessionId, generation, state, field, timestamp).run();
-    return result.meta.changes === 1 ? 'written' : 'absent';
-  } catch (err) {
-    logger.error('Failed to update D1 status', toError(err));
-    return 'failed';
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -690,17 +619,13 @@ export async function drainAgentEventsBeforeStop(
  * does not identify whether the DO attachment, container network, or host is
  * wedged. Persist correlated recovery evidence before resetting the Durable
  * Object, confirm recovery only from a later response, and stop resetting after
- * two attempts. If both probes still fail on the next tick, converge the stale
- * running record to stopped instead of monitoring and billing it forever. The
- * Containers SDK constructor has a running-container reattachment path;
- * reconnecting through it remains a deployed smoke check rather than a
- * unit-tested contract.
+ * two attempts. If both probes still fail, retain resource ownership and
+ * retry without usage projection: transport failure does not prove exit.
+ * The authenticated no-start path separately checks for a surviving workload.
  */
 type TransportReconciliation = {
   nextDelaySec: number;
   recordUsage: boolean;
-  terminalUnavailable?: true;
-  recovery?: TransportRecoveryRecord;
 };
 
 type ProbeFailureCategory = 'timeout' | 'network-lost' | 'connection-refused' | 'other';
@@ -814,69 +739,6 @@ async function scheduleRecoveryOwnershipReadRetry(
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;
-  }
-}
-
-async function scheduleTerminalConvergenceRetry(
-  ctx: DurableObjectState,
-  callbacks: MetricsCallbacks,
-): Promise<void> {
-  try {
-    await callbacks.schedule(60, 'collectMetrics');
-  } catch (err) {
-    logger.error('collectMetrics: failed to schedule terminal convergence retry', undefined, {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    throw err;
-  }
-}
-
-async function continueTerminalConvergence(
-  state: MetricsState,
-  ctx: DurableObjectState,
-  env: Env,
-  callbacks: MetricsCallbacks,
-  recovery: TransportRecoveryRecord,
-): Promise<void> {
-  let ownedRecovery = recovery;
-  if (ownedRecovery.status === 'terminal-status-pending') {
-    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
-    if (stoppedUpdate === 'failed') {
-      await scheduleTerminalConvergenceRetry(ctx, callbacks);
-      return;
-    }
-    ownedRecovery = { ...ownedRecovery, status: 'terminal-stop-pending' };
-    try {
-      await persistTransportRecovery(ctx, ownedRecovery);
-    } catch (err) {
-      logger.error('collectMetrics: failed to persist terminal stop ownership', undefined, {
-        durableObjectId: ctx.id.toString(),
-        error: err instanceof Error ? err.message : String(err),
-      });
-      await scheduleTerminalConvergenceRetry(ctx, callbacks);
-      return;
-    }
-  }
-
-  try {
-    await callbacks.stop('SIGTERM');
-  } catch (err) {
-    logger.warn('collectMetrics: terminal container stop failed; retaining recovery for retry', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    await scheduleTerminalConvergenceRetry(ctx, callbacks);
-    return;
-  }
-
-  try {
-    await clearTransportRecoveryState(ctx);
-  } catch (err) {
-    logger.warn('collectMetrics: failed to clear exhausted recovery after terminal stop', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
   }
 }
 
@@ -1006,12 +868,10 @@ async function reconcileActiveTransportRecovery(
   recovery: TransportRecoveryRecord,
   probes: TransportProbeObservations,
 ): Promise<TransportReconciliation> {
-  if (recovery.status === 'exhausted') {
-    // Two coordinator reconstructions plus another complete probe failure are
-    // durable evidence that the recorded session is unavailable. The SDK can
-    // leave container.running stuck true on this path, so waiting for the
-    // not-running branch would leave KV and usage falsely running forever.
-    return { nextDelaySec: 0, recordUsage: false, terminalUnavailable: true, recovery };
+  if (recovery.status !== 'resetting') {
+    // Exhausted recovery (including an older pending terminal phase) proves
+    // neither exit nor permission to kill a possibly surviving workload.
+    return { nextDelaySec: 60, recordUsage: false };
   }
 
   const nextPostResetFailures = recovery.postResetFailureCount + 1;
@@ -1121,9 +981,8 @@ async function reconcileNotRunningTransportRecovery(
     try { await ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* remain fail-closed */ }
     return 'suppressed';
   }
-  // Once both reconstruction attempts are exhausted, the ordinary persisted
-  // not-running window decides whether the container really vanished.
-  if (storedRecovery.status === 'exhausted') return 'none';
+  // No number of failed observations proves exit. Keep the owner and retry.
+  if (storedRecovery.status !== 'resetting') return 'none';
   return reconcileActiveTransportRecovery(ctx, storedRecovery, probes);
 }
 
@@ -1314,42 +1173,23 @@ export async function collectMetrics(
     return;
   }
 
-  // Terminal convergence is a durable lifecycle phase, not transport recovery.
-  // Handle it before probes or usage accounting so a later host response cannot
-  // resurrect a session whose terminal stop already began.
-  let storedRecovery: unknown;
+  // Reading an old pending recovery record cannot justify a stopped write or
+  // a process signal. Only a trusted monitor exit or completed destroy can.
   try {
-    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+    await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
   } catch (err) {
-    logger.warn('collectMetrics: failed to read terminal recovery ownership', {
+    logger.warn('collectMetrics: failed to read transport recovery ownership', {
       durableObjectId: ctx.id.toString(),
       error: err instanceof Error ? err.message : String(err),
     });
     await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
     return;
   }
-  if (isTransportRecoveryRecord(storedRecovery)) {
-    if (storedRecovery.status === 'terminal-status-pending'
-        || storedRecovery.status === 'terminal-stop-pending') {
-      await continueTerminalConvergence(state, ctx, env, callbacks, storedRecovery);
-      return;
-    }
 
-    // D1 incidents are the only terminal-recovery authority; no legacy KV migration path.
-  }
-
-  // Container reads as not-running. This is EITHER a genuine exit (crash,
-  // deploy-roll, platform idle-reap) that the SDK never surfaced as onError,
-  // OR a transient false reading: `ctx.container.running` momentarily reports
-  // false when an alarm wakes a hibernated DO or during a deploy-roll, while
-  // the container is actually alive. Writing 'stopped' on a single such tick
-  // both flips a live session to stopped (kicking the user to the dashboard)
-  // AND kills the alarm loop (the re-arm at the foot of this function only
-  // fires while running), freezing metrics until the next onStart. So require
-  // the not-running reading to persist across NOT_RUNNING_CONFIRM_MS before
-  // treating it as a real exit, re-arming meanwhile so the streak can be
-  // observed (REQ-SESSION-018). The marker lives in DO storage so it survives
-  // the hibernation/reset that causes the false reading.
+  // Not-running can be a false SDK/DO-reconstruction reading while the process
+  // survives. Record the observation and retry without changing D1 ownership.
+  // Only the separate low-level monitor's resolved exit or completed destroy
+  // authorizes the generation-fenced stopped transition.
   if (!ctx.container?.running) {
     const recovery = await reconcileNotRunningTransportRecovery(ctx);
     if (recovery === 'suppressed') return;
@@ -1358,49 +1198,11 @@ export async function collectMetrics(
       return;
     }
 
-    const now = Date.now();
-    const since = await ctx.storage.get<number>(NOT_RUNNING_SINCE_KEY);
-    // No marker yet (real DO storage returns undefined; some mocks null): open
-    // the window and re-arm without writing stopped.
-    if (typeof since !== 'number') {
-      await ctx.storage.put(NOT_RUNNING_SINCE_KEY, now);
-      logger.info('collectMetrics: container not running, opening confirmation window', {
-        confirmMs: NOT_RUNNING_CONFIRM_MS,
-      });
-      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
-      return;
-    }
-    if (now - since < NOT_RUNNING_CONFIRM_MS) {
-      logger.info('collectMetrics: container not running, within confirmation window', {
-        elapsedMs: now - since, confirmMs: NOT_RUNNING_CONFIRM_MS,
-      });
-      // Re-arm so the streak is re-checked; onStart's deleteSchedules dedupes
-      // if the container recovers and restarts the loop concurrently.
-      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
-      return;
-    }
-    logger.info('collectMetrics: container not running past confirmation window, marking stopped', {
-      elapsedMs: now - since,
+    await openNotRunningConfirmation(ctx);
+    logger.warn('collectMetrics: container not running; process exit unverified, retaining lifecycle ownership', {
+      durableObjectId: ctx.id.toString(),
     });
-    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
-    if (stoppedUpdate === 'failed') {
-      // Keep the confirmation marker and recovery evidence until the
-      // authoritative status write succeeds; retry without recording usage.
-      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
-      return;
-    }
-    await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
-    try {
-      await clearTransportRecoveryState(ctx);
-    } catch (err) {
-      // Recovery evidence is operational cleanup, while the stopped KV write is
-      // authoritative lifecycle state. Never let stale evidence strand a dead
-      // container as running when cleanup itself fails.
-      logger.warn('collectMetrics: failed to clear transport recovery after confirmed exit', {
-        durableObjectId: ctx.id.toString(),
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
     return;
   }
   // Container is running - clear any pending not-running confirmation marker so
@@ -1575,30 +1377,6 @@ export async function collectMetrics(
     // Fail closed: do not re-arm or reset the Durable Object.
     return;
   }
-  if (transportReconciliation.terminalUnavailable) {
-    logger.error('collectMetrics: exhausted transport remains unreachable, beginning terminal convergence', undefined, {
-      durableObjectId: ctx.id.toString(),
-      containerRunning: ctx.container?.running ?? false,
-      probes: { activity: activityProbe, health: healthProbe },
-    });
-    const terminalRecovery: TransportRecoveryRecord = {
-      ...transportReconciliation.recovery!,
-      status: 'terminal-status-pending',
-    };
-    try {
-      await persistTransportRecovery(ctx, terminalRecovery);
-    } catch (err) {
-      logger.error('collectMetrics: failed to persist terminal status ownership', undefined, {
-        durableObjectId: ctx.id.toString(),
-        error: err instanceof Error ? err.message : String(err),
-      });
-      await scheduleTerminalConvergenceRetry(ctx, callbacks);
-      return;
-    }
-    await continueTerminalConvergence(state, ctx, env, callbacks, terminalRecovery);
-    return;
-  }
-
   // Timekeeper records per-user compute consumption in every deployment mode.
   // A tick scheduled after a complete transport failure is a 5-second
   // confirmation, not another usage minute.

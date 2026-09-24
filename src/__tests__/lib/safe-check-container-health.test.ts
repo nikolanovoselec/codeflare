@@ -1,137 +1,47 @@
-/**
- * Tests for safeCheckContainerHealth (CF-021)
- *
- * safeCheckContainerHealth avoids auto-starting stopped containers by
- * checking getState() first (read-only) before calling checkContainerHealth()
- * which uses container.fetch() (auto-starts).
- */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-// Mock circuit breakers to be pass-through
-const passThroughCB = { execute: vi.fn((fn: () => Promise<unknown>) => fn()), reset: vi.fn() };
-vi.mock('../../lib/circuit-breakers', () => ({
-  getContainerHealthCB: () => passThroughCB,
-}));
+const passThroughCB = { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() };
+vi.mock('../../lib/circuit-breakers', () => ({ getContainerHealthCB: () => passThroughCB }));
 
 import { safeCheckContainerHealth } from '../../lib/container-helpers';
 
-describe('safeCheckContainerHealth', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+// SDK fetch can start a replacement. These fixtures throw if the health probe
+// ever takes that path, rather than asserting a private mock call count.
+function existingRuntime(status: string, forward: () => Promise<Response>) {
+  return {
+    getState: async () => ({ status }),
+    fetch: async () => { throw new Error('SDK fetch would auto-start a container'); },
+    forwardExisting: forward,
+  };
+}
 
-  it('calls health check when container state is running', async () => {
+describe('safeCheckContainerHealth / REQ-SESSION-012', () => {
+  it.each(['running', 'stopped', 'stopped_with_code'])('accepts a responding survivor despite SDK %s', async (status) => {
     const healthData = { status: 'healthy', cpu: '10%', mem: '1.5/3.0G' };
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'running' }),
-      fetch: vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(healthData), { status: 200 })
-      ),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
-    expect(result.healthy).toBe(true);
-    expect(result.status).toBe('running');
-    expect(result.data).toEqual(healthData);
-    expect(mockContainer.getState).toHaveBeenCalledTimes(1);
-    expect(mockContainer.fetch).toHaveBeenCalledTimes(1);
+    const runtime = existingRuntime(status, async () => new Response(JSON.stringify(healthData), { status: 200 }));
+    const result = await safeCheckContainerHealth(runtime as any, 'test-container-id');
+    expect(result).toMatchObject({ healthy: true, data: healthData });
   });
 
-  it('calls health check when container state is healthy', async () => {
-    const healthData = { status: 'healthy' };
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'healthy' }),
-      fetch: vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(healthData), { status: 200 })
-      ),
+  it('does not depend on persisted SDK state being available', async () => {
+    const runtime = {
+      ...existingRuntime('stopped', async () => new Response(JSON.stringify({ status: 'healthy' }), { status: 200 })),
+      getState: async () => { throw new Error('stale SDK state unavailable'); },
     };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
-    expect(result.healthy).toBe(true);
-    expect(result.status).toBe('healthy');
-    expect(result.data).toEqual(healthData);
-    expect(mockContainer.fetch).toHaveBeenCalledTimes(1);
+    expect((await safeCheckContainerHealth(runtime as any, 'test-container-id')).healthy).toBe(true);
   });
 
-  it('skips health check when container state is stopped', async () => {
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
-      fetch: vi.fn(),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
-    expect(result.healthy).toBe(false);
-    expect(result.status).toBe('stopped');
-    // fetch should NOT be called - that would auto-start the container
-    expect(mockContainer.fetch).not.toHaveBeenCalled();
-  });
-
-  it('skips health check when container state is stopping', async () => {
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'stopping' }),
-      fetch: vi.fn(),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
-    expect(result.healthy).toBe(false);
-    expect(result.status).toBe('stopping');
-    expect(mockContainer.fetch).not.toHaveBeenCalled();
-  });
-
-  it('returns unknown status when getState() throws', async () => {
-    const mockContainer = {
-      getState: vi.fn().mockRejectedValue(new Error('DO not reachable')),
-      fetch: vi.fn(),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
-    expect(result.healthy).toBe(false);
-    expect(result.status).toBe('unknown');
-    // fetch should NOT be called when getState fails
-    expect(mockContainer.fetch).not.toHaveBeenCalled();
-  });
-
-  it('returns unhealthy when health check response is non-200', async () => {
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'running' }),
-      fetch: vi.fn().mockResolvedValue(
-        new Response('Service Unavailable', { status: 503 })
-      ),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
+  it('returns retryable unavailability without waking an absent runtime', async () => {
+    const runtime = existingRuntime('stopped', async () => new Response('Not running', { status: 503 }));
+    const result = await safeCheckContainerHealth(runtime as any, 'test-container-id');
     expect(result.healthy).toBe(false);
     expect(result.error).toContain('503');
   });
 
-  it('returns unhealthy when health check fetch throws', async () => {
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'running' }),
-      fetch: vi.fn().mockRejectedValue(new Error('Connection refused')),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
+  it('does not infer stopped from a failed private-port probe', async () => {
+    const runtime = existingRuntime('running', async () => { throw new Error('Connection refused'); });
+    const result = await safeCheckContainerHealth(runtime as any, 'test-container-id');
     expect(result.healthy).toBe(false);
     expect(result.error).toContain('Connection refused');
-  });
-
-  it('skips health check when container state stopped with an exit code', async () => {
-    const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'stopped_with_code', exitCode: 1 }),
-      fetch: vi.fn(),
-    };
-
-    const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
-
-    expect(result.healthy).toBe(false);
-    expect(result.status).toBe('stopped_with_code');
-    expect(mockContainer.fetch).not.toHaveBeenCalled();
   });
 });

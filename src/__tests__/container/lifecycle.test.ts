@@ -337,8 +337,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // bucketName and _sessionId, and _bucketName on the instance is null.
       mockStorage.get.mockImplementation(async () => null);
 
-      // Unexpected exit: container reports not-running so the !running guard
-      // passes and updateKvStatus is actually invoked.
+      // An SDK not-running observation after destroy must not assert exit or
+      // recreate a session whose identifiers were already cleared.
       mockContainerRuntime.running = false;
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
@@ -349,7 +349,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await instance.onError(new Error('Unexpected exit after destroy'));
 
       await new Promise(resolve => setTimeout(resolve, 50));
-      // No identifiers -> updateKvStatus returns early -> no KV write.
+      // No identifiers or verified process monitor exit -> no lifecycle write.
       expect(mockKvPut).not.toHaveBeenCalled();
     });
 
@@ -677,35 +677,6 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     it('rejects non-boolean workspaceSyncEnabled', () => {
       expect(validateBucketNameInput({ bucketName: 'b', workspaceSyncEnabled: 'true' }))
         .toBe('workspaceSyncEnabled must be a boolean when provided');
-    });
-  });
-
-  describe('onStop clears collectMetrics schedule', () => {
-    it('calls deleteSchedules("collectMetrics") to kill the alarm loop', async () => {
-      const mockKvPut = vi.fn().mockResolvedValue(undefined);
-      const mockKvGet = vi.fn().mockResolvedValue({
-        id: 'sess123',
-        status: 'running',
-        name: 'Test',
-      });
-      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
-
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      const deleteSchedulesSpy = vi.spyOn(instance, 'deleteSchedules' as any);
-
-      await instance.onStop();
-
-      expect(deleteSchedulesSpy).toHaveBeenCalledWith('collectMetrics');
     });
   });
 

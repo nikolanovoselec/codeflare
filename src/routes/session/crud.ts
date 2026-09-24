@@ -272,7 +272,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
     throw err;
   }
 
-  if (claimed.lifecycleState !== 'stopped' && !await repository.confirmStopped(
+  if (claimed.lifecycleState !== 'stopped' && !await repository.confirmStoppedOrObserved(
     bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString(),
   )) throw new Error('Confirmed exit could not be persisted');
   if (!await repository.deleteConfirmed(bucketName, sessionId)) throw new Error('Session exit is not confirmed');

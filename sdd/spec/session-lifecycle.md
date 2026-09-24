@@ -184,7 +184,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. An accepted Start advances generation once, writes `starting`, and assigns that generation to the Durable Object before process work begins.
 2. Start fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it.
-3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after confirmed exit or the bounded bookkeeping exception in [REQ-SESSION-035](#req-session-035-stale-stopping-records-reset-on-owner-status-read). <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (sets session status to stopped in KV) --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (returns failure and preserves retryable state when destruction is unconfirmed) --> <!-- @test: src/__tests__/routes/session.test.ts (forces an owner session stuck stopping for over three minutes to stopped before responding) -->
+3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after a generation-fenced positive process-exit monitor observation or awaited destruction that confirms exit. An old `stopping` transition alone cannot release ownership. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (returns failure and preserves retryable state when destruction is unconfirmed) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and blocks managed mutation without exit evidence) -->
 4. Restart preserves the same D1 session row, workspace and storage identity while applying current preferences in a new generation.
 5. Delete uses the same confirmed graceful destruction path and hard-deletes the D1 row only after exit; delayed writers cannot recreate it.
 6. Failed or ambiguous destruction retains retryable authoritative state and does not report stopped or deleted.
@@ -383,7 +383,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. Idle, quota, Stop, and Delete invoke one independently bounded final agent-event drain before final sync. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC1: calls final agent-event drain, then final sync, then stop) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 2. A final drain makes unresolved client decisions eligible for fallback before reading events. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (final drain atomically promotes pending and awaiting-confirmation events) -->
-3. Terminal-convergence recovery attempts no final drain after host transport becomes unavailable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7 + REQ-SESSION-024 AC4: retains exhausted recovery and retries when terminal container stop fails) -->
+3. Exhausted transport uncertainty neither drains final events nor signals a possibly surviving workload; the lifecycle remains owning until exit is confirmed. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC6: exhausted uncertainty cannot signal or release a surviving workload) -->
 4. Teardown preserves the lifecycle Bearer and session ID until the final event request is built, then clears stored state. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 5. Final event delivery consumes the teardown deadline without reducing the reserved final-sync budget. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 6. A failed final event drain still permits final sync and container stop. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC6: an event-drain failure still runs final sync and stop) -->
@@ -489,10 +489,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Non-internal requests cannot auto-start a non-running container, and forwarding uses a path that does not treat SDK `running` as definitive live-process evidence.
+1. Non-internal requests cannot auto-start a non-running container. After authenticated owner-scoped D1 authorization, a verified surviving workload may be forwarded through no-start even after coordinator reconstruction; SDK `running` is not definitive live-process evidence.
 2. WebSocket upgrades receive authoritative 4503 only from current D1 `stopping` or `stopped` evidence; transient forwarding failures remain retryable.
 3. During `unreachable`, terminal/editor objects, buffers, tabs, selection, tiling and scrollback stay mounted while retries use bounded jitter.
-4. Recovery reconnects to the existing process without invoking Start or allocating a new generation.
+4. Recovery reconnects to the verified existing process without invoking Start or allocating a new generation. Absent or unverified runtime returns retryable 1013 without forwarding or unsanctioned rate-limit writes; authoritative D1 `stopping`/`stopped` still closes 4503.
 5. Client countdown expiry changes messaging only and cannot declare stopped or dispose the workspace.
 6. D1 read failure retains transport state and shows status unavailable; it never synthesizes `unreachable` or `stopped`.
 
@@ -670,7 +670,7 @@ None.
 4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row.
 5. Every accepted mutation advances a response revision used with generation to order API responses.
 6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed.
-7. Only confirmed process-exit evidence or the explicit stale-stop reset in [REQ-SESSION-035](#req-session-035-stale-stopping-records-reset-on-owner-status-read) writes `stopped`; transport failure, D1 failure, signal acceptance, or a transient SDK state does not. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.confirmStopped --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims termination once and requires confirmed exit before stopped) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (forces only owner-scoped stopping rows strictly older than the cutoff to stopped) -->
+7. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
 **Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
 
@@ -707,19 +707,19 @@ None.
 
 ---
 
-### REQ-SESSION-035: Stale stopping records reset on owner status read
+### REQ-SESSION-035: Stale stopping retains ownership until confirmed exit
 
-**Intent:** An interrupted Stop request cannot leave its owner permanently blocked by stale lifecycle bookkeeping.
+**Intent:** An interrupted Stop request remains visible and retryable without declaring a possibly live workload stopped.
 
 **Applies To:** System (session lifecycle)
 
 **Acceptance Criteria:**
 
-1. An owner batch-status read changes that owner's `stopping` sessions with transitions strictly older than three minutes to `stopped` before returning status. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/routes/session.test.ts (forces an owner session stuck stopping for over three minutes to stopped before responding) -->
-2. The reset clears termination and unreachable ownership, resets editor readiness, increments the response revision and records `stop_timeout_forced_reset` without fabricating process-exit timing. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (forces only owner-scoped stopping rows strictly older than the cutoff to stopped) -->
-3. Recent `stopping` sessions, other lifecycle states and other owners remain unchanged. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (forces only owner-scoped stopping rows strictly older than the cutoff to stopped) -->
+1. An owner batch-status read leaves `stopping` sessions in `stopping` regardless of age; it cannot turn elapsed time or SDK state into process-exit evidence. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and blocks managed mutation without exit evidence) -->
+2. Old `stopping` rows retain termination and unreachable ownership, editor readiness, revision and transition reason until a generation-fenced positive process-exit monitor observation or awaited destroy confirms exit. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
+3. Managed mutation and Start stay blocked during uncertainty; other owners and lifecycle states remain unchanged. <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and blocks managed mutation without exit evidence) -->
 
-**Constraints:** This is a bounded bookkeeping exception to confirmed-exit authority; it does not assert process-exit evidence.
+**Constraints:** Applies to future sessions only; no existing-record repair or migration. Stale duration is diagnostic, not authority to clear a termination intent.
 
 **Priority:** P0
 
@@ -897,7 +897,7 @@ None.
 3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it.
 4. Immediately before signalling, execution rechecks generation ownership and cannot signal a replacement generation.
 5. Stop signalling uses the low-level SIGTERM path even when the SDK `running` flag is transiently false; retries are bounded and duplicate-safe.
-6. Signal acceptance retains `stopping`; only confirmed exit or the bounded bookkeeping exception in [REQ-SESSION-035](#req-session-035-stale-stopping-records-reset-on-owner-status-read) transitions to `stopped`. <!-- @impl: src/lib/session-runtime-policy.ts::confirmProcessExit --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.forceStopExpired --> <!-- @test: src/__tests__/lib/session-unreachable-policy.test.ts (signal acceptance is not exit; confirmed matching exit alone reports stopped) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (forces only owner-scoped stopping rows strictly older than the cutoff to stopped) -->
+6. Signal acceptance retains `stopping`; only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit transitions to `stopped`. <!-- @impl: src/lib/session-runtime-policy.ts::confirmProcessExit --> <!-- @test: src/__tests__/lib/session-unreachable-policy.test.ts (signal acceptance is not exit; confirmed matching exit alone reports stopped) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
 **Constraints:** Exactly-once external signalling is not promised. Established final-event, final-sync and teardown deadlines are unchanged.
 

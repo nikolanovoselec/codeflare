@@ -110,7 +110,7 @@ export async function startOrRestartContainer(params: {
       logger.error('Failed to destroy container', toError(error));
       throw error;
     }
-    if (!await repository.confirmStopped(
+    if (!await repository.confirmStoppedOrObserved(
       sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
     )) throw new Error('Replacement container exit could not be confirmed');
     currentState = { status: 'stopped' };
@@ -145,28 +145,15 @@ export async function startOrRestartContainer(params: {
     };
   }
 
-  // A definitively stopped process is confirmed before claiming a replacement
-  // generation. Unknown transport/process state is not stopped evidence.
+  // SDK state (including stopped) is not process-exit evidence after DO
+  // reconstruction. Only a D1 generation confirmed by monitor/destroy may
+  // advance to a replacement execution.
   if (currentState.status === 'unknown') throw new Error('Container exit is not confirmed for Start');
   const repository = new D1SessionRepository(env.USAGE_DB);
   const authoritative = await repository.getSession(sessionData.userId, sessionData.id);
   if (!authoritative) throw new Error('Session lifecycle record unavailable for Start');
   if (bindHuman && authoritative.lifecycleGeneration !== expectedLifecycleGeneration) throw new Error('Session lifecycle moved');
-  if (authoritative.lifecycleState !== 'stopped') {
-    if (currentState.status !== 'stopped') throw new Error('Container exit is not confirmed for Start');
-    const intentId = authoritative.lifecycleState === 'stopping'
-      ? authoritative.terminationIntentId
-      : crypto.randomUUID();
-    if (!intentId) throw new Error('Session lifecycle could not claim termination ownership');
-    const stopping = authoritative.lifecycleState === 'stopping'
-      ? authoritative
-      : await repository.claimStop(sessionData.userId, sessionData.id, intentId, new Date().toISOString());
-    if (!stopping) throw new Error('Confirmed container exit could not be persisted for Start');
-    await fencePendingBoundaryStart(env, repository, stopping);
-    if (!await repository.confirmStopped(
-      sessionData.userId, sessionData.id, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
-    )) throw new Error('Confirmed container exit could not be persisted for Start');
-  }
+  if (authoritative.lifecycleState !== 'stopped') throw new Error('Container exit is not confirmed for Start');
 
   // D1 claims the replacement generation before process work begins.
   const claimed = await repository.start(
@@ -551,7 +538,7 @@ app.post('/destroy', async (c) => {
     await fencePendingBoundaryStart(c.env, repository, stopping);
     // Note: Do NOT call getState() before destroy() - it wakes up hibernated DOs (gotcha #6)
     await container.destroy();
-    if (stopping.lifecycleState !== 'stopped' && !await repository.confirmStopped(
+    if (stopping.lifecycleState !== 'stopped' && !await repository.confirmStoppedOrObserved(
       bucketName, sessionId, stopping.lifecycleGeneration, intentId, new Date().toISOString(),
     )) throw new Error('Confirmed container exit could not be persisted');
 

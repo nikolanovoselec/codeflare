@@ -90,6 +90,10 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.start('owner-a', 'expired01', '2027-01-01T00:10:00.000Z')).toBeNull();
     expect(await repository.confirmStopped('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:00.000Z')).toBe(false);
     expect(await repository.confirmStopped('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:00.000Z')).toBe(true);
+    // A positive process monitor can beat a concurrent completed destroy;
+    // only the matching generation makes the second confirmation idempotent.
+    expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 2, 'intent', '2027-01-01T00:10:01.000Z')).toBe(true);
+    expect(await repository.confirmStoppedOrObserved('owner-a', 'expired01', 1, 'intent', '2027-01-01T00:10:01.000Z')).toBe(false);
     expect(await repository.getSession('owner-a', 'expired01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
     for (const [owner, sessionId, state] of [
       ['owner-a', 'boundary1', 'stopping'], ['owner-a', 'starting1', 'starting'],
