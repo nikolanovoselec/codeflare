@@ -54,7 +54,7 @@ describe('operator boundary claim route (task #30; proposed contract)', () => {
 
   it('rejects every caller-owned authority field and incomplete or invalid bindings before claiming', async () => {
     const invalid = [
-      ...['principal', 'installation', 'startCapability', 'contextDigest', 'jwt', 'publisherToken']
+      ...['principal', 'installation', 'startCapability', 'contextDigest', 'generation', 'jwt', 'publisherToken']
         .map(key => ({ ...bindings, [key]: 'forged' })),
       ...Object.keys(bindings).map(key => Object.fromEntries(Object.entries(bindings).filter(([name]) => name !== key))),
       { ...bindings, repositoryId: '123' }, { ...bindings, pullRequest: 0 },

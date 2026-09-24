@@ -128,7 +128,7 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
 /** Parent-only claim: GitHub authenticates the job; sealed Access authenticates the human. */
 export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
   input: BoundaryActionClaimRequest): Promise<{ status: string } | (BoundaryActionClaimContext & {
-    activityId: string; origin: string; startCapability: string; generation: number })> {
+    activityId: string; origin: string; startCapability: string; generation: number; contextDigest: string })> {
   if (!isEnterpriseMode(env) || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY || !env.CONTAINER || !env.USAGE_DB
     || !Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
     || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
@@ -211,7 +211,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
       || live.boundaryActivityId !== prepared.activityId) return { status: 'stale' };
     // The claimed credential is not replayable even when this response is lost.
     return { ...verified, activityId: prepared.activityId, startCapability: won.value.startCapability,
-      generation: prepared.session.generation, origin };
+      generation: prepared.session.generation, contextDigest: prepared.contextDigest, origin };
   } catch { return { status: 'unknown' }; }
 }
 
