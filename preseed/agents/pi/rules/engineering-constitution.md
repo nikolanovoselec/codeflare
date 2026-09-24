@@ -12,6 +12,7 @@
 - Validate untrusted input at boundaries. Trust typed internals.
 - In repositories with `sdd/`, trace behavior changes to requirements. Keep specifications, anchors, and documentation truthful. Leave no touched requirement `Partial`.
 - Verify before claiming completion. Separate observation, inference, and uncertainty.
+- A PR review plan is generated only when you create a PR targeting `main`, `master`, or `develop`, or push the head branch of an open PR targeting one of those branches. Work in that PR's repository with its head branch checked out and synced to remote. After the qualifying creation or push, end the turn and follow the delivered plan; do not launch reviewers yourself.
 
 ## Security
 

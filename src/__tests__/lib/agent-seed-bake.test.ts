@@ -36,6 +36,18 @@ describe('agent-seed bake byte-identity (REQ-STOR-017 / AD90)', () => {
     });
   }
 
+  it('REQ-AGENT-065: baked Claude and Pi constitutions deliver the protected PR review trigger in both modes', () => {
+    for (const mode of ['default', 'advanced'] as SessionMode[]) {
+      const delivered = filterDocsForMode(AGENTS_SEEDED_CONFIGS, mode);
+      for (const key of ['.claude/rules/engineering-constitution.md', '.pi/agent/rules/engineering-constitution.md']) {
+        const policy = delivered.find((document: { key: string }) => document.key === key);
+        expect(policy?.content).toContain('create a PR targeting `main`, `master`, or `develop`');
+        expect(policy?.content).toContain('push the head branch of an open PR');
+        expect(policy?.content).toContain('end the turn and follow the delivered plan');
+      }
+    }
+  });
+
   it('parseGeneratedSeed extracts the AGENTS_SEEDED_CONFIGS array from the generated module shape', () => {
     // Synthetic module mirroring scripts/generate-agent-seed.mjs output shape (the
     // PRESEED_CONTENT_HASH string above, the typed array literal below). fs-free so it
