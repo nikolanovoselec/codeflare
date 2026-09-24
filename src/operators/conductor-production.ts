@@ -67,8 +67,8 @@ export async function createConductorProductionCapability(input: { env: Env; pla
   const eligiblePolicy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
     github: { repositories: [], methods: [] }, storage,
     inference: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
-      reasoningLevels: [routes.defaultReasoning], defaultReasoningLevel: routes.defaultReasoning,
-      inheritUserDefaults: false } });
+      reasoningLevels: routes.defaultReasoning ? [routes.defaultReasoning] : [],
+      defaultReasoningLevel: routes.defaultReasoning || null, inheritUserDefaults: false } });
   const effectiveInference = resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog,
     defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning },
     trusted: invocation.resources.inference, policy: eligiblePolicy });

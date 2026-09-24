@@ -8,7 +8,7 @@ vi.mock('../../lib/access', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/access')>();
   return { ...original,
     resolveSessionAccessGroup: async () => [],
-    loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['route-one'], defaultRoute: 'route-one',
+    loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['review.v1'], defaultRoute: 'review.v1',
       defaultReasoning: 'off', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} }),
     requireOperatorHumanContext: async () => ({ human: {
     subject: 'human', email: 'owner@example.test', issuer: 'https://team.cloudflareaccess.com',
@@ -190,7 +190,7 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     expect(reserved).toMatchObject({ activityId: 'reserved-activity' });
     expect(await operatorActivity.getBrowserDetail()).toEqual({ activityId: 'reserved-activity', phase: 'prepared' });
     expect(await operatorActivity.getPreparedInvocation()).toMatchObject({ resources: {
-      inference: { routeId: 'route-one', reasoningLevel: 'off' },
+      inference: { routeId: 'review.v1', reasoningLevel: 'off' },
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' },
     } });
     expect(await operatorActivity.getBoundaryStartBinding()).toMatchObject({ repositoryId: 138,

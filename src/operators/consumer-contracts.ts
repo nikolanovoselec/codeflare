@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { ValidationError } from '../lib/error-types';
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const routeId = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$/);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const reference = z.string().min(1).max(256).refine(value => value.trim() === value && !/[\x00-\x1f\x7f]/.test(value));
 const attachment = z.strictObject({
@@ -25,7 +26,7 @@ const invocationSchema = z.strictObject({
   revision: z.strictObject({ reference, digest }), inputDigest: digest,
   input: z.json(), attachments: z.array(attachment).max(16),
   resources: z.strictObject({
-    inference: z.strictObject({ routeId: id, reasoningLevel: z.string().max(16).nullable() }).nullable(),
+    inference: z.strictObject({ routeId, reasoningLevel: z.string().max(16).nullable() }).nullable(),
     session: z.strictObject({ profileId: id }).nullable(),
     storage: z.strictObject({ scopeId: id }).nullable(),
   }),
