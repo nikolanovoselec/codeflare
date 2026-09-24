@@ -6,7 +6,7 @@ const MAX_ADVERTISEMENT_BYTES = 1024 * 1024;
 const MAX_PACK_BYTES = 32 * 1024 * 1024;
 const MAX_DEADLINE_MS = 5 * 60_000;
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 type Input = {
   owner: string;
@@ -63,7 +63,7 @@ function advertised(bytes: Uint8Array): { refs: Set<string>; reachable: boolean 
     if (line === null) continue;
     const text = decoder.decode(line);
     if (text === 'version 1\n') continue;
-    const match = /^([a-f0-9]{40}) (HEAD|refs\/[A-Za-z0-9._\/-]+)(?:\0([^\n]*))?\n$/.exec(text);
+    const match = /^([a-f0-9]{40}) (HEAD|refs\/[A-Za-z0-9._/-]+)(?:\0([^\n]*))?\n$/.exec(text);
     if (!match) denied();
     if (first) {
       if (!match[3] || (match[3].includes('object-format=') && !match[3].includes('object-format=sha1'))) denied();
