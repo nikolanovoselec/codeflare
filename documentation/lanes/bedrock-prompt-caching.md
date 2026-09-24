@@ -135,7 +135,7 @@ Run the relevant Vitest adapter/interceptor, native authority, lifecycle, contai
 
 The completed local run passed 577 tests across 14 relevant Vitest files, 20 real-entrypoint jq tests, TypeScript checking, and the offline locked-Pi check below. The cache-accounting regressions and eight encrypted-replay dispatch regressions were observed failing before their respective repairs. New tests hold upstream EOF open while requiring public text from the actual interceptor. This is bounded verification of the changed paths, not a claim that the entire repository or a deployed session was tested.
 
-For the locked client's serializer and parser, install the existing `@earendil-works/pi-ai@0.85.1` dependency in a temporary directory, then run:
+For the current locked client's serializer and parser, install `@earendil-works/pi-ai@0.87.1` in a temporary directory, then run:
 
 ```sh
 node scripts/verify-bedrock-pi-prompt-cache.mjs /path/to/@earendil-works/pi-ai
@@ -158,7 +158,7 @@ The native adapter streams Eventstream public text incrementally. At the inspect
 - [Cloudflare: Gateway response caching](https://developers.cloudflare.com/ai-gateway/features/caching/).
 - [Cloudflare: DLP response buffering](https://developers.cloudflare.com/ai-gateway/features/dlp/).
 - [Cloudflare: Dynamic Route `/compat` contract](https://developers.cloudflare.com/ai-gateway/features/dynamic-routing/usage/).
-- Pi accounting source: `package/dist/api/openai-completions.js::parseChunkUsage` in the [locked 0.85.1 package](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz), verified against `preseed/agents/pi/package-lock.json` integrity.
+- Pi accounting source: `package/dist/api/openai-completions.js::parseChunkUsage` in the [locked 0.87.1 package](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz), verified against `preseed/agents/pi/package-lock.json` integrity.
 
 Documentation accessed 2026-09-12. Regression fixtures are synthetic; they contain no live provider thinking or signatures.
 

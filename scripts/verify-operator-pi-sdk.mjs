@@ -54,8 +54,8 @@ try {
   const manager = SessionManager.create(cwd, sessionDir);
   ({ session } = await createAgentSession({ ...options, sessionManager: manager }));
   assert.deepEqual(session.getActiveToolNames(), ['write']);
-  assert.match(session.agent.state.systemPrompt, /Approved operator SDK fixture context/);
-  assert.ok(!session.agent.state.systemPrompt.includes('UNAPPROVED_CONTEXT_MARKER'));
+  assert.match(session.systemPrompt, /Approved operator SDK fixture context/);
+  assert.ok(!session.systemPrompt.includes('UNAPPROVED_CONTEXT_MARKER'));
   const id = session.sessionId;
   const file = session.sessionFile;
   assert.ok(file && path.dirname(file) === sessionDir);
