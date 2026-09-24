@@ -193,7 +193,7 @@ Path-gated workload lanes run at maximum parallelism after the `changes` classif
   - The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) skips filtering and runs the full matrix without matching Deploy's `PR Checks` trigger.
 - **quality** — agent-seed drift guard, backend and frontend oxlint and knip checks, plus a `bash -n` syntax pass over every tracked shell script ([REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)).
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
-- **backend-tests** — eight duration-weighted Workers jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
+- **backend-tests** — twelve duration-weighted Workers jobs plus three Node-runtime legs (`native`, `flue`, `rest`), all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
 - **frontend-tests** — four duration-weighted file groups through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`; this production-breakage check is not a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
