@@ -1,6 +1,6 @@
 name: Boundary Reviews (shadow)
 
-on:
+on: # zizmor: ignore[dangerous-triggers] Pinned protected code only; no PR checkout or candidate execution.
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
 
