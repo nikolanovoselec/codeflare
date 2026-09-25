@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: nikolanovoselec/codeflare-operator-conductor
-          ref: b0e68b45f88804b68164ab8a99ddb8d6d8a7f2e6
+          ref: ee2df9d7dd8f07c1f0f88458e3fe08bdc45ea8f8
           path: trusted-conductor
           token: ${{ secrets.CONDUCTOR_READ_TOKEN }}
           persist-credentials: false
@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: nikolanovoselec/codeflare-operator-conductor
-          ref: b0e68b45f88804b68164ab8a99ddb8d6d8a7f2e6
+          ref: ee2df9d7dd8f07c1f0f88458e3fe08bdc45ea8f8
           path: trusted-conductor
           token: ${{ secrets.CONDUCTOR_READ_TOKEN }}
           persist-credentials: false
