@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import fsPromises, { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -258,6 +259,22 @@ test('REQ-OPERATOR-021: later report conflict leaves no newly published partial 
   await assert.rejects(readFile(path.join(reports, 'code-reviewer.json')));
   assert.equal(await readFile(path.join(reports, 'spec-reviewer.json'), 'utf8'), 'existing report');
   await assert.rejects(readFile(path.join(reports, 'doc-updater.json')));
+});
+
+test('REQ-OPERATOR-021: a later filesystem publication failure rolls back new reports only', async t => {
+  const f = await fixture(t);
+  const reports = path.join(f.outputRoot, 'reports');
+  await mkdir(reports);
+  await writeFile(path.join(reports, 'doc-updater.json'), report('doc-updater'));
+  const originalLink = fsPromises.link;
+  fsPromises.link = (source, destination) => destination === path.join(reports, 'spec-reviewer.json')
+    ? Promise.reject(new Error('Publication failed')) : originalLink(source, destination);
+  syncBuiltinESMExports();
+  try { assert.equal(await submit(f, 'publish-error'), 'failed'); }
+  finally { fsPromises.link = originalLink; syncBuiltinESMExports(); }
+  await assert.rejects(readFile(path.join(reports, 'code-reviewer.json')));
+  await assert.rejects(readFile(path.join(reports, 'spec-reviewer.json')));
+  assert.equal(await readFile(path.join(reports, 'doc-updater.json'), 'utf8'), report('doc-updater'));
 });
 
 test('REQ-OPERATOR-021: cancellation during creation or after journal persistence aborts children', async t => {
