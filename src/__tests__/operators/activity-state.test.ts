@@ -320,24 +320,42 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.getExecutionContext()).toBeNull();
   }, false));
 
-  it('issues a distinct read capability only to the single start winner and consumes one terminal redemption', () => withActivity(async ({ activity, token }) => {
+  it('rereads identical immutable terminal bytes after lost delivery only with the original read capability', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
     const started = await activity.startWebhook(token);
     expect(started).toMatchObject({ ok: true, phase: 'queued' });
     expect(started.ok && started.readCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
     if (!started.ok) throw new Error('expected webhook start');
     expect(await activity.getWebhookStatus(started.readCapability)).toMatchObject({ ok: true, terminal: false });
     expect(await activity.redeemWebhookResult(started.readCapability)).toEqual({ ok: false, reason: 'not-ready' });
-    const drive = await activity.beginDrive();
-    expect(drive).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
     expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
       result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    const first = await activity.redeemWebhookResult(started.readCapability);
+    expect(first).toMatchObject({ ok: true, terminal: true, generation: 1, result: { output: 'bounded' } });
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
     const redemptions = await Promise.all([
       activity.redeemWebhookResult(started.readCapability),
-      activity.redeemWebhookResult(started.readCapability),
+      reconstructed.redeemWebhookResult(started.readCapability),
     ]);
-    expect(redemptions.filter(result => result.ok)).toHaveLength(1);
-    expect(redemptions.filter(result => !result.ok)).toEqual([{ ok: false, reason: 'consumed' }]);
+    expect(redemptions).toEqual([first, first]);
+    expect(await reconstructed.redeemWebhookResult('r'.repeat(43))).toEqual({ ok: false, reason: 'invalid-capability' });
     expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
+    expect(await reconstructed.continueWebhook(started.readCapability, 1)).toEqual({ ok: false, reason: 'consumed' });
+    expect(await reconstructed.startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it('rejects terminal reread when its original read authority has expired', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
+    const started = await activity.startWebhook(token);
+    if (!started.ok) throw Error('Expected start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    expect(await activity.redeemWebhookResult(started.readCapability)).toMatchObject({ ok: true, terminal: true });
+    const state = await ctx.storage.get<{ webhook: { expiresAt: number } }>('admission');
+    if (!state) throw Error('Expected admitted read authority');
+    await ctx.storage.put('admission', { ...state, webhook: { ...state.webhook, expiresAt: Date.now() - 1 } });
+    expect(await new OperatorActivity(ctx, activityEnv).redeemWebhookResult(started.readCapability))
+      .toEqual({ ok: false, reason: 'capability-expired' });
   }, true, false));
 
   it('REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {

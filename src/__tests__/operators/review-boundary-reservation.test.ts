@@ -40,6 +40,35 @@ async function withRegistry(test: (registry: OperatorRegistry, ctx: DurableObjec
 }
 
 describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry reservation', () => {
+  it('admits independent configured protected bases and never selects another base as fallback', () => withRegistry(async registry => {
+    const current = await registry.getManagementControls();
+    const main = current.boundaryActions![0];
+    const bindings = [main, ...(['master', 'develop'] as const).map((name, index) => ({
+      ...main, protectedRef: `refs/heads/${name}`, workflowDigest: String(index + 1).repeat(64),
+    }))];
+    expect((await registry.setManagementControls({ ...current, boundaryActions: bindings },
+      { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).ok).toBe(true);
+    const select = registry.getBoundaryAction as (repositoryId: number, protectedRef: string) =>
+      ReturnType<OperatorRegistry['getBoundaryAction']>;
+    for (const binding of bindings) {
+      expect(await select.call(registry, 138, binding.protectedRef))
+        .toMatchObject({ protectedRef: binding.protectedRef, workflowDigest: binding.workflowDigest });
+    }
+    expect(await select.call(registry, 138, 'refs/heads/other')).toBeNull();
+    expect(await select.call(registry, 139, 'refs/heads/main')).toBeNull();
+    await expect(registry.setManagementControls({ ...(await registry.getManagementControls()),
+      boundaryActions: [...bindings, { ...main }] },
+    { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).rejects.toThrow();
+  }));
+  it('does not reuse a prepared Activity when the authenticated PR base ref changes without a SHA change', () => withRegistry(async registry => {
+    const main = { ...first, protectedRef: 'refs/heads/main' };
+    const original = await registry.reserveBoundaryPreparation(main);
+    expect(original.ok).toBe(true);
+    expect(await registry.getBoundaryPreparation(first.repositoryId, first.pullRequest))
+      .toMatchObject({ protectedRef: 'refs/heads/main' });
+    expect(await registry.reserveBoundaryPreparation({ ...main, protectedRef: 'refs/heads/develop' }))
+      .toMatchObject({ ok: false });
+  }));
   it('concurrent repeats for one actor and context converge on one activity without returning handoff authority in public lookup', () => withRegistry(async registry => {
     const [a, b] = await Promise.all([registry.reserveBoundaryPreparation(first), registry.reserveBoundaryPreparation(first)]);
     expect(a.ok).toBe(true);

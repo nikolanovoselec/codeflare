@@ -16,6 +16,23 @@ describe('REQ-OPERATOR-053: approved target Action applicability, not release pr
     expect(await resolveBoundaryAction({ action, repository, workflow, branch, contents, event: 'pull_request_target' }))
       .toEqual({ selection: 'remote', installationId: 'review-install', controlsRevision: 4 });
   });
+  it('selects only an exact configured, protected PR base for main, master or develop', async () => {
+    for (const name of ['main', 'master', 'develop']) {
+      const binding = { ...action, protectedRef: `refs/heads/${name}` };
+      const protectedBranch = { ...branch, name };
+      expect(await resolveBoundaryAction({ action: binding, repository, workflow, branch: protectedBranch,
+        contents, event: 'pull_request_target' }))
+        .toEqual({ selection: 'remote', installationId: action.installationId, controlsRevision: 4 });
+      expect(await resolveBoundaryAction({ action: binding, repository, workflow,
+        branch: { ...protectedBranch, protected: false }, contents, event: 'pull_request_target' }))
+        .toEqual({ selection: 'unavailable' });
+      for (const other of ['main', 'master', 'develop'].filter(value => value !== name)) {
+        expect(await resolveBoundaryAction({ action: binding, repository, workflow,
+          branch: { ...branch, name: other }, contents, event: 'pull_request_target' }))
+          .toEqual({ selection: 'unavailable' });
+      }
+    }
+  });
   it('rejects a candidate-controlled pull_request job even with a matching protected workflow binding', async () => {
     expect(await resolveBoundaryAction({ action: { ...action, events: ['pull_request'] },
       repository, workflow, branch, contents, event: 'pull_request' })).toEqual({ selection: 'unavailable' });

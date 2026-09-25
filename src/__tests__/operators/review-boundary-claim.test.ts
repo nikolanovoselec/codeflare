@@ -17,7 +17,7 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
 const trust = vi.hoisted(() => ({ signed: true, audience: true, current: true, human: true,
-  selection: true, workflowRevision: 'd'.repeat(40) }));
+  selection: true, workflowRevision: 'd'.repeat(40), baseRef: 'main' }));
 vi.mock('../../operators/boundary-action-oidc', () => ({ verifyBoundaryActionOidc: async (_token: string, expected: {
   repositoryId: number; repository: string; workflowPath: string; protectedRef: string; workflowSha: string;
   runId: number; runAttempt: number; audience?: string;
@@ -54,6 +54,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   trust.signed = trust.audience = trust.current = trust.human = trust.selection = true;
   trust.workflowRevision = 'd'.repeat(40);
+  trust.baseRef = 'main';
   await db.prepare('DELETE FROM runtime_sessions').run();
   await db.prepare("UPDATE session_cutover SET state='complete' WHERE id=1").run();
   await db.prepare(`INSERT INTO runtime_sessions (owner_key,session_id,name,created_at,last_accessed_at,workspace,
@@ -69,7 +70,8 @@ async function scenario(run: (fixture: {
   packetCurrent: () => Promise<boolean>;
   expireBoundary: () => Promise<void>; activityId: string; startCapability: string; rehydrate: () => OperatorActivity;
   preparePublication: (change?: Record<string, unknown>) => Promise<unknown>;
-}) => Promise<void>, options: { roundGeneration?: number | null } = {}) {
+}) => Promise<void>, options: { roundGeneration?: number | null; baseRef?: 'main' | 'master' | 'develop' } = {}) {
+  trust.baseRef = options.baseRef ?? 'main';
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const registryName = `boundary-${crypto.randomUUID()}`;
@@ -80,10 +82,13 @@ async function scenario(run: (fixture: {
   await runInDurableObject(registryStub, async (_instance, registryCtx) => {
     const registry = new OperatorRegistry(registryCtx, protectedEnv);
     const policy = { capabilities: [], resourceProfileId: null };
+    const mainBinding = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
+      workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
+      workflowDigest: actionDigest, events: ['pull_request_target'] };
     expect((await registry.setManagementControls({ revision: 0, managers: { users: [], groups: [] },
-      ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [{ repositoryId: 138,
-        installationId: 'review-install', workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml',
-        protectedRef: 'refs/heads/main', workflowDigest: actionDigest, events: ['pull_request_target'] }],
+      ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: options.baseRef
+        ? ['main', 'master', 'develop'].map(name => ({ ...mainBinding, protectedRef: `refs/heads/${name}` }))
+        : [mainBinding],
     }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).ok).toBe(true);
     registryCtx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'review-operator', 'conductor',
       'internal', 1, 'review-operator', JSON.stringify({ id: 'review-operator', revision: 1,
@@ -105,6 +110,7 @@ async function scenario(run: (fixture: {
       deadline: Date.now() + 300_000, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'review-release', bundleDigest: 'e'.repeat(64), workflowId: 531, workflowDigest: actionDigest,
       session, operatorId: 'review-operator', revision: { head, base, mergeBase },
+      ...(options.baseRef ? { protectedRef: `refs/heads/${options.baseRef}` } : {}),
       ...(options.roundGeneration === null ? {} : { roundGeneration: options.roundGeneration ?? 1 }) });
     if (!reservation.ok) throw Error('Expected real Registry preparation');
     activityId = reservation.value.activityId;
@@ -127,7 +133,9 @@ async function scenario(run: (fixture: {
       inRegistry(owner => owner.claimBoundaryPreparation(input)),
     getBoundaryPreparation: (repositoryId: number, pullRequest: number) =>
       inRegistry(owner => owner.getBoundaryPreparation(repositoryId, pullRequest)),
-    getBoundaryAction: (repositoryId: number) => inRegistry(owner => owner.getBoundaryAction(repositoryId)),
+    getBoundaryAction: (repositoryId: number, protectedRef?: string) => inRegistry(owner =>
+      (owner.getBoundaryAction as (id: number, ref?: string) => ReturnType<OperatorRegistry['getBoundaryAction']>)
+        .call(owner, repositoryId, protectedRef)),
     getManagementControls: () => inRegistry(owner => owner.getManagementControls()),
     setManagementControls: (...args: Parameters<OperatorRegistry['setManagementControls']>) =>
       inRegistry(owner => owner.setManagementControls(...args)),
@@ -170,7 +178,7 @@ async function scenario(run: (fixture: {
         if (path === '/repos/owner/repo') return Response.json({ id: 138, full_name: 'owner/repo', default_branch: 'main' });
         if (path.endsWith('/pulls/34')) return Response.json({ number: 34, state: 'open',
           head: { sha: revision, ref: 'feature', repo: { id: 138 } },
-          base: { sha: base, ref: 'main', repo: { id: 138 } } });
+          base: { sha: base, ref: trust.baseRef, repo: { id: 138 } } });
         if (path.endsWith('/pulls')) return Response.json([{ number: 34 }]);
         if (path.endsWith(`/commits/${head}/pulls`)) return Response.json([{ number: 34, state: 'open',
           head: { sha: revision } }]);
@@ -182,7 +190,7 @@ async function scenario(run: (fixture: {
         }
         if (path.endsWith('/actions/workflows/531')) return Response.json({ id: 531,
           path: '.github/workflows/boundary-reviews.yml', state: 'active' });
-        if (path.endsWith('/branches/main')) return Response.json({ name: 'main', protected: trust.selection,
+        if (path.endsWith(`/branches/${trust.baseRef}`)) return Response.json({ name: trust.baseRef, protected: trust.selection,
           commit: { sha: trust.workflowRevision } });
         if (path.endsWith('/contents/.github/workflows/boundary-reviews.yml')) {
           return Response.json({ encoding: 'base64', content: btoa(workflowSource) });
@@ -418,7 +426,26 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       }), { ENTERPRISE_MODE: 'active', OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db } as never);
     expect(response.status).toBe(200);
     expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'next-review')).toBe(true);
+    const retried = await webhookRoutes.fetch(new Request(
+      'https://enterprise.example.test/operator-webhook/v1/activities/review-activity/result', {
+        method: 'POST', headers: { authorization: `Bearer ${'r'.repeat(43)}` },
+      }), { ENTERPRISE_MODE: 'active', OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db } as never);
+    expect(retried.status).toBe(200);
+    expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'third-review')).toBe(false);
   });
+  it.each(['main', 'master', 'develop'] as const)(
+    'claims and journals only the configured protected %s PR base', async baseRef => scenario(async f => {
+      expect(await f.claim()).toMatchObject({ activityId: f.activityId, repositoryId: 138, pullRequest: 34 });
+      vi.spyOn(f.activity, 'getBoundaryPublicationState').mockResolvedValue({
+        binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session },
+        generation: 2, status: 'completed', collected: true,
+      });
+      expect(await f.publish()).toMatchObject({ status: 'new' });
+      trust.baseRef = baseRef === 'main' ? 'master' : 'main';
+      expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) }))
+        .not.toMatchObject({ status: 'new' });
+    }, { baseRef }));
+
   it('claims once for the exact current run, then only the Action webhook start admits the bound activity', () => scenario(async f => {
     expect(await f.activity.start(f.startCapability)).toMatchObject({ ok: false });
     expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: false });
@@ -442,6 +469,14 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       expect(await f.claim(change)).not.toMatchObject({ startCapability: f.startCapability });
     }
     expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
+    expect(await f.claim()).toMatchObject({ startCapability: f.startCapability });
+  }));
+
+  it('REQ-OPERATOR-053/054: moving a PR to another protected base cannot reuse its original claim', () => scenario(async f => {
+    trust.baseRef = 'develop';
+    expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
+    expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
+    trust.baseRef = 'main';
     expect(await f.claim()).toMatchObject({ startCapability: f.startCapability });
   }));
 
@@ -528,6 +563,18 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64) }))
       .toMatchObject({ status: 'published', externalId: 71 });
     expect(await f.publish({ operation: 'read' })).toMatchObject({ status: 'stale' });
+  }));
+
+  it('REQ-OPERATOR-055: cross-base replay cannot begin a publication after a valid claim', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    vi.spyOn(f.activity, 'getBoundaryPublicationState').mockResolvedValue({
+      binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session },
+      generation: 2, status: 'completed', collected: true,
+    });
+    trust.baseRef = 'master';
+    expect(await f.publish()).not.toMatchObject({ status: 'new' });
+    trust.baseRef = 'main';
+    expect(await f.publish()).toMatchObject({ status: 'new' });
   }));
 
   it('REQ-OPERATOR-055: changed protected controls invalidate a previously claimed publication', () => scenario(async f => {

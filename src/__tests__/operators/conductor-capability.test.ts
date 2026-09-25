@@ -86,6 +86,37 @@ describe('generic installed Conductor capability', () => {
     expect(prepared).toEqual(['round-1:code-reviewer']);
   });
 
+  it('reads only bounded opaque parent-authenticated history under current drive authority', async () => {
+    const owner = operations();
+    let valid = true;
+    owner.current = async () => { if (!valid) throw Error('revoked'); };
+    const evidence = { complete: true, value: [{ id: 501, body: 'opaque comment', user: { id: 777 } }] };
+    const capability = new OperatorConductorCapability({ ...owner, history: { read: async () => evidence } });
+    expect(await (await post(capability, '/v1/history/read', { schemaVersion: 1,
+      operation: 'comments-page', page: 1 })).json()).toEqual(evidence);
+    for (const invalid of [{ schemaVersion: 1, operation: 'comments-page', page: 0 },
+      { schemaVersion: 1, operation: 'artifact', id: -1 },
+      { schemaVersion: 1, operation: 'arbitrary-url', url: 'https://attacker.example' },
+      { schemaVersion: 1, operation: 'comments-page', page: 1, repositoryId: 139 }]) {
+      expect((await post(capability, '/v1/history/read', invalid)).status).toBe(403);
+    }
+    valid = false;
+    expect((await post(capability, '/v1/history/read', { schemaVersion: 1,
+      operation: 'comments-page', page: 1 })).status).toBe(403);
+  });
+
+  it('never releases history bytes if the drive becomes stale during parent I/O', async () => {
+    let current = true;
+    const owner = operations();
+    owner.current = async () => { if (!current) throw Error('revoked'); };
+    const capability = new OperatorConductorCapability({ ...owner, history: { read: async () => {
+      current = false;
+      return { complete: true, value: [{ body: 'private history' }] };
+    } } });
+    expect((await post(capability, '/v1/history/read', { schemaVersion: 1,
+      operation: 'comments-page', page: 1 })).status).toBe(403);
+  });
+
   it('permits only owned-session teardown after authority revocation', async () => {
     const owner = operations();
     owner.current = async () => { throw new Error('revoked'); };
