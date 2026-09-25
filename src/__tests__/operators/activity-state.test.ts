@@ -45,6 +45,24 @@ async function withActivity(
   });
 }
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
+function ownedSessionFixture() {
+  return {
+    schemaVersion: 1 as const, requestId: 'request-1', requestDigest: 'd'.repeat(64), activityId: 'activity',
+    ownerBucket: 'owner-bucket', sessionId: 'session-1', status: 'reserved' as const,
+    profile: { schemaVersion: 1 as const, activityId: 'activity', operatorId: 'operator', sessionId: 'session-1',
+      ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64), deadline: Date.now() + 60_000,
+      outputPrefix: 'Operators/',
+      human: { subject: 'human', email: 'human@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
+      policy: { schemaVersion: 1 as const, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: ['operator-fixtures/'], writePrefixes: ['operator-fixtures/'] },
+        inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
+          defaultReasoningLevel: 'off', inheritUserDefaults: false } },
+      jwtPolicy: { mode: 'off' as const, destinations: [] },
+      piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
+        systemPrompt: 'fixed', tools: ['write'] },
+    },
+  };
+}
 
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   it('exposes the production activity namespace and reconstructs a safe empty projection', async () => {
@@ -88,26 +106,48 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   }));
 
   it('durably owns one immutable session request while allowing status reconciliation', () => withActivity(async ({ activity }) => {
-    const session = {
-      schemaVersion: 1 as const, requestId: 'request-1', requestDigest: 'd'.repeat(64), activityId: 'activity',
-      ownerBucket: 'owner-bucket', sessionId: 'session-1', status: 'reserved' as const,
-      profile: { schemaVersion: 1 as const, activityId: 'activity', operatorId: 'operator', sessionId: 'session-1',
-        ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64), deadline: Date.now() + 60_000,
-        outputPrefix: 'Operators/',
-        human: { subject: 'human', email: 'human@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
-        policy: { schemaVersion: 1 as const, networkHosts: [], github: { repositories: [], methods: [] },
-          storage: { readPrefixes: ['operator-fixtures/'], writePrefixes: ['operator-fixtures/'] },
-          inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
-            defaultReasoningLevel: 'off', inheritUserDefaults: false } },
-        jwtPolicy: { mode: 'off' as const, destinations: [] },
-        piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off', systemPrompt: 'fixed', tools: ['write'] },
-      },
-    };
+    const session = ownedSessionFixture();
     expect(await activity.saveOwnedSession(session)).toEqual({ ok: true });
     expect(await activity.getOwnedSession()).toEqual(session);
     expect(await activity.saveOwnedSession({ ...session, status: 'configuring' })).toEqual({ ok: true });
     expect(await activity.saveOwnedSession({ ...session, requestId: 'different' })).toEqual({ ok: false, reason: 'conflict' });
     expect(await activity.getOwnedSession()).toMatchObject({ requestId: 'request-1', status: 'configuring' });
+  }));
+
+  it.each(['reserved', 'configuring', 'configured', 'starting', 'ready'] as const)(
+    'permits an owned-session stop from %s without accepting new work', status => withActivity(async ({ activity }) => {
+      const session = ownedSessionFixture();
+      expect(await activity.saveOwnedSession(session)).toMatchObject({ ok: true });
+      const before = ['configuring', 'configured', 'starting', 'ready'] as const;
+      for (const step of before) {
+        if (status === 'reserved' || before.indexOf(step) > before.indexOf(status as typeof before[number])) break;
+        expect(await activity.saveOwnedSession({ ...session, status: step })).toMatchObject({ ok: true });
+      }
+      expect(await activity.saveOwnedSession({ ...session, status: 'stopping' })).toMatchObject({ ok: true });
+      expect(await activity.saveOwnedSession({ ...session, status: 'stopped' })).toMatchObject({ ok: true });
+      expect((await activity.getOwnedSession())?.status).toBe('stopped');
+      expect(await activity.saveOwnedSession({ ...session, status: 'starting' })).toMatchObject({ ok: false });
+    }),
+  );
+
+  it('accepts cleanup-only unknown → stopping → stopped for the same owned session', () => withActivity(async ({ activity }) => {
+    const session = ownedSessionFixture();
+    expect(await activity.saveOwnedSession(session)).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'configuring' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'unknown' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopping' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopped' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'starting' })).toMatchObject({ ok: false });
+  }));
+
+  it('accepts cleanup-only unknown → stopping → stopped for the same owned session', () => withActivity(async ({ activity }) => {
+    const session = ownedSessionFixture();
+    expect(await activity.saveOwnedSession(session)).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'configuring' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'unknown' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopping' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopped' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'starting' })).toMatchObject({ ok: false });
   }));
 
   it('rejects non-JSON, incompatible and oversized checkpoints without losing the current drive', () => withActivity(async ({ activity }) => {

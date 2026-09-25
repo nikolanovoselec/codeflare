@@ -204,7 +204,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     await human();
     verified = await current();
     if (!verified || !sameClaim(verified, input, action.workflowId)) return { status: 'stale' };
-    const won = await registry.claimBoundaryPreparation(verified);
+    const won = await registry.claimBoundaryPreparation({ ...verified, workflowSha: identity.workflowSha });
     if (!won.ok) return { status: 'stale' };
     const live = await sessionRepo.getSession(prepared.session.bucket, prepared.session.sessionId);
     if (!live || live.lifecycleState !== 'running' || live.lifecycleGeneration !== prepared.session.generation
@@ -213,6 +213,46 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     return { ...verified, activityId: prepared.activityId, startCapability: won.value.startCapability,
       generation: prepared.session.generation, contextDigest: prepared.contextDigest, origin };
   } catch { return { status: 'unknown' }; }
+}
+
+/** Parent-only fresh PR/Action proof for a claimed packet effect. The signed Action claim is
+ * already retained by Registry; this check grants no new Action or child authority. */
+export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: string,
+  repository: string): Promise<boolean> {
+  if (!isEnterpriseMode(env) || !env.OPERATOR_REGISTRY || !REPOSITORY.test(repository)) return false;
+  try {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const guard = await registry.getBoundaryStartGuard(activityId);
+    if (!guard?.claimed) return false;
+    const prepared = await registry.getBoundaryPreparation(guard.repositoryId, guard.pullRequest);
+    const action = await registry.getBoundaryAction(guard.repositoryId);
+    if (!prepared || prepared.phase !== 'claimed' || prepared.activityId !== activityId
+      || prepared.contextDigest !== guard.contextDigest || !guard.workflowSha || !SHA.test(guard.workflowSha)
+      || prepared.claimedWorkflowSha !== guard.workflowSha || !action
+      || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
+      || action.controlsRevision !== prepared.controlsRevision) return false;
+    const token = await getValidGithubToken(env, guard.session.bucket);
+    if (!token) return false;
+    const root = `/repos/${repository}`;
+    const branch = await fetch(`https://api.github.com${root}/branches/${encodeURIComponent(
+      action.protectedRef.slice('refs/heads/'.length))}`, { redirect: 'error', signal: AbortSignal.timeout(5_000),
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28' } });
+    if (!branch.ok) return false;
+    const branchData = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      await readBoundedResponse(branch, 128 * 1024, 'Current protected branch'))) as { commit?: { sha?: string } };
+    if (!branchData.commit?.sha || branchData.commit.sha !== guard.workflowSha) return false;
+    const identity: BoundaryActionIdentity = { repositoryId: guard.repositoryId, repository,
+      workflowRef: `${repository}/${action.workflowPath}@${action.protectedRef}`,
+      workflowSha: guard.workflowSha, eventName: 'pull_request_target',
+      runId: guard.runId, runAttempt: guard.runAttempt };
+    const expected = { repositoryId: guard.repositoryId, pullRequest: guard.pullRequest,
+      head: guard.head, base: guard.base, mergeBase: guard.mergeBase,
+      runId: guard.runId, runAttempt: guard.runAttempt };
+    const current = await verifyCurrentBoundaryAction(prepared, action, identity, expected, token);
+    return !!current && sameClaim(current, expected, action.workflowId)
+      && (await registry.getBoundaryStartGuard(activityId))?.claimed === true;
+  } catch { return false; }
 }
 
 export type BoundaryPublicationRequest = BoundaryPublicationInput & {

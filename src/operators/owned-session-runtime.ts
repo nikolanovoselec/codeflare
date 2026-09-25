@@ -95,7 +95,8 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
     try {
       const container = this.container(sessionId);
       const state = await container.getState();
-      if (state.status === 'stopped' || state.status === 'stopping') return 'stopped';
+      // SDK state is an observation, not proof that this generation was destroyed.
+      if (state.status === 'stopped' || state.status === 'stopping') return 'unknown';
       if (state.status !== 'running' && state.status !== 'healthy') return state.status === 'starting' ? 'starting' : 'unknown';
       const response = await container.fetch(new Request('http://container/health'));
       if (!response.ok) return 'starting';

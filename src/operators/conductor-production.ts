@@ -8,7 +8,16 @@ import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
 import { resolveOperatorInference } from './inference-selection';
 import { bootstrapOperatorSession } from './session-bootstrap';
-import { projectOperatorAttachments, resolveOperatorAttachment } from './attachments';
+import { projectOperatorAttachments, resolveOperatorAttachment,
+  persistApprovedPacketAttachment, readApprovedPacketAttachment, parseOperatorAttachmentProjection } from './attachments';
+import { fetchApprovedGitPack } from './approved-git-pack';
+import { parseOperatorPiInitialization } from './session-initialization';
+import { verifyCurrentClaimedBoundaryPacket } from './review-boundary-claim';
+import { getValidGithubToken } from '../lib/github-token';
+import { getContainerId } from '../lib/container-helpers';
+import { readBoundedResponse } from '../lib/bounded-stream';
+import { createR2Client } from '../lib/r2-client';
+import { isBucketMigrating, isR2SseDisabledForBucket } from '../lib/r2-regime-state';
 import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from './owned-session-runtime';
 import { OwnedOperatorSessionService } from './owned-session';
 import { OperatorConductorCapability } from './conductor-capability';
@@ -25,10 +34,17 @@ async function digest(value: string): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let offset = 0; offset < bytes.byteLength; offset += 32 * 1024) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32 * 1024));
+  }
+  return btoa(binary);
+}
 
 /** Profile-neutral managed Conductor composition over existing enterprise owners. */
 export async function createConductorProductionCapability(input: { env: Env; plan: OperatorRuntimePlan;
-  activity: OperatorActivityStub; generation: number }): Promise<{ capability: Fetcher }> {
+  activity: OperatorActivityStub; generation: number; driveDeadline: number }): Promise<{ capability: Fetcher }> {
   const { env, plan, activity } = input;
   if (!management(plan.receipt) || plan.receipt.selection.operator.profile !== 'conductor') {
     throw new Error('Conductor authority denied');
@@ -86,24 +102,150 @@ export async function createConductorProductionCapability(input: { env: Env; pla
       model: effectiveInference.routeId, thinkingLevel: effectiveInference.reasoningLevel ?? 'off',
       systemPrompt: 'Execute only the installed Conductor package procedure over parent-restored inputs and approved resources.',
       tools: ['read', 'write', 'subagent'] } });
-  const attachments = projectOperatorAttachments(invocation);
+  const admittedAttachments = projectOperatorAttachments(invocation);
   const packageResources = await activity.getPackageResources();
-  const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket, sessionId,
-    userEmail: admitted.authority.human.email.toLowerCase(), userGroups: groups, routes, bootstrap,
-    packageResources, attachments,
-    resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as OperatorContainerStub });
-  const service = new OwnedOperatorSessionService(operatorActivitySessionStore(activity), runtime);
-  const requestDigest = await digest(plan.invocationJson);
-  const ensure = () => service.ensure({ requestId: 'conductor-session-v1', requestDigest,
-    activityId: plan.activityId, ownerBucket, profile, authority: admitted.authority });
-  const stop = () => service.stop({ activityId: plan.activityId, ownerBucket, drain: false });
+  const currentAttachments = async () => {
+    const prepared = await activity.readApprovedPacketAttachments();
+    if (prepared.files.length && prepared.activityId !== plan.activityId) throw new Error('Packet attachment owner changed');
+    return parseOperatorAttachmentProjection({ schemaVersion: 1, activityId: plan.activityId,
+      files: [...admittedAttachments.files, ...prepared.files] });
+  };
+  const service = (attachments: typeof admittedAttachments) => new OwnedOperatorSessionService(
+    operatorActivitySessionStore(activity), new ContainerOwnedSessionRuntime({ activityId: plan.activityId,
+      ownerBucket, sessionId, userEmail: admitted.authority.human.email.toLowerCase(), userGroups: groups,
+      routes, bootstrap, packageResources, attachments,
+      resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as OperatorContainerStub }));
+  const ensure = async (request: { initialization?: unknown }) => {
+    const attachments = await currentAttachments();
+    const prepared = await activity.readApprovedPacketAttachments();
+    if (prepared.files.length && request.initialization === undefined) throw new Error('Approved input initialization required');
+    const initialization = request.initialization === undefined ? undefined
+      : parseOperatorPiInitialization(request.initialization, {
+        profileId: installationPolicy.resourceProfileId!, attachments, resources: packageResources,
+      });
+    if (prepared.files.length) {
+      const detail = await activity.getBrowserDetail();
+      const checkpoint = detail?.checkpoint as { initialization?: unknown } | null;
+      if (!checkpoint || JSON.stringify(initialization) !== JSON.stringify(checkpoint.initialization)) {
+        throw new Error('Approved input initialization changed');
+      }
+    }
+    const sessionProfile = initialization ? parseOperatorContainerProfile({ ...profile,
+      piProfile: { ...profile.piProfile, tools: ['read', 'write'], initialization } }) : profile;
+    const requestDigest = await digest(JSON.stringify({ invocationJson: plan.invocationJson,
+      attachments, ...(initialization ? { initialization } : {}) }));
+    return service(attachments).ensure({ requestId: 'conductor-session-v1', requestDigest,
+      activityId: plan.activityId, ownerBucket, profile: sessionProfile, authority: admitted.authority });
+  };
+  const stop = () => service(admittedAttachments).stop({ activityId: plan.activityId, ownerBucket, drain: false });
   const container = getContainer(env.CONTAINER, `${ownerBucket}-${sessionId}`) as unknown as OperatorContainerStub;
   const reader = await createOperatorSyncReader(env, ownerBucket, bootstrap);
   const host = (path: string, init: RequestInit) => container.fetch(new Request(`http://container${path}`, init));
+  const preparePacket = async ({ preparationId, lane }: { preparationId: string; lane: string }, signal: AbortSignal) => {
+    if (!Number.isSafeInteger(input.driveDeadline) || input.driveDeadline <= Date.now()
+      || !env.OPERATOR_REGISTRY) throw new Error('Packet drive unavailable');
+    const driveSignal = AbortSignal.any([signal,
+      AbortSignal.timeout(Math.max(1, input.driveDeadline - Date.now()))]);
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const guard = await registry.getBoundaryStartGuard(plan.activityId);
+    const reference = invocation.source.reference;
+    const names = reference.split('/');
+    const boundaryInput = invocation.input && typeof invocation.input === 'object' && !Array.isArray(invocation.input)
+      ? invocation.input as Record<string, unknown> : null;
+    const acknowledgedHead = boundaryInput?.acknowledgedHead;
+    if (!guard?.claimed || guard.session.bucket !== ownerBucket || !boundaryInput
+      || invocation.source.kind !== 'session' || names.length !== 2
+      || names.some(name => !/^[A-Za-z0-9_.-]+$/.test(name) || name === '.' || name === '..')
+      || invocation.revision.reference !== guard.head || invocation.revision.digest !== guard.contextDigest
+      || acknowledgedHead !== null && (typeof acknowledgedHead !== 'string'
+        || !/^[a-f0-9]{40}$/.test(acknowledgedHead) || acknowledgedHead === guard.head)) {
+      throw new Error('Packet boundary unavailable');
+    }
+    const current = async (github = false) => {
+      await authorize();
+      const next = await registry.getBoundaryStartGuard(plan.activityId);
+      if (!next?.claimed || next.contextDigest !== guard.contextDigest || next.runId !== guard.runId
+        || next.runAttempt !== guard.runAttempt || next.generation !== guard.generation
+        || next.head !== guard.head || next.workflowSha !== guard.workflowSha
+        || JSON.stringify(next.session) !== JSON.stringify(guard.session)
+        || driveSignal.aborted || Date.now() >= input.driveDeadline
+        || github && !await verifyCurrentClaimedBoundaryPacket(env, plan.activityId, reference)) {
+        throw new Error('Packet boundary changed');
+      }
+    };
+    await current(true);
+    const accepted = await currentAttachments();
+    const locator = `packet-${await digest(`${plan.activityId}:${preparationId}:${lane}`)}`;
+    const attachment = accepted.files.find(item => item.name === `packet-${lane}.json`
+      && item.locator === locator);
+    const client = createR2Client({ R2_ACCESS_KEY_ID: bootstrap.r2AccessKeyId,
+      R2_SECRET_ACCESS_KEY: bootstrap.r2SecretAccessKey });
+    if (attachment) {
+      const bytes = await readApprovedPacketAttachment({ projection: accepted, file: attachment,
+        ownerBucket, endpoint: bootstrap.r2Endpoint, fetcher: request => client.fetch(request),
+        authorize: () => current(), isBucketMigrating: () => isBucketMigrating(env, ownerBucket),
+        isSseDisabledForBucket: () => isR2SseDisabledForBucket(env, ownerBucket),
+        sseKey: env.ENCRYPTION_KEY, signal: driveSignal });
+      await current(true);
+      return { preparationId, attachment, bytes: base64(bytes) };
+    }
+    if (accepted.files.some(item => item.name === `packet-${lane}.json` || item.locator === locator)
+      || await activity.getOwnedSession()) throw new Error('Packet preparation after session start denied');
+    const token = await getValidGithubToken(env, ownerBucket);
+    if (!token) throw new Error('GitHub transport unavailable');
+    const deadline = Math.min(plan.deadline, input.driveDeadline, Date.now() + 5 * 60_000);
+    const maxPackBytes = 32 * 1024 * 1024, maxOutputBytes = 8 * 1024 * 1024;
+    const pack = await fetchApprovedGitPack({ owner: names[0], repository: names[1], head: guard.head,
+      acknowledgedHead: acknowledgedHead as string | null, deadline, maxPackBytes, signal: driveSignal,
+      send: request => { const headers = new Headers(request.headers);
+        headers.set('Authorization', `Bearer ${token}`);
+        return fetch(new Request(request, { headers })); } });
+    await current(true);
+    const metadata = { head: guard.head, acknowledgedHead, lane, deadline, maxPackBytes,
+      maxCheckoutBytes: 128 * 1024 * 1024, maxOutputBytes };
+    const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(metadata))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const source = getContainer(env.CONTAINER,
+      getContainerId(guard.session.bucket, guard.session.sessionId)) as unknown as OperatorContainerStub;
+    const response = await source.fetch(new Request('http://container/internal/operator/approved-packet', {
+      method: 'POST', signal: driveSignal, headers: { 'content-type': 'application/x-git-packed-objects',
+        'x-codeflare-packet-input': encoded }, body: Uint8Array.from(pack),
+    }));
+    if (response.status !== 200 || response.headers.get('content-type') !== 'application/octet-stream') {
+      throw new Error('Approved Host packet unavailable');
+    }
+    const bytes = await readBoundedResponse(response, maxOutputBytes, 'Approved Host packet', driveSignal);
+    if (!bytes.byteLength || Date.now() >= deadline) throw new Error('Approved Host packet unavailable');
+    await current(true);
+    const file = { name: `packet-${lane}.json`, mediaType: 'application/json', size: bytes.byteLength,
+      sha256: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes))))
+        .map(byte => byte.toString(16).padStart(2, '0')).join(''),
+      locator: `packet-${await digest(`${plan.activityId}:${preparationId}:${lane}`)}` };
+    const previous = await currentAttachments();
+    const prior = previous.files.find(item => item.name === file.name || item.locator === file.locator);
+    if (prior && (prior.name !== file.name || prior.mediaType !== file.mediaType
+      || prior.locator !== file.locator || prior.size !== file.size || prior.sha256 !== file.sha256)) {
+      throw new Error('Approved packet conflict');
+    }
+    const projection = parseOperatorAttachmentProjection({ schemaVersion: 1, activityId: plan.activityId,
+      files: prior ? previous.files : [...previous.files, file] });
+    await persistApprovedPacketAttachment({ projection, file, bytes, ownerBucket, endpoint: bootstrap.r2Endpoint,
+      fetcher: request => client.fetch(request), authorize: () => current(),
+      isBucketMigrating: () => isBucketMigrating(env, ownerBucket),
+      isSseDisabledForBucket: () => isR2SseDisabledForBucket(env, ownerBucket),
+      sseKey: env.ENCRYPTION_KEY, signal: driveSignal });
+    await current(true);
+    const saved = await activity.saveApprovedPacketAttachment({ preparationId, driveGeneration: input.generation,
+      lane, ...file, bytes });
+    if (!saved.ok) throw new Error('Approved packet identity changed');
+    await current();
+    return { preparationId: saved.preparationId, attachment: saved.attachment, bytes: base64(bytes) };
+  };
   const capability = new OperatorConductorCapability({ current: async () => { await authorize(); },
-    session: { ensure: async () => ({ status: (await ensure()).status }),
+    packets: { prepare: preparePacket },
+    session: { ensure: async request => ({ status: (await ensure(request)).status }),
       stop: async () => ({ status: (await stop()).status }) },
-    attachments: { restore: async request => resolveOperatorAttachment(attachments, request) },
+    attachments: { restore: async request => resolveOperatorAttachment(await currentAttachments(), request) },
     pi: {
       ensure: async () => {
         const response = await host('/internal/operator/pi/ensure', { method: 'POST',
@@ -112,8 +254,14 @@ export async function createConductorProductionCapability(input: { env: Env; pla
         return await response.json() as { ready: true; conversationId: string };
       },
       task: async task => {
+        // The parent capability envelope has schemaVersion; the authenticated
+        // Host Pi task endpoint accepts only its narrower task fields.
+        const hostTask = task.mode === 'tool'
+          ? { taskId: task.taskId, digest: task.digest, mode: task.mode,
+            toolName: task.toolName, arguments: task.arguments }
+          : { taskId: task.taskId, digest: task.digest, mode: task.mode, text: task.text };
         const response = await host('/internal/operator/pi/tasks', { method: 'POST',
-          headers: { 'content-type': 'application/json' }, body: JSON.stringify(task) });
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify(hostTask) });
         if (!response.ok) throw new Error('Pi task unavailable');
         return await response.json() as { taskId: string; status: string };
       },

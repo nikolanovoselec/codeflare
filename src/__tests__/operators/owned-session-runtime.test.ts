@@ -122,6 +122,38 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
     await expect(runtime.start(profile.sessionId)).rejects.toThrow('Operator session startup failed:init-not-ready');
   });
 
+  it('requires confirmed destruction rather than interpreting SDK stopping or stopped as termination', async () => {
+    for (const status of ['stopping', 'stopped']) {
+      const stub: OperatorContainerStub = {
+        setBucketName: vi.fn(), configureOperatorContext: vi.fn(), startAndWaitForPorts: vi.fn(),
+        getState: vi.fn(async () => ({ status })), fetch: vi.fn(),
+        stopOperatorSession: vi.fn(async () => 'unknown' as const),
+      };
+      const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
+        ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups,
+        routes, bootstrap, resolve: () => stub });
+      expect(await runtime.readiness(profile.sessionId)).toBe('unknown');
+      expect(await runtime.stop(profile.sessionId, false)).toBe('unknown');
+      expect(stub.stopOperatorSession).toHaveBeenCalledWith(profile.activityId, profile.sessionId);
+    }
+  });
+
+  it('requires confirmed destruction rather than interpreting SDK stopping or stopped as termination', async () => {
+    for (const status of ['stopping', 'stopped']) {
+      const stub: OperatorContainerStub = {
+        setBucketName: vi.fn(), configureOperatorContext: vi.fn(), startAndWaitForPorts: vi.fn(),
+        getState: vi.fn(async () => ({ status })), fetch: vi.fn(),
+        stopOperatorSession: vi.fn(async () => 'unknown' as const),
+      };
+      const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
+        ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups,
+        routes, bootstrap, resolve: () => stub });
+      expect(await runtime.readiness(profile.sessionId)).toBe('unknown');
+      expect(await runtime.stop(profile.sessionId, false)).toBe('unknown');
+      expect(stub.stopOperatorSession).toHaveBeenCalledWith(profile.activityId, profile.sessionId);
+    }
+  });
+
   it('fails closed for mismatched ownership and maps uncertain observations without starting replacement compute', async () => {
     const stub = { getState: vi.fn(async () => { throw new Error('uncertain'); }) };
     const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,

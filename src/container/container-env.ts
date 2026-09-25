@@ -361,7 +361,13 @@ export function buildEnvVars(
       CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1,
         activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
         root: `/home/user/.codeflare/operators/${operatorProfile.activityId}`,
-        profile: operatorProfile.piProfile }),
+        profile: operatorProfile.piProfile.initialization
+          ? { provider: operatorProfile.piProfile.provider, model: operatorProfile.piProfile.model,
+            thinkingLevel: operatorProfile.piProfile.thinkingLevel,
+            systemPrompt: operatorProfile.piProfile.systemPrompt, tools: operatorProfile.piProfile.tools }
+          : operatorProfile.piProfile,
+        ...(operatorProfile.piProfile.initialization ? { mode: 'isolated',
+          initialization: operatorProfile.piProfile.initialization, deadline: operatorProfile.deadline } : {}) }),
       CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1,
         activityId: operatorProfile.activityId, sessionId: operatorProfile.sessionId,
         policyDigest: operatorProfile.policyDigest,

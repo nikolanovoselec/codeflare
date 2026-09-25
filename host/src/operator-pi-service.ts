@@ -11,6 +11,7 @@ import { OperatorPiConversation, type OperatorPiMetadata, type OperatorPiStore }
 import { OperatorPiHttpController } from './operator-pi-http.js';
 import { createProvisionedOperatorPiFactory, type OperatorPiSdkProfile } from './operator-pi-sdk.js';
 import type { OperatorPiReviewConfig } from './operator-pi-review.js';
+import { parseIsolatedPiInitialization, type IsolatedPiInitialization } from './operator-pi-isolated.js';
 
 const MAX_METADATA = 256 * 1024;
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -85,8 +86,10 @@ interface SerializedConfig {
   sessionId: string;
   root: string;
   profile: OperatorPiSdkProfile;
-  mode?: 'review';
+  mode?: 'review' | 'isolated';
   review?: OperatorPiReviewConfig;
+  initialization?: IsolatedPiInitialization;
+  deadline?: number;
 }
 
 function parseReviewConfig(value: unknown): OperatorPiReviewConfig {
@@ -111,7 +114,8 @@ function parseConfig(serialized: string, allowedRoot: string): SerializedConfig 
   const keys = Object.keys(record);
   const standard = keys.length === 5 && record.mode === undefined && record.review === undefined;
   const reviewMode = keys.length === 7 && record.mode === 'review';
-  if ((!standard && !reviewMode) || record.schemaVersion !== 1
+  const isolatedMode = keys.length === 8 && record.mode === 'isolated';
+  if ((!standard && !reviewMode && !isolatedMode) || record.schemaVersion !== 1
     || typeof record.activityId !== 'string' || !ID.test(record.activityId)
     || typeof record.sessionId !== 'string' || !ID.test(record.sessionId)
     || typeof record.root !== 'string' || !path.isAbsolute(record.root)
@@ -125,10 +129,16 @@ function parseConfig(serialized: string, allowedRoot: string): SerializedConfig 
     || typeof p.systemPrompt !== 'string' || !Array.isArray(p.tools) || p.tools.some(tool => typeof tool !== 'string')) {
     throw new Error('Invalid operator Pi configuration');
   }
+  if (isolatedMode && (Object.keys(p).length !== 5 || p.tools.join(',') !== 'read,write'
+    || !Number.isSafeInteger(record.deadline) || (record.deadline as number) <= Date.now())) {
+    throw new Error('Invalid isolated Pi configuration');
+  }
   return { schemaVersion: 1, activityId: record.activityId, sessionId: record.sessionId, root,
     profile: { provider: p.provider, model: p.model, thinkingLevel: p.thinkingLevel,
       systemPrompt: p.systemPrompt, tools: p.tools as string[] },
-    ...(reviewMode ? { mode: 'review' as const, review: parseReviewConfig(record.review) } : {}) };
+    ...(reviewMode ? { mode: 'review' as const, review: parseReviewConfig(record.review) } : {}),
+    ...(isolatedMode ? { mode: 'isolated' as const,
+      initialization: parseIsolatedPiInitialization(record.initialization), deadline: record.deadline as number } : {}) };
 }
 
 export function createOperatorPiService(options: {
@@ -136,6 +146,7 @@ export function createOperatorPiService(options: {
   allowedRoot: string;
   importSdk?: () => Promise<Record<string, unknown>>;
   importPiAi?: () => Promise<Record<string, unknown>>;
+  isolatedOutputRoot?: string;
 }): OperatorPiHttpController | undefined {
   if (!options.serializedConfig) return undefined;
   const config = parseConfig(options.serializedConfig, options.allowedRoot);
@@ -147,6 +158,9 @@ export function createOperatorPiService(options: {
       cwd: path.join(config.root, 'work'), agentDir: path.join(config.root, 'agent'),
       sessionDir: path.join(config.root, 'sessions'), profile: config.profile,
       ...(config.review ? { review: config.review } : {}),
+      ...(config.initialization && config.deadline
+        ? { isolated: { initialization: config.initialization, deadline: config.deadline,
+          ...(options.isolatedOutputRoot ? { outputRoot: options.isolatedOutputRoot } : {}) } } : {}),
       ...(options.importSdk ? { importSdk: options.importSdk } : {}),
       ...(options.importPiAi ? { importPiAi: options.importPiAi } : {}),
     }),

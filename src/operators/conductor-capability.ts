@@ -10,15 +10,21 @@ const HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store
 export interface ConductorCapabilityOperations {
   current(): Promise<void>;
   session: {
-    ensure(): Promise<{ status: string }>;
+    ensure(input: { initialization?: unknown }): Promise<{ status: string }>;
     stop(): Promise<{ status: string }>;
   };
   attachments: {
     restore(input: { locator: string; sha256: string; size: number }): Promise<{ status: 'restored'; path: string }>;
   };
+  packets?: {
+    prepare(input: { preparationId: string; lane: string }, signal: AbortSignal): Promise<{ preparationId: string;
+      bytes: string; attachment: { name: string; mediaType: string; locator: string; size: number; sha256: string } }>;
+  };
   pi: {
     ensure(): Promise<{ ready: true; conversationId: string }>;
-    task(input: { taskId: string; digest: string; mode: 'prompt'; text: string }): Promise<{ taskId: string; status: string }>;
+    task(input: { taskId: string; digest: string; mode: 'prompt'; text: string }
+      | { taskId: string; digest: string; mode: 'tool'; toolName: 'run_approved_tasks';
+        arguments: { initializationDigest: string } }): Promise<{ taskId: string; status: string }>;
   };
   sync: {
     seal(input: { operationId: string; paths: string[] }): Promise<{
@@ -35,11 +41,18 @@ function response(status: number, value: unknown): Response {
 }
 
 const empty = z.strictObject({ schemaVersion: z.literal(1) });
+const ensure = z.strictObject({ schemaVersion: z.literal(1), initialization: z.unknown().optional() });
 const attachment = z.strictObject({ schemaVersion: z.literal(1), attachment: z.strictObject({
   locator: ID, sha256: DIGEST, size: z.number().int().positive().max(8 * 1024 * 1024),
 }) });
-const task = z.strictObject({ schemaVersion: z.literal(1), taskId: ID, digest: DIGEST,
-  mode: z.literal('prompt'), text: z.string().min(1).max(32 * 1024) });
+const packet = z.strictObject({ schemaVersion: z.literal(1), preparationId: ID,
+  lane: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/) });
+const task = z.discriminatedUnion('mode', [
+  z.strictObject({ schemaVersion: z.literal(1), taskId: ID, digest: DIGEST,
+    mode: z.literal('prompt'), text: z.string().min(1).max(32 * 1024) }),
+  z.strictObject({ schemaVersion: z.literal(1), taskId: ID, digest: DIGEST, mode: z.literal('tool'),
+    toolName: z.literal('run_approved_tasks'), arguments: z.strictObject({ initializationDigest: DIGEST }) }),
+]);
 const seal = z.strictObject({ schemaVersion: z.literal(1), operationId: ID,
   paths: z.array(KEY).min(1).max(128).refine(paths => new Set(paths).size === paths.length) });
 const read = z.strictObject({ schemaVersion: z.literal(1), key: KEY,
@@ -62,11 +75,23 @@ export class OperatorConductorCapability {
     try { body = JSON.parse(new TextDecoder().decode(bytes)); }
     catch { return response(400, { error: 'Invalid request' }); }
     try {
+      // Cleanup may outlive a revoked generation; it can only stop the owned session.
+      if (url.pathname === '/v1/session/stop') {
+        empty.parse(body);
+        return response(200, await this.operations.session.stop());
+      }
       await this.operations.current();
       switch (url.pathname) {
-        case '/v1/session/ensure': return response(200, await this.operations.session.ensure());
-        case '/v1/session/stop': return response(200, await this.operations.session.stop());
+        case '/v1/session/ensure': {
+          const { initialization } = ensure.parse(body);
+          return response(200, await this.operations.session.ensure({ initialization }));
+        }
         case '/v1/storage/restore': return response(200, await this.operations.attachments.restore(attachment.parse(body).attachment));
+        case '/v1/packets/prepare': {
+          const value = packet.parse(body);
+          if (!this.operations.packets) throw new Error('Packet preparation unavailable');
+          return response(200, await this.operations.packets.prepare(value, request.signal));
+        }
         case '/v1/pi/ensure': empty.parse(body); return response(200, await this.operations.pi.ensure());
         case '/v1/pi/tasks': return response(200, await this.operations.pi.task(task.parse(body)));
         case '/v1/sync/seal': return response(200, await this.operations.sync.seal(seal.parse(body)));

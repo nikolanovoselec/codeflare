@@ -113,6 +113,8 @@ export interface BoundaryPreparation {
   revision: { head: string; base: string; mergeBase: string };
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string; workflowId: number; workflowDigest: string;
+  /** Signed workflow commit captured with the one-time Action claim; legacy claims cannot prepare packets. */
+  claimedWorkflowSha?: string;
   session: { bucket: string; sessionId: string; generation: number };
 }
 export type BoundaryPublicationInput = {
@@ -616,7 +618,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   /** Parent-only guard for Activity's final queue transition; no handoff authority leaves this read. */
   async getBoundaryStartGuard(activityId: string): Promise<{ claimed: boolean; repositoryId: number; pullRequest: number;
     head: string; base: string; mergeBase: string; workflowId: number; runId: number; runAttempt: number;
-    generation: number; contextDigest: string; session: BoundaryPreparation['session'] } | null> {
+    generation: number; contextDigest: string; workflowSha: string | null;
+    session: BoundaryPreparation['session'] } | null> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return null;
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>(
@@ -631,7 +634,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       head: current.revision.head, base: current.revision.base, mergeBase: current.revision.mergeBase,
       workflowId: current.workflowId, runId: handoff?.run_id ?? 0, runAttempt: handoff?.run_attempt ?? 0,
       generation: current.session.generation, contextDigest: current.contextDigest,
-      session: structuredClone(current.session) };
+      workflowSha: current.claimedWorkflowSha ?? null, session: structuredClone(current.session) };
   }
 
   /** Terminal publication reconciliation uses immutable claimed identity, not permission to
@@ -658,14 +661,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   /** OIDC and live session authority are verified by the authenticated parent before this one-time claim. */
   async claimBoundaryPreparation(input: { repositoryId: number; pullRequest: number; head: string; base: string;
-    mergeBase: string; workflowId: number; runId: number; runAttempt: number }): Promise<OperatorRegistryResult<{
+    mergeBase: string; workflowId: number; runId: number; runAttempt: number;
+    workflowSha?: string }): Promise<OperatorRegistryResult<{
       activityId: string; startCapability: string; repositoryId: number; pullRequest: number;
       head: string; base: string; mergeBase: string; workflowId: number; runId: number;
       runAttempt: number; generation: number; session: BoundaryPreparation['session'] }>> {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
       || ![input.head, input.base, input.mergeBase].every(sha => /^[a-f0-9]{40}$/i.test(sha))
-      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)) {
+      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)
+      || input.workflowSha !== undefined && !/^[a-f0-9]{40}$/.test(input.workflowSha)) {
       throw new ValidationError('Invalid Action claim');
     }
     this.managementSchema();
@@ -685,7 +690,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       this.ctx.storage.sql.exec('UPDATE operator_boundary_handoffs SET consumed=1,run_id=?,run_attempt=? WHERE activity_id=? AND consumed=0',
         input.runId, input.runAttempt, current.activityId);
       this.ctx.storage.sql.exec('UPDATE operator_boundary_preparations SET data=? WHERE repository_id=? AND pull_request=?',
-        JSON.stringify({ ...current, phase: 'claimed' }), input.repositoryId, input.pullRequest);
+        JSON.stringify({ ...current, phase: 'claimed',
+          ...(input.workflowSha ? { claimedWorkflowSha: input.workflowSha } : {}) }),
+        input.repositoryId, input.pullRequest);
       return { current, ciphertext: handoff.ciphertext };
     });
     if (!claimed) return { ok: false, reason: 'activity-conflict' };
