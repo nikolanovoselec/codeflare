@@ -38,6 +38,12 @@ async function persist(input: Uint8Array, fixture: ReturnType<typeof store>, dec
     sseKey: btoa('k'.repeat(32)) });
 }
 
+async function expectDenied(operation: () => Promise<unknown>) {
+  // Attach the rejection handler in the same turn as the boundary call.
+  const outcome = await operation().then(() => 'accepted', () => 'denied');
+  expect(outcome).toBe('denied');
+}
+
 describe('REQ-OPERATOR-050/052: parent-owned immutable packet storage', () => {
   it('writes only the fixed owner-bucket key conditionally and verifies exact readback', async () => {
     const fixture = store();
@@ -109,18 +115,18 @@ describe('REQ-OPERATOR-050/052: parent-owned immutable packet storage', () => {
 
   it('denies migration, missing readback, changed bytes and oversized or symlink-substitute inputs', async () => {
     const migrating = store({ migration: true });
-    await expect(persist(bytes, migrating)).rejects.toThrow();
+    await expectDenied(() => persist(bytes, migrating));
     expect(migrating.objects.size).toBe(0);
     const changed = store();
-    await expect(persist(new TextEncoder().encode('changed'), changed)).rejects.toThrow();
+    await expectDenied(() => persist(new TextEncoder().encode('changed'), changed));
     expect(changed.objects.size).toBe(0);
     const oversized = store();
-    await expect(persist(new Uint8Array(8 * 1024 * 1024 + 1), oversized)).rejects.toThrow();
+    await expectDenied(() => persist(new Uint8Array(8 * 1024 * 1024 + 1), oversized));
     expect(oversized.objects.size).toBe(0);
     const absent = store();
     absent.fetcher = async request => request.method === 'GET' ? new Response(null, { status: 404 })
       : new Response(null, { status: 200 });
-    await expect(persist(bytes, absent)).rejects.toThrow();
-    await expect(persist({ symlink: '/tmp/packet' } as unknown as Uint8Array, store())).rejects.toThrow();
+    await expectDenied(() => persist(bytes, absent));
+    await expectDenied(() => persist({ symlink: '/tmp/packet' } as unknown as Uint8Array, store()));
   });
 });

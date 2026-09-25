@@ -57,11 +57,13 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
     ], tasks: [{ id: 'code', instruction: 'review/resources/code.md',
       reads: ['review/input.json', 'review/packets/code.json', 'review/resources/code.md'],
       output: 'reports/code.json' }] };
+  let checkpointInitialization: unknown = initialization;
   const activity = { operatorGenerationCurrent: async () => true,
     getPackageResources: async () => ({ schemaVersion: 1, artifactDigest: 'd'.repeat(64), files: [{
       destination: 'review/code.md', sha256: 'b'.repeat(64), size: 8, content: 'approved',
     }] }),
-    getBrowserDetail: async () => ({ checkpoint: { initialization } }),
+    getCurrentDriveCheckpoint: async (generation: number) => generation === 1
+      ? { initialization: checkpointInitialization } : null,
     readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: claimed ? [approvedFile] : [] }) };
   const env = { OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
     CONTAINER: {} };
@@ -83,6 +85,8 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
   expect((await post({ ...initialization, profileId: 'other-profile' })).status).toBe(403);
   expect((await post({ ...initialization, context: '{"substituted":true}' })).status).toBe(403);
   expect((await post(initialization)).status).toBe(200);
+  checkpointInitialization = null;
+  expect((await post(initialization)).status).toBe(403);
   const task = { schemaVersion: 1, taskId: 'approved-round', digest: 'c'.repeat(64), mode: 'tool',
     toolName: 'run_approved_tasks', arguments: { initializationDigest: 'd'.repeat(64) } };
   expect((await capability.fetch(new Request('https://operator.internal/v1/pi/tasks', { method: 'POST',

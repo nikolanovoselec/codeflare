@@ -46,7 +46,7 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
     SessionManager: { create: (_cwd, dir) => ({ dir }), open: (file, dir, cwdOverride) => {
       if (statSync(file).size === 0) writeFileSync(file,
         JSON.stringify({ type: 'session', id: 'pi-root', cwd: cwdOverride }));
-      return { dir };
+      return { dir, file };
     } },
     createExtensionRuntime: () => ({}),
     createReadToolDefinition: (toolCwd, options) => ({ name: 'read', parameters: {},
@@ -69,7 +69,8 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
       else rootOptions = options;
       const listeners = new Set();
       return { session: {
-        sessionId: lane ?? 'pi-root', sessionFile: path.join(options.sessionManager.dir, `${lane ?? 'pi-root'}.jsonl`),
+        sessionId: lane ?? 'pi-root', sessionFile: options.sessionManager.file
+          ?? path.join(options.sessionManager.dir, `${lane ?? 'pi-root'}.jsonl`),
         isStreaming: false, agent: { state: { tools: options.customTools ?? [] } },
         prompt: async () => {
           if (!lane) throw new Error('Root cannot impersonate an approved task');
@@ -170,6 +171,8 @@ test('REQ-OPERATOR-021: strict isolated config denies invalid references while s
 test('REQ-OPERATOR-021: one structured task creates independently isolated SDK sessions and durable identities', async t => {
   const f = await fixture(t);
   assert.equal(await submit(f, 'approved-round'), 'completed');
+  const persisted = JSON.parse(await readFile(path.join(f.root, '.codeflare/operator-pi.json')));
+  assert.equal(persisted.tasks['approved-round'].status, 'completed');
   assert.deepEqual(f.childSessions.map(item => item.lane).sort(), [...lanes].sort());
   const journal = JSON.parse(await readFile(path.join(f.root, 'sessions/approved-children.json')));
   assert.equal(journal.taskId, 'approved-round');
@@ -194,6 +197,22 @@ test('REQ-OPERATOR-021: one structured task creates independently isolated SDK s
   assert.equal(await submit(f, 'spoofed', { initializationDigest: 'e'.repeat(64) }), 'failed');
   assert.equal(await submit(f, 'replacement'), 'failed');
   assert.deepEqual(f.childSessions.map(item => item.lane).sort(), [...lanes].sort());
+});
+
+test('REQ-OPERATOR-021: a reopened SDK cannot replace the persisted root session identity', async t => {
+  const f = await fixture(t);
+  const substituted = { ...f.sdk, createAgentSession: async options => {
+    const { session } = await f.sdk.createAgentSession(options);
+    return { session: { ...session, sessionFile: path.join(f.root, 'sessions/substituted.jsonl') } };
+  } };
+  const restarted = createOperatorPiService({ serializedConfig: JSON.stringify(f.config),
+    allowedRoot: f.allowedRoot, isolatedOutputRoot: f.outputRoot,
+    importSdk: async () => substituted,
+    importPiAi: async () => ({ validateToolArguments: (_tool, call) => call.arguments }) });
+  assert.equal((await restarted.handle({ method: 'POST', pathname: '/internal/operator/pi/ensure',
+    body: new TextEncoder().encode('{}') })).status, 500);
+  const persisted = JSON.parse(await readFile(path.join(f.root, '.codeflare/operator-pi.json')));
+  assert.equal(persisted.sessionFile, path.join(f.root, 'sessions/approved-parent.jsonl'));
 });
 
 test('REQ-OPERATOR-021: child prompts and staging use the parent-bound activity report paths', async t => {

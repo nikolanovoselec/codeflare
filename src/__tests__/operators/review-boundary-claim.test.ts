@@ -247,6 +247,7 @@ describe('REQ-OPERATOR-050/052/053/054: Activity-owned approved packet preparati
     expect(saved).toMatchObject({ ok: true, preparationId: 'round-1', attachment: {
       name: 'packet.json', locator: 'packet-1', size: packetBytes.length, sha256: packetDigest } });
     expect(saved).not.toHaveProperty('generation');
+    if (!saved.ok) throw Error('Expected accepted packet');
     expect(await f.rehydrate().readApprovedPacketAttachments()).toMatchObject({ files: [saved.attachment] });
   }));
 

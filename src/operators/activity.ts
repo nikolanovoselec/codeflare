@@ -551,7 +551,13 @@ export class OperatorActivity extends Agent {
       ready: ['ready', 'stopping'], stopping: ['stopping', 'stopped', 'unknown'],
       stopped: ['stopped'], unknown: ['unknown', 'stopping'],
     };
-    return this.ctx.storage.transaction(async tx => {
+    const teardown = ['stopping', 'stopped', 'unknown'].includes(candidate.status);
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (before?.boundary && !teardown
+      && (!await this.boundaryCurrent(before) || !await this.approvedPacketClaimsCurrent(before))) {
+      return { ok: false, reason: 'invalid' };
+    }
+    const saved = await this.ctx.storage.transaction(async tx => {
       const admission = await tx.get<AdmissionState>('admission');
       if (!admission || admission.intent.activityId !== candidate.activityId
         || (admission.phase !== 'queued'
@@ -560,10 +566,9 @@ export class OperatorActivity extends Agent {
       }
       if (admission.boundary) {
         if (!admission.invocationJson) return { ok: false, reason: 'invalid' } as const;
-        if (!['stopping', 'stopped', 'unknown'].includes(candidate.status)
-          && (!await this.boundaryCurrent(admission) || !await this.approvedPacketClaimsCurrent(admission))) {
-          return { ok: false, reason: 'invalid' } as const;
-        }
+        if (!teardown && (!before?.boundary || admission.boundary.contextDigest !== before.boundary.contextDigest
+          || admission.drive?.generation !== before.drive?.generation
+          || admission.drive?.status !== before.drive?.status)) return { ok: false, reason: 'invalid' } as const;
         try {
           const initial = projectOperatorAttachments(JSON.parse(admission.invocationJson));
           const attachments = parseOperatorAttachmentProjection({ schemaVersion: 1,
@@ -596,6 +601,13 @@ export class OperatorActivity extends Agent {
       await tx.put('ownedSession', candidate);
       return { ok: true } as const;
     });
+    if (saved.ok && before?.boundary && !teardown) {
+      const after = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!after || !await this.boundaryCurrent(after) || !await this.approvedPacketClaimsCurrent(after)) {
+        return { ok: false, reason: 'invalid' };
+      }
+    }
+    return saved;
   }
 
   async getOwnedSession(): Promise<OwnedOperatorSessionState | null> {
@@ -1038,6 +1050,14 @@ export class OperatorActivity extends Agent {
     return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
       && record.drive?.status === 'running' && record.drive.generation === generation
       && await this.boundaryCurrent(record);
+  }
+
+  /** Parent-only checkpoint read for the live generation; browser projections do not grant execution authority. */
+  async getCurrentDriveCheckpoint(generation: number): Promise<unknown | null> {
+    if (!await this.operatorGenerationCurrent(generation)) return null;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    return state?.drive?.status === 'running' && state.drive.generation === generation
+      ? structuredClone(state.drive.checkpoint) : null;
   }
 
   /** Validate bounded child output before committing the current generation only. */

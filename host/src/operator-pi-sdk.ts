@@ -216,7 +216,12 @@ export function createProvisionedOperatorPiFactory(options: {
         const file = path.join(sessionDir, 'approved-parent.jsonl');
         const handle = await open(file, 'wx', 0o600);
         await handle.close();
-        return createWith(sdk.SessionManager.open(file, sessionDir, cwd));
+        const session = await createWith(sdk.SessionManager.open(file, sessionDir, cwd));
+        if (session.sessionFile !== file) {
+          session.dispose();
+          throw new Error('Provisioned Pi root identity changed');
+        }
+        return session;
       }
       return createWith(sdk.SessionManager.create(cwd, sessionDir));
     },
@@ -226,7 +231,12 @@ export function createProvisionedOperatorPiFactory(options: {
         throw new Error('Invalid owned session file');
       }
       const { sdk } = await context();
-      return createWith(sdk.SessionManager.open(resolved, sessionDir));
+      const session = await createWith(sdk.SessionManager.open(resolved, sessionDir));
+      if (session.sessionFile !== resolved) {
+        session.dispose();
+        throw new Error('Provisioned Pi root identity changed');
+      }
+      return session;
     },
   };
 }

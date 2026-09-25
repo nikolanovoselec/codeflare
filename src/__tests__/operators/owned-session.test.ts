@@ -80,36 +80,14 @@ describe('owned operator session service', () => {
     vi.mocked(f.runtime.stop).mockResolvedValueOnce('unknown').mockResolvedValueOnce('stopped');
     expect((await f.service.stop({ activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false })).status)
       .toBe('unknown');
+    expect(f.state()).toMatchObject({ activityId: profile.activityId, ownerBucket: profile.ownerBucket,
+      sessionId: profile.sessionId, status: 'unknown' });
+    expect((await f.service.ensure(input)).status).toBe('unknown');
     expect((await f.service.stop({ activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false })).status)
       .toBe('stopped');
-    expect(f.calls.slice(-6)).toEqual(['save:stopping', 'stop:false', 'save:unknown',
-      'save:stopping', 'stop:false', 'save:stopped']);
-    expect(f.runtime.configure).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not accept an SDK stopped reading as proof of teardown', async () => {
-    const f = fixture({ schemaVersion: 1, requestId: input.requestId, requestDigest: input.requestDigest,
-      activityId: profile.activityId, ownerBucket: profile.ownerBucket, sessionId: profile.sessionId,
-      profile, status: 'stopping' });
-    vi.mocked(f.runtime.readiness).mockResolvedValue('stopped');
-    expect((await f.service.ensure(input)).status).toBe('stopping');
-    expect(f.runtime.stop).not.toHaveBeenCalled();
-    expect((await f.service.stop({ activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false })).status)
-      .toBe('stopped');
-  });
-
-  it('retries owned destruction after uncertain configuration or teardown without authorizing new work', async () => {
-    const f = fixture();
-    vi.mocked(f.runtime.configure).mockRejectedValueOnce(new Error('configure uncertain'));
-    await expect(f.service.ensure(input)).rejects.toThrow('configure uncertain');
-    vi.mocked(f.runtime.stop).mockResolvedValueOnce('unknown').mockResolvedValueOnce('stopped');
-    expect((await f.service.stop({ activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false })).status)
-      .toBe('unknown');
-    expect((await f.service.stop({ activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false })).status)
-      .toBe('stopped');
-    expect(f.calls.slice(-6)).toEqual(['save:stopping', 'stop:false', 'save:unknown',
-      'save:stopping', 'stop:false', 'save:stopped']);
-    expect(f.runtime.configure).toHaveBeenCalledTimes(1);
+    expect(f.state()).toMatchObject({ activityId: profile.activityId, ownerBucket: profile.ownerBucket,
+      sessionId: profile.sessionId, status: 'stopped' });
+    expect((await f.service.ensure(input)).status).toBe('stopped');
   });
 
   it('does not accept an SDK stopped reading as proof of teardown', async () => {

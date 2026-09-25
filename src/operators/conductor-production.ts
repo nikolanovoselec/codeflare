@@ -124,9 +124,10 @@ export async function createConductorProductionCapability(input: { env: Env; pla
         profileId: installationPolicy.resourceProfileId!, attachments, resources: packageResources,
       });
     if (prepared.files.length) {
-      const detail = await activity.getBrowserDetail();
-      const checkpoint = detail?.checkpoint as { initialization?: unknown } | null;
-      if (!checkpoint || JSON.stringify(initialization) !== JSON.stringify(checkpoint.initialization)) {
+      const checkpoint = await activity.getCurrentDriveCheckpoint(input.generation);
+      const checkpointInitialization = checkpoint && typeof checkpoint === 'object' && 'initialization' in checkpoint
+        ? checkpoint.initialization : undefined;
+      if (!checkpoint || JSON.stringify(initialization) !== JSON.stringify(checkpointInitialization)) {
         throw new Error('Approved input initialization changed');
       }
     }
