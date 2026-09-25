@@ -40,13 +40,15 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
     revision: { reference: 'a'.repeat(40), digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
     input: {}, attachments: [], resources: { inference: { routeId: 'provider-default', reasoningLevel: null },
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
-  const activity = { operatorGenerationCurrent: async () => true, getPackageResources: async () => [] };
+  const activity = { operatorGenerationCurrent: async () => true, getPackageResources: async () => [],
+    readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: [] }) };
   const env = { OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
     CONTAINER: {} };
   const plan = { activityId, deadline: Date.now() + 300_000, invocationJson: JSON.stringify(invocation),
     receipt: { selection }, executionContext: { policyDigest: 'e'.repeat(64) } };
   const { capability } = await createConductorProductionCapability({ env: env as never,
-    plan: plan as never, activity: activity as never, generation: 1 });
+    plan: plan as never, activity: activity as never, generation: 1,
+    driveDeadline: Date.now() + 25_000 });
   const response = await capability.fetch(new Request('https://operator.internal/v1/session/ensure', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1 }),
   }));

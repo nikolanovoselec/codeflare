@@ -6,7 +6,7 @@ import { OperatorActivity } from '../../operators/activity';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
-import { claimVerifiedBoundaryAction, operateBoundaryPublication,
+import { claimVerifiedBoundaryAction, operateBoundaryPublication, verifyCurrentClaimedBoundaryPacket,
   type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
 import webhookRoutes from '../../routes/operator-webhook';
 import { fencePendingBoundaryStart } from '../../routes/session/boundary-stop';
@@ -15,7 +15,8 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
-const trust = vi.hoisted(() => ({ signed: true, current: true, human: true, selection: true }));
+const trust = vi.hoisted(() => ({ signed: true, current: true, human: true,
+  selection: true, workflowRevision: 'd'.repeat(40) }));
 vi.mock('../../operators/boundary-action-oidc', () => ({ verifyBoundaryActionOidc: async (_token: string, expected: {
   repositoryId: number; repository: string; workflowPath: string; protectedRef: string; workflowSha: string;
   runId: number; runAttempt: number;
@@ -51,6 +52,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   trust.signed = trust.current = trust.human = trust.selection = true;
+  trust.workflowRevision = 'd'.repeat(40);
   await db.prepare('DELETE FROM runtime_sessions').run();
   await db.prepare("UPDATE session_cutover SET state='complete' WHERE id=1").run();
   await db.prepare(`INSERT INTO runtime_sessions (owner_key,session_id,name,created_at,last_accessed_at,workspace,
@@ -63,7 +65,8 @@ async function scenario(run: (fixture: {
   registry: OperatorRegistry; activity: OperatorActivity; repo: D1SessionRepository;
   claim: (change?: Partial<typeof request>) => Promise<unknown>;
   publish: (change?: Partial<BoundaryPublicationRequest>) => Promise<unknown>;
-  expireBoundary: () => Promise<void>; activityId: string; startCapability: string;
+  packetCurrent: () => Promise<boolean>;
+  expireBoundary: () => Promise<void>; activityId: string; startCapability: string; rehydrate: () => OperatorActivity;
 }) => Promise<void>) {
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -175,7 +178,7 @@ async function scenario(run: (fixture: {
         if (path.endsWith('/actions/workflows/531')) return Response.json({ id: 531,
           path: '.github/workflows/boundary-reviews.yml', state: 'active' });
         if (path.endsWith('/branches/main')) return Response.json({ name: 'main', protected: trust.selection,
-          commit: { sha: workflowSha } });
+          commit: { sha: trust.workflowRevision } });
         if (path.endsWith('/contents/.github/workflows/boundary-reviews.yml')) {
           return Response.json({ encoding: 'base64', content: btoa(workflowSource) });
         }
@@ -201,11 +204,153 @@ async function scenario(run: (fixture: {
         ctx.storage.sql.exec(`UPDATE operator_boundary_preparations SET data=json_set(data,'$.deadline',?)
           WHERE repository_id=? AND pull_request=?`, Date.now() - 1, 138, 34);
       });
-      try { await run({ registry: registryOwner, activity, repo, claim, publish, expireBoundary,
-        activityId, startCapability: prepared.startCapability }); }
+      try { await run({ registry: registryOwner, activity, repo, claim, publish,
+        packetCurrent: () => verifyCurrentClaimedBoundaryPacket(actionEnv, activityId, 'owner/repo'), expireBoundary,
+        activityId, startCapability: prepared.startCapability,
+        rehydrate: () => new OperatorActivity(activityCtx, activityEnv as ConstructorParameters<typeof OperatorActivity>[1]) }); }
       finally { vi.restoreAllMocks(); }
   });
 }
+
+// Packet identity is immutable across drives; the parent supplies the captured drive generation.
+const packetBytes = new TextEncoder().encode('{"round":"review"}');
+const packetDigest = 'ce8f9bff099c3431037f6a3908ddcabfe4bd73af1a66198f44edd1cf13a4156e';
+const packet = { preparationId: 'round-1', lane: 'security', name: 'packet.json',
+  mediaType: 'application/json', locator: 'packet-1', size: packetBytes.length,
+  sha256: packetDigest, bytes: packetBytes };
+
+describe('REQ-OPERATOR-050/052/053/054: Activity-owned approved packet preparation', () => {
+  it('rechecks the claimed Action and exact live PR before authorizing parent packet I/O', () => scenario(async f => {
+    expect(await f.packetCurrent()).toBe(false);
+    await f.claim();
+    expect(await f.packetCurrent()).toBe(true);
+    trust.current = false;
+    expect(await f.packetCurrent()).toBe(false);
+    trust.current = true;
+    trust.selection = false;
+    expect(await f.packetCurrent()).toBe(false);
+    trust.selection = true;
+    trust.workflowRevision = 'f'.repeat(40);
+    expect(await f.packetCurrent()).toBe(false);
+    trust.workflowRevision = workflowSha;
+    await f.expireBoundary();
+    expect(await f.packetCurrent()).toBe(false);
+  }));
+  it('denies packet preparation before Action claim and preserves the admitted projection after Activity reconstruction', () => scenario(async f => {
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+    await f.claim();
+    expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: true });
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true });
+    const saved = await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 });
+    expect(saved).toMatchObject({ ok: true, preparationId: 'round-1', attachment: {
+      name: 'packet.json', locator: 'packet-1', size: packetBytes.length, sha256: packetDigest } });
+    expect(saved).not.toHaveProperty('generation');
+    expect(await f.rehydrate().readApprovedPacketAttachments()).toMatchObject({ files: [saved.attachment] });
+  }));
+
+  it('replays the exact identity across waiting and a later drive but rejects changed bytes and conflicting lane', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    const first = await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 });
+    expect(first).toMatchObject({ ok: true });
+    if (!first.ok) throw Error('Expected accepted packet');
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'waiting',
+      checkpoint: { stage: 'packet', contextDigest: 'f'.repeat(64), attachments: [
+        { ...first.attachment, locator: 'substituted' },
+      ] } })).toMatchObject({ ok: false });
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'waiting',
+      checkpoint: { stage: 'packet', contextDigest: 'f'.repeat(64), attachments: [first.attachment] } }))
+      .toMatchObject({ ok: true });
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 2 })).toEqual(first);
+    for (const altered of [
+      { ...packet, driveGeneration: 2, bytes: new TextEncoder().encode('different bytes') },
+      { ...packet, driveGeneration: 2, preparationId: 'round-2' },
+      { ...packet, driveGeneration: 2, lane: 'contract' },
+      { ...packet, driveGeneration: 2, locator: 'packet-2' },
+    ]) expect(await f.activity.saveApprovedPacketAttachment(altered)).toMatchObject({ ok: false });
+    expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [first.attachment] });
+  }));
+
+  it('does not replay a packet when the signed Action identity changes with the same PR revision', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    const accepted = await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 });
+    expect(accepted).toMatchObject({ ok: true });
+    const original = f.registry.getBoundaryStartGuard.bind(f.registry);
+    vi.spyOn(f.registry, 'getBoundaryStartGuard').mockImplementation(async id => {
+      const guard = await original(id);
+      return guard?.claimed ? { ...guard, workflowSha: 'a'.repeat(40) } : guard;
+    });
+    expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [] });
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 }))
+      .toMatchObject({ ok: false });
+  }));
+
+  it('freezes the accepted attachment set at the owned session reservation', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: true });
+    const plan = await f.activity.getRuntimePlan();
+    if (!plan) throw Error('Expected admitted boundary plan');
+    const attachments = await f.activity.readApprovedPacketAttachments();
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(
+      JSON.stringify({ invocationJson: plan.invocationJson, attachments }))));
+    const requestDigest = Array.from(hash).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const ownerSession = { schemaVersion: 1, requestId: 'packet-session', requestDigest,
+      activityId: f.activityId, ownerBucket: 'owner-bucket', sessionId: 'review-session', status: 'reserved',
+      profile: { schemaVersion: 1, activityId: f.activityId, operatorId: 'review-operator',
+        sessionId: 'review-session', ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64),
+        deadline: Date.now() + 60_000, outputPrefix: 'Operators/',
+        human: { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
+        policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+          storage: { readPrefixes: ['Operators/'], writePrefixes: ['Operators/'] },
+          inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
+            defaultReasoningLevel: 'off', inheritUserDefaults: false } },
+        jwtPolicy: { mode: 'off', destinations: [] },
+        piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
+          systemPrompt: 'fixed', tools: ['write'] },
+      },
+    };
+    const second = { ...packet, driveGeneration: 1, preparationId: 'round-2', lane: 'contract',
+      name: 'contract.json', locator: 'packet-2' };
+    const [reservation, added] = await Promise.all([
+      f.activity.saveOwnedSession(ownerSession), f.activity.saveApprovedPacketAttachment(second),
+    ]);
+    expect(reservation.ok && added.ok).toBe(false);
+    if (reservation.ok) {
+      expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [{ name: 'packet.json' }] });
+      expect(await f.activity.saveApprovedPacketAttachment(second)).toMatchObject({ ok: false });
+    } else {
+      expect(added.ok).toBe(true);
+      expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [
+        { name: 'packet.json' }, { name: 'contract.json' },
+      ] });
+      expect(await f.activity.saveOwnedSession(ownerSession)).toMatchObject({ ok: false });
+    }
+  }));
+
+  it('denies expired, stopped and unclaimed source generations rather than accepting a packet', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 999 })).toMatchObject({ ok: false });
+    await f.expireBoundary();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+    expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [] });
+  }));
+  it('REQ-OPERATOR-054: Stop fences packet preparation for the claimed activity', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    expect(await f.repo.claimStop(session.bucket, session.sessionId, 'stop-packet', new Date().toISOString(), 1)).toBeTruthy();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+  }));
+});
 
 describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protected Action claim', () => {
   it('REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity', async () => {

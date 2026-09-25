@@ -38,6 +38,32 @@ describe('generic installed Conductor capability', () => {
     expect(owner.current).toHaveBeenCalled();
   });
 
+  it('offers a bounded private packet preparation only while the parent authority is current', async () => {
+    let current = true;
+    const prepared: string[] = [];
+    const owner = operations();
+    owner.current = async () => { if (!current) throw new Error('stale'); };
+    owner.packets = { prepare: async ({ preparationId, lane }) => {
+      prepared.push(`${preparationId}:${lane}`);
+      return { preparationId, bytes: btoa('{"packet":true}'), attachment: {
+        name: 'review-packet.json', mediaType: 'application/json',
+        locator: 'packet-1', size: 16, sha256: 'a'.repeat(64) } };
+    } };
+    const capability = new OperatorConductorCapability(owner);
+    const input = { schemaVersion: 1, preparationId: 'round-1', lane: 'code-reviewer' };
+    expect(await (await post(capability, '/v1/packets/prepare', input)).json()).toMatchObject({
+      preparationId: 'round-1', attachment: { locator: 'packet-1', size: 16 },
+    });
+    expect(prepared).toEqual(['round-1:code-reviewer']);
+    current = false;
+    expect((await post(capability, '/v1/packets/prepare', input)).status).toBe(403);
+    expect(prepared).toEqual(['round-1:code-reviewer']);
+    current = true;
+    expect((await post(capability, '/v1/packets/prepare', { ...input, script: '/tmp/x' })).status).toBe(403);
+    expect((await post(capability, '/v1/packets/prepare', { ...input, lane: '../code-reviewer' })).status).toBe(403);
+    expect(prepared).toEqual(['round-1:code-reviewer']);
+  });
+
   it('fails closed before effects when authority is stale or a package selects an invalid scope', async () => {
     const owner = operations();
     owner.current = vi.fn(async () => { throw new Error('stale'); });
