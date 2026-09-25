@@ -335,6 +335,39 @@ export class OperatorActivity extends Agent {
       status: state.drive.status, collected: state.webhook?.consumed === true };
   }
 
+  /** Parent-only frozen publication inputs; never expose result bytes or execution credentials. */
+  async getBoundaryPublicationEvidence(activityId: string): Promise<{
+    inputDigest: string; packageDigest: string; policyDigest: string; acknowledgedHead: string | null;
+    invocationJson: string;
+    context: { repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string };
+    resultDigest: string; packets: Array<{ lane: string; name: string; mediaType: string;
+      size: number; sha256: string; locator: string }>;
+  } | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.boundary || state.intent.activityId !== activityId || state.phase !== 'queued'
+      || !state.webhook?.consumed || !state.drive || !['completed', 'failed'].includes(state.drive.status)
+      || !state.receipt || !state.executionContext || !state.invocationJson) return null;
+    try {
+      const invocation = JSON.parse(state.invocationJson) as { inputDigest: string;
+        input: { context: { repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string };
+          acknowledgedHead: string | null } };
+      const context = invocation.input.context;
+      if (!syncDigest.safeParse(invocation.inputDigest).success
+        || context.repositoryId !== state.boundary.repositoryId || context.pullRequest !== state.boundary.pullRequest
+        || ![context.head, context.base, context.mergeBase].every(value => /^[0-9a-f]{40}$/.test(value))
+        || !(invocation.input.acknowledgedHead === null
+          || /^[0-9a-f]{40}$/.test(invocation.input.acknowledgedHead))) return null;
+      if (!await this.approvedPacketClaimsCurrent(state)) return null;
+      return { inputDigest: invocation.inputDigest, invocationJson: state.invocationJson,
+        context: structuredClone(context),
+        acknowledgedHead: invocation.input.acknowledgedHead,
+        packageDigest: state.executionContext.artifactDigest, policyDigest: state.executionContext.policyDigest,
+        resultDigest: await sha256(JSON.stringify(state.drive.result)),
+        packets: Object.values(state.approvedPackets ?? {}).map(record => ({ lane: record.lane,
+          ...structuredClone(record.attachment) })) };
+    } catch { return null; }
+  }
+
   /** Stop's exact binding wins durably over prepared, admitting and queued starts. */
   async cancelBoundaryStart(binding: BoundaryActivityBinding): Promise<{ ok: boolean }> {
     if (!boundaryBindingSchema.safeParse(binding).success) return { ok: false };

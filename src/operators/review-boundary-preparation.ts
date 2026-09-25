@@ -207,7 +207,7 @@ export async function prepareVerifiedBoundary(
   const contextDigest = await digest({ context, accepted, action, pinned, sessionBinding });
   const ownerKey = await operatorOwnerKey(currentAuthority.human);
   const reservation = await registry.reserveBoundaryPreparation({ repositoryId: context.repositoryId,
-    pullRequest: context.pullRequest, contextDigest, ownerKey, installationId: selected.installationId,
+    pullRequest: context.pullRequest, roundGeneration: 1, contextDigest, ownerKey, installationId: selected.installationId,
     operatorId: installation.value.operator.operatorId,
     revision: { head: context.head, base: context.base, mergeBase: context.mergeBase },
     deadline: currentAuthority.human.expiresAt * 1000, expectedContextDigest: original?.contextDigest ?? null,

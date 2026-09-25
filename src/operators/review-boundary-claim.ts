@@ -10,11 +10,15 @@ import { operatorOwnerKey } from './browser-activity';
 import { resolveBoundaryAction, type BoundaryActionBinding } from './boundary-action-trust';
 import { verifyBoundaryActionOidc, type BoundaryActionIdentity } from './boundary-action-oidc';
 import type { BoundaryPreparation, BoundaryPublicationInput } from './registry';
+import { parseOperatorPiInitialization } from './session-initialization';
+import { parseOperatorAttachmentProjection } from './attachments';
+import { verifyOperatorPackageResourceProjection } from './package-resources';
 
 const SHA = /^[0-9a-f]{40}$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const CLAIM_PATH = '/operator-webhook/v1/activities/claims/boundary';
 const PUBLICATION_PATH = '/operator-webhook/v1/activities/claims/publication';
+const PREPARATION_PATH = '/operator-webhook/v1/activities/claims/publication-preparation';
 export interface BoundaryActionClaimRequest {
   repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string;
   runId: number; runAttempt: number;
@@ -253,6 +257,119 @@ export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: s
     return !!current && sameClaim(current, expected, action.workflowId)
       && (await registry.getBoundaryStartGuard(activityId))?.claimed === true;
   } catch { return false; }
+}
+
+export type BoundaryPublicationPreparationInput = Omit<BoundaryPublicationInput, 'effect' | 'digest'> & {
+  resultDigest: string;
+};
+
+/** The protected Action receives only a bounded, credential-free projection of frozen owner evidence. */
+export async function prepareBoundaryPublication(env: Env, oidcToken: string,
+  input: BoundaryPublicationPreparationInput): Promise<{ status: 'ready'; projection: unknown } | {
+    status: 'stale' | 'denied' | 'unknown' }> {
+  if (!isEnterpriseMode(env) || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY || !env.USAGE_DB || !env.KV
+    || !Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
+    || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1
+    || ![input.workflowId, input.runId, input.runAttempt, input.sessionGeneration, input.activityGeneration]
+      .every(value => Number.isSafeInteger(value) && value > 0)
+    || ![input.head, input.base, input.mergeBase].every(value => typeof value === 'string' && SHA.test(value))
+    || ![input.contextDigest, input.resultDigest].every(value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value))
+    || typeof input.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.activityId)) return { status: 'denied' };
+  const hints = tokenHints(oidcToken);
+  if (!hints) return { status: 'denied' };
+  try {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const prepared = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
+    if (!prepared || prepared.phase !== 'claimed' || prepared.roundGeneration !== 1
+      || prepared.deadline <= Date.now() || prepared.activityId !== input.activityId
+      || prepared.contextDigest !== input.contextDigest || prepared.session.generation !== input.sessionGeneration
+      || prepared.revision.head !== input.head || prepared.revision.base !== input.base
+      || prepared.revision.mergeBase !== input.mergeBase || prepared.workflowId !== input.workflowId) return { status: 'stale' };
+    const action = await registry.getBoundaryAction(input.repositoryId);
+    if (!action || action.workflowId !== input.workflowId || action.workflowDigest !== prepared.workflowDigest
+      || action.controlsRevision !== prepared.controlsRevision || !action.events.includes('pull_request_target')) return { status: 'stale' };
+    const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
+    if (!domain || !/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i.test(domain)) return { status: 'denied' };
+    const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${PREPARATION_PATH}`,
+      repositoryId: input.repositoryId, repository: hints.repository, workflowPath: action.workflowPath,
+      protectedRef: action.protectedRef, workflowSha: hints.workflowSha,
+      runId: input.runId, runAttempt: input.runAttempt });
+    if (!signed) return { status: 'denied' };
+    const activity = env.OPERATOR_ACTIVITY.getByName(input.activityId);
+    async function currentOwners(): Promise<boolean> {
+      const guard = await registry.getBoundaryStartGuard(input.activityId);
+      const terminal = await activity.getBoundaryPublicationState(input.activityId);
+      const live = await new D1SessionRepository(env.USAGE_DB!).getSession(prepared!.session.bucket, prepared!.session.sessionId);
+      return !!guard?.claimed && guard.repositoryId === input.repositoryId && guard.pullRequest === input.pullRequest
+        && guard.head === input.head && guard.base === input.base && guard.mergeBase === input.mergeBase
+        && guard.workflowId === input.workflowId && guard.runId === input.runId && guard.runAttempt === input.runAttempt
+        && guard.contextDigest === input.contextDigest && guard.generation === input.sessionGeneration
+        && guard.workflowSha === signed!.workflowSha
+        && !!terminal?.collected && terminal.generation === input.activityGeneration
+        && terminal.binding.repositoryId === input.repositoryId && terminal.binding.pullRequest === input.pullRequest
+        && terminal.binding.contextDigest === input.contextDigest
+        && JSON.stringify(terminal.binding.session) === JSON.stringify(prepared!.session)
+        && live?.lifecycleState === 'running' && live.lifecycleGeneration === input.sessionGeneration
+        && (live.boundaryActivityId === input.activityId || live.boundaryActivityId == null);
+    }
+    if (!await currentOwners()) return { status: 'stale' };
+    if (env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
+      || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unknown' };
+    const githubToken = await getValidGithubToken(env, prepared.session.bucket);
+    if (!githubToken) return { status: 'unknown' };
+    const current = async () => {
+      const verified = await verifyCurrentBoundaryAction(prepared, action, signed, input, githubToken);
+      return !!verified && sameClaim(verified, input, input.workflowId);
+    };
+    if (!await current() || !await currentOwners()) return { status: 'stale' };
+    const [evidence, owned, resources] = await Promise.all([
+      activity.getBoundaryPublicationEvidence(input.activityId), activity.getOwnedSession(),
+      activity.getPackageResources(),
+    ]);
+    if (!evidence || !owned || owned.status !== 'stopped'
+      || owned.activityId !== input.activityId
+      || owned.ownerBucket !== prepared.session.bucket || owned.profile.activityId !== input.activityId
+      || owned.profile.policyDigest !== evidence.policyDigest || evidence.resultDigest !== input.resultDigest
+      || evidence.packageDigest !== prepared.bundleDigest || evidence.context.repositoryId !== input.repositoryId
+      || evidence.context.pullRequest !== input.pullRequest || evidence.context.head !== input.head
+      || evidence.context.base !== input.base || evidence.context.mergeBase !== input.mergeBase
+      || !resources) return { status: 'stale' };
+    const packets = evidence.packets;
+    if (!packets.length || new Set(packets.map(packet => packet.lane)).size !== packets.length) {
+      return { status: 'stale' };
+    }
+    const attachments = parseOperatorAttachmentProjection({ schemaVersion: 1, activityId: input.activityId,
+      files: packets.map(({ lane: _lane, ...attachment }) => attachment) });
+    const resourceProjection = await verifyOperatorPackageResourceProjection(resources);
+    if (resourceProjection.artifactDigest !== evidence.packageDigest) return { status: 'stale' };
+    const initialization = parseOperatorPiInitialization(owned.profile.piProfile.initialization, {
+      profileId: owned.profile.piProfile.initialization!.profileId, attachments, resources: resourceProjection,
+    });
+    if (JSON.stringify(initialization.inputs.filter(item => item.kind === 'attachment').map(item => item.reference))
+      !== JSON.stringify(packets.map(packet => packet.name))) return { status: 'stale' };
+    const resourceDescriptors = resourceProjection.files.map(({ destination, sha256, size }) => ({ destination, sha256, size }));
+    const hash = async (value: unknown) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(JSON.stringify(value))))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (owned.requestDigest !== await hash({ invocationJson: evidence.invocationJson,
+      attachments, initialization })) return { status: 'stale' };
+    const projection = { schemaVersion: 1, admission: { repositoryId: input.repositoryId,
+      pullRequest: input.pullRequest, activityId: input.activityId, roundGeneration: prepared.roundGeneration,
+      inputDigest: evidence.inputDigest, packageDigest: evidence.packageDigest,
+      resourceDigest: await hash(resourceDescriptors), policyDigest: evidence.policyDigest,
+      workflowId: input.workflowId, runId: input.runId, runAttempt: input.runAttempt,
+      acknowledgedHead: evidence.acknowledgedHead },
+    context: { ...evidence.context, headPullRequests: [input.pullRequest], mergeQueue: false },
+    contextDigest: input.contextDigest, resources: resourceDescriptors, packets, initialization,
+    packetDigest: await hash({ contextDigest: input.contextDigest,
+      packets: packets.map(packet => ({ lane: packet.lane, digest: packet.sha256 })) }),
+    resultDigest: input.resultDigest, activityGeneration: input.activityGeneration };
+    if (new TextEncoder().encode(JSON.stringify({ status: 'ready', projection })).byteLength > 64 * 1024
+      || !await current() || !await currentOwners()) return { status: 'stale' };
+    const observed = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
+    return observed?.activityId === input.activityId && observed.contextDigest === input.contextDigest
+      && observed.roundGeneration === 1 && observed.deadline > Date.now()
+      ? { status: 'ready', projection } : { status: 'stale' };
+  } catch { return { status: 'unknown' }; }
 }
 
 export type BoundaryPublicationRequest = BoundaryPublicationInput & {

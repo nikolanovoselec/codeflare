@@ -109,6 +109,7 @@ export interface ManagementControls {
 
 export interface BoundaryPreparation {
   repositoryId: number; pullRequest: number; contextDigest: string; ownerKey: string;
+  roundGeneration?: number;
   installationId: string; operatorId: string; deadline: number; activityId: string; phase: 'pending' | 'prepared' | 'claimed';
   revision: { head: string; base: string; mergeBase: string };
   controlsRevision: number; installationRevision: number; operatorRevision: number;
@@ -521,6 +522,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }): Promise<OperatorRegistryResult<{ activityId: string; created: boolean }>> {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
+      || (input.roundGeneration !== undefined && (!Number.isSafeInteger(input.roundGeneration) || input.roundGeneration < 1))
       || !/^[a-f0-9]{64}$/.test(input.contextDigest) || !/^[a-f0-9]{64}$/.test(input.ownerKey)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(input.installationId)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(input.operatorId)
@@ -576,7 +578,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         return { ok: false, reason: 'revision-conflict' };
       }
       const next: BoundaryPreparation = { repositoryId: input.repositoryId, pullRequest: input.pullRequest,
-        contextDigest: input.contextDigest, ownerKey: input.ownerKey, installationId: input.installationId,
+        contextDigest: input.contextDigest, ownerKey: input.ownerKey,
+        ...(input.roundGeneration !== undefined ? { roundGeneration: input.roundGeneration } : {}),
+        installationId: input.installationId,
         operatorId: input.operatorId, revision: structuredClone(input.revision),
         controlsRevision: input.controlsRevision, installationRevision: input.installationRevision,
         operatorRevision: input.operatorRevision, releaseId: input.releaseId, bundleDigest: input.bundleDigest,
@@ -681,6 +685,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!row) return null;
       const current = JSON.parse(row.data) as BoundaryPreparation;
       if (current.phase !== 'prepared' || current.deadline <= Date.now()
+        || (current.roundGeneration !== undefined && current.roundGeneration !== 1)
         || current.revision.head !== input.head || current.revision.base !== input.base
         || current.revision.mergeBase !== input.mergeBase || current.workflowId !== input.workflowId
         || !this.boundarySelectionCurrent(current)) return null;

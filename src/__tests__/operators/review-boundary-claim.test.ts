@@ -725,12 +725,19 @@ async function publicationFixture(f: {
       piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
         systemPrompt: 'fixed', tools: ['read', 'write'], initialization } } };
   expect(await f.activity.saveOwnedSession(owned)).toMatchObject({ ok: true });
+  for (const status of ['configuring', 'configured', 'starting', 'ready'] as const) {
+    expect(await f.activity.saveOwnedSession({ ...owned, status })).toMatchObject({ ok: true });
+  }
   expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 4 } });
   const result = { status: 'complete', reports: [{ lane: 'code-reviewer', finding: 'original-private-bytes' }] };
+  expect(await f.activity.saveOwnedSession({ ...owned, status: 'stopping' })).toMatchObject({ ok: true });
+  expect(await f.activity.saveOwnedSession({ ...owned, status: 'stopped' })).toMatchObject({ ok: true });
   expect(await f.activity.commitDrive(4, { schemaVersion: 1, status: 'completed', checkpoint: null,
     result })).toMatchObject({ ok: true });
   expect(await f.activity.redeemWebhookResult(started.readCapability))
     .toMatchObject({ ok: true, terminal: true, generation: 4, result });
+  expect(await new D1SessionRepository(db).releaseCompletedBoundaryAction(session.bucket,
+    session.sessionId, session.generation, f.activityId)).toBe(true);
   return { resultDigest: await sha(JSON.stringify(result)), packets, initialization,
     resource, plan, sha };
 }
@@ -800,12 +807,14 @@ describe('REQ-OPERATOR-056: authenticated publication-preparation projection', (
   it('rejects missing, duplicate, reordered, or changed owner packet descriptors and altered initialization', () => scenario(async f => {
     const evidence = await publicationFixture(f);
     const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
-    const realFiles = await f.activity.readApprovedPacketAttachments();
-    const read = vi.spyOn(f.activity, 'readApprovedPacketAttachments');
-    for (const files of [[], realFiles.files.slice(0, 2), [...realFiles.files, realFiles.files[0]],
-      [...realFiles.files].reverse(), realFiles.files.map((file, index) => index === 0
-        ? { ...file, sha256: '9'.repeat(64) } : file)]) {
-      read.mockResolvedValue({ ...realFiles, files });
+    const realEvidence = await f.activity.getBoundaryPublicationEvidence(f.activityId);
+    if (!realEvidence) throw Error('Expected collected packet evidence');
+    const read = vi.spyOn(f.activity, 'getBoundaryPublicationEvidence');
+    for (const packets of [[], realEvidence.packets.slice(0, 2),
+      [...realEvidence.packets, realEvidence.packets[0]], [...realEvidence.packets].reverse(),
+      realEvidence.packets.map((packet, index) => index === 0
+        ? { ...packet, sha256: '9'.repeat(64) } : packet)]) {
+      read.mockResolvedValue({ ...realEvidence, packets });
       expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
     }
     read.mockRestore();
@@ -818,6 +827,13 @@ describe('REQ-OPERATOR-056: authenticated publication-preparation projection', (
     } } });
     expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
     owner.mockRestore();
+    const resources = await f.activity.getPackageResources();
+    if (!resources) throw Error('Expected frozen resource bytes');
+    const altered = vi.spyOn(f.activity, 'getPackageResources');
+    altered.mockResolvedValue({ ...resources, files: resources.files.map((file, index) => index === 0
+      ? { ...file, content: 'changed after installation' } : file) });
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    altered.mockRestore();
     expect(await f.preparePublication(exact)).toMatchObject({ status: 'ready' });
   }));
 
