@@ -370,7 +370,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)
 
-**Verification:** Owner and protected route tests were RED at `db63cd98` (PR Checks `35905898120`). Journal and route implementation awaits exact-head GREEN CI; the independent publisher and protected sandbox publication are not proven.
+**Verification:** Owner journal and protected route behavior passed exact-head Codeflare PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. The independent publisher's separate Conductor Test `36165671477` passed at `03ea03189df882deb58288106c09746f4cddc178`. Neither run proves installed protected Action execution or external publication readback.
 
 **Status:** Planned
 
@@ -384,7 +384,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. Only the separate protected publisher job holds GitHub publication credentials; Pi, candidate code and the compiled child cannot access them.
+1. Only the separate protected publisher job holds GitHub publication credentials; Pi, candidate code and the compiled child cannot access them. <!-- @impl: .github/workflows/boundary-reviews.yml::publish -->
 2. The publisher validates original lane reports and independently reconciled GitHub history before a round can clear.
 3. A bounded artifact retains the original reports under the exact prepared repository, PR, revision, run and activity identity.
 4. A human-readable round comment binds the same generation and preserves unresolved original findings.
@@ -399,6 +399,6 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)
 
-**Verification:** Conductor's publisher RED draft is preserved uncommitted. Protected publisher, independent evidence and exact-ID sandbox proof remain pending; this requirement is Planned.
+**Verification:** Codeflare's frozen-owner projection and route passed PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. Conductor's publisher, artifact/history reader and ledger tests passed Test `36165671477` at `03ea03189df882deb58288106c09746f4cddc178`. The workflow is not installed; there is no live protected job, exact-ID GitHub receipt or shadow clearance proof. This requirement remains Planned.
 
 **Status:** Planned

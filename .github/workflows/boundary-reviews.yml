@@ -1,0 +1,89 @@
+name: Boundary Reviews (shadow)
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+jobs:
+  collect:
+    if: github.event.pull_request.state == 'open'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    outputs:
+      artifact_id: ${{ steps.transfer.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: nikolanovoselec/codeflare-operator-conductor
+          ref: b0e68b45f88804b68164ab8a99ddb8d6d8a7f2e6
+          path: trusted-conductor
+          token: ${{ secrets.CONDUCTOR_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: trusted-conductor/package-lock.json
+      - run: npm ci
+        working-directory: trusted-conductor
+      - name: Collect exact claimed Review result
+        run: node trusted-conductor/scripts/review-protected-job.mjs collect
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CODEFLARE_ORIGIN: ${{ vars.CODEFLARE_ENTERPRISE_ORIGIN }}
+          REVIEW_TRANSFER_FILE: ${{ runner.temp }}/boundary-result.json
+      - name: Transfer bounded terminal bytes, not authority
+        id: transfer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: boundary-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/boundary-result.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      issues: write
+      checks: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: nikolanovoselec/codeflare-operator-conductor
+          ref: b0e68b45f88804b68164ab8a99ddb8d6d8a7f2e6
+          path: trusted-conductor
+          token: ${{ secrets.CONDUCTOR_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: trusted-conductor/package-lock.json
+      - run: npm ci
+        working-directory: trusted-conductor
+      - name: Read bounded collector transfer
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ needs.collect.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-transfer
+      - name: Publish with independent protected identity
+        run: node trusted-conductor/scripts/review-protected-job.mjs publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CODEFLARE_ORIGIN: ${{ vars.CODEFLARE_ENTERPRISE_ORIGIN }}
+          REVIEW_COMMENT_AUTHOR_ID: ${{ vars.REVIEW_COMMENT_AUTHOR_ID }}
+          REVIEW_CHECK_APP_ID: ${{ vars.REVIEW_CHECK_APP_ID }}
+          REVIEW_TRANSFER_FILE: ${{ runner.temp }}/review-transfer/boundary-result.json
