@@ -32,34 +32,52 @@ async function publishApprovedOutputs(cwd: string, outputRoot: string,
   if (!reports.isDirectory() || reports.isSymbolicLink() || await realpath(directory) !== directory) {
     throw new Error('Approved reviewer output unavailable');
   }
-  for (const task of initialization.tasks) {
-    signal.throwIfAborted();
-    const source = path.join(cwd, task.output);
-    const handle = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    let encoded: Buffer;
-    try {
-      const file = await handle.stat();
-      if (!file.isFile() || file.size < 1 || file.size > 64 * 1024) throw new Error('Approved reviewer report unavailable');
-      encoded = await handle.readFile();
-      boundedOperatorOutput(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded));
-    } finally { await handle.close(); }
-    const destination = path.join(outputRoot, task.output);
-    const temporary = path.join(directory, `.${path.basename(task.output)}.${randomUUID()}.tmp`);
-    try {
-      await writeFile(temporary, encoded, { flag: 'wx', mode: 0o600 });
+  const staged: Array<{ temporary: string; destination: string; encoded: Buffer }> = [];
+  const published: string[] = [];
+  const verifyExisting = async (destination: string, encoded: Buffer) => {
+    const existing = await lstat(destination);
+    if (!existing.isFile() || existing.isSymbolicLink() || existing.size !== encoded.length
+      || await realpath(destination) !== destination || !(await readFile(destination)).equals(encoded)) {
+      throw new Error('Approved reviewer report conflict');
+    }
+  };
+  try {
+    for (const task of initialization.tasks) {
       signal.throwIfAborted();
-      try { await link(temporary, destination); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        const existing = await lstat(destination);
-        if (!existing.isFile() || existing.isSymbolicLink() || existing.size !== encoded.length
-          || await realpath(destination) !== destination || !(await readFile(destination)).equals(encoded)) {
-          throw new Error('Approved reviewer report conflict');
+      const source = path.join(cwd, task.output);
+      const handle = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let encoded: Buffer;
+      try {
+        const file = await handle.stat();
+        if (!file.isFile() || file.size < 1 || file.size > 64 * 1024) throw new Error('Approved reviewer report unavailable');
+        encoded = await handle.readFile();
+        boundedOperatorOutput(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded));
+      } finally { await handle.close(); }
+      const destination = path.join(outputRoot, task.output);
+      const temporary = path.join(directory, `.${path.basename(task.output)}.${randomUUID()}.tmp`);
+      await writeFile(temporary, encoded, { flag: 'wx', mode: 0o600 });
+      staged.push({ temporary, destination, encoded });
+      try { await verifyExisting(destination, encoded); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    signal.throwIfAborted();
+    try {
+      for (const { temporary, destination, encoded } of staged) {
+        signal.throwIfAborted();
+        try { await link(temporary, destination); published.push(destination); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          await verifyExisting(destination, encoded);
         }
       }
-    } finally { await rm(temporary, { force: true }); }
+      signal.throwIfAborted();
+    } catch (error) {
+      await Promise.all(published.map(destination => rm(destination, { force: true })));
+      throw error;
+    }
+  } finally {
+    await Promise.all(staged.map(({ temporary }) => rm(temporary, { force: true })));
   }
-  signal.throwIfAborted();
 }
 
 async function approvedReviewText(file: string): Promise<string> {

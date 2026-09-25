@@ -249,6 +249,17 @@ test('REQ-OPERATOR-021: deadline and sibling failure cannot publish partial outp
   await assert.rejects(readFile(path.join(failing.outputRoot, 'reports/spec-reviewer.json')));
 });
 
+test('REQ-OPERATOR-021: later report conflict leaves no newly published partial set', async t => {
+  const f = await fixture(t);
+  const reports = path.join(f.outputRoot, 'reports');
+  await mkdir(reports);
+  await writeFile(path.join(reports, 'spec-reviewer.json'), 'existing report');
+  assert.equal(await submit(f, 'conflicting-report'), 'failed');
+  await assert.rejects(readFile(path.join(reports, 'code-reviewer.json')));
+  assert.equal(await readFile(path.join(reports, 'spec-reviewer.json'), 'utf8'), 'existing report');
+  await assert.rejects(readFile(path.join(reports, 'doc-updater.json')));
+});
+
 test('REQ-OPERATOR-021: cancellation during creation or after journal persistence aborts children', async t => {
   let started;
   const creating = new Promise(resolve => { started = resolve; });
