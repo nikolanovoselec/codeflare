@@ -2,9 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import webhookRoutes from '../../routes/operator-webhook';
 
-const claim = vi.hoisted(() => ({ execute: vi.fn(), publication: vi.fn() }));
+const claim = vi.hoisted(() => ({ execute: vi.fn(), publication: vi.fn(), preparation: vi.fn() }));
 vi.mock('../../operators/review-boundary-claim', () => ({ claimVerifiedBoundaryAction: claim.execute,
-  operateBoundaryPublication: claim.publication }));
+  operateBoundaryPublication: claim.publication, prepareBoundaryPublication: claim.preparation }));
 
 const path = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/boundary';
 const token = 'header.payload.signature';
@@ -21,6 +21,8 @@ beforeEach(() => {
   claim.execute.mockReset();
   claim.publication.mockReset();
   claim.publication.mockResolvedValue({ status: 'new' });
+  claim.preparation.mockReset();
+  claim.preparation.mockResolvedValue({ status: 'ready', projection: { packetDigest: 'f'.repeat(64) } });
   claim.execute.mockResolvedValue({ activityId: 'review-activity', origin: 'https://enterprise.example.test',
     startCapability: 's'.repeat(43), ...bindings, workflowId: 531, generation: 1 });
 });
@@ -154,5 +156,38 @@ describe('REQ-OPERATOR-055: trusted publication journal boundary', () => {
       body: JSON.stringify(publication) + ' '.repeat(4096),
     });
     expect((await webhookRoutes.fetch(oversized, env as never)).status).toBe(400);
+  });
+});
+
+const preparationPath = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/publication-preparation';
+const { effect: _effect, digest: _digest, operation: _operation, ...preparationIdentity } = publication;
+const preparation = { ...preparationIdentity, resultDigest: 'f'.repeat(64) };
+function preparationRequest(body: unknown = preparation, authorization: string | null = `Bearer ${token}`) {
+  return new Request(preparationPath, { method: 'POST', headers: {
+    ...(authorization === null ? {} : { authorization }), 'content-type': 'application/json',
+  }, body: JSON.stringify(body) });
+}
+
+describe('REQ-OPERATOR-056: protected publication-preparation edge', () => {
+  it('returns only credential-free frozen evidence to an authenticated Action', async () => {
+    const response = await webhookRoutes.fetch(preparationRequest(), env as never);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ status: 'ready', projection: { packetDigest: 'f'.repeat(64) } });
+  });
+
+  it('denies unauthenticated, non-enterprise, malformed and caller-selected preparation authority', async () => {
+    expect((await webhookRoutes.fetch(preparationRequest(preparation, null), env as never)).status).toBe(401);
+    expect((await webhookRoutes.fetch(preparationRequest(), {} as never)).status).toBe(404);
+    for (const invalid of [{ ...preparation, policyDigest: 'a'.repeat(64) },
+      { ...preparation, packetDigest: 'a'.repeat(64) }, { ...preparation, accessJwt: 'forged' },
+      { ...preparation, resultDigest: 'bad' }, { ...preparation, activityGeneration: 0 },
+      Object.fromEntries(Object.entries(preparation).filter(([field]) => field !== 'runId'))]) {
+      expect((await webhookRoutes.fetch(preparationRequest(invalid), env as never)).status).toBe(400);
+    }
+    expect((await webhookRoutes.fetch(new Request(preparationPath, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(preparation) + ' '.repeat(4096),
+    }), env as never)).status).toBe(400);
   });
 });

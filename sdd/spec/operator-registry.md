@@ -391,6 +391,7 @@ This release extends the existing Operator foundation with GitHub package instal
 5. A generation-specific shadow check binds exact external IDs and the immutable content digest.
 6. Red, partial, missing or incomplete evidence never publishes a green round.
 7. Independent current-context verification rejects a late old check from clearing a newer revision.
+8. Before publication, the protected Action obtains a bounded OIDC-authenticated preparation projection from the exact claimed Registry reservation and the collected terminal Activity: frozen admission policy/round identities, original invocation and package/resource digests, immutable accepted packet descriptors and owned-session initialization, and a digest of the consumed terminal result. Missing or changed identity denies publication; the parent does not interpret Review lanes. <!-- @impl: src/operators/review-boundary-claim.ts::prepareBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-056: authenticated publication-preparation projection) --> <!-- @test: src/__tests__/routes/operator-boundary-claim.test.ts (REQ-OPERATOR-056: protected publication-preparation edge) -->
 
 **Constraints:** Publication uses the credential-free [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) journal but never treats its receipt alone as GitHub evidence. Actions concurrency and matching check names are not serialization or clearance proofs. Required-check activation and production deployment need separate explicit authorization.
 

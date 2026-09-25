@@ -7,8 +7,8 @@ import { parseOperatorAttachmentProjection } from '../../operators/attachments';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
-import { claimVerifiedBoundaryAction, operateBoundaryPublication, verifyCurrentClaimedBoundaryPacket,
-  type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
+import { claimVerifiedBoundaryAction, operateBoundaryPublication, prepareBoundaryPublication,
+  verifyCurrentClaimedBoundaryPacket, type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
 import webhookRoutes from '../../routes/operator-webhook';
 import { fencePendingBoundaryStart } from '../../routes/session/boundary-stop';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
@@ -16,12 +16,12 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
-const trust = vi.hoisted(() => ({ signed: true, current: true, human: true,
+const trust = vi.hoisted(() => ({ signed: true, audience: true, current: true, human: true,
   selection: true, workflowRevision: 'd'.repeat(40) }));
 vi.mock('../../operators/boundary-action-oidc', () => ({ verifyBoundaryActionOidc: async (_token: string, expected: {
   repositoryId: number; repository: string; workflowPath: string; protectedRef: string; workflowSha: string;
-  runId: number; runAttempt: number;
-}) => trust.signed ? { repositoryId: expected.repositoryId, repository: expected.repository,
+  runId: number; runAttempt: number; audience?: string;
+}) => trust.signed && (trust.audience || !expected.audience?.includes('/claims/publication')) ? { repositoryId: expected.repositoryId, repository: expected.repository,
   eventName: 'pull_request_target', workflowRef: `${expected.repository}/${expected.workflowPath}@${expected.protectedRef}`,
   workflowSha: expected.workflowSha, runId: expected.runId, runAttempt: expected.runAttempt } : null }));
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'parent-owned-github-credential' }));
@@ -52,7 +52,7 @@ beforeAll(async () => {
   }
 });
 beforeEach(async () => {
-  trust.signed = trust.current = trust.human = trust.selection = true;
+  trust.signed = trust.audience = trust.current = trust.human = trust.selection = true;
   trust.workflowRevision = 'd'.repeat(40);
   await db.prepare('DELETE FROM runtime_sessions').run();
   await db.prepare("UPDATE session_cutover SET state='complete' WHERE id=1").run();
@@ -68,7 +68,8 @@ async function scenario(run: (fixture: {
   publish: (change?: Partial<BoundaryPublicationRequest>) => Promise<unknown>;
   packetCurrent: () => Promise<boolean>;
   expireBoundary: () => Promise<void>; activityId: string; startCapability: string; rehydrate: () => OperatorActivity;
-}) => Promise<void>) {
+  preparePublication: (change?: Record<string, unknown>) => Promise<unknown>;
+}) => Promise<void>, options: { roundGeneration?: number | null } = {}) {
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const registryName = `boundary-${crypto.randomUUID()}`;
@@ -103,7 +104,8 @@ async function scenario(run: (fixture: {
       contextDigest: 'f'.repeat(64), ownerKey: await operatorOwnerKey(human), installationId: 'review-install',
       deadline: Date.now() + 300_000, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'review-release', bundleDigest: 'e'.repeat(64), workflowId: 531, workflowDigest: actionDigest,
-      session, operatorId: 'review-operator', revision: { head, base, mergeBase } });
+      session, operatorId: 'review-operator', revision: { head, base, mergeBase },
+      ...(options.roundGeneration === null ? {} : { roundGeneration: options.roundGeneration ?? 1 }) });
     if (!reservation.ok) throw Error('Expected real Registry preparation');
     activityId = reservation.value.activityId;
   });
@@ -146,7 +148,9 @@ async function scenario(run: (fixture: {
       const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
         activityId, operatorId: 'review-operator', runId: activityId,
         source: { kind: 'session', reference: 'owner/repo' },
-        revision: { reference: head, digest: 'f'.repeat(64) }, inputDigest: 'd'.repeat(64), input: {},
+        revision: { reference: head, digest: 'f'.repeat(64) }, inputDigest: 'd'.repeat(64),
+        input: { context: { repositoryId: 138, pullRequest: 34, head, base, mergeBase },
+          acknowledgedHead: null, evidence: {} },
         attachments: [], resources: { inference: null, session: null, storage: { scopeId: activityId } } };
       const binding = { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session };
       const prepared = await prepareOperatorActivity({ installationId: 'review-install', invocation },
@@ -201,13 +205,16 @@ async function scenario(run: (fixture: {
         signedFixture, { ...request, workflowId: 531, activityId, contextDigest: 'f'.repeat(64),
           sessionGeneration: 1, activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64),
           operation: 'begin', ...change });
+      const preparePublication = (change: Record<string, unknown> = {}) => prepareBoundaryPublication(actionEnv,
+        signedFixture, { ...request, workflowId: 531, activityId, contextDigest: 'f'.repeat(64),
+          sessionGeneration: 1, activityGeneration: 1, resultDigest: '0'.repeat(64), ...change });
       const expireBoundary = () => runInDurableObject(registryNamespace.getByName(registryName), (_owner, ctx) => {
         ctx.storage.sql.exec(`UPDATE operator_boundary_preparations SET data=json_set(data,'$.deadline',?)
           WHERE repository_id=? AND pull_request=?`, Date.now() - 1, 138, 34);
       });
       try { await run({ registry: registryOwner, activity, repo, claim, publish,
         packetCurrent: () => verifyCurrentClaimedBoundaryPacket(actionEnv, activityId, 'owner/repo'), expireBoundary,
-        activityId, startCapability: prepared.startCapability,
+        activityId, startCapability: prepared.startCapability, preparePublication,
         rehydrate: () => new OperatorActivity(activityCtx,
           activityEnv as unknown as ConstructorParameters<typeof OperatorActivity>[1]) }); }
       finally { vi.restoreAllMocks(); }
@@ -651,5 +658,188 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     release();
     expect(await pendingStart).toMatchObject({ ok: false });
     expect(await f.activity.getRuntimePlan()).toBeNull();
+  }));
+});
+
+async function publicationFixture(f: {
+  activity: OperatorActivity; activityId: string; startCapability: string;
+  claim: () => Promise<unknown>;
+}) {
+  expect(await f.claim()).toMatchObject({ activityId: f.activityId, runId: 87, runAttempt: 1 });
+  const started = await f.activity.startWebhook(f.startCapability);
+  if (!started.ok) throw Error('Expected real claimed Activity start');
+  const plan = await f.activity.getRuntimePlan();
+  if (!plan) throw Error('Expected admitted execution context');
+  const resourceContent = '# Approved instructions';
+  const sha = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(value)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const resource = { destination: 'review/code.md', size: new TextEncoder().encode(resourceContent).length,
+    sha256: await sha(resourceContent), content: resourceContent };
+  await f.activity.savePackageResources({ schemaVersion: 1, artifactDigest: plan.executionContext.artifactDigest,
+    files: [resource] });
+  const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+  const packets: Array<{ lane: string; name: string; mediaType: string; size: number;
+    sha256: string; locator: string }> = [];
+  for (const [index, lane] of lanes.entries()) {
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: index + 1 } });
+    const bytes = new TextEncoder().encode(JSON.stringify({ lane, evidence: `review-${index}` }));
+    const accepted = await f.activity.saveApprovedPacketAttachment({ preparationId: `round-1-${lane}`,
+      lane, name: `packet-${lane}.json`, mediaType: 'application/json',
+      locator: `packet-${index + 1}`, size: bytes.length, sha256: await sha(new TextDecoder().decode(bytes)),
+      bytes, driveGeneration: index + 1 });
+    if (!accepted.ok) throw Error('Expected accepted packet descriptor');
+    packets.push({ lane, ...accepted.attachment });
+    const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile',
+      contextPath: 'review/input.json', context: JSON.stringify({ contextDigest: 'f'.repeat(64) }),
+      inputs: [...packets.map(file => ({ kind: 'attachment' as const, reference: file.name,
+        target: `review/packets/${file.name}` })),
+      { kind: 'resource' as const, reference: resource.destination, target: 'review/resources/code.md' }],
+      tasks: [{ id: 'code', instruction: 'review/resources/code.md',
+        reads: ['review/input.json', 'review/resources/code.md', ...packets.map(file => `review/packets/${file.name}`)],
+        output: 'reports/code.json' }] };
+    expect(await f.activity.commitDrive(index + 1, { schemaVersion: 1, status: 'waiting',
+      checkpoint: { stage: 'packet', contextDigest: 'f'.repeat(64), attachments: [...packets],
+        ...(index === 2 ? { initialization } : {}) } })).toMatchObject({ ok: true });
+  }
+  const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile',
+    contextPath: 'review/input.json', context: JSON.stringify({ contextDigest: 'f'.repeat(64) }),
+    inputs: [...packets.map(file => ({ kind: 'attachment' as const, reference: file.name,
+      target: `review/packets/${file.name}` })),
+    { kind: 'resource' as const, reference: resource.destination, target: 'review/resources/code.md' }],
+    tasks: [{ id: 'code', instruction: 'review/resources/code.md',
+      reads: ['review/input.json', 'review/resources/code.md', ...packets.map(file => `review/packets/${file.name}`)],
+      output: 'reports/code.json' }] };
+  const attachments = parseOperatorAttachmentProjection(await f.activity.readApprovedPacketAttachments());
+  const requestDigest = await sha(JSON.stringify({ invocationJson: plan.invocationJson, attachments, initialization }));
+  const owned = { schemaVersion: 1, requestId: 'review-session-v1', requestDigest, activityId: f.activityId,
+    ownerBucket: 'owner-bucket', sessionId: 'review-session', status: 'reserved',
+    profile: { schemaVersion: 1, activityId: f.activityId, operatorId: 'review-operator',
+      sessionId: 'review-session', ownerBucket: 'owner-bucket', policyDigest: plan.executionContext.policyDigest,
+      deadline: Date.now() + 60_000, outputPrefix: 'Operators/',
+      human: { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
+      policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: ['Operators/'], writePrefixes: ['Operators/'] },
+        inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
+          defaultReasoningLevel: 'off', inheritUserDefaults: false } },
+      jwtPolicy: { mode: 'off', destinations: [] },
+      piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
+        systemPrompt: 'fixed', tools: ['read', 'write'], initialization } } };
+  expect(await f.activity.saveOwnedSession(owned)).toMatchObject({ ok: true });
+  expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 4 } });
+  const result = { status: 'complete', reports: [{ lane: 'code-reviewer', finding: 'original-private-bytes' }] };
+  expect(await f.activity.commitDrive(4, { schemaVersion: 1, status: 'completed', checkpoint: null,
+    result })).toMatchObject({ ok: true });
+  expect(await f.activity.redeemWebhookResult(started.readCapability))
+    .toMatchObject({ ok: true, terminal: true, generation: 4, result });
+  return { resultDigest: await sha(JSON.stringify(result)), packets, initialization,
+    resource, plan, sha };
+}
+
+describe('REQ-OPERATOR-056: authenticated publication-preparation projection', () => {
+  it('derives one immutable owner-backed projection and binds the collected terminal result', () => scenario(async f => {
+    expect(await f.preparePublication()).not.toMatchObject({ status: 'ready' });
+    const evidence = await publicationFixture(f);
+    const projection = await f.preparePublication({ activityGeneration: 4,
+      resultDigest: evidence.resultDigest });
+    expect(projection).toMatchObject({ status: 'ready', projection: {
+      schemaVersion: 1, admission: { repositoryId: 138, pullRequest: 34, activityId: f.activityId,
+        roundGeneration: 1, inputDigest: 'd'.repeat(64),
+        packageDigest: evidence.plan.executionContext.artifactDigest,
+        policyDigest: evidence.plan.executionContext.policyDigest, workflowId: 531,
+        runId: 87, runAttempt: 1, acknowledgedHead: null },
+      context: { repositoryId: 138, pullRequest: 34, head, base, mergeBase,
+        headPullRequests: [34], mergeQueue: false }, contextDigest: 'f'.repeat(64),
+      resources: [{ destination: evidence.resource.destination, sha256: evidence.resource.sha256,
+        size: evidence.resource.size }], packets: evidence.packets,
+      initialization: evidence.initialization, resultDigest: evidence.resultDigest,
+      activityGeneration: 4 } });
+    expect(projection).toMatchObject({ status: 'ready', projection: { admission: {
+      resourceDigest: await evidence.sha(JSON.stringify([{ destination: evidence.resource.destination,
+        sha256: evidence.resource.sha256, size: evidence.resource.size }])),
+    } } });
+    const actual = projection as { status: string; projection: { packetDigest: string; packets: typeof evidence.packets } };
+    expect(actual.projection.packetDigest).toBe(await evidence.sha(JSON.stringify({
+      contextDigest: 'f'.repeat(64), packets: evidence.packets.map(file => ({ lane: file.lane, digest: file.sha256 })),
+    })));
+    expect(actual.projection.packets).toHaveLength(3);
+    expect(JSON.stringify(projection)).not.toContain('original-private-bytes');
+  }));
+
+  it('rejects a claimed Activity without a frozen owned session or collected terminal generation', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    expect(await f.preparePublication({ activityGeneration: 1, resultDigest: '0'.repeat(64) }))
+      .not.toMatchObject({ status: 'ready' });
+    expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: true });
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { status: 'complete' } })).toMatchObject({ ok: true });
+    expect(await f.preparePublication({ activityGeneration: 1, resultDigest: '0'.repeat(64) }))
+      .not.toMatchObject({ status: 'ready' });
+  }));
+
+  it('rejects a legacy binding without preclaim round provenance', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    expect(await f.preparePublication({ activityGeneration: 4, resultDigest: evidence.resultDigest }))
+      .not.toMatchObject({ status: 'ready' });
+  }, { roundGeneration: null }));
+
+  it('rejects mismatched claim, consumed drive generation, result digest, and malformed input', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
+    for (const changed of [{ repositoryId: 139 }, { pullRequest: 35 }, { head: '9'.repeat(40) },
+      { base: '9'.repeat(40) }, { mergeBase: '9'.repeat(40) }, { workflowId: 532 },
+      { runId: 88 }, { runAttempt: 2 }, { activityId: 'other-activity' },
+      { contextDigest: '9'.repeat(64) }, { sessionGeneration: 2 }, { activityGeneration: 3 },
+      { resultDigest: '9'.repeat(64) }, { resultDigest: 'not-a-digest' },
+      { pullRequest: 0 }, { head: null }]) {
+      expect(await f.preparePublication({ ...exact, ...changed })).not.toMatchObject({ status: 'ready' });
+    }
+    expect(await f.preparePublication(exact)).toMatchObject({ status: 'ready' });
+  }));
+
+  it('rejects missing, duplicate, reordered, or changed owner packet descriptors and altered initialization', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
+    const realFiles = await f.activity.readApprovedPacketAttachments();
+    const read = vi.spyOn(f.activity, 'readApprovedPacketAttachments');
+    for (const files of [[], realFiles.files.slice(0, 2), [...realFiles.files, realFiles.files[0]],
+      [...realFiles.files].reverse(), realFiles.files.map((file, index) => index === 0
+        ? { ...file, sha256: '9'.repeat(64) } : file)]) {
+      read.mockResolvedValue({ ...realFiles, files });
+      expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    }
+    read.mockRestore();
+    const owned = await f.activity.getOwnedSession();
+    if (!owned) throw Error('Expected real frozen owned session');
+    const owner = vi.spyOn(f.activity, 'getOwnedSession');
+    owner.mockResolvedValue({ ...owned, profile: { ...owned.profile, piProfile: {
+      ...owned.profile.piProfile, initialization: { ...evidence.initialization,
+        inputs: evidence.initialization.inputs.slice(0, -1) },
+    } } });
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    owner.mockRestore();
+    expect(await f.preparePublication(exact)).toMatchObject({ status: 'ready' });
+  }));
+
+  it('fails closed for expired claim, stopped session, changed current PR, uncertain workflow and stale OIDC', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
+    trust.signed = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.signed = true;
+    trust.audience = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.audience = true;
+    trust.current = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.current = true;
+    trust.selection = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.selection = true;
+    expect(await f.repo.claimStop(session.bucket, session.sessionId, 'stop-publication',
+      new Date().toISOString(), 1)).toBeTruthy();
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    await f.expireBoundary();
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
   }));
 });
