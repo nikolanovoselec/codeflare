@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createConductorProductionCapability } from '../../operators/conductor-production';
 
@@ -5,7 +6,8 @@ const state = vi.hoisted(() => ({ current: true, stopAfterHost: false, stopAfter
   ownedSession: false, reserveDuringHost: false, hostStalled: false,
   hostCancelled: false, hostStarted: null as null | (() => void),
   hostRequests: [] as Array<{ path: string; authorization: string | null; body: Uint8Array }>,
-  objects: new Map<string, Uint8Array>(), files: [] as unknown[] }));
+  objects: new Map<string, Uint8Array>(), files: [] as unknown[], checkpoint: null as string | null,
+  resources: null as unknown }));
 const packet = new TextEncoder().encode(JSON.stringify({ scope: 'all', workSet: 'whole-requested-tree',
   lane: 'code-reviewer', files: [], changedInputs: [], patch: '',
   evidence: { lane: 'code-reviewer', callSites: [], anchorsCitingChanged: [] } }));
@@ -88,8 +90,9 @@ async function capability(driveDeadline = Date.now() + 25_000) {
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
   const activity = {
     operatorGenerationCurrent: async () => state.current,
-    getPackageResources: async () => null, getOwnedSession: async () => state.ownedSession ? { status: 'ready' } : null,
+    getPackageResources: async () => state.resources, getOwnedSession: async () => state.ownedSession ? { status: 'ready' } : null,
     readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: state.files }),
+    getCurrentDriveCheckpointJson: async (generation: number) => generation === 1 ? state.checkpoint : null,
     saveApprovedPacketAttachment: async (input: { name: string; mediaType: string; size: number;
       sha256: string; locator: string; preparationId: string; driveGeneration: number }) => {
       if (input.driveGeneration !== 1 || !state.current || state.ownedSession) return { ok: false };
@@ -216,5 +219,36 @@ describe('REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary 
     expect((await prepare(owner)).status).toBe(403);
     expect(state.files).toEqual([]);
     expect(state.objects.size).toBe(0);
+  });
+});
+
+describe('REQ-OPERATOR-050: claimed packet initialization requires its private Activity checkpoint', () => {
+  it('admits matching initialization and denies a changed or missing checkpoint before startup', async () => {
+    state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false;
+    state.hostStalled = false; state.ownedSession = false; state.reserveDuringHost = false;
+    state.files = []; state.objects.clear(); state.checkpoint = null;
+    const instruction = 'Review';
+    state.resources = { schemaVersion: 1, artifactDigest: 'a'.repeat(64), files: [{
+      destination: 'review/instruction.md', content: instruction, size: instruction.length,
+      sha256: createHash('sha256').update(instruction).digest('hex'),
+    }] };
+    const owner = await capability();
+    expect((await prepare(owner)).status).toBe(200);
+    const initialization = { schemaVersion: 1, profileId: 'review-profile', contextPath: 'review/context.json',
+      context: '{}', inputs: [{ kind: 'attachment', reference: 'packet-code-reviewer.json',
+        target: 'review/packet-code-reviewer.json' }, { kind: 'resource', reference: 'review/instruction.md',
+        target: 'review/instruction.md' }], tasks: [{ id: 'code', instruction: 'review/instruction.md',
+        reads: ['review/context.json', 'review/packet-code-reviewer.json', 'review/instruction.md'],
+        output: 'reports/code.json' }] };
+    const ensure = () => owner.fetch(new Request('https://operator.internal/v1/session/ensure', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, initialization }),
+    }));
+    state.checkpoint = JSON.stringify({ initialization });
+    expect((await ensure()).status).toBe(200);
+    state.checkpoint = JSON.stringify({ initialization: { ...initialization, context: '{"changed":true}' } });
+    expect((await ensure()).status).toBe(403);
+    state.checkpoint = null;
+    expect((await ensure()).status).toBe(403);
   });
 });
