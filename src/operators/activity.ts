@@ -1053,11 +1053,13 @@ export class OperatorActivity extends Agent {
   }
 
   /** Parent-only checkpoint read for the live generation; browser projections do not grant execution authority. */
-  async getCurrentDriveCheckpoint(generation: number): Promise<unknown | null> {
+  async getCurrentDriveCheckpointJson(generation: number): Promise<string | null> {
     if (!await this.operatorGenerationCurrent(generation)) return null;
     const state = await this.ctx.storage.get<AdmissionState>('admission');
-    return state?.drive?.status === 'running' && state.drive.generation === generation
-      ? structuredClone(state.drive.checkpoint) : null;
+    if (state?.drive?.status !== 'running' || state.drive.generation !== generation
+      || state.drive.checkpoint === null) return null;
+    const encoded = JSON.stringify(state.drive.checkpoint);
+    return typeof encoded === 'string' ? encoded : null;
   }
 
   /** Validate bounded child output before committing the current generation only. */

@@ -31,7 +31,7 @@ function store(options: { migration?: boolean; encrypted?: boolean; ambiguous?: 
 }
 
 async function persist(input: Uint8Array, fixture: ReturnType<typeof store>, declared = projection) {
-  return persistApprovedPacketAttachment({ projection: declared, file, bytes: input,
+  return await persistApprovedPacketAttachment({ projection: declared, file, bytes: input,
     ownerBucket: 'owner-bucket', endpoint: 'https://r2.example.test',
     fetcher: fixture.fetcher, authorize: async () => {}, isBucketMigrating: fixture.migrating,
     isSseDisabledForBucket: fixture.sseDisabled,

@@ -124,7 +124,8 @@ export async function createConductorProductionCapability(input: { env: Env; pla
         profileId: installationPolicy.resourceProfileId!, attachments, resources: packageResources,
       });
     if (prepared.files.length) {
-      const checkpoint = await activity.getCurrentDriveCheckpoint(input.generation);
+      const checkpointJson = await activity.getCurrentDriveCheckpointJson(input.generation);
+      const checkpoint: unknown = checkpointJson === null ? null : JSON.parse(checkpointJson);
       const checkpointInitialization = checkpoint && typeof checkpoint === 'object' && 'initialization' in checkpoint
         ? checkpoint.initialization : undefined;
       if (!checkpoint || JSON.stringify(initialization) !== JSON.stringify(checkpointInitialization)) {

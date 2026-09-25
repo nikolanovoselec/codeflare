@@ -62,8 +62,8 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
     getPackageResources: async () => ({ schemaVersion: 1, artifactDigest: 'd'.repeat(64), files: [{
       destination: 'review/code.md', sha256: 'b'.repeat(64), size: 8, content: 'approved',
     }] }),
-    getCurrentDriveCheckpoint: async (generation: number) => generation === 1
-      ? { initialization: checkpointInitialization } : null,
+    getCurrentDriveCheckpointJson: async (generation: number) => generation === 1
+      ? JSON.stringify({ initialization: checkpointInitialization }) : null,
     readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: claimed ? [approvedFile] : [] }) };
   const env = { OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
     CONTAINER: {} };

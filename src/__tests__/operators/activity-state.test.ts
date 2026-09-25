@@ -78,13 +78,13 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-active' });
     expect(await activity.commitDrive(1, update)).toMatchObject({ ok: true, state: { status: 'waiting' } });
     expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2, checkpoint: { step: 1 } } });
-    expect(await activity.getCurrentDriveCheckpoint(1)).toBeNull();
-    expect(await activity.getCurrentDriveCheckpoint(2)).toEqual({ step: 1 });
+    expect(await activity.getCurrentDriveCheckpointJson(1)).toBeNull();
+    expect(await activity.getCurrentDriveCheckpointJson(2)).toBe(JSON.stringify({ step: 1 }));
     expect(await activity.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
     expect(await activity.commitDrive(2, { ...update, status: 'completed', result: 'done' }))
       .toMatchObject({ ok: true, state: { status: 'completed', result: 'done' } });
     expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
-    expect(await activity.getCurrentDriveCheckpoint(2)).toBeNull();
+    expect(await activity.getCurrentDriveCheckpointJson(2)).toBeNull();
     expect(await activity.cancelDrive()).toEqual({ ok: false, reason: 'drive-settled' });
     expect(await registry.getReceipt('activity')).toMatchObject({ ok: true, value: { artifactDigest: 'a'.repeat(64) } });
   }));
