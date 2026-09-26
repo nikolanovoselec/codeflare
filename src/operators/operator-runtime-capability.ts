@@ -149,6 +149,7 @@ export async function createDispatcherOperation(input: {
     // 64 KiB response bound. Read at most 100 runs in small pages, then pass only
     // the fields the installed Dispatcher uses to assess completeness.
     const checkRuns: Array<{ name: string; conclusion: string | null }> = [];
+    const seenCheckIds = new Set<number>();
     let total: number | null = null;
     let truncated = false;
     for (let page = 1; page <= 10; page++) {
@@ -161,14 +162,18 @@ export async function createDispatcherOperation(input: {
           || typeof run.name !== 'string' || (run.conclusion !== null && typeof run.conclusion !== 'string'))) {
         throw new Error('Check evidence unavailable');
       }
-      if (total === null) total = data.total_count;
-      if (data.total_count !== total) { truncated = true; break; }
-      checkRuns.push(...data.check_runs.map((run: { name: string; conclusion: string | null }) => ({
-        name: run.name, conclusion: run.conclusion,
-      })));
-      if (total > 100 || checkRuns.length > total) { truncated = true; break; }
+      const expectedTotal: number = total ?? data.total_count;
+      total = expectedTotal;
+      if (data.total_count !== expectedTotal) { truncated = true; break; }
+      for (const run of data.check_runs as Array<{ id: number; name: string; conclusion: string | null }>) {
+        if (!Number.isSafeInteger(run.id) || seenCheckIds.has(run.id)) { truncated = true; break; }
+        seenCheckIds.add(run.id);
+        checkRuns.push({ name: run.name, conclusion: run.conclusion });
+      }
+      if (truncated) break;
+      if (expectedTotal > 100 || checkRuns.length > expectedTotal) { truncated = true; break; }
       const more = /rel="next"/.test(response.headers.get('link') ?? '');
-      if (checkRuns.length === total) { truncated = more; break; }
+      if (checkRuns.length === expectedTotal) { truncated = more; break; }
       if (data.check_runs.length !== 10 || !more) { truncated = true; break; }
     }
     return Response.json({ data: { check_runs: checkRuns }, observedHead: observed.head.sha,

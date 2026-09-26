@@ -34,7 +34,7 @@ async function fixture(test: (f: {
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
   denyInference: (code: string) => void; denyRead: (body: unknown, resource?: 'files' | 'checks') => void;
-  oversizedChecks: (count?: number, outputBytes?: number) => void;
+  oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -55,7 +55,7 @@ async function fixture(test: (f: {
     let uncertain = false;
     let inferenceDenial: string | null = null;
     let readDenial: { body: unknown; resource?: 'files' | 'checks' } | null = null;
-    let oversizedChecks: { count: number; outputBytes: number } | null = null;
+    let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -92,7 +92,8 @@ async function fixture(test: (f: {
             const first = (page - 1) * perPage;
             const count = Math.max(0, Math.min(perPage, checks.count - first));
             return Response.json({ total_count: checks.count,
-              check_runs: Array.from({ length: count }, (_, index) => ({ name: `check-${first + index}`,
+              check_runs: Array.from({ length: count }, (_, index) => ({ id: checks.overlap && first > 0 && index === 0
+                ? first - 1 : first + index, name: `check-${first + index}`,
                 conclusion: 'success', output: 'x'.repeat(checks.outputBytes) })) }, {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
@@ -138,7 +139,9 @@ async function fixture(test: (f: {
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; }, denyInference: code => { inferenceDenial = code; },
         denyRead: (body, resource) => { readDenial = { body, resource }; },
-        oversizedChecks: (count = 76, outputBytes = 3000) => { oversizedChecks = { count, outputBytes }; },
+        oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
+          oversizedChecks = { count, outputBytes, overlap };
+        },
         nextAlarm: () => native.storage.getAlarm(),
       });
     } finally {
@@ -281,6 +284,13 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(evidence.truncated).toBe(true);
     expect(evidence.data.check_runs.length).toBeLessThanOrEqual(100);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+  it('marks overlapping check pages incomplete even when the row count matches', () => fixture(async f => {
+    await start(f); f.oversizedChecks(20, 3000, true);
+    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { truncated: boolean };
+    expect(evidence.truncated).toBe(true);
   }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();
