@@ -32,7 +32,7 @@ async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; environment: Env;
   artifactDigest: string; settle: (id?: string, outcome?: string) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
-  restart: () => OperatorActivity; loseResponse: () => void;
+  restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -113,7 +113,7 @@ async function fixture(test: (f: {
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
-        loseResponse: () => { uncertain = true; },
+        loseResponse: () => { uncertain = true; }, nextAlarm: () => native.storage.getAlarm(),
       });
     } finally {
       await activity.cancelDrive();
@@ -143,6 +143,18 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
     expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
     expect((await f.capability.fetch(read())).status).toBe(403);
+  }));
+  it('rechecks a later settlement before the bounded lease expires without caller continuation', () => fixture(async f => {
+    const startedAt = Date.now();
+    await start(f);
+    await f.activity.reconcileDispatcherLease();
+    const alarm = await f.nextAlarm();
+    expect(alarm).not.toBeNull();
+    expect(alarm!).toBeLessThan(startedAt + 15_000);
+    f.settle();
+    vi.spyOn(Date, 'now').mockReturnValue(alarm! + 1_000);
+    await f.activity.alarm();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
   }));
   it('fences failed settlement rather than granting a continuation', () => fixture(async f => {
     await start(f); f.settle('submission-1', 'failed'); await f.activity.reconcileDispatcherLease();
