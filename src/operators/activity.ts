@@ -16,7 +16,6 @@ import { z } from 'zod';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
-import { createLogger } from '../lib/logger';
 import { canInvokeOperator, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
@@ -74,7 +73,6 @@ interface DispatcherOperationRecord {
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_LIMIT_MS = 30_000;
-const dispatcherLog = createLogger('dispatcher-settlement');
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
   '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
@@ -1341,7 +1339,6 @@ export class OperatorActivity extends Agent {
       if (!lease || (expected && expected.generation !== lease.generation)
         || (lease.status !== 'running' && lease.status !== 'admitting')) return;
       if (!await this.dispatcherGenerationCurrent(lease.generation)) {
-        dispatcherLog.warn('Dispatcher settlement unavailable', { stage: 'expired' });
         await this.interruptDrive(lease.generation);
         return;
       }
@@ -1351,27 +1348,20 @@ export class OperatorActivity extends Agent {
         if (!plan) throw new Error('Dispatcher plan unavailable');
         const value = await this.#boundedDispatcher(lease, async () => {
           const response = await (await this.#dispatcherFacet(lease)).fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher'));
-          if (!response.ok) {
-            dispatcherLog.warn('Dispatcher settlement unavailable', { stage: 'status', status: response.status });
-            throw new Error('Dispatcher status unavailable');
-          }
+          if (!response.ok) throw new Error('Dispatcher status unavailable');
           return JSON.parse(await readDispatcherBody(response));
         });
         const settlement = Array.isArray(value?.settlements)
           ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
         if (!settlement) {
-          const messages = Array.isArray(value?.messages) ? value.messages : [];
-          dispatcherLog.warn('Dispatcher settlement unavailable', {
-            stage: 'pending', count: Array.isArray(value?.settlements) ? value.settlements.length : 0,
-            messageCount: messages.length,
-            assistantCount: messages.filter((message: { role?: unknown }) => message?.role === 'assistant').length,
-            toolCount: messages.filter((message: { role?: unknown }) => message?.role === 'tool').length,
-          });
+          // A child may settle just after this snapshot; the deadline alarm cannot
+          // read it once the lease expires. Recheck within the original lease.
+          const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
+          if (remainingSeconds > 0) await this.schedule(Math.min(5, remainingSeconds), 'reconcileDispatcherLease', { generation: lease.generation });
           return;
         }
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
-          dispatcherLog.warn('Dispatcher settlement unavailable', { stage: 'settled-noncomplete' });
           await this.interruptDrive(lease.generation); return;
         }
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
@@ -1389,10 +1379,7 @@ export class OperatorActivity extends Agent {
         const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'waiting',
           checkpoint: { submissionId: lease.submissionId, inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest } });
         if (!committed.ok) await this.interruptDrive(lease.generation);
-      } catch {
-        dispatcherLog.warn('Dispatcher settlement unavailable', { stage: 'read' });
-        await this.interruptDrive(lease.generation);
-      }
+      } catch { await this.interruptDrive(lease.generation); }
     })();
     try { await this.#reconciling; } finally { this.#reconciling = undefined; }
   }
