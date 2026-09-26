@@ -30,7 +30,7 @@ async function digest(value: string | Uint8Array) {
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; environment: Env;
-  artifactDigest: string; settle: (id?: string, outcome?: string) => void; expire: () => void;
+  artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
 }) => Promise<void>) {
@@ -109,7 +109,7 @@ async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
       await test({ activity, capability, environment, artifactDigest, sent,
-        settle: (id = 'submission-1', outcome = 'completed') => { settlements = [{ submissionId: id, outcome }]; },
+        settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
@@ -160,6 +160,15 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await start(f); f.settle('submission-1', 'failed'); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+  }));
+  it('privately reads only the bounded failed submission reason after fencing without reviving execution', () => fixture(async f => {
+    await start(f);
+    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
+    await f.activity.reconcileDispatcherLease();
+    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<string | null> };
+    expect(await inspection.inspectFailedDispatcherReason?.()).toBe('Synthetic fixture failure');
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect((await f.capability.fetch(read())).status).toBe(403);
   }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();
