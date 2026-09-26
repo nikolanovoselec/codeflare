@@ -304,6 +304,9 @@ app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
 app.route('/api/admin/reasoning', adminReasoningRoutes);
 app.route('/api/admin/usage', adminUsageRoutes);
+// The retired test registry must not fall through the broader /api/admin auth routes.
+app.all('/api/admin/operators', c => c.notFound());
+app.all('/api/admin/operators/*', c => c.notFound());
 app.route('/api/admin', adminUsageReportRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/notifications', notificationRoutes);
