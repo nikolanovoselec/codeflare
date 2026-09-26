@@ -277,6 +277,7 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
     sourceRevision: source.sourceRevision, sourceCommit: provenance.sourceCommit, manifestDigest, bundleDigest, interfaceVersion: 1,
     coreVersion: manifest.coreVersion, intentVersion: manifest.intentVersion,
     requestedCapabilities: [...manifest.requiredCapabilities], approved: false,
+    tagName: remote.tag_name, publishedAt: remote.published_at,
     assets: FILES.map(name => { const asset = remote.assets.find(candidate => candidate.name === name)!; return { id: asset.id, name, digest: digests.get(name)! }; }),
     provenance: { ...(provenance.compilerCommit ? { compilerCommit: provenance.compilerCommit } : {}),
       workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref, runId: run.id,

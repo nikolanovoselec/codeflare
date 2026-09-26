@@ -22,6 +22,7 @@ const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number()
 const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number().int().positive(), sourceCommit: z.string(),
   manifestDigest: digest, bundleDigest: digest, interfaceVersion: z.literal(1), approved: z.boolean(),
   name: z.string().optional(), description: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
+  tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
   requestedCapabilities: z.array(z.string()).max(32).optional() });
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
   enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional() });

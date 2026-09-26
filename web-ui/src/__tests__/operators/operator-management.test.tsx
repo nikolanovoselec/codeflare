@@ -135,11 +135,11 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const sections = screen.getByRole('navigation', { name: 'Operator sections' });
     expect(within(sections).getByRole('button', { name: 'Installed version' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(sections).getByRole('button', { name: 'Versions & updates' })).toBeInTheDocument();
-    expect(screen.getByText('Pinned release: GitHub release #17')).toBeInTheDocument();
+    expect(screen.getByText('GitHub release #17', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Disable for new runs' })).toBeInTheDocument();
     const configurationChoice = screen.getByRole('combobox', { name: 'Installed configuration' });
     fireEvent.change(configurationChoice, { target: { value: 'installation-2' } });
-    expect(screen.getByText('Pinned release: GitHub release #15')).toBeInTheDocument();
+    expect(screen.getByText('GitHub release #15', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
     fireEvent.change(configurationChoice, { target: { value: 'installation-1' } });
     expect(screen.queryByRole('button', { name: 'Create disabled installation' })).not.toBeInTheDocument();

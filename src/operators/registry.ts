@@ -96,6 +96,8 @@ export interface ManagementRelease {
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
   repositoryId: number; sourceRevision: number; coreVersion: string; intentVersion: string;
   requestedCapabilities: string[];
+  /** Verified GitHub release metadata. Absent on records acquired before display metadata was retained. */
+  tagName?: string; publishedAt?: string;
   /** Verified manifest metadata projected for display, never persisted into the immutable release identity. */
   name?: string; description?: string;
   assets: Array<{ id: number; name: string; digest: string }>;
@@ -1064,20 +1066,29 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         const previous = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=?', release.id).toArray()[0];
         if (previous) {
           const old = JSON.parse(previous.data) as ManagementRelease;
+          const enriched = { ...old, tagName: old.tagName ?? release.tagName,
+            publishedAt: old.publishedAt ?? release.publishedAt };
           const previousIdentity = { ...old, approved: false,
             provenance: { ...old.provenance } };
           const candidateIdentity = { ...release, approved: false,
             provenance: { ...release.provenance } };
+          delete previousIdentity.tagName; delete previousIdentity.publishedAt;
+          delete candidateIdentity.tagName; delete candidateIdentity.publishedAt;
           // Releases acquired before compiler provenance was mandatory remain
           // immutable and usable. Never invent or persist a compiler identity;
           // only ignore the new field while comparing that exact legacy row.
           if (previousIdentity.provenance.compilerCommit === undefined) {
             delete candidateIdentity.provenance.compilerCommit;
           }
-          if (JSON.stringify(previousIdentity) !== JSON.stringify(candidateIdentity)) {
+          if ((old.tagName !== undefined && old.tagName !== release.tagName)
+            || (old.publishedAt !== undefined && old.publishedAt !== release.publishedAt)
+            || JSON.stringify(previousIdentity) !== JSON.stringify(candidateIdentity)) {
             throw new ValidationError('Immutable release identity changed');
           }
-          releases.push(old);
+          if (old.tagName !== enriched.tagName || old.publishedAt !== enriched.publishedAt) {
+            this.ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?', JSON.stringify(enriched), release.id);
+          }
+          releases.push(enriched);
         } else {
           if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_releases WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Retained release limit reached');
           this.ctx.storage.sql.exec('INSERT INTO operator_releases VALUES(?,?,?,?)', release.id, operatorId, JSON.stringify(release), candidate.manifestJson);
