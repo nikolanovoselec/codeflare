@@ -1415,7 +1415,10 @@ export class OperatorActivity extends Agent {
   }
 
   /** Temporary owner-only EI inspection of an already fenced, exact failed submission. No admission or effects. */
-  async inspectFailedDispatcherReason(): Promise<string | null> {
+  async inspectFailedDispatcherReason(): Promise<{
+    reason: string; operationCount: number;
+    denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null;
+  } | null> {
     const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
     if (!state || !lease || state.drive?.status !== 'unknown' || lease.status !== 'unknown'
