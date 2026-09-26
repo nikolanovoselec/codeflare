@@ -1368,11 +1368,20 @@ export class OperatorActivity extends Agent {
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
           const errorType = settlement.error?.type;
+          const reason = typeof settlement.error?.meta?.reason === 'string' ? settlement.error.meta.reason : '';
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
             outcome: ['failed', 'aborted', 'completed'].includes(settlement.outcome) ? settlement.outcome : 'unrecognized',
             errorType: ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
               'tool_output_validation', 'operation_failed', 'submission_timeout', 'submission_aborted',
-              'internal_error'].includes(errorType) ? errorType : 'other' });
+              'internal_error'].includes(errorType) ? errorType : 'other',
+            reasonClasses: [
+              /\b(model|provider|api key|cloudflare_ai)\b/i.test(reason) ? 'model' : null,
+              /\b(facet|rpc|schedule|bridge)\b/i.test(reason) ? 'bridge' : null,
+              /\b(fetch|network|gateway|http)\b/i.test(reason) ? 'transport' : null,
+              /\b(conversation|stream|persist|storage)\b/i.test(reason) ? 'state' : null,
+              /\b(tool|function)\b/i.test(reason) ? 'tool' : null,
+              /\b(undefined|not a function|cannot read properties)\b/i.test(reason) ? 'runtime-shape' : null,
+            ].filter(Boolean) });
           await this.interruptDrive(lease.generation); return;
         }
         stage = 'operations';
