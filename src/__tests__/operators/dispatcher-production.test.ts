@@ -248,6 +248,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     f[action](); expect((await f.capability.fetch(read('read-2'))).status).toBe(403);
     expect(f.sent.map(r => r.url)).toEqual(['https://api.github.com/repos/owner/repo/pulls/17']);
   }));
+  it('sends the parent-owned GitHub REST User-Agent for both bounded PR and files reads', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(read('files-read', { resource: 'files' }))).status).toBe(200);
+    expect(f.sent.map(request => request.headers.get('user-agent'))).toEqual([
+      'Codeflare-Operator-Dispatcher', 'Codeflare-Operator-Dispatcher',
+    ]);
+    expect(f.sent.every(request => !request.headers.has('authorization'))).toBe(true);
+  }));
   it('reconciles completed operation output and conflicts on changed semantics', () => fixture(async f => {
     await start(f); const first = await f.capability.fetch(read());
     expect(await (await f.capability.fetch(read())).text()).toBe(await first.text());
