@@ -18,7 +18,7 @@ const choices = { users: ['manager@example.test', 'invoker@example.test', 'deleg
 async function openSource() {
   await screen.findByRole('region', { name: 'Installed version' });
   fireEvent.click(screen.getByText('Technical details and advanced restrictions'));
-  fireEvent.click(screen.getByText('Replace source'));
+  fireEvent.click(screen.getByText('Replace source', { selector: 'summary' }));
 }
 let serve: (url: URL, init?: RequestInit) => Response | Promise<Response>;
 beforeEach(() => {
@@ -122,7 +122,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
-    fireEvent.click(screen.getByRole('button', { name: 'Versions & updates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Versions & updates' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh releases' }));
     fireEvent.click(screen.getByRole('button', { name: 'Installed version' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
