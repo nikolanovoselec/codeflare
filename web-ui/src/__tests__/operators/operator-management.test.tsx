@@ -332,15 +332,17 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
     const form = screen.getByRole('region', { name: 'Register operator' });
-    expect(await within(form).findByRole('checkbox', { name: /session/i })).toBeInTheDocument();
+    const restrictions = await within(form).findByRole('group', { name: 'Operator restrictions' });
+    const session = await within(restrictions).findByRole('checkbox', { name: /^session\b/i });
     expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
     expect(within(form).getByText(/select the capabilities and resource profile needed before registration/i)).toBeInTheDocument();
-    fireEvent.click(within(form).getByRole('checkbox', { name: /session/i }));
+    fireEvent.click(session);
     expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
-    const resource = within(form).getByRole('combobox', { name: 'Operator resource profile' });
+    const resource = within(restrictions).getByRole('combobox', { name: 'Operator resource profile' });
+    await within(resource).findByRole('option', { name: 'review-profile' });
     fireEvent.change(resource, { target: { value: 'review-profile' } });
     expect(resource).toHaveValue('review-profile');
-    expect(within(form).getByRole('checkbox', { name: /session/i })).toBeChecked();
+    expect(session).toBeChecked();
     await waitFor(() => expect(within(form).getByRole('button', { name: 'Register source' })).toBeEnabled());
   });
 
