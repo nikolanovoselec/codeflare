@@ -182,35 +182,17 @@ Implements [REQ-OPERATOR-011](../../sdd/spec/operators.md#req-operator-011-seria
 
 `admit` checks the enabled approved revision and absolute human deadline, then stores an immutable receipt for the activity/intent. Identical concurrent admissions reconcile that receipt. Reusing an activity ID with changed intent, operator, revision or deadline conflicts. A receipt created before disablement remains reconcilable under unexpired authority; disablement before receipt creation blocks admission. `getReceipt` remains read-only after expiry and does not renew authority.
 
-Each mutation is one local storage transaction. The parent must authorize and validate RPC inputs, and never provide this DO binding to a child. Discovery/network calls stay outside transactions. The activity must separately reconcile admission and atomically consume its capability with queued execution; there is no cross-DO transaction. The admin routes and SQLite registry binding are now wired in source. Current human authorization, live endpoint acceptance and later execution/interceptor integration remain distinct verification boundaries.
+Each mutation is one local storage transaction. The parent must authorize and validate RPC inputs, and never provide this DO binding to a child. Discovery/network calls stay outside transactions. The activity must separately reconcile admission and atomically consume its capability with queued execution; there is no cross-DO transaction. The SQLite registry still supports historical default-entrypoint state, but the Gate 1 administration HTTP route is retired. Installed release management uses `/api/operator-management`. Current human authorization, live endpoint acceptance and later execution/interceptor integration remain distinct verification boundaries.
 
-## Enterprise registration backend
+## Historical Gate 1 distribution and installed release management
 
-Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](../../sdd/spec/operators.md#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-008](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-010](../../sdd/spec/operators.md#req-operator-010-bounded-operator-discovery-document), [REQ-OPERATOR-034](../../sdd/spec/operators.md#req-operator-034-authenticated-discovery-transport), and [REQ-OPERATOR-035](../../sdd/spec/operators.md#req-operator-035-approved-artifact-transport).
-
-`/api/admin/operators` is mounted in the Worker, with `OPERATOR_REGISTRY` backed by the additive `v3` SQLite migration. Non-enterprise requests return 404. Existing authentication and administrator/group authorization run before a stricter human Access check using the existing configured issuer/audiences. The verified email must match the authenticated identity; service/setup/session authentication cannot substitute. Bodies are bounded to 64 KiB and mutation schemas reject unknown fields.
-
-- `GET /`: safe registration states, without credentials.
-- `GET /:id`: one transaction reads a consistent metadata/policy/detail projection and configured-secret flags, without decrypting or fetching from the publisher.
-- `POST /:id/discover`: explicit authenticated inspection of current metadata, without approval, enablement or code execution.
-- `POST /`: endpoint, connection secret and explicit policy; authenticate discovery before atomically registering metadata/configuration/policy, disabled and unapproved.
-- `POST /:id/approve`: expected revision and explicit artifact digest; authenticate discovery/download, verify the chosen artifact and persist approval without enabling.
-- `POST /:id/enable`: revision-checked enable/disable.
-- `POST /:id/distribution`: encrypted endpoint/secret replacement, disabling and clearing prior approval/discovery.
-- `POST /:id/policy`: validated restrictions, disabling until separately enabled.
-- `POST /:id/webhook-key`: return a new key only on successful revision-checked rotation. Readback never reveals it; a lost response needs explicit new rotation.
-
-`src/operators/administration.ts` owns reusable discovery/approval composition outside HTTP and outside registry transactions. Its caller must supply an authorized human-admin context. It checks actual expiry around asynchronous distribution work and never substitutes a newly advertised digest for the requested approval.
+Implements [REQ-OPERATOR-002](../../sdd/spec/operators.md#req-operator-002-enterprise-distribution-registration) and [REQ-OPERATOR-013](../../sdd/spec/operators.md#req-operator-013-enterprise-operator-administration-authorization). The old `/api/admin/operators` registration, discovery, approval, and webhook-key HTTP endpoints have been removed; even Enterprise requests return 404. The old `/admin/operators` bookmark redirects to `/operators`, and the Enterprise Administration Operators link now leads there. Its release/installation management API is `/api/operator-management`, with independent human and grant checks. Existing internal default-entrypoint registry invariants are retained for historical activity compatibility; deleting the old HTTP/UI surface does not delete or alter installed release records.
 
 `parseOperatorPolicy` accepts only version-1 hostname, GitHub repository/method, owner-relative directory-prefix and inference allowlist/default declarations. Empty lists deny. Unknown identity/bucket fields, unsafe paths/host rules, duplicates and defaults outside allowlists fail closed. Host/repository names normalize to lowercase.
 
 JSON is bounded to 64 KiB, lists to 128 entries, and methods/reasoning to their supported finite sets. Policy replacement stores a new revision; admitted receipts retain their original JSON. Shared direct and container interceptors enforce the stored restriction; deployed escape and credential-isolation acceptance remains pending.
 
-The enterprise `/admin/operators` page uses these APIs through the existing Administration shell, form styles, and mobile grid behavior. It exposes explicit registration, candidate versus approved digest, approval/enablement, connection replacement, restrictions, and optional handoff-key controls. Empty registration restrictions deny external access.
-
-Key values remain in component memory only and clear on dismissal, selection change, and unmount; rotation requires confirmation. Loading/error states are not presented as an empty registry, and conflicts never automatically repeat a mutation. Package CI is complete; actual desktop/mobile visual acceptance remains pending.
-
-Route fixtures use simulated identity/distribution boundaries plus native durable storage, while separate signed-JWT and transport tests verify those primitives. They do not replace live Access allowed/denied proof or deployed acceptance.
+The retired test editor and its browser client have been removed. The installed operator catalog is the only user-facing management area. Its usability and responsive visual acceptance remain a separate open task after functional execution proof; release/installation tests do not substitute for that acceptance.
 
 ## Activity admission
 
@@ -350,7 +332,7 @@ Behavioral tests in `src/__tests__/lib/jwt.test.ts` cover signed human identity 
 - [Admission and execution](../../sdd/spec/operators.md#req-operator-011-serialized-operator-admission): `src/operators/registry.ts`, `src/operators/activity.ts`, `src/operators/execution-context.ts`, and `src/operators/runtime.ts`.
 - [Owned session and persistence](../../sdd/spec/operators.md#req-operator-005-owned-operator-session-lifecycle): `src/operators/owned-session.ts`, `host/src/operator-pi.ts`, `host/src/operator-sync.ts`, and `src/operators/sync-verification.ts`.
 - [Gate 1 production composition](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration): `src/operators/gate1-production.ts`, `src/operators/gate1-capability.ts`, and `src/operators/gate1-resources.ts`.
-- [Administration, webhook, and consumer seams](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface): `src/operators/administration.ts`, `src/routes/operator-webhook.ts`, and `src/operators/consumer-contracts.ts`.
+- [Management, webhook, and consumer seams](../../sdd/spec/operators.md#req-operator-008-enterprise-operator-administration-surface): `src/routes/operator-management.ts`, `src/routes/operator-webhook.ts`, and `src/operators/consumer-contracts.ts`.
 
 ## Related Documentation
 

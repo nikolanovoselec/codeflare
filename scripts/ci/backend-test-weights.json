@@ -200,7 +200,6 @@
     "src/__tests__/routes/admin-configuration-preview.test.ts": 18755,
     "src/__tests__/routes/admin-configuration-runs.test.ts": 13959,
     "src/__tests__/routes/admin-configuration.test.ts": 12019,
-    "src/__tests__/routes/admin-operators.test.ts": 33550,
     "src/__tests__/routes/admin-reasoning-discovery.test.ts": 13291,
     "src/__tests__/routes/admin-reasoning.test.ts": 10483,
     "src/__tests__/routes/admin-tiers.test.ts": 1346,

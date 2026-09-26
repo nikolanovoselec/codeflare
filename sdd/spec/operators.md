@@ -37,15 +37,15 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ### REQ-OPERATOR-002: Enterprise distribution registration
 
-**Intent:** Administrators register private operator distributions without granting user eligibility.
+**Intent:** Historical default-entrypoint distribution records remain protected internally; the test registration interface is retired in favor of installed releases.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Enterprise administrators can register a validated HTTPS distribution and protected connection secret. <!-- @impl: src/operators/registry.ts::setDistribution --> <!-- @impl: src/operators/protected-secrets.ts::sealOperatorSecret --> <!-- @impl: src/operators/protected-secrets.ts::openOperatorSecret --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
-2. Administrators can discover a registered operator without approving it. <!-- @impl: src/operators/administration.ts::discoverRegisteredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-3. Administrators approve an explicitly selected artifact digest without enabling the operator. <!-- @impl: src/operators/administration.ts::approveRegisteredOperator --> <!-- @test: src/__tests__/operators/registry-manifest.test.ts (REQ-OPERATOR-011: approved manifest snapshots) -->
+1. Existing default-entrypoint distribution state retains validated HTTPS endpoint and protected connection-secret invariants. <!-- @impl: src/operators/registry.ts::setDistribution --> <!-- @impl: src/operators/protected-secrets.ts::sealOperatorSecret --> <!-- @impl: src/operators/protected-secrets.ts::openOperatorSecret --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
+2. The legacy registration and discovery HTTP paths are unavailable even in Enterprise mode; new registrations use the managed release catalog. <!-- @impl: src/index.ts --> <!-- @test: src/__tests__/index.test.ts (returns 404 for the retired legacy operator administration) -->
+3. Existing internal approval still requires an explicit artifact digest and does not enable the record. <!-- @impl: src/operators/registry.ts::approve --> <!-- @test: src/__tests__/operators/registry-manifest.test.ts (REQ-OPERATOR-011: approved manifest snapshots) -->
 4. Administrators enable an approved operator through a separate mutation. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-011: SQLite registration and admission ordering) -->
 5. Distribution-credential replacement rejects stale revisions, disables the registration and clears approval without changing admitted receipts. <!-- @impl: src/operators/registry.ts::setDistribution --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002: protected distribution registration) -->
 6. Invalid distribution input or secret-encryption failure leaves registration state unchanged. <!-- @impl: src/operators/protected-secrets.ts::sealOperatorSecret --> <!-- @test: src/__tests__/operators/protected-secrets.test.ts (REQ-OPERATOR-002: fail-closed protected secrets) -->
@@ -61,7 +61,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims)
 
-**Verification:** Distribution registration and protected-secret behavior is covered by the adjacent tests. Exact-head CI 35148669515 at `c9fd121d` is GREEN.
+**Verification:** Legacy internal distribution and protected-secret invariants are covered by the adjacent tests. The historical exact-head CI 35148669515 at `c9fd121d` predates retirement of the test HTTP surface.
 
 **Status:** Implemented
 
@@ -123,19 +123,19 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ### REQ-OPERATOR-013: Enterprise operator administration authorization
 
-**Intent:** Operator administration is enterprise-only and bound to a current verified human administrator.
+**Intent:** Only the Enterprise managed release catalog can mutate operator installations; the old test registration HTTP surface is gone.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Operator administration is unavailable outside enterprise mode. <!-- @impl: src/routes/admin/operators.ts --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-2. Every administration mutation requires current administrator authorization and matching verified human Access claims. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-3. Service or mixed-principal authentication cannot authorize an administration mutation. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-4. Failed discovery changes no registration state. <!-- @impl: src/operators/administration.ts::registerDiscoveredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-5. Registration mutations reject stale revisions without replaying mutations. <!-- @impl: src/operators/administration.ts::approveRegisteredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-6. Identity collisions return conflicts without changing registration state. <!-- @impl: src/operators/administration.ts::registerDiscoveredOperator --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
-7. Operator administration leaves ordinary authentication, quotas, routing and local reviews unchanged. <!-- @impl: src/routes/admin/operators.ts --> <!-- @test: src/__tests__/routes/admin-operators.test.ts (REQ-OPERATOR-013: enterprise human-admin operator routes) -->
+1. The legacy operator administration HTTP route, including nested mutations, returns 404 even in Enterprise mode. <!-- @impl: src/index.ts --> <!-- @test: src/__tests__/index.test.ts (returns 404 for the retired legacy operator administration) -->
+2. Managed operator mutations require a verified current human and delegated management authorization. <!-- @impl: src/routes/operator-management.ts::managementContext --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045) -->
+3. Service or mixed-principal authentication cannot grant managed operator administration. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045) -->
+4. Failed release discovery does not admit a release or enable an installation. <!-- @impl: src/operators/github-release-management.ts::acquireRelease --> <!-- @test: src/__tests__/operators/github-release-source.test.ts (REQ-OPERATOR-044) -->
+5. Managed mutations reject stale revisions without replaying mutations. <!-- @impl: src/operators/registry.ts::OperatorRegistry.promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
+6. Identity collisions cannot silently replace another managed operator. <!-- @impl: src/operators/registry.ts::OperatorRegistry.registerManagement --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
+7. Retiring the test route leaves the ordinary API and installed management routes available. <!-- @impl: src/index.ts --> <!-- @test: src/__tests__/index.test.ts (Edge-level setup redirect) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045) -->
 
 **Constraints:** Administration grants neither user eligibility nor execution authority.
 
@@ -143,7 +143,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Enterprise human-administrator routes are covered by the adjacent tests.
+**Verification:** The retired route is absent in active Enterprise mode; management authorization and mutation tests remain separate.
 
 **Status:** Implemented
 
@@ -644,25 +644,25 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ### REQ-OPERATOR-008: Enterprise operator administration surface
 
-**Intent:** Administrators manage operator lifecycle and configuration without secret disclosure or implicit replay.
+**Intent:** Enterprise Administration opens the installed release catalog instead of the retired Gate 1 test editor, without granting authority through navigation.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Enterprise Administration presents registration, discovery, digest approval and enablement as separate actions. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
-2. The administration surface exposes restrictive policy, inference, webhook-key and managed-bypass state through existing responsive patterns. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
-3. New registrations deny by default. <!-- @impl: src/operators/administration.ts::discoverRegisteredOperator --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
-4. Conflicts require explicit reconciliation, and administration mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operators.ts --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
+1. The Enterprise Administration Operators link opens `/operators`; bookmarked `/admin/operators` addresses reach that same catalog instead of the old Endpoint URL editor. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/App.tsx --> <!-- @test: web-ui/src/__tests__/components/AdministrationLayout.test.tsx (enterprise Operators link) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (opens the installed release catalog) -->
+2. The catalog presents release registration, installation configuration, promotion and enablement as separate controls, with server-side grants rather than navigation as authority. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
+3. Newly registered managed operators cannot start until separately approved and enabled. <!-- @impl: src/operators/registry.ts::OperatorRegistry.registerManagement --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
+4. Conflicts require explicit reconciliation, and management mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operator-management.ts --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 
 **Constraints:**
 
-- Administration UI is enterprise-only.
-- Secret readback is prohibited.
+- The catalog and its APIs are enterprise-only; SaaS has no legacy administration API.
+- Secret readback is prohibited. Comprehensive usability redesign remains a separate task, not a claim of visual acceptance.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback)
+**Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-045](operator-registry.md#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-049](operator-registry.md#req-operator-049-operators-management-interface), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback)
 
 **Verification:** Enterprise operator administration is covered by the adjacent component and client tests.
 
@@ -1060,16 +1060,16 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ### REQ-OPERATOR-032: Secret-safe administration readback
 
-**Intent:** Administrators inspect operator state without recovering retained secrets or causing side effects.
+**Intent:** Managed operator readback cannot recover stored acquisition secrets or perform side effects; the old key-rotation test UI is retired.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Administrative readback exposes secret-presence flags instead of secret values. <!-- @impl: src/operators/registry.ts::getAdminDetail --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
-2. A newly rotated plaintext key remains visible only until dismissal. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
-3. Webhook-key rotation requires administrator confirmation. <!-- @impl: web-ui/src/components/admin/OperatorsPage.tsx::OperatorsPage --> <!-- @test: web-ui/src/__tests__/components/OperatorsPage.test.tsx (REQ-OPERATOR-008: enterprise Operators administration) -->
-4. Operator detail reads perform neither discovery nor secret decryption. <!-- @impl: src/operators/registry.ts::getAdminDetail --> <!-- @test: web-ui/src/__tests__/api/operators.test.ts (REQ-OPERATOR-008: operator administration client) -->
+1. Managed release and installation readback project safe public metadata, not stored credentials. <!-- @impl: src/operators/registry.ts::managementProjection --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
+2. The retired legacy HTTP endpoint cannot list connection secrets or rotate webhook keys. <!-- @impl: src/index.ts --> <!-- @test: src/__tests__/index.test.ts (returns 404 for the retired legacy operator administration) -->
+3. The new management UI does not display acquisition credentials when listing operators. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
+4. Existing internal default-entrypoint detail reads do not discover or decrypt secrets. <!-- @impl: src/operators/registry.ts::getAdminDetail --> <!-- @test: src/__tests__/operators/registry-distribution.test.ts (REQ-OPERATOR-002) -->
 
 **Constraints:** Readback never returns plaintext or ciphertext secrets.
 
@@ -1077,7 +1077,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys), [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Secret-safe readback and key interaction behavior are covered by the adjacent tests.
+**Verification:** Management projections, retired-route denial, and internal default-entrypoint readback are covered by the adjacent tests.
 
 **Status:** Implemented
 
