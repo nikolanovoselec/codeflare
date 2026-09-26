@@ -114,10 +114,13 @@ export class OwnedOperatorSessionService {
     if (!state || state.activityId !== input.activityId || state.ownerBucket !== input.ownerBucket) {
       throw new Error('Owned session ownership mismatch');
     }
-    if (state.status === 'stopped' || state.status === 'unknown') return state;
-    if (state.status === 'stopping') return this.reconcile(state);
-    state = { ...state, status: 'stopping' };
-    await this.store.save(state);
+    if (state.status === 'stopped') return state;
+    if (state.status !== 'stopping') {
+      state = { ...state, status: 'stopping' };
+      await this.store.save(state);
+    }
+    // An uncertain configure/start/stop may have left a live owned container.
+    // Only the ownership-checked destruction operation can establish stopped.
     const stopped = await this.runtime.stop(state.sessionId, input.drain);
     state = { ...state, status: stopped };
     await this.store.save(state);
@@ -130,7 +133,7 @@ export class OwnedOperatorSessionService {
     if (state.status === 'starting') {
       status = observed === 'ready' ? 'ready' : observed === 'starting' ? 'starting' : 'unknown';
     } else if (state.status === 'stopping') {
-      status = observed === 'stopped' ? 'stopped' : observed === 'unknown' ? 'unknown' : 'stopping';
+      status = observed === 'unknown' ? 'unknown' : 'stopping';
     }
     if (status !== state.status) {
       state = { ...state, status };

@@ -855,7 +855,7 @@ COPY host/package.json /app/host/
 
 # Copy entrypoint script and its phase-oriented Vault compaction helper.
 COPY entrypoint.sh /entrypoint.sh
-COPY --chmod=0555 scripts/restore-operator-attachments.mjs /opt/codeflare/scripts/restore-operator-attachments.mjs
+COPY --chmod=0555 scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs /opt/codeflare/scripts/
 # Host-only fixed packet script and its adjacent evidence module; never sourced from a candidate checkout.
 COPY --chmod=0555 preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs /opt/codeflare/operator-approved-packet/
 COPY transcript-retention.mjs /transcript-retention.mjs

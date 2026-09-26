@@ -3,11 +3,12 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity } from '../../operators/activity';
+import { parseOperatorAttachmentProjection } from '../../operators/attachments';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
-import { claimVerifiedBoundaryAction, operateBoundaryPublication,
-  type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
+import { claimVerifiedBoundaryAction, operateBoundaryPublication, prepareBoundaryPublication,
+  verifyCurrentClaimedBoundaryPacket, type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
 import webhookRoutes from '../../routes/operator-webhook';
 import { fencePendingBoundaryStart } from '../../routes/session/boundary-stop';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
@@ -15,11 +16,12 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Workers test loader supports raw SQL fixtures.
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
-const trust = vi.hoisted(() => ({ signed: true, current: true, human: true, selection: true }));
+const trust = vi.hoisted(() => ({ signed: true, audience: true, current: true, human: true,
+  selection: true, workflowRevision: 'd'.repeat(40), baseRef: 'main' }));
 vi.mock('../../operators/boundary-action-oidc', () => ({ verifyBoundaryActionOidc: async (_token: string, expected: {
   repositoryId: number; repository: string; workflowPath: string; protectedRef: string; workflowSha: string;
-  runId: number; runAttempt: number;
-}) => trust.signed ? { repositoryId: expected.repositoryId, repository: expected.repository,
+  runId: number; runAttempt: number; audience?: string;
+}) => trust.signed && (trust.audience || !expected.audience?.includes('/claims/publication')) ? { repositoryId: expected.repositoryId, repository: expected.repository,
   eventName: 'pull_request_target', workflowRef: `${expected.repository}/${expected.workflowPath}@${expected.protectedRef}`,
   workflowSha: expected.workflowSha, runId: expected.runId, runAttempt: expected.runAttempt } : null }));
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'parent-owned-github-credential' }));
@@ -50,7 +52,9 @@ beforeAll(async () => {
   }
 });
 beforeEach(async () => {
-  trust.signed = trust.current = trust.human = trust.selection = true;
+  trust.signed = trust.audience = trust.current = trust.human = trust.selection = true;
+  trust.workflowRevision = 'd'.repeat(40);
+  trust.baseRef = 'main';
   await db.prepare('DELETE FROM runtime_sessions').run();
   await db.prepare("UPDATE session_cutover SET state='complete' WHERE id=1").run();
   await db.prepare(`INSERT INTO runtime_sessions (owner_key,session_id,name,created_at,last_accessed_at,workspace,
@@ -63,8 +67,11 @@ async function scenario(run: (fixture: {
   registry: OperatorRegistry; activity: OperatorActivity; repo: D1SessionRepository;
   claim: (change?: Partial<typeof request>) => Promise<unknown>;
   publish: (change?: Partial<BoundaryPublicationRequest>) => Promise<unknown>;
-  expireBoundary: () => Promise<void>; activityId: string; startCapability: string;
-}) => Promise<void>) {
+  packetCurrent: () => Promise<boolean>;
+  expireBoundary: () => Promise<void>; activityId: string; startCapability: string; rehydrate: () => OperatorActivity;
+  preparePublication: (change?: Record<string, unknown>) => Promise<unknown>;
+}) => Promise<void>, options: { roundGeneration?: number | null; baseRef?: 'main' | 'master' | 'develop' } = {}) {
+  trust.baseRef = options.baseRef ?? 'main';
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const registryName = `boundary-${crypto.randomUUID()}`;
@@ -75,10 +82,13 @@ async function scenario(run: (fixture: {
   await runInDurableObject(registryStub, async (_instance, registryCtx) => {
     const registry = new OperatorRegistry(registryCtx, protectedEnv);
     const policy = { capabilities: [], resourceProfileId: null };
+    const mainBinding = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
+      workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
+      workflowDigest: actionDigest, events: ['pull_request_target'] };
     expect((await registry.setManagementControls({ revision: 0, managers: { users: [], groups: [] },
-      ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [{ repositoryId: 138,
-        installationId: 'review-install', workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml',
-        protectedRef: 'refs/heads/main', workflowDigest: actionDigest, events: ['pull_request_target'] }],
+      ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: options.baseRef
+        ? ['main', 'master', 'develop'].map(name => ({ ...mainBinding, protectedRef: `refs/heads/${name}` }))
+        : [mainBinding],
     }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).ok).toBe(true);
     registryCtx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'review-operator', 'conductor',
       'internal', 1, 'review-operator', JSON.stringify({ id: 'review-operator', revision: 1,
@@ -99,7 +109,9 @@ async function scenario(run: (fixture: {
       contextDigest: 'f'.repeat(64), ownerKey: await operatorOwnerKey(human), installationId: 'review-install',
       deadline: Date.now() + 300_000, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'review-release', bundleDigest: 'e'.repeat(64), workflowId: 531, workflowDigest: actionDigest,
-      session, operatorId: 'review-operator', revision: { head, base, mergeBase } });
+      session, operatorId: 'review-operator', revision: { head, base, mergeBase },
+      protectedRef: `refs/heads/${options.baseRef ?? 'main'}`,
+      ...(options.roundGeneration === null ? {} : { roundGeneration: options.roundGeneration ?? 1 }) });
     if (!reservation.ok) throw Error('Expected real Registry preparation');
     activityId = reservation.value.activityId;
   });
@@ -121,7 +133,9 @@ async function scenario(run: (fixture: {
       inRegistry(owner => owner.claimBoundaryPreparation(input)),
     getBoundaryPreparation: (repositoryId: number, pullRequest: number) =>
       inRegistry(owner => owner.getBoundaryPreparation(repositoryId, pullRequest)),
-    getBoundaryAction: (repositoryId: number) => inRegistry(owner => owner.getBoundaryAction(repositoryId)),
+    getBoundaryAction: (repositoryId: number, protectedRef?: string) => inRegistry(owner =>
+      (owner.getBoundaryAction as (id: number, ref?: string) => ReturnType<OperatorRegistry['getBoundaryAction']>)
+        .call(owner, repositoryId, protectedRef)),
     getManagementControls: () => inRegistry(owner => owner.getManagementControls()),
     setManagementControls: (...args: Parameters<OperatorRegistry['setManagementControls']>) =>
       inRegistry(owner => owner.setManagementControls(...args)),
@@ -142,7 +156,9 @@ async function scenario(run: (fixture: {
       const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
         activityId, operatorId: 'review-operator', runId: activityId,
         source: { kind: 'session', reference: 'owner/repo' },
-        revision: { reference: head, digest: 'f'.repeat(64) }, inputDigest: 'd'.repeat(64), input: {},
+        revision: { reference: head, digest: 'f'.repeat(64) }, inputDigest: 'd'.repeat(64),
+        input: { context: { repositoryId: 138, pullRequest: 34, head, base, mergeBase },
+          acknowledgedHead: null, evidence: {} },
         attachments: [], resources: { inference: null, session: null, storage: { scopeId: activityId } } };
       const binding = { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session };
       const prepared = await prepareOperatorActivity({ installationId: 'review-install', invocation },
@@ -162,7 +178,7 @@ async function scenario(run: (fixture: {
         if (path === '/repos/owner/repo') return Response.json({ id: 138, full_name: 'owner/repo', default_branch: 'main' });
         if (path.endsWith('/pulls/34')) return Response.json({ number: 34, state: 'open',
           head: { sha: revision, ref: 'feature', repo: { id: 138 } },
-          base: { sha: base, ref: 'main', repo: { id: 138 } } });
+          base: { sha: base, ref: trust.baseRef, repo: { id: 138 } } });
         if (path.endsWith('/pulls')) return Response.json([{ number: 34 }]);
         if (path.endsWith(`/commits/${head}/pulls`)) return Response.json([{ number: 34, state: 'open',
           head: { sha: revision } }]);
@@ -174,8 +190,8 @@ async function scenario(run: (fixture: {
         }
         if (path.endsWith('/actions/workflows/531')) return Response.json({ id: 531,
           path: '.github/workflows/boundary-reviews.yml', state: 'active' });
-        if (path.endsWith('/branches/main')) return Response.json({ name: 'main', protected: trust.selection,
-          commit: { sha: workflowSha } });
+        if (path.endsWith(`/branches/${trust.baseRef}`)) return Response.json({ name: trust.baseRef, protected: trust.selection,
+          commit: { sha: trust.workflowRevision } });
         if (path.endsWith('/contents/.github/workflows/boundary-reviews.yml')) {
           return Response.json({ encoding: 'base64', content: btoa(workflowSource) });
         }
@@ -197,15 +213,208 @@ async function scenario(run: (fixture: {
         signedFixture, { ...request, workflowId: 531, activityId, contextDigest: 'f'.repeat(64),
           sessionGeneration: 1, activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64),
           operation: 'begin', ...change });
+      const preparePublication = (change: Record<string, unknown> = {}) => prepareBoundaryPublication(actionEnv,
+        signedFixture, { ...request, workflowId: 531, activityId, contextDigest: 'f'.repeat(64),
+          sessionGeneration: 1, activityGeneration: 1, resultDigest: '0'.repeat(64), ...change });
       const expireBoundary = () => runInDurableObject(registryNamespace.getByName(registryName), (_owner, ctx) => {
         ctx.storage.sql.exec(`UPDATE operator_boundary_preparations SET data=json_set(data,'$.deadline',?)
           WHERE repository_id=? AND pull_request=?`, Date.now() - 1, 138, 34);
       });
-      try { await run({ registry: registryOwner, activity, repo, claim, publish, expireBoundary,
-        activityId, startCapability: prepared.startCapability }); }
+      try { await run({ registry: registryOwner, activity, repo, claim, publish,
+        packetCurrent: () => verifyCurrentClaimedBoundaryPacket(actionEnv, activityId, 'owner/repo'), expireBoundary,
+        activityId, startCapability: prepared.startCapability, preparePublication,
+        rehydrate: () => new OperatorActivity(activityCtx,
+          activityEnv as unknown as ConstructorParameters<typeof OperatorActivity>[1]) }); }
       finally { vi.restoreAllMocks(); }
   });
 }
+
+// Packet identity is immutable across drives; the parent supplies the captured drive generation.
+const packetBytes = new TextEncoder().encode('{"round":"review"}');
+const packetDigest = 'ce8f9bff099c3431037f6a3908ddcabfe4bd73af1a66198f44edd1cf13a4156e';
+const packet = { preparationId: 'round-1', lane: 'security', name: 'packet.json',
+  mediaType: 'application/json', locator: 'packet-1', size: packetBytes.length,
+  sha256: packetDigest, bytes: packetBytes };
+
+describe('REQ-OPERATOR-050/052/053/054: Activity-owned approved packet preparation', () => {
+  it('rechecks the claimed Action and exact live PR before authorizing parent packet I/O', () => scenario(async f => {
+    expect(await f.packetCurrent()).toBe(false);
+    await f.claim();
+    expect(await f.packetCurrent()).toBe(true);
+    trust.current = false;
+    expect(await f.packetCurrent()).toBe(false);
+    trust.current = true;
+    trust.selection = false;
+    expect(await f.packetCurrent()).toBe(false);
+    trust.selection = true;
+    trust.workflowRevision = 'f'.repeat(40);
+    expect(await f.packetCurrent()).toBe(false);
+    trust.workflowRevision = workflowSha;
+    trust.human = false;
+    expect(await f.packetCurrent()).toBe(false);
+    trust.human = true;
+    await f.expireBoundary();
+    expect(await f.packetCurrent()).toBe(false);
+  }));
+  it('denies packet preparation before Action claim and preserves the admitted projection after Activity reconstruction', () => scenario(async f => {
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+    await f.claim();
+    expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: true });
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true });
+    const saved = await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 });
+    expect(saved).toMatchObject({ ok: true, preparationId: 'round-1', attachment: {
+      name: 'packet.json', locator: 'packet-1', size: packetBytes.length, sha256: packetDigest } });
+    expect(saved).not.toHaveProperty('generation');
+    if (!saved.ok) throw Error('Expected accepted packet');
+    expect(await f.rehydrate().readApprovedPacketAttachments()).toMatchObject({ files: [saved.attachment] });
+  }));
+
+  it('replays the exact identity across waiting and a later drive but rejects changed bytes and conflicting lane', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    const first = await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 });
+    expect(first).toMatchObject({ ok: true });
+    if (!first.ok) throw Error('Expected accepted packet');
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'waiting',
+      checkpoint: { stage: 'packet', contextDigest: 'f'.repeat(64), attachments: [first.attachment] } }))
+      .toMatchObject({ ok: true });
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 2 })).toEqual(first);
+    expect(await f.rehydrate().saveApprovedPacketAttachment({ bytes: packet.bytes, sha256: packet.sha256,
+      size: packet.size, locator: packet.locator, mediaType: packet.mediaType,
+      name: packet.name, lane: packet.lane, preparationId: packet.preparationId,
+      driveGeneration: 2 })).toEqual(first);
+    for (const altered of [
+      { ...packet, driveGeneration: 2, bytes: new TextEncoder().encode('different bytes') },
+      { ...packet, driveGeneration: 2, preparationId: 'round-2' },
+      { ...packet, driveGeneration: 2, lane: 'contract' },
+      { ...packet, driveGeneration: 2, locator: 'packet-2' },
+    ]) expect(await f.activity.saveApprovedPacketAttachment(altered)).toMatchObject({ ok: false });
+    expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [first.attachment] });
+  }));
+
+  it('does not replay a packet when the signed Action identity changes with the same PR revision', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    const accepted = await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 });
+    expect(accepted).toMatchObject({ ok: true });
+    const original = f.registry.getBoundaryStartGuard.bind(f.registry);
+    vi.spyOn(f.registry, 'getBoundaryStartGuard').mockImplementation(async id => {
+      const guard = await original(id);
+      return guard?.claimed ? { ...guard, workflowSha: 'a'.repeat(40) } : guard;
+    });
+    expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [] });
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 }))
+      .toMatchObject({ ok: false });
+  }));
+
+  it('freezes the accepted attachment set at the owned session reservation', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+    const frozenFiles = [] as Array<{ name: string; mediaType: string; locator: string; size: number; sha256: string }>;
+    const initialize = () => ({ schemaVersion: 1, profileId: 'approved-profile', contextPath: 'review/input.json',
+      context: JSON.stringify({ packetDigest: 'a'.repeat(64) }),
+      inputs: [...frozenFiles.map(file => ({ kind: 'attachment' as const, reference: file.name,
+        target: `review/packets/${file.name.slice('packet-'.length)}` })),
+      { kind: 'resource' as const, reference: 'review/code.md', target: 'review/resources/code.md' }],
+      tasks: [{ id: 'code', instruction: 'review/resources/code.md',
+        reads: ['review/input.json', 'review/packets/code-reviewer.json', 'review/resources/code.md'],
+        output: 'reports/code.json' }],
+    });
+    for (const [index, lane] of lanes.entries()) {
+      const accepted = await f.activity.saveApprovedPacketAttachment({ ...packet,
+        preparationId: `round-${index + 1}-${lane}`, lane, name: `packet-${lane}.json`,
+        locator: `packet-${index + 1}`, driveGeneration: index + 1 });
+      if (!accepted.ok) throw Error('Expected accepted lane packet');
+      frozenFiles.push(accepted.attachment);
+      expect(await f.activity.commitDrive(index + 1, { schemaVersion: 1, status: 'waiting',
+        checkpoint: { stage: index === 2 ? 'session' : 'packet', contextDigest: 'f'.repeat(64),
+          attachments: [...frozenFiles], ...(index === 2 ? { packetDigest: 'a'.repeat(64),
+            initialization: initialize() } : {}) },
+      })).toMatchObject({ ok: true });
+      if (index < 2) expect(await f.activity.beginDrive()).toMatchObject({ ok: true });
+    }
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 4 } });
+    const plan = await f.activity.getRuntimePlan();
+    if (!plan) throw Error('Expected admitted boundary plan');
+    const attachments = parseOperatorAttachmentProjection(await f.activity.readApprovedPacketAttachments());
+    const initialization = initialize();
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(
+      JSON.stringify({ invocationJson: plan.invocationJson, attachments, initialization }))));
+    const requestDigest = Array.from(hash).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const ownerSession = { schemaVersion: 1, requestId: 'packet-session', requestDigest,
+      activityId: f.activityId, ownerBucket: 'owner-bucket', sessionId: 'review-session', status: 'reserved',
+      profile: { schemaVersion: 1, activityId: f.activityId, operatorId: 'review-operator',
+        sessionId: 'review-session', ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64),
+        deadline: Date.now() + 60_000, outputPrefix: 'Operators/',
+        human: { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
+        policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+          storage: { readPrefixes: ['Operators/'], writePrefixes: ['Operators/'] },
+          inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
+            defaultReasoningLevel: 'off', inheritUserDefaults: false } },
+        jwtPolicy: { mode: 'off', destinations: [] },
+        piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
+          systemPrompt: 'fixed', tools: ['write'], initialization },
+      },
+    };
+    const second = { ...packet, driveGeneration: 4, preparationId: 'round-4', lane: 'contract',
+      name: 'contract.json', locator: 'packet-4' };
+    const [reservation, added] = await Promise.all([
+      f.activity.saveOwnedSession(ownerSession), f.activity.saveApprovedPacketAttachment(second),
+    ]);
+    expect(reservation.ok && added.ok).toBe(false);
+    if (reservation.ok) {
+      expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: frozenFiles });
+      expect(await f.activity.saveApprovedPacketAttachment(second)).toMatchObject({ ok: false });
+    } else {
+      expect(added.ok).toBe(true);
+      expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [
+        ...frozenFiles, { name: 'contract.json' },
+      ] });
+      expect(await f.activity.saveOwnedSession(ownerSession)).toMatchObject({ ok: false });
+      const nextAttachments = parseOperatorAttachmentProjection(await f.activity.readApprovedPacketAttachments());
+      const nextHash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(
+        JSON.stringify({ invocationJson: plan.invocationJson, attachments: nextAttachments, initialization }))));
+      expect(await f.activity.saveOwnedSession({ ...ownerSession,
+        requestDigest: Array.from(nextHash).map(byte => byte.toString(16).padStart(2, '0')).join('') }))
+        .toMatchObject({ ok: false });
+      return;
+    }
+    for (const status of ['configuring', 'configured', 'starting', 'ready'] as const) {
+      expect(await f.activity.saveOwnedSession({ ...ownerSession, status })).toMatchObject({ ok: true });
+    }
+    const binding = await f.activity.getBoundaryStartBinding(f.activityId);
+    if (!binding) throw Error('Expected source binding');
+    expect(await f.repo.claimStop(session.bucket, session.sessionId, 'stop-reviewer', new Date().toISOString(), 1)).toBeTruthy();
+    expect(await f.activity.cancelBoundaryStart(binding)).toEqual({ ok: true });
+    expect(await f.activity.saveOwnedSession({ ...ownerSession, status: 'stopping' })).toMatchObject({ ok: true });
+    expect(await f.activity.saveOwnedSession({ ...ownerSession, status: 'stopped' })).toMatchObject({ ok: true });
+    expect((await f.activity.getOwnedSession())?.status).toBe('stopped');
+    expect(await f.activity.saveApprovedPacketAttachment(second)).toMatchObject({ ok: false });
+  }));
+
+  it('denies expired, stopped and unclaimed source generations rather than accepting a packet', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 999 })).toMatchObject({ ok: false });
+    await f.expireBoundary();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+    expect(await f.activity.readApprovedPacketAttachments()).toMatchObject({ files: [] });
+  }));
+  it('REQ-OPERATOR-054: Stop fences packet preparation for the claimed activity', () => scenario(async f => {
+    await f.claim();
+    await f.activity.startWebhook(f.startCapability);
+    await f.activity.beginDrive();
+    expect(await f.repo.claimStop(session.bucket, session.sessionId, 'stop-packet', new Date().toISOString(), 1)).toBeTruthy();
+    expect(await f.activity.saveApprovedPacketAttachment({ ...packet, driveGeneration: 1 })).toMatchObject({ ok: false });
+  }));
+});
 
 describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protected Action claim', () => {
   it('REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity', async () => {
@@ -220,7 +429,30 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       }), { ENTERPRISE_MODE: 'active', OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db } as never);
     expect(response.status).toBe(200);
     expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'next-review')).toBe(true);
+    const retried = await webhookRoutes.fetch(new Request(
+      'https://enterprise.example.test/operator-webhook/v1/activities/review-activity/result', {
+        method: 'POST', headers: { authorization: `Bearer ${'r'.repeat(43)}` },
+      }), { ENTERPRISE_MODE: 'active', OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db } as never);
+    expect(retried.status).toBe(200);
+    expect(await repository.recordBoundaryActionStart(session.bucket, session.sessionId, 1, 'third-review')).toBe(false);
   });
+  it.each(['main', 'master', 'develop'] as const)(
+    'claims and journals only the configured protected %s PR base', async baseRef => scenario(async f => {
+      expect(await f.claim()).toMatchObject({ activityId: f.activityId, repositoryId: 138, pullRequest: 34 });
+      vi.spyOn(f.activity, 'getBoundaryPublicationState').mockResolvedValue({
+        binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session },
+        generation: 2, status: 'completed', collected: true,
+      });
+      expect(await f.publish()).toMatchObject({ status: 'new' });
+      trust.human = false;
+      expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) }))
+        .not.toMatchObject({ status: 'new' });
+      trust.human = true;
+      trust.baseRef = baseRef === 'main' ? 'master' : 'main';
+      expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) }))
+        .not.toMatchObject({ status: 'new' });
+    }, { baseRef }));
+
   it('claims once for the exact current run, then only the Action webhook start admits the bound activity', () => scenario(async f => {
     expect(await f.activity.start(f.startCapability)).toMatchObject({ ok: false });
     expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: false });
@@ -244,6 +476,14 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       expect(await f.claim(change)).not.toMatchObject({ startCapability: f.startCapability });
     }
     expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
+    expect(await f.claim()).toMatchObject({ startCapability: f.startCapability });
+  }));
+
+  it('REQ-OPERATOR-053/054: moving a PR to another protected base cannot reuse its original claim', () => scenario(async f => {
+    trust.baseRef = 'develop';
+    expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
+    expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
+    trust.baseRef = 'main';
     expect(await f.claim()).toMatchObject({ startCapability: f.startCapability });
   }));
 
@@ -330,6 +570,18 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64) }))
       .toMatchObject({ status: 'published', externalId: 71 });
     expect(await f.publish({ operation: 'read' })).toMatchObject({ status: 'stale' });
+  }));
+
+  it('REQ-OPERATOR-055: cross-base replay cannot begin a publication after a valid claim', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    vi.spyOn(f.activity, 'getBoundaryPublicationState').mockResolvedValue({
+      binding: { repositoryId: 138, pullRequest: 34, contextDigest: 'f'.repeat(64), session },
+      generation: 2, status: 'completed', collected: true,
+    });
+    trust.baseRef = 'master';
+    expect(await f.publish()).not.toMatchObject({ status: 'new' });
+    trust.baseRef = 'main';
+    expect(await f.publish()).toMatchObject({ status: 'new' });
   }));
 
   it('REQ-OPERATOR-055: changed protected controls invalidate a previously claimed publication', () => scenario(async f => {
@@ -460,5 +712,204 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     release();
     expect(await pendingStart).toMatchObject({ ok: false });
     expect(await f.activity.getRuntimePlan()).toBeNull();
+  }));
+});
+
+async function publicationFixture(f: {
+  activity: OperatorActivity; activityId: string; startCapability: string;
+  claim: () => Promise<unknown>;
+}) {
+  expect(await f.claim()).toMatchObject({ activityId: f.activityId, runId: 87, runAttempt: 1 });
+  const started = await f.activity.startWebhook(f.startCapability);
+  if (!started.ok) throw Error('Expected real claimed Activity start');
+  const plan = await f.activity.getRuntimePlan();
+  if (!plan) throw Error('Expected admitted execution context');
+  const resourceContent = '# Approved instructions';
+  const sha = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(value)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const resource = { destination: 'review/code.md', size: new TextEncoder().encode(resourceContent).length,
+    sha256: await sha(resourceContent), content: resourceContent };
+  await f.activity.savePackageResources({ schemaVersion: 1, artifactDigest: plan.executionContext.artifactDigest,
+    files: [resource] });
+  const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+  const packets: Array<{ lane: string; name: string; mediaType: string; size: number;
+    sha256: string; locator: string }> = [];
+  for (const [index, lane] of lanes.entries()) {
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: index + 1 } });
+    const bytes = new TextEncoder().encode(JSON.stringify({ lane, evidence: `review-${index}` }));
+    const accepted = await f.activity.saveApprovedPacketAttachment({ preparationId: `round-1-${lane}`,
+      lane, name: `packet-${lane}.json`, mediaType: 'application/json',
+      locator: `packet-${index + 1}`, size: bytes.length, sha256: await sha(new TextDecoder().decode(bytes)),
+      bytes, driveGeneration: index + 1 });
+    if (!accepted.ok) throw Error('Expected accepted packet descriptor');
+    packets.push({ lane, ...accepted.attachment });
+    const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile',
+      contextPath: 'review/input.json', context: JSON.stringify({ contextDigest: 'f'.repeat(64) }),
+      inputs: [...packets.map(file => ({ kind: 'attachment' as const, reference: file.name,
+        target: `review/packets/${file.name}` })),
+      { kind: 'resource' as const, reference: resource.destination, target: 'review/resources/code.md' }],
+      tasks: [{ id: 'code', instruction: 'review/resources/code.md',
+        reads: ['review/input.json', 'review/resources/code.md', ...packets.map(file => `review/packets/${file.name}`)],
+        output: 'reports/code.json' }] };
+    expect(await f.activity.commitDrive(index + 1, { schemaVersion: 1, status: 'waiting',
+      checkpoint: { stage: 'packet', contextDigest: 'f'.repeat(64), attachments: [...packets],
+        ...(index === 2 ? { initialization } : {}) } })).toMatchObject({ ok: true });
+  }
+  const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile',
+    contextPath: 'review/input.json', context: JSON.stringify({ contextDigest: 'f'.repeat(64) }),
+    inputs: [...packets.map(file => ({ kind: 'attachment' as const, reference: file.name,
+      target: `review/packets/${file.name}` })),
+    { kind: 'resource' as const, reference: resource.destination, target: 'review/resources/code.md' }],
+    tasks: [{ id: 'code', instruction: 'review/resources/code.md',
+      reads: ['review/input.json', 'review/resources/code.md', ...packets.map(file => `review/packets/${file.name}`)],
+      output: 'reports/code.json' }] };
+  const attachments = parseOperatorAttachmentProjection(await f.activity.readApprovedPacketAttachments());
+  const requestDigest = await sha(JSON.stringify({ invocationJson: plan.invocationJson, attachments, initialization }));
+  const owned = { schemaVersion: 1, requestId: 'review-session-v1', requestDigest, activityId: f.activityId,
+    ownerBucket: 'owner-bucket', sessionId: 'review-session', status: 'reserved',
+    profile: { schemaVersion: 1, activityId: f.activityId, operatorId: 'review-operator',
+      sessionId: 'review-session', ownerBucket: 'owner-bucket', policyDigest: plan.executionContext.policyDigest,
+      deadline: Date.now() + 60_000, outputPrefix: 'Operators/',
+      human: { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
+      policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: ['Operators/'], writePrefixes: ['Operators/'] },
+        inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
+          defaultReasoningLevel: 'off', inheritUserDefaults: false } },
+      jwtPolicy: { mode: 'off', destinations: [] },
+      piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
+        systemPrompt: 'fixed', tools: ['read', 'write'], initialization } } };
+  expect(await f.activity.saveOwnedSession(owned)).toMatchObject({ ok: true });
+  for (const status of ['configuring', 'configured', 'starting', 'ready'] as const) {
+    expect(await f.activity.saveOwnedSession({ ...owned, status })).toMatchObject({ ok: true });
+  }
+  expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 4 } });
+  const result = { status: 'complete', reports: [{ lane: 'code-reviewer', finding: 'original-private-bytes' }] };
+  expect(await f.activity.saveOwnedSession({ ...owned, status: 'stopping' })).toMatchObject({ ok: true });
+  expect(await f.activity.saveOwnedSession({ ...owned, status: 'stopped' })).toMatchObject({ ok: true });
+  expect(await f.activity.commitDrive(4, { schemaVersion: 1, status: 'completed', checkpoint: null,
+    result })).toMatchObject({ ok: true });
+  expect(await f.activity.redeemWebhookResult(started.readCapability))
+    .toMatchObject({ ok: true, terminal: true, generation: 4, result });
+  expect(await new D1SessionRepository(db).releaseCompletedBoundaryAction(session.bucket,
+    session.sessionId, session.generation, f.activityId)).toBe(true);
+  return { resultDigest: await sha(JSON.stringify(result)), packets, initialization,
+    resource, plan, sha };
+}
+
+describe('REQ-OPERATOR-056: authenticated publication-preparation projection', () => {
+  it('derives one immutable owner-backed projection and binds the collected terminal result', () => scenario(async f => {
+    expect(await f.preparePublication()).not.toMatchObject({ status: 'ready' });
+    const evidence = await publicationFixture(f);
+    const projection = await f.preparePublication({ activityGeneration: 4,
+      resultDigest: evidence.resultDigest });
+    expect(projection).toMatchObject({ status: 'ready', projection: {
+      schemaVersion: 1, admission: { repositoryId: 138, pullRequest: 34, activityId: f.activityId,
+        roundGeneration: 1, inputDigest: 'd'.repeat(64),
+        packageDigest: evidence.plan.executionContext.artifactDigest,
+        policyDigest: evidence.plan.executionContext.policyDigest, workflowId: 531,
+        runId: 87, runAttempt: 1, acknowledgedHead: null },
+      context: { repositoryId: 138, pullRequest: 34, head, base, mergeBase,
+        headPullRequests: [34], mergeQueue: false }, contextDigest: 'f'.repeat(64),
+      resources: [{ destination: evidence.resource.destination, sha256: evidence.resource.sha256,
+        size: evidence.resource.size }], packets: evidence.packets,
+      initialization: evidence.initialization, resultDigest: evidence.resultDigest,
+      activityGeneration: 4 } });
+    expect(projection).toMatchObject({ status: 'ready', projection: { admission: {
+      resourceDigest: await evidence.sha(JSON.stringify([{ destination: evidence.resource.destination,
+        sha256: evidence.resource.sha256, size: evidence.resource.size }])),
+    } } });
+    const actual = projection as { status: string; projection: { packetDigest: string; packets: typeof evidence.packets } };
+    expect(actual.projection.packetDigest).toBe(await evidence.sha(JSON.stringify({
+      contextDigest: 'f'.repeat(64), packets: evidence.packets.map(file => ({ lane: file.lane, digest: file.sha256 })),
+    })));
+    expect(actual.projection.packets).toHaveLength(3);
+    expect(JSON.stringify(projection)).not.toContain('original-private-bytes');
+  }));
+
+  it('rejects a claimed Activity without a frozen owned session or collected terminal generation', () => scenario(async f => {
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId });
+    expect(await f.preparePublication({ activityGeneration: 1, resultDigest: '0'.repeat(64) }))
+      .not.toMatchObject({ status: 'ready' });
+    expect(await f.activity.startWebhook(f.startCapability)).toMatchObject({ ok: true });
+    expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { status: 'complete' } })).toMatchObject({ ok: true });
+    expect(await f.preparePublication({ activityGeneration: 1, resultDigest: '0'.repeat(64) }))
+      .not.toMatchObject({ status: 'ready' });
+  }));
+
+  it('rejects a legacy binding without preclaim round provenance', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    expect(await f.preparePublication({ activityGeneration: 4, resultDigest: evidence.resultDigest }))
+      .not.toMatchObject({ status: 'ready' });
+  }, { roundGeneration: null }));
+
+  it('rejects mismatched claim, consumed drive generation, result digest, and malformed input', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
+    for (const changed of [{ repositoryId: 139 }, { pullRequest: 35 }, { head: '9'.repeat(40) },
+      { base: '9'.repeat(40) }, { mergeBase: '9'.repeat(40) }, { workflowId: 532 },
+      { runId: 88 }, { runAttempt: 2 }, { activityId: 'other-activity' },
+      { contextDigest: '9'.repeat(64) }, { sessionGeneration: 2 }, { activityGeneration: 3 },
+      { resultDigest: '9'.repeat(64) }, { resultDigest: 'not-a-digest' },
+      { pullRequest: 0 }, { head: null }]) {
+      expect(await f.preparePublication({ ...exact, ...changed })).not.toMatchObject({ status: 'ready' });
+    }
+    expect(await f.preparePublication(exact)).toMatchObject({ status: 'ready' });
+  }));
+
+  it('rejects missing, duplicate, reordered, or changed owner packet descriptors and altered initialization', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
+    const realEvidence = await f.activity.getBoundaryPublicationEvidence(f.activityId);
+    if (!realEvidence) throw Error('Expected collected packet evidence');
+    const read = vi.spyOn(f.activity, 'getBoundaryPublicationEvidence');
+    for (const packets of [[], realEvidence.packets.slice(0, 2),
+      [...realEvidence.packets, realEvidence.packets[0]], [...realEvidence.packets].reverse(),
+      realEvidence.packets.map((packet, index) => index === 0
+        ? { ...packet, sha256: '9'.repeat(64) } : packet)]) {
+      read.mockResolvedValue({ ...realEvidence, packets });
+      expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    }
+    read.mockRestore();
+    const owned = await f.activity.getOwnedSession();
+    if (!owned) throw Error('Expected real frozen owned session');
+    const owner = vi.spyOn(f.activity, 'getOwnedSession');
+    owner.mockResolvedValue({ ...owned, profile: { ...owned.profile, piProfile: {
+      ...owned.profile.piProfile, initialization: { ...evidence.initialization,
+        inputs: evidence.initialization.inputs.slice(0, -1) },
+    } } });
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    owner.mockRestore();
+    const resources = await f.activity.getPackageResources();
+    if (!resources) throw Error('Expected frozen resource bytes');
+    const altered = vi.spyOn(f.activity, 'getPackageResources');
+    altered.mockResolvedValue({ ...resources, files: resources.files.map((file, index) => index === 0
+      ? { ...file, content: 'changed after installation' } : file) });
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    altered.mockRestore();
+    expect(await f.preparePublication(exact)).toMatchObject({ status: 'ready' });
+  }));
+
+  it('fails closed for expired claim, stopped session, changed current PR, uncertain workflow and stale OIDC', () => scenario(async f => {
+    const evidence = await publicationFixture(f);
+    const exact = { activityGeneration: 4, resultDigest: evidence.resultDigest };
+    trust.signed = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.signed = true;
+    trust.audience = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.audience = true;
+    trust.current = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.current = true;
+    trust.selection = false;
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    trust.selection = true;
+    expect(await f.repo.claimStop(session.bucket, session.sessionId, 'stop-publication',
+      new Date().toISOString(), 1)).toBeTruthy();
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
+    await f.expireBoundary();
+    expect(await f.preparePublication(exact)).not.toMatchObject({ status: 'ready' });
   }));
 });

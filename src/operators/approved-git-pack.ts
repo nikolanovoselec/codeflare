@@ -120,7 +120,7 @@ export async function fetchApprovedGitPack(input: Input): Promise<Uint8Array> {
   }));
   if (discovery.status !== 200 || discovery.redirected
     || discovery.headers.get('content-type')?.split(';')[0] !== 'application/x-git-upload-pack-advertisement') denied();
-  const advertisement = advertised(await readBoundedResponse(discovery, MAX_ADVERTISEMENT_BYTES, 'Git advertisement'));
+  const advertisement = advertised(await readBoundedResponse(discovery, MAX_ADVERTISEMENT_BYTES, 'Git advertisement', signal));
   const wants = [input.head, ...(input.acknowledgedHead && input.acknowledgedHead !== input.head
     ? [input.acknowledgedHead] : [])];
   if (wants.some(sha => !advertisement.refs.has(sha) && !advertisement.reachable)) denied();
@@ -131,7 +131,7 @@ export async function fetchApprovedGitPack(input: Input): Promise<Uint8Array> {
       Accept: 'application/x-git-upload-pack-result' }, body: request, redirect: 'manual', signal }));
   if (response.status !== 200 || response.redirected
     || response.headers.get('content-type')?.split(';')[0] !== 'application/x-git-upload-pack-result') denied();
-  const bytes = await readBoundedResponse(response, input.maxPackBytes + MAX_ADVERTISEMENT_BYTES, 'Git pack');
+  const bytes = await readBoundedResponse(response, input.maxPackBytes + MAX_ADVERTISEMENT_BYTES, 'Git pack', signal);
   if (signal.aborted || Date.now() >= input.deadline) denied();
   return extractPack(bytes, input.maxPackBytes);
 }

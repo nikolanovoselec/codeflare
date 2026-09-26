@@ -136,6 +136,8 @@ export class OperatorPiConversation {
     const existing = metadata.tasks[input.taskId];
     if (existing) {
       if (existing.digest !== input.digest || existing.mode !== input.mode) throw new Error('Pi task conflict');
+      // A terminal status is not observable until its metadata write settles.
+      await this.saveChain;
       return { status: existing.status };
     }
     const active = this.activePrompt !== null || this.session!.isStreaming;

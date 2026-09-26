@@ -17,18 +17,18 @@ async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>)
 
 describe('REQ-OPERATOR-053: target Action trust is admin-owned and distinct from package build provenance', () => {
   it('does not select a target repository from an operator release workflow or absent protected binding', () => withRegistry(async registry => {
-    expect(await registry.getBoundaryAction(138)).toBeNull();
-    expect(await registry.getBoundaryAction(139)).toBeNull();
+    expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
+    expect(await registry.getBoundaryAction(139, 'refs/heads/main')).toBeNull();
   }));
   it('persists the exact target repository/workflow/digest and fences stale controls revisions', () => withRegistry(async registry => {
     const authorized = { email: 'admin@example.test', expiresAt: Date.now() + 60_000 };
     const selected = await registry.setManagementControls({ ...empty, boundaryActions: [action] }, authorized);
     expect(selected).toMatchObject({ ok: true, value: { revision: 1, boundaryActions: [action] } });
-    expect(await registry.getBoundaryAction(138)).toEqual({ ...action, controlsRevision: 1 });
-    expect(await registry.getBoundaryAction(139)).toBeNull();
+    expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toEqual({ ...action, controlsRevision: 1 });
+    expect(await registry.getBoundaryAction(139, 'refs/heads/main')).toBeNull();
     expect(await registry.setManagementControls({ ...empty, boundaryActions: [] }, authorized))
       .toMatchObject({ ok: false, reason: 'revision-conflict' });
-    expect(await registry.getBoundaryAction(138)).toEqual({ ...action, controlsRevision: 1 });
+    expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toEqual({ ...action, controlsRevision: 1 });
   }));
   it('refuses duplicate bindings and expired configuration authority', () => withRegistry(async registry => {
     await expect(registry.setManagementControls({ ...empty, boundaryActions: [action, action] },
@@ -36,6 +36,6 @@ describe('REQ-OPERATOR-053: target Action trust is admin-owned and distinct from
     expect(await registry.setManagementControls({ ...empty, boundaryActions: [action] },
       { email: 'admin@example.test', expiresAt: Date.now() - 1 }))
       .toMatchObject({ ok: false, reason: 'authority-expired' });
-    expect(await registry.getBoundaryAction(138)).toBeNull();
+    expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
   }));
 });

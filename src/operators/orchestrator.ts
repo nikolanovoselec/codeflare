@@ -151,9 +151,9 @@ function parsePinnedManifest(manifestJson: string, endpoint: string) {
   return manifest;
 }
 
-export type OperatorCapabilityBinder = (activityId: string, generation: number) => Fetcher;
+export type OperatorCapabilityBinder = (activityId: string, generation: number, driveDeadline: number) => Fetcher;
 type OperatorRuntimeExports = { OperatorRuntimeCapability(input: {
-  props: { activityId: string; generation: number };
+  props: { activityId: string; generation: number; driveDeadline: number };
 }): Fetcher };
 
 /** Resolve the platform loopback export before an activity is allowed to start. */
@@ -162,8 +162,8 @@ export function bindOperatorRuntimeCapability(ctx: unknown): OperatorCapabilityB
   if (!runtimeExports?.OperatorRuntimeCapability) {
     throw new AppError('UNAVAILABLE', 503, 'Operator runtime capability unavailable');
   }
-  return (activityId, generation) =>
-    runtimeExports.OperatorRuntimeCapability({ props: { activityId, generation } });
+  return (activityId, generation, driveDeadline) =>
+    runtimeExports.OperatorRuntimeCapability({ props: { activityId, generation, driveDeadline } });
 }
 
 /** One request-attached direct drive. Any uncertain attempt is durably fenced and never replayed here. */
@@ -218,7 +218,7 @@ export async function runOperatorActivity(
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
       invocation, expectedGeneration,
-      bind: async generation => ({ capability: bindCapability(activityId, generation), outbound: null }),
+      bind: async (generation, driveDeadline) => ({ capability: bindCapability(activityId, generation, driveDeadline), outbound: null }),
     });
     if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
   } catch {

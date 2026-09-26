@@ -23,6 +23,7 @@ import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activit
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import type { OwnedOperatorSessionState } from './owned-session';
 import { parseOperatorPackageResourceProjection, type OperatorPackageResourceProjection } from './package-resources';
+import { parseOperatorAttachmentProjection, projectOperatorAttachments } from './attachments';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export type OperatorActivityPreparation = (OperatorAdmissionRequest | {
@@ -78,6 +79,18 @@ const DISPATCHER_SDK_METHODS = [
   '_cf_releaseFacetKeepAlive', '_cf_registerFacetRun', '_cf_unregisterFacetRun',
 ] as const;
 type DispatcherSdkMethod = typeof DISPATCHER_SDK_METHODS[number];
+
+interface ApprovedPacketRecord {
+  preparationId: string; lane: string;
+  attachment: { name: string; mediaType: string; size: number; sha256: string; locator: string };
+  claim: { contextDigest: string; runId: number; runAttempt: number; head: string; base: string;
+    mergeBase: string; workflowSha: string; sessionGeneration: number };
+}
+
+function sameApprovedPacketAttachment(a: ApprovedPacketRecord['attachment'], b: ApprovedPacketRecord['attachment']): boolean {
+  return a.name === b.name && a.mediaType === b.mediaType && a.locator === b.locator
+    && a.size === b.size && a.sha256 === b.sha256;
+}
 
 interface OperatorSyncState {
   operationId: string;
@@ -154,6 +167,7 @@ interface AdmissionState {
   invocationJson?: string;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
+  approvedPackets?: Record<string, ApprovedPacketRecord>;
   review?: OperatorReviewState;
   webhook?: { readVerifier: string; expiresAt: number; consumed: boolean; continuedGeneration?: number };
   ownerKey?: string;
@@ -163,6 +177,14 @@ interface AdmissionState {
 
 const syncIdentity = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const syncDigest = z.string().regex(/^[0-9a-f]{64}$/);
+const approvedPacketSchema = z.strictObject({
+  preparationId: syncIdentity, driveGeneration: z.number().int().positive().safe(),
+  lane: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/),
+  mediaType: z.string().regex(/^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/),
+  locator: syncIdentity, size: z.number().int().positive().max(8 * 1024 * 1024), sha256: syncDigest,
+  bytes: z.instanceof(Uint8Array),
+});
 const syncPreparationSchema = z.strictObject({
   operationId: syncIdentity, sessionId: syncIdentity, requestDigest: syncDigest, policyDigest: syncDigest,
   prefix: z.string().min(2).max(2048),
@@ -313,6 +335,39 @@ export class OperatorActivity extends Agent {
       status: state.drive.status, collected: state.webhook?.consumed === true };
   }
 
+  /** Parent-only frozen publication inputs; never expose result bytes or execution credentials. */
+  async getBoundaryPublicationEvidence(activityId: string): Promise<{
+    inputDigest: string; packageDigest: string; policyDigest: string; acknowledgedHead: string | null;
+    invocationJson: string;
+    context: { repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string };
+    resultDigest: string; packets: Array<{ lane: string; name: string; mediaType: string;
+      size: number; sha256: string; locator: string }>;
+  } | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.boundary || state.intent.activityId !== activityId || state.phase !== 'queued'
+      || !state.webhook?.consumed || !state.drive || !['completed', 'failed'].includes(state.drive.status)
+      || !state.receipt || !state.executionContext || !state.invocationJson) return null;
+    try {
+      const invocation = JSON.parse(state.invocationJson) as { inputDigest: string;
+        input: { context: { repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string };
+          acknowledgedHead: string | null } };
+      const context = invocation.input.context;
+      if (!syncDigest.safeParse(invocation.inputDigest).success
+        || context.repositoryId !== state.boundary.repositoryId || context.pullRequest !== state.boundary.pullRequest
+        || ![context.head, context.base, context.mergeBase].every(value => /^[0-9a-f]{40}$/.test(value))
+        || !(invocation.input.acknowledgedHead === null
+          || /^[0-9a-f]{40}$/.test(invocation.input.acknowledgedHead))) return null;
+      if (!await this.approvedPacketClaimsCurrent(state)) return null;
+      return { inputDigest: invocation.inputDigest, invocationJson: state.invocationJson,
+        context: structuredClone(context),
+        acknowledgedHead: invocation.input.acknowledgedHead,
+        packageDigest: state.executionContext.artifactDigest, policyDigest: state.executionContext.policyDigest,
+        resultDigest: await sha256(JSON.stringify(state.drive.result)),
+        packets: Object.values(state.approvedPackets ?? {}).map(record => ({ lane: record.lane,
+          ...structuredClone(record.attachment) })) };
+    } catch { return null; }
+  }
+
   /** Stop's exact binding wins durably over prepared, admitting and queued starts. */
   async cancelBoundaryStart(binding: BoundaryActivityBinding): Promise<{ ok: boolean }> {
     if (!boundaryBindingSchema.safeParse(binding).success) return { ok: false };
@@ -433,6 +488,77 @@ export class OperatorActivity extends Agent {
     return value == null ? null : structuredClone(parseOperatorPackageResourceProjection(value));
   }
 
+  private async approvedPacketClaimsCurrent(state: AdmissionState): Promise<boolean> {
+    if (!state.boundary) return false;
+    const records = Object.values(state.approvedPackets ?? {});
+    if (!records.length) return true;
+    try {
+      const guard = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getBoundaryStartGuard(state.intent.activityId);
+      if (!guard?.claimed || !guard.workflowSha) return false;
+      const claim = { contextDigest: guard.contextDigest, runId: guard.runId,
+        runAttempt: guard.runAttempt, head: guard.head, base: guard.base,
+        mergeBase: guard.mergeBase, workflowSha: guard.workflowSha, sessionGeneration: guard.generation };
+      return records.every(record => JSON.stringify(record.claim) === JSON.stringify(claim));
+    } catch { return false; }
+  }
+
+  /** Parent-only accepted packet identity; no candidate bytes are stored in Activity state. */
+  async saveApprovedPacketAttachment(input: unknown): Promise<{ ok: true; preparationId: string;
+    attachment: ApprovedPacketRecord['attachment'] } | { ok: false }> {
+    const parsed = approvedPacketSchema.safeParse(input);
+    if (!parsed.success || parsed.data.bytes.byteLength !== parsed.data.size) return { ok: false };
+    const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(parsed.data.bytes))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (actual !== parsed.data.sha256) return { ok: false };
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!before?.boundary || before.drive?.generation !== parsed.data.driveGeneration
+      || !await this.operatorGenerationCurrent(parsed.data.driveGeneration)) return { ok: false };
+    const guard = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getBoundaryStartGuard(before.intent.activityId);
+    if (!guard?.claimed || !guard.workflowSha || guard.contextDigest !== before.boundary.contextDigest
+      || JSON.stringify(guard.session) !== JSON.stringify(before.boundary.session)) return { ok: false };
+    const claim = { contextDigest: guard.contextDigest, runId: guard.runId, runAttempt: guard.runAttempt,
+      head: guard.head, base: guard.base, mergeBase: guard.mergeBase,
+      workflowSha: guard.workflowSha, sessionGeneration: guard.generation };
+    const { preparationId, lane, name, mediaType, locator, size, sha256 } = parsed.data;
+    const attachment = { name, mediaType, locator, size, sha256 };
+    return this.ctx.storage.transaction(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      if (!state?.boundary || state.phase !== 'queued' || state.intent.activityId !== before.intent.activityId
+        || state.drive?.status !== 'running' || state.drive.generation !== before.drive?.generation
+        || state.intent.deadline <= Date.now()
+        || state.boundary.contextDigest !== guard.contextDigest) return { ok: false } as const;
+      const existing = state.approvedPackets ?? {};
+      const prior = existing[lane];
+      if (!prior && await tx.get('ownedSession')) return { ok: false } as const;
+      if (prior) return prior.preparationId === preparationId
+        && sameApprovedPacketAttachment(prior.attachment, attachment)
+        && JSON.stringify(prior.claim) === JSON.stringify(claim)
+        ? { ok: true as const, preparationId, attachment: structuredClone(prior.attachment) }
+        : { ok: false as const };
+      if (Object.values(existing).some(record => record.preparationId === preparationId
+        || record.attachment.locator === locator || record.attachment.name === name)
+        || Object.keys(existing).length >= 16
+        || Object.values(existing).reduce((total, record) => total + record.attachment.size, size) > 8 * 1024 * 1024) {
+        return { ok: false } as const;
+      }
+      await tx.put<AdmissionState>('admission', { ...state,
+        approvedPackets: { ...existing, [lane]: { preparationId, lane, attachment, claim } } });
+      return { ok: true as const, preparationId, attachment };
+    });
+  }
+
+  /** The container receives only descriptors accepted for this still-current boundary. */
+  async readApprovedPacketAttachments(): Promise<{ schemaVersion: 1; activityId: string;
+    files: ApprovedPacketRecord['attachment'][] }> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state) return { schemaVersion: 1, activityId: '', files: [] };
+    if (!state.boundary || !await this.boundaryCurrent(state) || !await this.approvedPacketClaimsCurrent(state)) {
+      return { schemaVersion: 1, activityId: state.intent.activityId, files: [] };
+    }
+    return { schemaVersion: 1, activityId: state.intent.activityId,
+      files: Object.values(state.approvedPackets ?? {}).map(record => structuredClone(record.attachment)) };
+  }
+
   /** Activity-owned session state; immutable identity and profile, monotonic finite transitions. */
   async saveOwnedSession(input: unknown): Promise<{ ok: true } | { ok: false; reason: 'invalid' | 'conflict' }> {
     const value = input as Partial<OwnedOperatorSessionState>;
@@ -451,15 +577,52 @@ export class OperatorActivity extends Agent {
       || profile.ownerBucket !== value.ownerBucket) return { ok: false, reason: 'invalid' };
     const candidate = { ...value, profile } as OwnedOperatorSessionState;
     const transitions: Record<OwnedOperatorSessionState['status'], readonly OwnedOperatorSessionState['status'][]> = {
-      reserved: ['reserved', 'configuring'], configuring: ['configuring', 'configured', 'unknown'],
-      configured: ['configured', 'starting'], starting: ['starting', 'ready', 'unknown'],
+      reserved: ['reserved', 'configuring', 'stopping'],
+      configuring: ['configuring', 'configured', 'stopping', 'unknown'],
+      configured: ['configured', 'starting', 'stopping'],
+      starting: ['starting', 'ready', 'stopping', 'unknown'],
       ready: ['ready', 'stopping'], stopping: ['stopping', 'stopped', 'unknown'],
-      stopped: ['stopped'], unknown: ['unknown'],
+      stopped: ['stopped'], unknown: ['unknown', 'stopping'],
     };
-    return this.ctx.storage.transaction(async tx => {
+    const teardown = ['stopping', 'stopped', 'unknown'].includes(candidate.status);
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (before?.boundary && !teardown
+      && (!await this.boundaryCurrent(before) || !await this.approvedPacketClaimsCurrent(before))) {
+      return { ok: false, reason: 'invalid' };
+    }
+    const saved = await this.ctx.storage.transaction(async tx => {
       const admission = await tx.get<AdmissionState>('admission');
-      if (!admission || admission.phase !== 'queued' || admission.intent.activityId !== candidate.activityId) {
+      if (!admission || admission.intent.activityId !== candidate.activityId
+        || (admission.phase !== 'queued'
+          && !(admission.phase === 'cancelled' && ['stopping', 'stopped', 'unknown'].includes(candidate.status)))) {
         return { ok: false, reason: 'invalid' } as const;
+      }
+      if (admission.boundary) {
+        if (!admission.invocationJson) return { ok: false, reason: 'invalid' } as const;
+        if (!teardown && (!before?.boundary || admission.boundary.contextDigest !== before.boundary.contextDigest
+          || admission.drive?.generation !== before.drive?.generation
+          || admission.drive?.status !== before.drive?.status)) return { ok: false, reason: 'invalid' } as const;
+        try {
+          const initial = projectOperatorAttachments(JSON.parse(admission.invocationJson));
+          const attachments = parseOperatorAttachmentProjection({ schemaVersion: 1,
+            activityId: candidate.activityId, files: [...initial.files,
+              ...Object.values(admission.approvedPackets ?? {}).map(record => record.attachment)] });
+          const initialization = candidate.profile.piProfile.initialization;
+          if (Object.keys(admission.approvedPackets ?? {}).length > 0) {
+            const checkpoint = admission.drive?.checkpoint as { initialization?: unknown } | null;
+            const declared = new Set(initialization?.inputs.filter(item => item.kind === 'attachment')
+              .map(item => item.reference) ?? []);
+            if (!initialization || !checkpoint
+              || JSON.stringify(initialization) !== JSON.stringify(checkpoint.initialization)
+              || attachments.files.length !== declared.size
+              || attachments.files.some(file => !declared.has(file.name))) {
+              return { ok: false, reason: 'conflict' } as const;
+            }
+          }
+          const expected = await sha256(JSON.stringify({ invocationJson: admission.invocationJson, attachments,
+            ...(initialization ? { initialization } : {}) }));
+          if (candidate.requestDigest !== expected) return { ok: false, reason: 'conflict' } as const;
+        } catch { return { ok: false, reason: 'invalid' } as const; }
       }
       const existing = await tx.get<OwnedOperatorSessionState>('ownedSession');
       if (existing) {
@@ -471,6 +634,13 @@ export class OperatorActivity extends Agent {
       await tx.put('ownedSession', candidate);
       return { ok: true } as const;
     });
+    if (saved.ok && before?.boundary && !teardown) {
+      const after = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!after || !await this.boundaryCurrent(after) || !await this.approvedPacketClaimsCurrent(after)) {
+        return { ok: false, reason: 'invalid' };
+      }
+    }
+    return saved;
   }
 
   async getOwnedSession(): Promise<OwnedOperatorSessionState | null> {
@@ -610,10 +780,17 @@ export class OperatorActivity extends Agent {
     const verifier = await capabilityVerifier(capability);
     return this.ctx.storage.transaction<WebhookReadResult>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
-      const checked = this.checkWebhookRead(state, verifier);
+      // Redemption alone may reread its immutable terminal bytes after lost delivery.
+      // Status and continuation retain their single-use consumed fence.
+      if (state?.webhook?.readVerifier !== verifier) return { ok: false, reason: state?.webhook
+        ? 'invalid-capability' : 'not-prepared' };
+      if (state.webhook.expiresAt <= Date.now()) return { ok: false, reason: 'capability-expired' };
+      const checked = this.checkWebhookRead(state.webhook.consumed
+        ? { ...state, webhook: { ...state.webhook, consumed: false } } : state, verifier);
       if (!checked.ok) return checked;
       if (!checked.terminal) return { ok: false, reason: 'not-ready' };
-      await tx.put<AdmissionState>('admission', { ...state!, webhook: { ...state!.webhook!, consumed: true } });
+      if (!state.webhook.consumed) await tx.put<AdmissionState>('admission', { ...state,
+        webhook: { ...state.webhook, consumed: true } });
       return checked;
     });
   }
@@ -913,6 +1090,16 @@ export class OperatorActivity extends Agent {
     return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
       && record.drive?.status === 'running' && record.drive.generation === generation
       && await this.boundaryCurrent(record);
+  }
+
+  /** Parent-only checkpoint read for the live generation; browser projections do not grant execution authority. */
+  async getCurrentDriveCheckpointJson(generation: number): Promise<string | null> {
+    if (!await this.operatorGenerationCurrent(generation)) return null;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (state?.drive?.status !== 'running' || state.drive.generation !== generation
+      || state.drive.checkpoint === null) return null;
+    const encoded = JSON.stringify(state.drive.checkpoint);
+    return typeof encoded === 'string' ? encoded : null;
   }
 
   /** Validate bounded child output before committing the current generation only. */

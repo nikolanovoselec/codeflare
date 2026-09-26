@@ -109,10 +109,15 @@ export interface ManagementControls {
 
 export interface BoundaryPreparation {
   repositoryId: number; pullRequest: number; contextDigest: string; ownerKey: string;
+  /** Authenticated PR base and exact configured binding frozen at reservation. */
+  protectedRef: string;
+  roundGeneration?: number;
   installationId: string; operatorId: string; deadline: number; activityId: string; phase: 'pending' | 'prepared' | 'claimed';
   revision: { head: string; base: string; mergeBase: string };
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string; workflowId: number; workflowDigest: string;
+  /** Signed workflow commit captured with the one-time Action claim; legacy claims cannot prepare packets. */
+  claimedWorkflowSha?: string;
   session: { bucket: string; sessionId: string; generation: number };
 }
 export type BoundaryPublicationInput = {
@@ -506,11 +511,13 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   async getManagementControls(): Promise<ManagementControls> { return this.managementControls(); }
 
-  async getBoundaryAction(repositoryId: number): Promise<BoundaryActionBinding | null> {
-    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) return null;
+  async getBoundaryAction(repositoryId: number, protectedRef: string): Promise<BoundaryActionBinding | null> {
+    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0
+      || !/^refs\/heads\/(main|master|develop)$/.test(protectedRef)) return null;
     const controls = this.managementControls();
-    const action = controls.boundaryActions?.find(value => value.repositoryId === repositoryId);
-    return action ? { ...structuredClone(action), controlsRevision: controls.revision } : null;
+    const matches = controls.boundaryActions?.filter(value => value.repositoryId === repositoryId
+      && value.protectedRef === protectedRef) ?? [];
+    return matches.length === 1 ? { ...structuredClone(matches[0]), controlsRevision: controls.revision } : null;
   }
 
   /** Atomic PR-revision reservation; never returns an Action start credential. */
@@ -519,6 +526,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }): Promise<OperatorRegistryResult<{ activityId: string; created: boolean }>> {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
+      || !/^refs\/heads\/(main|master|develop)$/.test(input.protectedRef)
+      || (input.roundGeneration !== undefined && (!Number.isSafeInteger(input.roundGeneration) || input.roundGeneration < 1))
       || !/^[a-f0-9]{64}$/.test(input.contextDigest) || !/^[a-f0-9]{64}$/.test(input.ownerKey)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(input.installationId)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(input.operatorId)
@@ -545,7 +554,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
         input.repositoryId, input.pullRequest).toArray()[0];
       const previous = row ? JSON.parse(row.data) as BoundaryPreparation : null;
-      const action = this.managementControls().boundaryActions?.find(binding => binding.repositoryId === input.repositoryId);
+      const actions = this.managementControls().boundaryActions?.filter(binding => binding.repositoryId === input.repositoryId
+        && binding.protectedRef === input.protectedRef) ?? [];
+      const action = actions.length === 1 ? actions[0] : null;
       const selected = this.managementExecution(input.installationId);
       if (!action || this.managementControls().revision !== input.controlsRevision
         || action.installationId !== input.installationId || action.workflowId !== input.workflowId
@@ -562,7 +573,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         && previous.revision?.base === input.revision.base
         && previous.revision?.mergeBase === input.revision.mergeBase;
       if (previous?.contextDigest === input.contextDigest) {
-        if (previous.ownerKey !== input.ownerKey || previous.session?.bucket !== input.session.bucket
+        if (previous.protectedRef !== input.protectedRef || previous.ownerKey !== input.ownerKey
+          || previous.session?.bucket !== input.session.bucket
           || previous.session?.sessionId !== input.session.sessionId) {
           return { ok: false, reason: 'activity-conflict' };
         }
@@ -574,7 +586,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         return { ok: false, reason: 'revision-conflict' };
       }
       const next: BoundaryPreparation = { repositoryId: input.repositoryId, pullRequest: input.pullRequest,
-        contextDigest: input.contextDigest, ownerKey: input.ownerKey, installationId: input.installationId,
+        contextDigest: input.contextDigest, ownerKey: input.ownerKey, protectedRef: input.protectedRef,
+        ...(input.roundGeneration !== undefined ? { roundGeneration: input.roundGeneration } : {}),
+        installationId: input.installationId,
         operatorId: input.operatorId, revision: structuredClone(input.revision),
         controlsRevision: input.controlsRevision, installationRevision: input.installationRevision,
         operatorRevision: input.operatorRevision, releaseId: input.releaseId, bundleDigest: input.bundleDigest,
@@ -600,7 +614,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   private boundarySelectionCurrent(current: BoundaryPreparation): boolean {
     const controls = this.managementControls();
-    const action = controls.boundaryActions?.find(binding => binding.repositoryId === current.repositoryId);
+    const actions = controls.boundaryActions?.filter(binding => binding.repositoryId === current.repositoryId
+      && binding.protectedRef === current.protectedRef) ?? [];
+    const action = actions.length === 1 ? actions[0] : null;
     const selected = this.managementExecution(current.installationId);
     return !!action && selected.ok && controls.revision === current.controlsRevision
       && action.installationId === current.installationId && action.workflowId === current.workflowId
@@ -616,7 +632,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   /** Parent-only guard for Activity's final queue transition; no handoff authority leaves this read. */
   async getBoundaryStartGuard(activityId: string): Promise<{ claimed: boolean; repositoryId: number; pullRequest: number;
     head: string; base: string; mergeBase: string; workflowId: number; runId: number; runAttempt: number;
-    generation: number; contextDigest: string; session: BoundaryPreparation['session'] } | null> {
+    generation: number; contextDigest: string; workflowSha: string | null;
+    session: BoundaryPreparation['session'] } | null> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return null;
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>(
@@ -631,7 +648,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       head: current.revision.head, base: current.revision.base, mergeBase: current.revision.mergeBase,
       workflowId: current.workflowId, runId: handoff?.run_id ?? 0, runAttempt: handoff?.run_attempt ?? 0,
       generation: current.session.generation, contextDigest: current.contextDigest,
-      session: structuredClone(current.session) };
+      workflowSha: current.claimedWorkflowSha ?? null, session: structuredClone(current.session) };
   }
 
   /** Terminal publication reconciliation uses immutable claimed identity, not permission to
@@ -658,14 +675,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   /** OIDC and live session authority are verified by the authenticated parent before this one-time claim. */
   async claimBoundaryPreparation(input: { repositoryId: number; pullRequest: number; head: string; base: string;
-    mergeBase: string; workflowId: number; runId: number; runAttempt: number }): Promise<OperatorRegistryResult<{
+    mergeBase: string; workflowId: number; runId: number; runAttempt: number;
+    workflowSha?: string }): Promise<OperatorRegistryResult<{
       activityId: string; startCapability: string; repositoryId: number; pullRequest: number;
       head: string; base: string; mergeBase: string; workflowId: number; runId: number;
       runAttempt: number; generation: number; session: BoundaryPreparation['session'] }>> {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
       || ![input.head, input.base, input.mergeBase].every(sha => /^[a-f0-9]{40}$/i.test(sha))
-      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)) {
+      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)
+      || input.workflowSha !== undefined && !/^[a-f0-9]{40}$/.test(input.workflowSha)) {
       throw new ValidationError('Invalid Action claim');
     }
     this.managementSchema();
@@ -676,6 +695,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!row) return null;
       const current = JSON.parse(row.data) as BoundaryPreparation;
       if (current.phase !== 'prepared' || current.deadline <= Date.now()
+        || (current.roundGeneration !== undefined && current.roundGeneration !== 1)
         || current.revision.head !== input.head || current.revision.base !== input.base
         || current.revision.mergeBase !== input.mergeBase || current.workflowId !== input.workflowId
         || !this.boundarySelectionCurrent(current)) return null;
@@ -685,7 +705,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       this.ctx.storage.sql.exec('UPDATE operator_boundary_handoffs SET consumed=1,run_id=?,run_attempt=? WHERE activity_id=? AND consumed=0',
         input.runId, input.runAttempt, current.activityId);
       this.ctx.storage.sql.exec('UPDATE operator_boundary_preparations SET data=? WHERE repository_id=? AND pull_request=?',
-        JSON.stringify({ ...current, phase: 'claimed' }), input.repositoryId, input.pullRequest);
+        JSON.stringify({ ...current, phase: 'claimed',
+          ...(input.workflowSha ? { claimedWorkflowSha: input.workflowSha } : {}) }),
+        input.repositoryId, input.pullRequest);
       return { current, ciphertext: handoff.ciphertext };
     });
     if (!claimed) return { ok: false, reason: 'activity-conflict' };
@@ -804,7 +826,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const current = row ? JSON.parse(row.data) as BoundaryPreparation : null;
       if (!current || current.activityId !== activityId || current.contextDigest !== contextDigest
         || current.deadline <= Date.now() || startExpiresAt > current.deadline || current.phase !== 'pending') return false;
-      const action = this.managementControls().boundaryActions?.find(binding => binding.repositoryId === repositoryId);
+      const actions = this.managementControls().boundaryActions?.filter(binding => binding.repositoryId === repositoryId
+        && binding.protectedRef === current.protectedRef) ?? [];
+      const action = actions.length === 1 ? actions[0] : null;
       const selected = this.managementExecution(current.installationId);
       if (!action || !selected.ok || this.managementControls().revision !== current.controlsRevision
         || action.installationId !== current.installationId || action.workflowId !== current.workflowId
@@ -830,20 +854,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   async setManagementControls(input: ManagementControls, actor: { email: string; expiresAt: number }): Promise<OperatorRegistryResult<ManagementControls>> {
     this.managementSchema();
     if (input.boundaryActions !== undefined) {
-      const seen = new Set<number>();
+      const seen = new Set<string>();
       if (!Array.isArray(input.boundaryActions) || input.boundaryActions.length > 100) throw new ValidationError('Invalid boundary Action bindings');
       for (const action of input.boundaryActions) {
         if (!action || !Number.isSafeInteger(action.repositoryId) || action.repositoryId <= 0
-          || seen.has(action.repositoryId) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
+          || seen.has(`${action.repositoryId}:${action.protectedRef}`) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
           || !/^[A-Za-z0-9_-]{1,128}$/.test(action.installationId)
           || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(action.workflowPath)
-          || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(action.protectedRef)
+          || !/^refs\/heads\/(main|master|develop)$/.test(action.protectedRef)
           || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)
           || !Array.isArray(action.events) || action.events.length === 0
           || action.events.some(event => event !== 'pull_request_target' && event !== 'pull_request' && event !== 'push')) {
           throw new ValidationError('Invalid boundary Action binding');
         }
-        seen.add(action.repositoryId);
+        seen.add(`${action.repositoryId}:${action.protectedRef}`);
       }
     }
     return this.ctx.storage.transactionSync(() => {

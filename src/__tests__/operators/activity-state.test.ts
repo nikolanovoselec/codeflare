@@ -45,6 +45,24 @@ async function withActivity(
   });
 }
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
+function ownedSessionFixture() {
+  return {
+    schemaVersion: 1 as const, requestId: 'request-1', requestDigest: 'd'.repeat(64), activityId: 'activity',
+    ownerBucket: 'owner-bucket', sessionId: 'session-1', status: 'reserved' as const,
+    profile: { schemaVersion: 1 as const, activityId: 'activity', operatorId: 'operator', sessionId: 'session-1',
+      ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64), deadline: Date.now() + 60_000,
+      outputPrefix: 'Operators/',
+      human: { subject: 'human', email: 'human@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
+      policy: { schemaVersion: 1 as const, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: ['operator-fixtures/'], writePrefixes: ['operator-fixtures/'] },
+        inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
+          defaultReasoningLevel: 'off', inheritUserDefaults: false } },
+      jwtPolicy: { mode: 'off' as const, destinations: [] },
+      piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off',
+        systemPrompt: 'fixed', tools: ['write'] },
+    },
+  };
+}
 
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   it('exposes the production activity namespace and reconstructs a safe empty projection', async () => {
@@ -60,10 +78,13 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-active' });
     expect(await activity.commitDrive(1, update)).toMatchObject({ ok: true, state: { status: 'waiting' } });
     expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2, checkpoint: { step: 1 } } });
+    expect(await activity.getCurrentDriveCheckpointJson(1)).toBeNull();
+    expect(await activity.getCurrentDriveCheckpointJson(2)).toBe(JSON.stringify({ step: 1 }));
     expect(await activity.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
     expect(await activity.commitDrive(2, { ...update, status: 'completed', result: 'done' }))
       .toMatchObject({ ok: true, state: { status: 'completed', result: 'done' } });
     expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(await activity.getCurrentDriveCheckpointJson(2)).toBeNull();
     expect(await activity.cancelDrive()).toEqual({ ok: false, reason: 'drive-settled' });
     expect(await registry.getReceipt('activity')).toMatchObject({ ok: true, value: { artifactDigest: 'a'.repeat(64) } });
   }));
@@ -88,26 +109,48 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   }));
 
   it('durably owns one immutable session request while allowing status reconciliation', () => withActivity(async ({ activity }) => {
-    const session = {
-      schemaVersion: 1 as const, requestId: 'request-1', requestDigest: 'd'.repeat(64), activityId: 'activity',
-      ownerBucket: 'owner-bucket', sessionId: 'session-1', status: 'reserved' as const,
-      profile: { schemaVersion: 1 as const, activityId: 'activity', operatorId: 'operator', sessionId: 'session-1',
-        ownerBucket: 'owner-bucket', policyDigest: 'e'.repeat(64), deadline: Date.now() + 60_000,
-        outputPrefix: 'Operators/',
-        human: { subject: 'human', email: 'human@example.test', issuer: 'https://access.example.test/', audiences: ['aud'] },
-        policy: { schemaVersion: 1 as const, networkHosts: [], github: { repositories: [], methods: [] },
-          storage: { readPrefixes: ['operator-fixtures/'], writePrefixes: ['operator-fixtures/'] },
-          inference: { routeIds: ['route'], defaultRouteId: 'route', reasoningLevels: ['off'],
-            defaultReasoningLevel: 'off', inheritUserDefaults: false } },
-        jwtPolicy: { mode: 'off' as const, destinations: [] },
-        piProfile: { provider: 'codeflare-gateway', model: 'route', thinkingLevel: 'off', systemPrompt: 'fixed', tools: ['write'] },
-      },
-    };
+    const session = ownedSessionFixture();
     expect(await activity.saveOwnedSession(session)).toEqual({ ok: true });
     expect(await activity.getOwnedSession()).toEqual(session);
     expect(await activity.saveOwnedSession({ ...session, status: 'configuring' })).toEqual({ ok: true });
     expect(await activity.saveOwnedSession({ ...session, requestId: 'different' })).toEqual({ ok: false, reason: 'conflict' });
     expect(await activity.getOwnedSession()).toMatchObject({ requestId: 'request-1', status: 'configuring' });
+  }));
+
+  it.each(['reserved', 'configuring', 'configured', 'starting', 'ready'] as const)(
+    'permits an owned-session stop from %s without accepting new work', status => withActivity(async ({ activity }) => {
+      const session = ownedSessionFixture();
+      expect(await activity.saveOwnedSession(session)).toMatchObject({ ok: true });
+      const before = ['configuring', 'configured', 'starting', 'ready'] as const;
+      for (const step of before) {
+        if (status === 'reserved' || before.indexOf(step) > before.indexOf(status as typeof before[number])) break;
+        expect(await activity.saveOwnedSession({ ...session, status: step })).toMatchObject({ ok: true });
+      }
+      expect(await activity.saveOwnedSession({ ...session, status: 'stopping' })).toMatchObject({ ok: true });
+      expect(await activity.saveOwnedSession({ ...session, status: 'stopped' })).toMatchObject({ ok: true });
+      expect((await activity.getOwnedSession())?.status).toBe('stopped');
+      expect(await activity.saveOwnedSession({ ...session, status: 'starting' })).toMatchObject({ ok: false });
+    }),
+  );
+
+  it('accepts cleanup-only unknown → stopping → stopped for the same owned session', () => withActivity(async ({ activity }) => {
+    const session = ownedSessionFixture();
+    expect(await activity.saveOwnedSession(session)).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'configuring' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'unknown' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopping' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopped' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'starting' })).toMatchObject({ ok: false });
+  }));
+
+  it('accepts cleanup-only unknown → stopping → stopped for the same owned session', () => withActivity(async ({ activity }) => {
+    const session = ownedSessionFixture();
+    expect(await activity.saveOwnedSession(session)).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'configuring' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'unknown' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopping' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'stopped' })).toMatchObject({ ok: true });
+    expect(await activity.saveOwnedSession({ ...session, status: 'starting' })).toMatchObject({ ok: false });
   }));
 
   it('rejects non-JSON, incompatible and oversized checkpoints without losing the current drive', () => withActivity(async ({ activity }) => {
@@ -277,24 +320,42 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.getExecutionContext()).toBeNull();
   }, false));
 
-  it('issues a distinct read capability only to the single start winner and consumes one terminal redemption', () => withActivity(async ({ activity, token }) => {
+  it('rereads identical immutable terminal bytes after lost delivery only with the original read capability', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
     const started = await activity.startWebhook(token);
     expect(started).toMatchObject({ ok: true, phase: 'queued' });
     expect(started.ok && started.readCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
     if (!started.ok) throw new Error('expected webhook start');
     expect(await activity.getWebhookStatus(started.readCapability)).toMatchObject({ ok: true, terminal: false });
     expect(await activity.redeemWebhookResult(started.readCapability)).toEqual({ ok: false, reason: 'not-ready' });
-    const drive = await activity.beginDrive();
-    expect(drive).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
     expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
       result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    const first = await activity.redeemWebhookResult(started.readCapability);
+    expect(first).toMatchObject({ ok: true, terminal: true, generation: 1, result: { output: 'bounded' } });
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
     const redemptions = await Promise.all([
       activity.redeemWebhookResult(started.readCapability),
-      activity.redeemWebhookResult(started.readCapability),
+      reconstructed.redeemWebhookResult(started.readCapability),
     ]);
-    expect(redemptions.filter(result => result.ok)).toHaveLength(1);
-    expect(redemptions.filter(result => !result.ok)).toEqual([{ ok: false, reason: 'consumed' }]);
+    expect(redemptions).toEqual([first, first]);
+    expect(await reconstructed.redeemWebhookResult('r'.repeat(43))).toEqual({ ok: false, reason: 'invalid-capability' });
     expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
+    expect(await reconstructed.continueWebhook(started.readCapability, 1)).toEqual({ ok: false, reason: 'consumed' });
+    expect(await reconstructed.startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it('rejects terminal reread when its original read authority has expired', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
+    const started = await activity.startWebhook(token);
+    if (!started.ok) throw Error('Expected start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    expect(await activity.redeemWebhookResult(started.readCapability)).toMatchObject({ ok: true, terminal: true });
+    const state = await ctx.storage.get<{ webhook: { expiresAt: number } }>('admission');
+    if (!state) throw Error('Expected admitted read authority');
+    await ctx.storage.put('admission', { ...state, webhook: { ...state.webhook, expiresAt: Date.now() - 1 } });
+    expect(await new OperatorActivity(ctx, activityEnv).redeemWebhookResult(started.readCapability))
+      .toEqual({ ok: false, reason: 'capability-expired' });
   }, true, false));
 
   it('REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {

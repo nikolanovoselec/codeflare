@@ -26,12 +26,14 @@ async function digest(value: unknown): Promise<string> {
 export async function selectVerifiedBoundaryAction(
   env: Env,
   authority: VerifiedHumanAccessClaims,
-  target: { owner: string; repository: string; repositoryId: number },
+  target: { owner: string; repository: string; repositoryId: number; baseRef: string; baseSha: string },
   api: (path: string) => Promise<Response>,
 ): Promise<'local' | 'remote' | 'unavailable'> {
   if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY
     || !/^[A-Za-z0-9_.-]+$/.test(target.owner) || !/^[A-Za-z0-9_.-]+$/.test(target.repository)
     || !Number.isSafeInteger(target.repositoryId) || target.repositoryId < 1
+    || !/^(main|master|develop)$/.test(target.baseRef)
+    || !/^[a-f0-9]{40}$/i.test(target.baseSha)
     || authority.expiresAt * 1000 <= Date.now()) return 'unavailable';
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const root = `/repos/${target.owner}/${target.repository}`;
@@ -47,14 +49,23 @@ export async function selectVerifiedBoundaryAction(
       || repository.full_name?.toLowerCase() !== `${target.owner}/${target.repository}`.toLowerCase()) {
       return 'unavailable';
     }
-    const action = await registry.getBoundaryAction(repository.id);
+    const protectedRef = `refs/heads/${target.baseRef}`;
+    const branch = await json(`${root}/branches/${encodeURIComponent(target.baseRef)}`) as {
+      name: string; protected: boolean; commit: { sha: string };
+    };
+    if (branch?.name !== target.baseRef || !branch.protected
+      || !/^[a-f0-9]{40}$/i.test(branch.commit?.sha ?? '')) return 'unavailable';
+    const action = await registry.getBoundaryAction(repository.id, protectedRef);
     if (!action) {
+      // An explicit binding on another base is not evidence of an absent Action here.
+      const controls = await registry.getManagementControls();
+      if (controls.boundaryActions?.some(binding => binding.repositoryId === repository.id)) return 'unavailable';
       // A 404 alone can conceal missing permissions. Require a readable parent listing
       // establishing that the protected workflow file is genuinely absent.
       for (const [directory, next] of [
         ['.github/workflows', 'boundary-reviews.yml'], ['.github', 'workflows'], ['', '.github'],
       ] as const) {
-        const path = `${root}/contents${directory ? `/${directory}` : ''}?ref=${encodeURIComponent(repository.default_branch)}`;
+        const path = `${root}/contents${directory ? `/${directory}` : ''}?ref=${encodeURIComponent(branch.commit.sha)}`;
         const response = await api(path);
         if (response.status === 404) continue;
         if (response.status !== 200) return 'unavailable';
@@ -67,16 +78,13 @@ export async function selectVerifiedBoundaryAction(
       }
       return 'unavailable';
     }
-    const branchPath = `${root}/branches/${encodeURIComponent(action.protectedRef.slice('refs/heads/'.length))}`;
-    const [workflow, branch] = await Promise.all([
-      json(`${root}/actions/workflows/${action.workflowId}`), json(branchPath),
-    ]) as [{ id: number; path: string; state: string },
-      { name: string; protected: boolean; commit: { sha: string } }];
-    if (!/^[a-f0-9]{40}$/i.test(branch?.commit?.sha ?? '')) return 'unavailable';
+    const workflow = await json(`${root}/actions/workflows/${action.workflowId}`) as {
+      id: number; path: string; state: string;
+    };
     const contents = await json(`${root}/contents/${action.workflowPath}?ref=${branch.commit.sha}`) as {
       content: string; encoding: string;
     };
-    const decision = await resolveBoundaryAction({ action, repository, workflow, branch, contents,
+    const decision = await resolveBoundaryAction({ action, repository, baseRef: protectedRef, workflow, branch, contents,
       event: 'pull_request_target' });
     if (decision.selection !== 'remote') return 'unavailable';
     const installed = await registry.resolveManagementExecution(decision.installationId);
@@ -138,7 +146,8 @@ export async function prepareVerifiedBoundary(
     const ancestry = await json(`${root}/compare/${ack}...${target}`) as { merge_base_commit?: { sha?: string } };
     return ancestry?.merge_base_commit?.sha === ack;
   });
-  const action = await registry.getBoundaryAction(context.repositoryId);
+  const protectedRef = `refs/heads/${pullRequest.base.ref}`;
+  const action = await registry.getBoundaryAction(context.repositoryId, protectedRef);
   if (!action) throw Error('Protected Action not configured');
   const branchPath = `${root}/branches/${encodeURIComponent(action.protectedRef.slice('refs/heads/'.length))}`;
   const [workflow, protectedBranch] = await Promise.all([
@@ -149,7 +158,8 @@ export async function prepareVerifiedBoundary(
   const contents = await json(`${root}/contents/${action.workflowPath}?ref=${protectedBranch.commit.sha}`) as {
     content: string; encoding: string;
   };
-  const selected = await resolveBoundaryAction({ action, repository: repo, workflow, branch: protectedBranch,
+  const selected = await resolveBoundaryAction({ action, repository: repo, baseRef: protectedRef,
+    workflow, branch: protectedBranch,
     contents, event: 'pull_request_target' });
   if (selected.selection !== 'remote') throw Error('Protected Action unavailable');
   const installation = await registry.resolveManagementExecution(selected.installationId);
@@ -204,12 +214,12 @@ export async function prepareVerifiedBoundary(
     bundleDigest: installation.value.release.bundleDigest, workflowId: action.workflowId,
     workflowDigest: action.workflowDigest };
   const sessionBinding = { ...session, generation: ready.generation };
-  const contextDigest = await digest({ context, accepted, action, pinned, sessionBinding });
+  const contextDigest = await digest({ context, accepted, action, pinned, protectedRef, sessionBinding });
   const ownerKey = await operatorOwnerKey(currentAuthority.human);
   const reservation = await registry.reserveBoundaryPreparation({ repositoryId: context.repositoryId,
-    pullRequest: context.pullRequest, contextDigest, ownerKey, installationId: selected.installationId,
+    pullRequest: context.pullRequest, roundGeneration: 1, contextDigest, ownerKey, installationId: selected.installationId,
     operatorId: installation.value.operator.operatorId,
-    revision: { head: context.head, base: context.base, mergeBase: context.mergeBase },
+    revision: { head: context.head, base: context.base, mergeBase: context.mergeBase }, protectedRef,
     deadline: currentAuthority.human.expiresAt * 1000, expectedContextDigest: original?.contextDigest ?? null,
     session: sessionBinding, ...pinned });
   if (!reservation.ok || !reservation.value.created) return; // Reconcile only: no new capability on ambiguity.

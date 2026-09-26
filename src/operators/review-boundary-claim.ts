@@ -10,11 +10,15 @@ import { operatorOwnerKey } from './browser-activity';
 import { resolveBoundaryAction, type BoundaryActionBinding } from './boundary-action-trust';
 import { verifyBoundaryActionOidc, type BoundaryActionIdentity } from './boundary-action-oidc';
 import type { BoundaryPreparation, BoundaryPublicationInput } from './registry';
+import { parseOperatorPiInitialization } from './session-initialization';
+import { parseOperatorAttachmentProjection } from './attachments';
+import { verifyOperatorPackageResourceProjection } from './package-resources';
 
 const SHA = /^[0-9a-f]{40}$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const CLAIM_PATH = '/operator-webhook/v1/activities/claims/boundary';
 const PUBLICATION_PATH = '/operator-webhook/v1/activities/claims/publication';
+const PREPARATION_PATH = '/operator-webhook/v1/activities/claims/publication-preparation';
 export interface BoundaryActionClaimRequest {
   repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string;
   runId: number; runAttempt: number;
@@ -45,7 +49,7 @@ function tokenHints(token: string): { repository: string; workflowSha: string } 
 
 /** No caller-provided GitHub identity, event metadata or prepared actor is authoritative. */
 export function verifyBoundaryActionRun(input: {
-  prepared: Pick<BoundaryPreparation, 'repositoryId' | 'pullRequest' | 'revision' | 'workflowId'>;
+  prepared: Pick<BoundaryPreparation, 'repositoryId' | 'pullRequest' | 'revision' | 'workflowId' | 'protectedRef'>;
   oidc: Omit<BoundaryActionIdentity, 'eventName'> & { eventName: string };
   action: { repositoryId: number; workflowId: number; workflowPath: string; protectedRef: string;
     branchSha: string; applicable: boolean };
@@ -53,7 +57,7 @@ export function verifyBoundaryActionRun(input: {
     run: { id: number; run_attempt: number; workflow_id: number; event: string; path: string;
       repository: { id: number }; pull_requests: Array<{ number: number }> };
     pullRequest: { number: number; state: string; head: { sha: string; repo: { id: number } };
-      base: { sha: string; repo: { id: number } } };
+      base: { sha: string; ref: string; repo: { id: number } } };
     compare: { merge_base_commit: { sha: string } };
     headPullRequests: number[]; matchingPullRequests: number[] };
 }): BoundaryActionClaimContext | null {
@@ -61,6 +65,8 @@ export function verifyBoundaryActionRun(input: {
     const { prepared: p, oidc, action, github: g } = input;
     const r = p.revision;
     if (!action.applicable || p.repositoryId !== action.repositoryId || p.workflowId !== action.workflowId
+      || !/^refs\/heads\/(main|master|develop)$/.test(p.protectedRef)
+      || p.protectedRef !== action.protectedRef
       || oidc.repositoryId !== p.repositoryId || oidc.eventName !== 'pull_request_target'
       || oidc.workflowSha !== action.branchSha
       || oidc.workflowRef !== `${oidc.repository}/${action.workflowPath}@${action.protectedRef}`
@@ -73,6 +79,7 @@ export function verifyBoundaryActionRun(input: {
       || g.pullRequest.number !== p.pullRequest || g.pullRequest.state !== 'open'
       || g.pullRequest.head.repo.id !== p.repositoryId || g.pullRequest.base.repo.id !== p.repositoryId
       || g.pullRequest.head.sha !== r.head || g.pullRequest.base.sha !== r.base
+      || `refs/heads/${g.pullRequest.base.ref}` !== p.protectedRef
       || g.compare.merge_base_commit.sha !== r.mergeBase
       || g.headPullRequests.length !== 1 || g.headPullRequests[0] !== p.pullRequest
       || g.matchingPullRequests.length !== 1 || g.matchingPullRequests[0] !== p.pullRequest
@@ -95,7 +102,7 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
       await readBoundedResponse(response, 128 * 1024, 'Action claim GitHub context'))) as unknown;
   }
-  const repo = await github(root) as { id: number; full_name: string; default_branch: string };
+  const repo = await github(root) as { id: number; full_name: string };
   const branchPath = `${root}/branches/${encodeURIComponent(action.protectedRef.slice('refs/heads/'.length))}`;
   const [workflow, branch, pr, run] = await Promise.all([
     github(`${root}/actions/workflows/${action.workflowId}`), github(branchPath),
@@ -113,7 +120,7 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     github(`${root}/compare/${prepared.revision.base}...${prepared.revision.head}`),
   ]) as [{ content: string; encoding: string }, Array<{ number: number }>,
     Array<{ number: number }>, { merge_base_commit: { sha: string } }];
-  const applicable = (await resolveBoundaryAction({ action, repository: repo,
+  const applicable = (await resolveBoundaryAction({ action, repository: repo, baseRef: prepared.protectedRef,
     workflow, branch, contents, event: 'pull_request_target' })).selection === 'remote';
   return verifyBoundaryActionRun({ prepared, oidc: identity, action: {
     repositoryId: action.repositoryId, workflowId: action.workflowId,
@@ -123,6 +130,37 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     pullRequest: pr, compare: compared,
     headPullRequests: headPulls.map(pull => pull.number),
     matchingPullRequests: matchingPulls.map(pull => pull.number) } });
+}
+
+/** A claimed run does not renew the human or installation authority for later effects. */
+async function currentBoundaryActor(env: Env, prepared: BoundaryPreparation): Promise<boolean> {
+  if (!env.CONTAINER || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return false;
+  try {
+    const activity = env.OPERATOR_ACTIVITY.getByName(prepared.activityId);
+    const owner = await activity.getExecutionContext();
+    if (!owner || owner.activityId !== prepared.activityId || owner.operatorId !== prepared.operatorId) return false;
+    const container = env.CONTAINER.getByName(getContainerId(prepared.session.bucket,
+      prepared.session.sessionId)) as unknown as { openReviewHuman(input: { bucket: string; sessionId: string;
+        email: string }): Promise<{ human: import('../lib/jwt').VerifiedHumanAccessClaims; accessJwt: string }> };
+    const sealed = await container.openReviewHuman({ bucket: prepared.session.bucket,
+      sessionId: prepared.session.sessionId, email: owner.owner.email });
+    const current = await requireOperatorHumanContext(new Request('https://codeflare.invalid/', {
+      headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+    }), env, sealed.human.email);
+    if (current.human.subject !== sealed.human.subject || current.human.issuer !== sealed.human.issuer
+      || current.human.email.toLowerCase() !== sealed.human.email.toLowerCase()
+      || JSON.stringify(current.human.audiences) !== JSON.stringify(sealed.human.audiences)
+      || current.human.expiresAt * 1000 <= Date.now()
+      || await operatorOwnerKey(current.human) !== prepared.ownerKey) return false;
+    const selection = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(prepared.installationId);
+    return selection.ok && selection.value.operator.operatorId === prepared.operatorId
+      && selection.value.installation.revision === prepared.installationRevision
+      && selection.value.operator.revision === prepared.operatorRevision
+      && selection.value.controlsRevision === prepared.controlsRevision
+      && selection.value.release.id === prepared.releaseId
+      && selection.value.release.bundleDigest === prepared.bundleDigest
+      && canInvokeOperator(current.human, selection.value.operator);
+  } catch { return false; }
 }
 
 /** Parent-only claim: GitHub authenticates the job; sealed Access authenticates the human. */
@@ -143,7 +181,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     if (!prepared || prepared.phase !== 'prepared' || prepared.deadline <= Date.now()
       || prepared.revision.head !== input.head || prepared.revision.base !== input.base
       || prepared.revision.mergeBase !== input.mergeBase) return { status: 'missing-handoff' };
-    const action = await registry.getBoundaryAction(input.repositoryId);
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
     if (!action || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision
       || !action.events.includes('pull_request_target')) return { status: 'stale' };
@@ -204,7 +242,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     await human();
     verified = await current();
     if (!verified || !sameClaim(verified, input, action.workflowId)) return { status: 'stale' };
-    const won = await registry.claimBoundaryPreparation(verified);
+    const won = await registry.claimBoundaryPreparation({ ...verified, workflowSha: identity.workflowSha });
     if (!won.ok) return { status: 'stale' };
     const live = await sessionRepo.getSession(prepared.session.bucket, prepared.session.sessionId);
     if (!live || live.lifecycleState !== 'running' || live.lifecycleGeneration !== prepared.session.generation
@@ -212,6 +250,160 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     // The claimed credential is not replayable even when this response is lost.
     return { ...verified, activityId: prepared.activityId, startCapability: won.value.startCapability,
       generation: prepared.session.generation, contextDigest: prepared.contextDigest, origin };
+  } catch { return { status: 'unknown' }; }
+}
+
+/** Parent-only fresh PR/Action proof for a claimed packet effect. The signed Action claim is
+ * already retained by Registry; this check grants no new Action or child authority. */
+export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: string,
+  repository: string): Promise<boolean> {
+  if (!isEnterpriseMode(env) || !env.OPERATOR_REGISTRY || !REPOSITORY.test(repository)) return false;
+  try {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const guard = await registry.getBoundaryStartGuard(activityId);
+    if (!guard?.claimed) return false;
+    const prepared = await registry.getBoundaryPreparation(guard.repositoryId, guard.pullRequest);
+    const action = prepared && await registry.getBoundaryAction(guard.repositoryId, prepared.protectedRef);
+    if (!prepared || prepared.phase !== 'claimed' || prepared.activityId !== activityId
+      || prepared.contextDigest !== guard.contextDigest || !guard.workflowSha || !SHA.test(guard.workflowSha)
+      || prepared.claimedWorkflowSha !== guard.workflowSha || !action
+      || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
+      || action.controlsRevision !== prepared.controlsRevision || !await currentBoundaryActor(env, prepared)) return false;
+    const token = await getValidGithubToken(env, guard.session.bucket);
+    if (!token) return false;
+    const root = `/repos/${repository}`;
+    const branch = await fetch(`https://api.github.com${root}/branches/${encodeURIComponent(
+      action.protectedRef.slice('refs/heads/'.length))}`, { redirect: 'error', signal: AbortSignal.timeout(5_000),
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28' } });
+    if (!branch.ok) return false;
+    const branchData = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      await readBoundedResponse(branch, 128 * 1024, 'Current protected branch'))) as { commit?: { sha?: string } };
+    if (!branchData.commit?.sha || branchData.commit.sha !== guard.workflowSha) return false;
+    const identity: BoundaryActionIdentity = { repositoryId: guard.repositoryId, repository,
+      workflowRef: `${repository}/${action.workflowPath}@${action.protectedRef}`,
+      workflowSha: guard.workflowSha, eventName: 'pull_request_target',
+      runId: guard.runId, runAttempt: guard.runAttempt };
+    const expected = { repositoryId: guard.repositoryId, pullRequest: guard.pullRequest,
+      head: guard.head, base: guard.base, mergeBase: guard.mergeBase,
+      runId: guard.runId, runAttempt: guard.runAttempt };
+    const current = await verifyCurrentBoundaryAction(prepared, action, identity, expected, token);
+    return !!current && sameClaim(current, expected, action.workflowId)
+      && await currentBoundaryActor(env, prepared)
+      && (await registry.getBoundaryStartGuard(activityId))?.claimed === true;
+  } catch { return false; }
+}
+
+export type BoundaryPublicationPreparationInput = Omit<BoundaryPublicationInput, 'effect' | 'digest'> & {
+  resultDigest: string;
+};
+
+/** The protected Action receives only a bounded, credential-free projection of frozen owner evidence. */
+export async function prepareBoundaryPublication(env: Env, oidcToken: string,
+  input: BoundaryPublicationPreparationInput): Promise<{ status: 'ready'; projection: unknown } | {
+    status: 'stale' | 'denied' | 'unknown' }> {
+  if (!isEnterpriseMode(env) || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY || !env.USAGE_DB || !env.KV
+    || !Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
+    || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1
+    || ![input.workflowId, input.runId, input.runAttempt, input.sessionGeneration, input.activityGeneration]
+      .every(value => Number.isSafeInteger(value) && value > 0)
+    || ![input.head, input.base, input.mergeBase].every(value => typeof value === 'string' && SHA.test(value))
+    || ![input.contextDigest, input.resultDigest].every(value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value))
+    || typeof input.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.activityId)) return { status: 'denied' };
+  const hints = tokenHints(oidcToken);
+  if (!hints) return { status: 'denied' };
+  try {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const prepared = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
+    if (!prepared || prepared.phase !== 'claimed' || prepared.roundGeneration !== 1
+      || prepared.deadline <= Date.now() || prepared.activityId !== input.activityId
+      || prepared.contextDigest !== input.contextDigest || prepared.session.generation !== input.sessionGeneration
+      || prepared.revision.head !== input.head || prepared.revision.base !== input.base
+      || prepared.revision.mergeBase !== input.mergeBase || prepared.workflowId !== input.workflowId) return { status: 'stale' };
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
+    if (!action || action.workflowId !== input.workflowId || action.workflowDigest !== prepared.workflowDigest
+      || action.controlsRevision !== prepared.controlsRevision || !action.events.includes('pull_request_target')) return { status: 'stale' };
+    const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
+    if (!domain || !/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i.test(domain)) return { status: 'denied' };
+    const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${PREPARATION_PATH}`,
+      repositoryId: input.repositoryId, repository: hints.repository, workflowPath: action.workflowPath,
+      protectedRef: action.protectedRef, workflowSha: hints.workflowSha,
+      runId: input.runId, runAttempt: input.runAttempt });
+    if (!signed) return { status: 'denied' };
+    const activity = env.OPERATOR_ACTIVITY.getByName(input.activityId);
+    async function currentOwners(): Promise<boolean> {
+      const guard = await registry.getBoundaryStartGuard(input.activityId);
+      const terminal = await activity.getBoundaryPublicationState(input.activityId);
+      const live = await new D1SessionRepository(env.USAGE_DB!).getSession(prepared!.session.bucket, prepared!.session.sessionId);
+      return !!guard?.claimed && guard.repositoryId === input.repositoryId && guard.pullRequest === input.pullRequest
+        && guard.head === input.head && guard.base === input.base && guard.mergeBase === input.mergeBase
+        && guard.workflowId === input.workflowId && guard.runId === input.runId && guard.runAttempt === input.runAttempt
+        && guard.contextDigest === input.contextDigest && guard.generation === input.sessionGeneration
+        && guard.workflowSha === signed!.workflowSha
+        && !!terminal?.collected && terminal.generation === input.activityGeneration
+        && terminal.binding.repositoryId === input.repositoryId && terminal.binding.pullRequest === input.pullRequest
+        && terminal.binding.contextDigest === input.contextDigest
+        && JSON.stringify(terminal.binding.session) === JSON.stringify(prepared!.session)
+        && live?.lifecycleState === 'running' && live.lifecycleGeneration === input.sessionGeneration
+        && (live.boundaryActivityId === input.activityId || live.boundaryActivityId == null);
+    }
+    if (!await currentOwners() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
+    if (env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
+      || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unknown' };
+    const githubToken = await getValidGithubToken(env, prepared.session.bucket);
+    if (!githubToken) return { status: 'unknown' };
+    const current = async () => {
+      const verified = await verifyCurrentBoundaryAction(prepared, action, signed, input, githubToken);
+      return !!verified && sameClaim(verified, input, input.workflowId);
+    };
+    if (!await current() || !await currentOwners() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
+    const [evidence, owned, resources] = await Promise.all([
+      activity.getBoundaryPublicationEvidence(input.activityId), activity.getOwnedSession(),
+      activity.getPackageResources(),
+    ]);
+    if (!evidence || !owned || owned.status !== 'stopped'
+      || owned.activityId !== input.activityId
+      || owned.ownerBucket !== prepared.session.bucket || owned.profile.activityId !== input.activityId
+      || owned.profile.policyDigest !== evidence.policyDigest || evidence.resultDigest !== input.resultDigest
+      || evidence.packageDigest !== prepared.bundleDigest || evidence.context.repositoryId !== input.repositoryId
+      || evidence.context.pullRequest !== input.pullRequest || evidence.context.head !== input.head
+      || evidence.context.base !== input.base || evidence.context.mergeBase !== input.mergeBase
+      || !resources) return { status: 'stale' };
+    const packets = evidence.packets;
+    if (!packets.length || new Set(packets.map(packet => packet.lane)).size !== packets.length) {
+      return { status: 'stale' };
+    }
+    const attachments = parseOperatorAttachmentProjection({ schemaVersion: 1, activityId: input.activityId,
+      files: packets.map(({ lane: _lane, ...attachment }) => attachment) });
+    const resourceProjection = await verifyOperatorPackageResourceProjection(resources);
+    if (resourceProjection.artifactDigest !== evidence.packageDigest) return { status: 'stale' };
+    const initialization = parseOperatorPiInitialization(owned.profile.piProfile.initialization, {
+      profileId: owned.profile.piProfile.initialization!.profileId, attachments, resources: resourceProjection,
+    });
+    if (JSON.stringify(initialization.inputs.filter(item => item.kind === 'attachment').map(item => item.reference))
+      !== JSON.stringify(packets.map(packet => packet.name))) return { status: 'stale' };
+    const resourceDescriptors = resourceProjection.files.map(({ destination, sha256, size }) => ({ destination, sha256, size }));
+    const hash = async (value: unknown) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(JSON.stringify(value))))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (owned.requestDigest !== await hash({ invocationJson: evidence.invocationJson,
+      attachments, initialization })) return { status: 'stale' };
+    const projection = { schemaVersion: 1, admission: { repositoryId: input.repositoryId,
+      pullRequest: input.pullRequest, activityId: input.activityId, roundGeneration: prepared.roundGeneration,
+      inputDigest: evidence.inputDigest, packageDigest: evidence.packageDigest,
+      resourceDigest: await hash(resourceDescriptors), policyDigest: evidence.policyDigest,
+      workflowId: input.workflowId, runId: input.runId, runAttempt: input.runAttempt,
+      acknowledgedHead: evidence.acknowledgedHead },
+    context: { ...evidence.context, headPullRequests: [input.pullRequest], mergeQueue: false },
+    contextDigest: input.contextDigest, resources: resourceDescriptors, packets, initialization,
+    packetDigest: await hash({ contextDigest: input.contextDigest,
+      packets: packets.map(packet => ({ lane: packet.lane, digest: packet.sha256 })) }),
+    resultDigest: input.resultDigest, activityGeneration: input.activityGeneration };
+    if (new TextEncoder().encode(JSON.stringify({ status: 'ready', projection })).byteLength > 64 * 1024
+      || !await current() || !await currentOwners() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
+    const observed = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
+    return observed?.activityId === input.activityId && observed.contextDigest === input.contextDigest
+      && observed.roundGeneration === 1 && observed.deadline > Date.now()
+      ? { status: 'ready', projection } : { status: 'stale' };
   } catch { return { status: 'unknown' }; }
 }
 
@@ -242,7 +434,7 @@ export async function operateBoundaryPublication(env: Env, oidcToken: string,
       || prepared.session.generation !== input.sessionGeneration
       || prepared.revision.head !== input.head || prepared.revision.base !== input.base
       || prepared.revision.mergeBase !== input.mergeBase) return { status: 'stale' };
-    const action = await registry.getBoundaryAction(input.repositoryId);
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
     if (!action || action.workflowId !== input.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision || !action.events.includes('pull_request_target')) {
       return { status: 'stale' };
@@ -270,17 +462,17 @@ export async function operateBoundaryPublication(env: Env, oidcToken: string,
         && terminal.binding.contextDigest === input.contextDigest
         && JSON.stringify(terminal.binding.session) === JSON.stringify(prepared!.session);
     }
-    if (!await admissionCurrent()) return { status: 'stale' };
+    if (!await admissionCurrent() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     if (env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
       || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unknown' };
     const githubToken = await getValidGithubToken(env, prepared.session.bucket);
     if (!githubToken) return { status: 'unknown' };
     const current = () => verifyCurrentBoundaryAction(prepared, action, signed, input, githubToken);
-    if (!await current() || !await admissionCurrent()) return { status: 'stale' };
+    if (!await current() || !await admissionCurrent() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     const result = input.operation === 'begin' ? await registry.beginBoundaryPublication(input)
       : input.operation === 'complete' ? await registry.completeBoundaryPublication({ ...input, externalId: input.externalId! })
         : await registry.getBoundaryPublication(input) ?? { status: 'stale' as const };
-    if (!await current() || !await admissionCurrent()) return { status: 'stale' };
+    if (!await current() || !await admissionCurrent() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     const observed = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
     return observed?.activityId === input.activityId && observed.contextDigest === input.contextDigest
       ? result : { status: 'stale' };

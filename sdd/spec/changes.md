@@ -2,6 +2,14 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-26
+
+- **Protected-base Review collection and independent publication remain release candidates** ([REQ-OPERATOR-053](operator-registry.md#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-056](operator-registry.md#req-operator-056-independent-review-publication)). The original unexpired read capability may recover the same immutable terminal bytes after lost delivery without restarting Review; status and continuation remain fenced. The protected Codeflare Action transports the installed Conductor's single result and publishes a bounded artifact, round comment and non-required shadow check under exact current identity. Incomplete history or unresolved findings never yields green. Exact-head CI and live protected Action readback remain pending.
+
+## 2026-09-25
+
+- **Claimed packet attachment path is a CI candidate, not Action acceptance** ([REQ-OPERATOR-050](operator-registry.md#req-operator-050-generic-conductor-capability), [REQ-OPERATOR-053](operator-registry.md#req-operator-053-enterprise-pr-boundary-review-handoff)). The generic private Conductor operation selects no GitHub credential or Host script; the parent rechecks the claimed exact PR/Action and source generation, sends inert Git pack bytes to the existing sandbox Host task, conditionally stores its output in the owner's bucket, verifies readback and records an immutable Activity attachment. The owned reviewer session restores the accepted projection before Pi work. Behavioral fixtures were authored but have not passed exact-head CI or live protected Action acceptance; publication is separate.
+
 ## 2026-09-24
 
 - **Future-session lifecycle authority is clarified, not deployed** ([REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-start-stop-restart-and-delete-sessions), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-024](session-lifecycle.md#req-session-024-recovery-deadline-and-termination-intent-are-durable), [REQ-SESSION-035](session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit), [REQ-SEC-020](security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits)). Owner reads, elapsed timers and SDK state cannot write D1 `stopped`; only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit can. Uncertainty preserves workload ownership and managed blocking. Authenticated verified surviving workloads may reconnect via no-start after coordinator reconstruction; absent or unverified runtime returns retryable 1013 without unsanctioned rate-limit writes, while D1 stopping/stopped remains 4503. These are specification corrections for future sessions, not a repair or migration of existing records. Operator remains paused; no live repair, deployment or GREEN verification is claimed.

@@ -156,7 +156,7 @@ export async function createDispatcherOperation(input: {
   };
 }
 
-interface OperatorRuntimeCapabilityProps { activityId: string; generation: number }
+interface OperatorRuntimeCapabilityProps { activityId: string; generation: number; driveDeadline?: number }
 
 function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt): receipt is ManagementAdmissionReceipt {
   return 'selection' in receipt;
@@ -234,7 +234,7 @@ export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
     if (isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'conductor') {
       try {
         const connected = await createConductorProductionCapability({ env: this.env, plan, activity,
-          generation: props.generation });
+          generation: props.generation, driveDeadline: props.driveDeadline ?? 0 });
         return connected.capability.fetch(request);
       } catch { return deniedCapability(props.activityId, props.generation); }
     }

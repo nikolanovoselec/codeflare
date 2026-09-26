@@ -121,9 +121,9 @@ This release extends the existing Operator foundation with GitHub package instal
 3. Protected operations recheck the current human and exact installation and release revisions through parent-owned interceptors. <!-- @impl: src/operators/gate1-production.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 4. Repeated identical operations reconcile, changed input conflicts, and uncertain effects are not replayed. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/generic-profile-admission.test.ts (REQ-OPERATOR-047) -->
 5. Completed output is bounded and durable before delivery; unknown completion is fenced. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
-6. Parent-composed profiles may confine SDK filesystem tools to exact approved inputs and outputs without broader host access. <!-- @impl: host/src/operator-pi-review.ts::createOperatorPiReviewTools --> <!-- @test: host/__tests__/operator-pi-review.test.js (REQ-OPERATOR-021: parent-composed Pi filesystem sandbox) -->
+6. Parent-composed profiles confine independent SDK task sessions to finite parent-approved input references, exact filesystem reads and outputs, immutable report staging, and no candidate extension or broader Host access. <!-- @impl: src/operators/session-initialization.ts::parseOperatorPiInitialization --> <!-- @impl: host/src/operator-pi-isolated.ts::createIsolatedPiTools --> <!-- @impl: host/src/operator-pi-isolated-runner.ts::runApprovedTasks --> <!-- @test: src/__tests__/operators/session-initialization.test.ts (REQ-OPERATOR-021: finite parent-approved Pi initialization) --> <!-- @test: host/__tests__/operator-pi-review.test.js (REQ-OPERATOR-021: Review composition exposes only fixed sandboxed read and write tools) --> <!-- @test: host/__tests__/operator-pi-isolated.test.js (REQ-OPERATOR-021: each SDK child sees only its declared inputs and can stage one immutable bounded output) --> <!-- @test: host/__tests__/operator-pi-isolated-runner.test.js (REQ-OPERATOR-021: one structured task creates independently isolated SDK sessions and durable identities) -->
 
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+**Notes:** The isolated child-session candidate and restored-input tests are local and unverified by exact-head CI or the real protected Action; do not claim live acceptance from these anchors.
 
 **Constraints:** Profile admission can only narrow verified human authority.
 
@@ -203,22 +203,27 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. The parent binds the Conductor to the exact activity generation, installation revisions, human expiry and cancellation state before every protected effect. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
+1. The parent binds the Conductor to the exact activity generation, installation revisions, human expiry and cancellation state before every protected effect except cleanup-only stopping of its already-owned session; revocation never grants new work. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 2. The parent selects and owns the restricted session profile, bucket and fixed attachment destination; package input cannot replace them. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
-3. Opaque attachments are restored only from the admitted digest-and-size-bound projection before Conductor work starts. <!-- @impl: src/operators/attachments.ts::projectOperatorAttachments --> <!-- @impl: scripts/restore-operator-attachments.mjs::restoreOperatorAttachments --> <!-- @test: src/__tests__/operators/attachments.test.ts (operator opaque attachment ownership) -->
-4. Structured Pi tasks expose no credential or unrestricted filesystem authority. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
-5. Synchronization seals exact declared outputs and requires independent verification before completion. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
-6. Storage inspection is owner-scoped, canonical-path bounded and read-only. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
+3. Before Conductor work, the parent restores only immutable attachment bytes bound to the admitted digest and size, including any claimed packets. Changed or undeclared bytes cannot enter the reviewer session. <!-- @impl: src/operators/attachments.ts::projectOperatorAttachments --> <!-- @impl: src/operators/attachments.ts::persistApprovedPacketAttachment --> <!-- @impl: src/operators/activity.ts::OperatorActivity.saveApprovedPacketAttachment --> <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @impl: scripts/restore-operator-attachments.mjs::restoreOperatorAttachments --> <!-- @test: src/__tests__/operators/attachments.test.ts (operator opaque attachment ownership) --> <!-- @test: src/__tests__/operators/approved-packet-storage.test.ts (REQ-OPERATOR-050/052: parent-owned immutable packet storage) --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary Host and sealed storage) -->
+4. For claimed packets, the parent compares requested initialization with the private current-generation Activity checkpoint before Pi startup. <!-- @impl: src/operators/activity.ts::OperatorActivity.getCurrentDriveCheckpointJson --> <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (REQ-OPERATOR-050: claimed packet initialization requires its private Activity checkpoint) -->
+5. Structured Pi tasks expose no credential or unrestricted filesystem authority. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
+6. Synchronization seals exact declared outputs and requires independent verification before completion. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
+7. Storage inspection is owner-scoped, canonical-path bounded and read-only. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 
-**Notes:** Exact-head CI and deployed owned-session evidence remain incomplete.
+**Notes:** The parent checks initialization only when claimed packets exist; complete-checkpoint matching for every initialization remains unmet. Deployed owned-session evidence is also incomplete.
 
-**Constraints:** The interface contains no Review-specific route or policy, grants no GitHub publisher credential, and leaves packet, lane, finding, history and publication semantics package-owned.
+**Constraints:**
+
+- The interface contains no Review-specific route or policy, grants no GitHub publisher credential, and leaves packet, lane, finding, history and publication semantics package-owned.
+- Claimed packets require the signed claim and drive, the fixed credential-free source Host task, conditional owner-bucket storage with exact readback or verified replay, and immutable Activity descriptors.
+- Under [REQ-OPERATOR-005](operators.md#req-operator-005-owned-operator-session-lifecycle), owned-session reservation binds the request digest to the current attachment projection and denies later additions.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-005](operators.md#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Adjacent capability, attachment and owned-session tests cover the delivered generic boundary; exact-head CI remains outstanding.
+**Verification:** Adjacent capability, attachment and owned-session tests cover the delivered generic boundary. The claimed packet path and compiled Conductor fixture are candidates pending exact-head CI; no deployed protected Action or live restore receipt is proven.
 
 **Status:** Partial
 
@@ -292,7 +297,7 @@ This release extends the existing Operator foundation with GitHub package instal
 4. The status response exposes only metadata and the durable generation. Continuation claims that waiting generation once; a delayed accepted continuation cannot reserve a later drive. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/runtime.ts::driveOperatorRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes) -->
 5. Only a separate trusted publisher holds credentials for Review publication; neither local Pi nor the compiled child may publish. Journal ordering and independent publication are governed by [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) and [REQ-OPERATOR-056](#req-operator-056-independent-review-publication).
 6. The existing owner-scoped Operator activity view shows real waiting, running, cleanup and terminal states; local Pi monitors independently verified published Review and ordinary CI and retains triage/FIX without running a second reviewer wave.
-7. The protected Action redeems the terminal result once with its read capability. <!-- @impl: src/operators/activity.ts::OperatorActivity.redeemWebhookResult --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-053: successful completed-result consumption releases the pending Activity) -->
+7. The protected Action may reread only the same immutable terminal bytes with its original unexpired read capability after a lost delivery. <!-- @impl: src/operators/activity.ts::OperatorActivity.redeemWebhookResult --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: scripts/operator-boundary-action.mjs::collectBoundaryResult --> <!-- @test: src/__tests__/operators/activity-state.test.ts (rereads identical immutable terminal bytes after lost delivery only with the original read capability) --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-053: lost result delivery rereads the identical terminal bytes without another start) -->
 
 **Constraints:**
 
@@ -303,7 +308,8 @@ This release extends the existing Operator foundation with GitHub package instal
 - Local `/review` remains unchanged and never starts the operator.
 - Uncertain applicability, disabled configuration, expired authority or failed remote execution cannot silently fall back or clear a check.
 - Human authority expiry stops protected execution.
-- An Action without a matching Codeflare handoff fails closed.
+- An Action without a matching Codeflare handoff fails closed; terminal reread never reclaims start or mints read authority.
+- Consumed status and continuation capabilities cannot be reused.
 - Browser JWTs and publisher credentials never enter Pi or the compiled child.
 - The parent verifies numeric repository, PR/head/base/merge-base, acknowledged-head ancestry and installed Action bytes.
 - Session-bound range and rejected-finding evidence are not principal authority.
@@ -370,7 +376,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)
 
-**Verification:** Owner and protected route tests were RED at `db63cd98` (PR Checks `35905898120`). Journal and route implementation awaits exact-head GREEN CI; the independent publisher and protected sandbox publication are not proven.
+**Verification:** Owner journal and protected route behavior passed exact-head Codeflare PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. The independent publisher's separate Conductor Test `36165671477` passed at `03ea03189df882deb58288106c09746f4cddc178`. Neither run proves installed protected Action execution or external publication readback.
 
 **Status:** Planned
 
@@ -384,20 +390,27 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. Only the separate protected publisher job holds GitHub publication credentials; Pi, candidate code and the compiled child cannot access them.
-2. The publisher validates original lane reports and independently reconciled GitHub history before a round can clear.
-3. A bounded artifact retains the original reports under the exact prepared repository, PR, revision, run and activity identity.
-4. A human-readable round comment binds the same generation and preserves unresolved original findings.
-5. A generation-specific shadow check binds exact external IDs and the immutable content digest.
-6. Red, partial, missing or incomplete evidence never publishes a green round.
-7. Independent current-context verification rejects a late old check from clearing a newer revision.
+1. Only the separate protected publisher job holds GitHub publication credentials; Pi, candidate code and the compiled child cannot access them. <!-- @impl: .github/workflows/boundary-reviews.yml::publish -->
+2. A round cannot clear unless original reports and independently verified GitHub history match the bounded OIDC-authenticated projection of its claimed reservation and collected terminal Activity; missing or stale identity denies publication. <!-- @impl: src/operators/review-boundary-claim.ts::prepareBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-056: authenticated publication-preparation projection) -->
+3. A bounded artifact retains the single canonical terminal result, including the original reports once, under the exact prepared repository, PR, revision, run and activity identity. <!-- @impl: scripts/operator-boundary-action.mjs::publishBoundaryResult --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-056: exact projection and journal allow one authenticated artifact, comment and shadow check) -->
+4. A human-readable round comment binds the same generation and artifact digest; the artifact retains unresolved original findings. <!-- @impl: scripts/operator-boundary-action.mjs::publishBoundaryResult --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-056: a completed review with unresolved findings publishes only a failing check) -->
+5. A generation-specific shadow check binds exact external IDs and the immutable content digest. <!-- @impl: scripts/operator-boundary-action.mjs::publishBoundaryResult --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-056: exact projection and journal allow one authenticated artifact, comment and shadow check) -->
+6. Red, partial, missing or incomplete evidence never publishes a green round. <!-- @impl: scripts/operator-boundary-action.mjs::publishBoundaryResult --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-056: a completed review with unresolved findings publishes only a failing check) -->
+7. Independent current-context verification rejects a late old check from clearing a newer revision. <!-- @impl: scripts/operator-boundary-action.mjs::publishBoundaryResult --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-056: a changed PR revision after comment publication fences the old shadow check) -->
 
-**Constraints:** Publication uses the credential-free [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) journal but never treats its receipt alone as GitHub evidence. Actions concurrency and matching check names are not serialization or clearance proofs. Required-check activation and production deployment need separate explicit authorization.
+**Constraints:**
+
+- The projection freezes admission policy and round identity, invocation and package/resource digests, accepted packet descriptors, owned-session initialization and consumed terminal-result digest.
+- The parent supplies only identity and evidence; the package publisher interprets Review lanes and history.
+- Bounded parent-authenticated fixed-operation history reads never pass a GitHub bearer to the child. <!-- @impl: src/operators/review-history-transport.ts::createAuthenticatedHistoryTransport --> <!-- @test: src/__tests__/operators/review-history-transport.test.ts (REQ-OPERATOR-050/056: parent-only fixed GitHub history reads) -->
+- Publication uses the credential-free [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering) journal but never treats its receipt alone as GitHub evidence.
+- Actions concurrency and matching check names are not serialization or clearance proofs.
+- Required-check activation and production deployment need separate explicit authorization.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)
 
-**Verification:** Conductor's publisher RED draft is preserved uncommitted. Protected publisher, independent evidence and exact-ID sandbox proof remain pending; this requirement is Planned.
+**Verification:** Codeflare's frozen-owner projection and route passed PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. Conductor's publisher, artifact/history reader and ledger tests passed Test `36165671477` at `03ea03189df882deb58288106c09746f4cddc178`. The workflow is not installed; there is no live protected job, exact-ID GitHub receipt or shadow clearance proof. This requirement remains Planned.
 
 **Status:** Planned
