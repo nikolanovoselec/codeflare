@@ -56,7 +56,7 @@ export async function createOperatorGitHubFixture(options: {
   artifactCdnHost?: 'productionresultssa1.blob.core.windows.net' | 'productionresultssa3.blob.core.windows.net'
     | 'productionresultssa8.blob.core.windows.net' | 'productionresultssa16.blob.core.windows.net';
   profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
-  omitCompilerCommit?: boolean;
+  omitCompilerCommit?: boolean; provenanceWorkflowRef?: string;
 } = {}) {
   const repositoryName = options.repositoryName ?? 'review-operator';
   const repository = { id: repositoryId, full_name: `acme/${repositoryName}`,
@@ -80,7 +80,7 @@ export async function createOperatorGitHubFixture(options: {
     sourceCommit, ...(options.omitCompilerCommit ? {} : {
       compilerCommit: options.fault === 'provenance-compiler' ? 'invalid' : 'c'.repeat(40),
     }), manifestDigest, bundleDigest,
-    workflow: { id: workflowId, ref: '.github/workflows/release.yml@refs/heads/main', runId, runAttempt: 1 } }));
+    workflow: { id: workflowId, ref: options.provenanceWorkflowRef ?? '.github/workflows/release.yml@refs/heads/main', runId, runAttempt: 1 } }));
   const files = [
     { id: 91, name: 'operator-manifest.json', bytes: manifest },
     { id: 92, name: 'operator-bundle.json', bytes: bundle },

@@ -74,6 +74,28 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     })] });
   }));
 
+  it.each([
+    { ref: 'refs/heads/main', accepted: true },
+    { ref: 'refs/heads/develop', accepted: false },
+    { ref: '.github/workflows/other.yml@refs/heads/main', accepted: false },
+  ])('REQ-OPERATOR-044: binds Dispatcher provenance $ref to the approved workflow', async ({ ref, accepted }) => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ profile: 'dispatcher', provenanceWorkflowRef: ref });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(accepted ? 200 : 503);
+    const detail = await request(`/operators/${operator.operatorId}`);
+    expect(detail.status).toBe(200);
+    const state = await detail.json() as { releases: Array<{ bundleDigest: string; approved: boolean }> };
+    expect(state.releases).toEqual(accepted ? [expect.objectContaining({
+      bundleDigest: fixture.bundleDigest, approved: false,
+    })] : []);
+  }));
+
   it('REQ-OPERATOR-048: rejects a generated Dispatcher artifact whose embedded source differs from provenance', async () => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ profile: 'dispatcher', dispatcherSourceMismatch: true });
     vi.stubGlobal('fetch', fixture.fetcher);
