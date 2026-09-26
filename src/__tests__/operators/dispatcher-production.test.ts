@@ -34,7 +34,6 @@ async function fixture(test: (f: {
   artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
-  denyInference: (code: string) => void; denyRead: (body: unknown, resource?: 'files' | 'checks') => void;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
   messages: (value: unknown[]) => void;
 }) => Promise<void>) {
@@ -56,8 +55,6 @@ async function fixture(test: (f: {
     let messages: unknown[] = [];
     let aborted: string | undefined;
     let uncertain = false;
-    let inferenceDenial: string | null = null;
-    let readDenial: { body: unknown; resource?: 'files' | 'checks' } | null = null;
     let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
@@ -83,10 +80,6 @@ async function fixture(test: (f: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
-          if (readDenial && (!readDenial.resource || (readDenial.resource === 'files'
-            ? request.url.includes('/files?') : request.url.includes('/check-runs?')))) {
-            return Response.json(readDenial.body, { status: 403 });
-          }
           const checks = oversizedChecks;
           if (checks && request.url.includes('/check-runs?')) {
             const url = new URL(request.url);
@@ -105,7 +98,6 @@ async function fixture(test: (f: {
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
-          if (inferenceDenial) return Response.json({ code: inferenceDenial, error: 'Private upstream detail' }, { status: 403 });
           return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
@@ -141,8 +133,7 @@ async function fixture(test: (f: {
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
-        loseResponse: () => { uncertain = true; }, denyInference: code => { inferenceDenial = code; },
-        denyRead: (body, resource) => { readDenial = { body, resource }; },
+        loseResponse: () => { uncertain = true; },
         oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
           oversizedChecks = { count, outputBytes, overlap };
         },
@@ -217,16 +208,18 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       if (failCleanup) throw new Error('Synthetic SDK cleanup failure');
       return original.apply(this, args);
     });
-    await start(f);
-    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
-    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
-    f.settle(); await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting', sdkCleanupReleased: false });
-    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
-      executionStatus: 'completed', sdkCleanupReleased: false, result: assessment } });
-    failCleanup = false;
-    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
-      executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    try {
+      await start(f);
+      const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting', sdkCleanupReleased: false });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: false, result: assessment } });
+      failCleanup = false;
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { failCleanup = false; }
   }));
   it.each(['missing', 'foreign', 'duplicate', 'oversized'] as const)(
     'does not manufacture a terminal assessment from %s settled evidence', variant => fixture(async f => {
@@ -244,78 +237,11 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     }));
-  it('privately reads only the bounded failed submission reason after fencing without reviving execution', () => fixture(async f => {
-    await start(f);
-    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
-    await f.activity.reconcileDispatcherLease();
-    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
-    expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 0, denialCode: null, readDenial: null });
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-    expect((await f.capability.fetch(read())).status).toBe(403);
-  }));
-  it('privately classifies only a persisted 403 inference response for a fenced submission', () => fixture(async f => {
-    await start(f);
-    f.denyInference('ROUTE_NOT_ELIGIBLE');
-    const inference = () => new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
-      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId: 'infer-1',
-        input: { messages: [{ role: 'user', content: 'Read only' }] } }) });
-    expect((await f.capability.fetch(inference())).status).toBe(403);
-    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
-    await f.activity.reconcileDispatcherLease();
-    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
-    expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE', readDenial: null });
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-  }));
-  it('does not expose an unrecognized protected error code in the private classification', () => fixture(async f => {
-    await start(f);
-    f.denyInference('PRIVATE_UPSTREAM_CODE');
-    expect((await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
-      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId: 'infer-unknown',
-        input: { messages: [{ role: 'user', content: 'Read only' }] } }) }))).status).toBe(403);
-    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
-    await f.activity.reconcileDispatcherLease();
-    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
-    expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 1, denialCode: null, readDenial: null });
-  }));
-  it.each([
-    { response: { code: 'OPERATOR_GITHUB_DENIED' }, expected: 'policy' },
-    { response: { message: 'Opaque upstream response' }, expected: 'unclassified-403' },
-  ])('classifies only an already-persisted pull-request 403 without returning its body ($expected)',
-    ({ response, expected }) => fixture(async f => {
-      await start(f); f.denyRead(response);
-      expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(403);
-      f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
-      await f.activity.reconcileDispatcherLease();
-      const inspection = await f.activity.inspectFailedDispatcherReason();
-      expect(inspection).toEqual({ reason: 'Synthetic fixture failure', operationCount: 1,
-        denialCode: null, readDenial: expected });
-      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-    }));
-  it.each([
-    { resource: 'files' as const, body: { code: 'OPERATOR_GITHUB_DENIED' }, expected: 'files-policy' },
-    { resource: 'checks' as const, body: { message: 'Opaque upstream response' }, expected: 'checks-unclassified-403' },
-  ])('privately identifies an already-persisted $resource 403 without its body',
-    ({ resource, body, expected }) => fixture(async f => {
-      await start(f); f.denyRead(body, resource);
-      expect((await f.capability.fetch(read(`submission-${resource}`, { resource }))).status).toBe(403);
-      f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
-      await f.activity.reconcileDispatcherLease();
-      expect(await f.activity.inspectFailedDispatcherReason()).toEqual({ reason: 'Synthetic fixture failure',
-        operationCount: 1, denialCode: null, readDenial: expected });
-    }));
-  it('privately identifies a bounded checks overflow as an unknown effect without returning evidence', () => fixture(async f => {
+  it('fences a single checks page exceeding the protected 64 KiB response bound', () => fixture(async f => {
     await start(f);
     expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(200);
     f.oversizedChecks(1, 70_000);
     expect((await f.capability.fetch(read('submission-checks', { resource: 'checks' }))).status).toBe(409);
-    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.inspectFailedDispatcherReason()).toMatchObject({ operationCount: 2,
-      protectedReceipts: [{ resource: 'pull-request', phase: 'completed', status: 200 },
-        { resource: 'checks', phase: 'unknown', status: null }] });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
   }));
   it('returns all 76 authorized check conclusions from bounded pages without forwarding large metadata', () => fixture(async f => {

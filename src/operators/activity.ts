@@ -1414,69 +1414,6 @@ export class OperatorActivity extends Agent {
     try { await this.#reconciling; } finally { this.#reconciling = undefined; }
   }
 
-  /** Temporary owner-only EI inspection of an already fenced, exact failed submission. No admission or effects. */
-  async inspectFailedDispatcherReason(): Promise<{
-    reason: string; operationCount: number;
-    denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null;
-    readDenial: 'policy' | 'unclassified-403' | 'files-policy' | 'files-unclassified-403'
-      | 'checks-policy' | 'checks-unclassified-403' | null;
-    protectedReceipts?: Array<{ resource: 'inference' | 'pull-request' | 'files' | 'checks';
-      phase: DispatcherOperationRecord['phase']; status: number | null }>;
-  } | null> {
-    const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
-      this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
-    if (!state || !lease || state.drive?.status !== 'unknown' || lease.status !== 'unknown'
-      || state.drive.generation !== lease.generation + 1 || !lease.submissionId
-      || !state.receipt || !isManagementReceipt(state.receipt)
-      || state.receipt.selection.operator.profile !== 'dispatcher'
-      || state.receipt.selection.release.bundleDigest !== lease.artifactDigest) return null;
-    try {
-      const response = await (await this.#dispatcherFacet(lease)).fetch(new Request(
-        'https://flue.internal/agents/Dispatcher/dispatcher', { signal: AbortSignal.timeout(5_000) }));
-      if (!response.ok) return null;
-      const value = JSON.parse(await readDispatcherBody(response));
-      const settlement = Array.isArray(value?.settlements)
-        ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
-      const reason = settlement?.outcome === 'failed' && settlement?.error?.type === 'operation_failed'
-        ? settlement.error.meta?.reason : null;
-      if (typeof reason !== 'string' || new TextEncoder().encode(reason).byteLength > 4096) return null;
-      const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-      let denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null = null;
-      let readDenial: 'policy' | 'unclassified-403' | 'files-policy' | 'files-unclassified-403'
-        | 'checks-policy' | 'checks-unclassified-403' | null = null;
-      const protectedReceipts: Array<{ resource: 'inference' | 'pull-request' | 'files' | 'checks';
-        phase: DispatcherOperationRecord['phase']; status: number | null }> = [];
-      let hasUnknownReceipt = false;
-      for (const [id, operation] of Object.entries(operations)) {
-        if (operation.generation !== lease.generation) continue;
-        const resource = id.endsWith('-pull-request') ? 'pull-request' : id.endsWith('-files') ? 'files'
-          : id.endsWith('-checks') ? 'checks' : id.includes('-inference-') ? 'inference' : null;
-        if (operation.phase === 'unknown') hasUnknownReceipt = true;
-        const saved = operation.phase === 'completed'
-          ? await this.ctx.storage.get<{ status: number; body: string }>(`dispatcher:response:${id}`) : null;
-        if (resource) protectedReceipts.push({ resource, phase: operation.phase, status: saved?.status ?? null });
-        if (saved?.status !== 403) continue;
-        // The pinned child names each read by resource. This only classifies
-        // an existing receipt; it does not authorize or retry an operation.
-        if (id.endsWith('-pull-request')) readDenial = 'unclassified-403';
-        else if (id.endsWith('-files')) readDenial = 'files-unclassified-403';
-        else if (id.endsWith('-checks')) readDenial = 'checks-unclassified-403';
-        try {
-          const code = JSON.parse(saved.body)?.code;
-          if (code === 'ROUTE_NOT_ELIGIBLE' || code === 'REASONING_NOT_ELIGIBLE'
-            || code === 'OPERATOR_CAPABILITY_DENIED') denialCode = code;
-          if (code === 'OPERATOR_GITHUB_DENIED') {
-            if (id.endsWith('-pull-request')) readDenial = 'policy';
-            else if (id.endsWith('-files')) readDenial = 'files-policy';
-            else if (id.endsWith('-checks')) readDenial = 'checks-policy';
-          }
-        } catch { /* An unrecognized response is never reflected. */ }
-      }
-      return { reason, operationCount: Object.keys(operations).length, denialCode, readDenial,
-        ...(hasUnknownReceipt ? { protectedReceipts } : {}) };
-    } catch { return null; }
-  }
-
   /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
@@ -1677,10 +1614,22 @@ export class OperatorActivity extends Agent {
     catch { /* execution state remains authoritative; the safe index can reconcile later */ }
   }
 
-  async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown }) | null> {
+  private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
+    if (!state.drive || !state.receipt || !isManagementReceipt(state.receipt)
+      || state.receipt.selection.operator.profile !== 'dispatcher') return undefined;
+    return !!lease && lease.generation === state.drive.generation && lease.inputDigest === state.receipt.intentDigest
+      && lease.artifactDigest === state.receipt.selection.release.bundleDigest && lease.sdkReleased === true;
+  }
+
+  async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
+    sdkCleanupReleased?: boolean }) | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
-    return state ? { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null,
-      result: state.drive?.result ?? null } : null;
+    if (!state) return null;
+    const released = state.drive && state.receipt && isManagementReceipt(state.receipt)
+      && state.receipt.selection.operator.profile === 'dispatcher'
+      ? this.sdkCleanupReleased(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)) : undefined;
+    return { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null,
+      result: state.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) };
   }
 
   /** Read one already-settled Dispatcher assessment; never resume or re-admit its submission. */
@@ -1733,18 +1682,25 @@ export class OperatorActivity extends Agent {
     if (committed) await this.publishBrowserSummary();
   }
 
-  async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
-    | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
+  async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
+    sdkCleanupReleased?: boolean } } | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
     await this.completeSettledDispatcherAssessment();
-    const outcome = await this.ctx.storage.transaction<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
-      | { ok: false; reason: 'not-ready' | 'not-admitted' }>(async tx => {
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (before?.drive?.status === 'completed' && before.receipt && isManagementReceipt(before.receipt)
+      && before.receipt.selection.operator.profile === 'dispatcher') {
+      try { await this.#releaseDispatcherSdk(); }
+      catch { /* The immutable result remains readable; cleanup is not claimed. */ }
+    }
+    const outcome = await this.ctx.storage.transaction<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown;
+      result: unknown; sdkCleanupReleased?: boolean } } | { ok: false; reason: 'not-ready' | 'not-admitted' }>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-admitted' };
       if (state.drive?.status !== 'completed' && state.drive?.status !== 'failed') return { ok: false, reason: 'not-ready' };
       const consumed = { ...state, browserCollectionConsumed: true, updatedAt: Date.now() };
+      const released = this.sdkCleanupReleased(consumed, await tx.get<DispatcherLease>(DISPATCHER_LEASE));
       await tx.put<AdmissionState>('admission', consumed);
       return { ok: true, detail: { ...this.browserSummary(consumed), checkpoint: consumed.drive?.checkpoint ?? null,
-        result: consumed.drive?.result ?? null } };
+        result: consumed.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) } };
     });
     if (outcome.ok) await this.publishBrowserSummary();
     return outcome;
