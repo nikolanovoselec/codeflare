@@ -56,7 +56,12 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(refreshed.status).toBe(200);
     expect(await refreshed.json()).toMatchObject({ items: [expect.objectContaining({ operatorId: operator.operatorId, githubReleaseId: 81,
       sourceCommit: 'a'.repeat(40), manifestDigest: expect.stringMatching(/^[0-9a-f]{64}$/), bundleDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-      interfaceVersion: 1, approved: false, provenance: expect.objectContaining({ compilerCommit: 'c'.repeat(40) }) })] });
+      interfaceVersion: 1, approved: false, tagName: 'v1', publishedAt: '2026-09-21T12:00:00Z',
+      provenance: expect.objectContaining({ compilerCommit: 'c'.repeat(40) }) })] });
+    const readback = await request(`/operators/${operator.operatorId}`);
+    await expect(readback.json()).resolves.toMatchObject({ releases: [expect.objectContaining({
+      tagName: 'v1', publishedAt: '2026-09-21T12:00:00Z',
+    })] });
   }));
 
   it('REQ-OPERATOR-048: acquires only the strict generated Dispatcher artifact and binds its source to provenance', async () => withManagementApi(async request => {

@@ -106,11 +106,59 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Enable for new runs' })).not.toBeDisabled());
     expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Enable for new runs' }));
-    expect(await screen.findByRole('link', { name: 'Run as yourself' })).toHaveAttribute('href', '/operators?invoke=installation-1');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Disable for new runs' })).not.toBeDisabled());
+    expect(await screen.findByRole('button', { name: 'Disable for new runs' })).not.toBeDisabled();
+    expect(screen.queryByRole('link', { name: /run as yourself/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Review preparation.*protected.*pull request/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Disable for new runs' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
   });
+  it('explains why Dispatcher has no resource profile and opens its invocation without a reload or start', async () => {
+    const dispatcher = { ...operator, profile: 'dispatcher', policy: { capabilities: ['inference'], resourceProfileId: null } };
+    serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: dispatcher,
+      installations: [{ ...installation, enabled: true, releaseId: release.id }] })
+      : url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    fireEvent.click(screen.getByText('Technical details and advanced restrictions'));
+    expect(screen.queryByRole('combobox', { name: 'test resource profile' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Dispatcher.*without a session.*resource profile/i)).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /prepare.*yourself/i });
+    fireEvent.click(link);
+    expect(await screen.findByRole('heading', { name: 'Invoke as yourself' })).toBeInTheDocument();
+    expect(window.location.search).toContain('invoke=installation-1');
+    expect(screen.queryByRole('region', { name: 'Installed version' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start activity' })).toBeInTheDocument();
+  });
+
+  it('shows save success and failure next to Permissions rather than only at the page header', async () => {
+    let fails = false;
+    serve = (url, init) => url.pathname.endsWith('/grants') && init?.method === 'POST'
+      ? fails ? json({ error: 'Conflict' }, 409) : json(operator)
+      : url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    fireEvent.click(screen.getByRole('button', { name: 'Permissions' }));
+    const pane = screen.getByRole('region', { name: 'Access grants' });
+    fireEvent.click(within(pane).getByRole('button', { name: 'Save grants' }));
+    expect(await within(pane).findByRole('status')).toHaveTextContent(/permissions saved/i);
+    fails = true;
+    fireEvent.click(within(pane).getByRole('button', { name: 'Save grants' }));
+    expect(await within(pane).findByRole('alert')).toHaveTextContent(/stale.*refresh/i);
+  });
+
+  it('shows verified tag and publication time on installed and selectable versions while labelling legacy records honestly', async () => {
+    const tagged = { ...release, approved: true, tagName: 'v0.1.2', publishedAt: '2026-09-25T12:00:00Z' };
+    serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), releases: [tagged, { ...release, id: 'release-legacy', githubReleaseId: 455 }],
+      installations: [{ ...installation, releaseId: tagged.id }] }) : json({ items: [operator], cursor: null });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const installed = await screen.findByRole('region', { name: 'Installed version' });
+    expect(within(installed).getByText(/v0\.1\.2.*25.*2026/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Versions & updates' }));
+    expect(screen.getByText('GitHub release #455', { selector: 'strong' })).toBeVisible();
+    expect(within(screen.getByRole('combobox', { name: 'Exact version' })).getByRole('option', { name: 'GitHub release #455' })).toBeInTheDocument();
+  });
+
   it('reconciles the operator revision after discovery before first installation', async () => {
     let revision = 3;
     let created: unknown;
