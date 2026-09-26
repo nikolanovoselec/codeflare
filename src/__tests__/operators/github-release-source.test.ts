@@ -120,8 +120,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     const discovered = await refreshed.json() as { items: unknown[] };
     expect(discovered.items).toHaveLength(1);
     // The outbound origin/header contract is intentional security evidence, not private-call counting.
-    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com');
-    expect(cdnRequests.length).toBeGreaterThan(0);
+    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com'
+      || outbound.origin === 'https://productionresultssa3.blob.core.windows.net');
+    expect(cdnRequests.some(outbound => outbound.origin === 'https://release-assets.githubusercontent.com')).toBe(true);
+    expect(cdnRequests.some(outbound => outbound.origin === 'https://productionresultssa3.blob.core.windows.net')).toBe(true);
     expect(cdnRequests.every(outbound => outbound.authorization === null)).toBe(true);
     expect(fixture.requests.some(outbound => outbound.origin === 'https://api.github.com'
       && outbound.authorization === `Bearer ${registration.githubPat}`)).toBe(true);
