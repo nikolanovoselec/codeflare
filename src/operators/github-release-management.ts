@@ -1,6 +1,7 @@
 import { inflateRawSync } from 'node:zlib';
 import { z } from 'zod';
 import { AppError, ValidationError } from '../lib/error-types';
+import { createLogger } from '../lib/logger';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
@@ -13,6 +14,7 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = MAX_BUNDLE_BYTES + 256 * 1024;
 const API = 'https://api.github.com';
+const logger = createLogger('operator-acquisition');
 const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com',
   'productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
   'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net']);
@@ -221,12 +223,14 @@ async function resolveSource(repositoryUrl: string, pat: string, deadline: numbe
 }
 
 async function acquireRelease(value: unknown, source: { id: string; repositoryId: number; sourceRevision: number; profile: ManagementOperatorProfile; approvedWorkflow: { id: number; ref: string } }, pat: string, deadline: number,
-  allowLegacyProvenance = false): Promise<ManagementReleaseCandidate> {
+  allowLegacyProvenance = false, mark?: (stage: string) => void): Promise<ManagementReleaseCandidate> {
+  mark?.('release');
   const remote = releaseSchema.parse(value);
   if (new Set(remote.assets.map(asset => asset.name)).size !== 3 || new Set(remote.assets.map(asset => asset.id)).size !== 3) throw new Error('Duplicate GitHub asset');
   const files = new Map<string, Uint8Array>();
   const digests = new Map<string, string>();
   for (const asset of remote.assets) {
+    mark?.(`asset:${asset.name}`);
     const limit = asset.name === 'operator-bundle.json' ? MAX_BUNDLE_BYTES : 64 * 1024;
     if (asset.size > limit) throw new Error('Oversized GitHub asset');
     const bytes = await githubBytes(`/repositories/${source.repositoryId}/releases/assets/${asset.id}`, pat, limit, deadline, true);
@@ -234,6 +238,7 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
     if (bytes.length !== asset.size || asset.digest !== `sha256:${actual}`) throw new Error('GitHub asset digest mismatch');
     files.set(asset.name, bytes); digests.set(asset.name, actual);
   }
+  mark?.('manifest');
   const manifestBytes = files.get('operator-manifest.json')!;
   const bundleBytes = files.get('operator-bundle.json')!;
   const manifestDigest = digests.get('operator-manifest.json')!;
@@ -244,30 +249,36 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   const dispatcherBundle = source.profile === 'dispatcher'
     ? await parseDispatcherBundle(bundleBytes, bundleDigest) : null;
   if (!dispatcherBundle) await parseOperatorBundle(bundleBytes, bundleDigest);
+  mark?.('provenance');
   const provenance = provenanceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(files.get('operator-provenance.json')!)));
   if (!provenance.compilerCommit && !allowLegacyProvenance) throw new Error('Compiler provenance is required');
   if (dispatcherBundle && dispatcherBundle.sourceCommit !== provenance.sourceCommit) throw new Error('Dispatcher source mismatch');
   if (provenance.repositoryId !== source.repositoryId || provenance.manifestDigest !== manifestDigest || provenance.bundleDigest !== bundleDigest
     || provenance.workflow.id !== source.approvedWorkflow.id || provenance.workflow.ref !== source.approvedWorkflow.ref) throw new Error('GitHub provenance mismatch');
+  mark?.('run');
   const run = runSchema.parse(await githubJson(`/repositories/${source.repositoryId}/actions/runs/${provenance.workflow.runId}`, pat, deadline));
   if (run.id !== provenance.workflow.runId || run.run_attempt !== provenance.workflow.runAttempt || run.workflow_id !== source.approvedWorkflow.id
     || run.head_sha !== provenance.sourceCommit || run.repository.id !== source.repositoryId || run.head_repository.id !== source.repositoryId
     || run.path !== workflowPath || `${workflowPath}@refs/heads/${run.head_branch}` !== source.approvedWorkflow.ref) throw new Error('GitHub build identity mismatch');
   // Resolve the immutable release tag to a commit (including one annotated tag),
   // never treat target_commitish/main as an immutable source identity.
+  mark?.('tag');
   let tag = z.object({ object: z.object({ type: z.enum(['commit', 'tag']), sha: commit }) }).parse(
     await githubJson(`/repositories/${source.repositoryId}/git/ref/tags/${encodeURIComponent(remote.tag_name)}`, pat, deadline)).object;
   if (tag.type === 'tag') tag = z.object({ object: z.object({ type: z.literal('commit'), sha: commit }) }).parse(
     await githubJson(`/repositories/${source.repositoryId}/git/tags/${tag.sha}`, pat, deadline)).object;
   if (tag.type !== 'commit' || tag.sha !== provenance.sourceCommit) throw new Error('GitHub release commit mismatch');
+  mark?.('artifact');
   const artifacts = z.object({ total_count: positive, artifacts: z.array(z.unknown()).max(100) }).parse(
     await githubJson(`/repositories/${source.repositoryId}/actions/runs/${run.id}/artifacts?name=operator-package&per_page=100`, pat, deadline));
   if (artifacts.total_count !== 1 || artifacts.artifacts.length !== 1) throw new Error('Ambiguous GitHub build artifact');
   const artifact = artifactSchema.parse(artifacts.artifacts[0]);
   if (artifact.size_in_bytes > MAX_ARCHIVE_BYTES || artifact.workflow_run.id !== run.id || artifact.workflow_run.repository_id !== source.repositoryId
     || artifact.workflow_run.head_repository_id !== source.repositoryId || artifact.workflow_run.head_sha !== provenance.sourceCommit) throw new Error('GitHub build artifact mismatch');
+  mark?.('archive');
   const archive = await githubBytes(`/repositories/${source.repositoryId}/actions/artifacts/${artifact.id}/zip`, pat, MAX_ARCHIVE_BYTES, deadline, true, 'application/vnd.github+json');
   if (archive.length !== artifact.size_in_bytes || `sha256:${await digest(archive)}` !== artifact.digest) throw new Error('GitHub build digest mismatch');
+  mark?.('archive-compare');
   const built = packageArchive(archive);
   for (const name of FILES) if (await digest(built.get(name)!) !== digests.get(name)) throw new Error('Release bytes differ from approved build');
   return { manifestJson: JSON.stringify(manifest), bundleBytes, release: {
@@ -325,15 +336,19 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
   const acquisition = await context.registry.getManagementAcquisition(operatorId);
   if (!acquisition.ok) throw new AppError('NOT_FOUND', 404, 'Operator not found');
   if (acquisition.value.revision !== expectedRevision) throw new AppError('CONFLICT', 409, 'Operator management conflict');
+  let stage = 'registry';
+  let releaseId: number | null = null;
   try {
     const deadline = deadlineFor(context.human);
     const source = acquisition.value;
     const pat = await openOperatorSecret(source.githubPatCiphertext, context.encryption, { purpose: 'connection', recordId: operatorId });
+    stage = 'repository';
     // Resolve numeric identity on every acquisition; repository-name reuse never switches trust.
     const repository = repositorySchema.parse(await githubJson(`/repositories/${source.repositoryId}`, pat, deadline));
     if (repository.id !== source.repositoryId || repository.html_url.toLowerCase() !== source.repositoryUrl) throw new Error('GitHub repository identity changed');
     // One bounded page; never silently walk unbounded release history. Retained
     // releases already in the registry remain available without GitHub I/O.
+    stage = 'release-list';
     const remote = z.array(z.unknown()).max(10).parse(await githubJson(`/repositories/${source.repositoryId}/releases?per_page=10`, pat, deadline));
     const retainedLegacyIds = new Set((await context.registry.getManagementReleases(operatorId))
       .filter(release => release.provenance.compilerCommit === undefined)
@@ -341,12 +356,13 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
     const candidates: ManagementReleaseCandidate[] = [];
     let aggregateBytes = 0;
     for (const release of remote) {
-      const releaseId = z.object({ id: positive }).parse(release).id;
-      const candidate = await acquireRelease(release, source, pat, deadline, retainedLegacyIds.has(releaseId));
+      releaseId = z.object({ id: positive }).parse(release).id;
+      const candidate = await acquireRelease(release, source, pat, deadline, retainedLegacyIds.has(releaseId), value => { stage = value; });
       aggregateBytes += candidate.bundleBytes.length;
       if (aggregateBytes > 16 * 1024 * 1024) throw new Error('Release acquisition aggregate limit');
       candidates.push(candidate);
     }
+    stage = 'persistence';
     const human = await context.reauthorize(); requireCurrentAuthority(human);
     const stored = await context.registry.replaceManagementReleases(operatorId, {
       operatorRevision: expectedRevision, controlsRevision: context.controlsRevision, expiresAt: Math.min(human.expiresAt, context.human.expiresAt) * 1000,
@@ -354,5 +370,11 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
     if (!stored.ok) throw new AppError(stored.reason === 'not-found' || stored.reason === 'authority-expired' ? 'NOT_FOUND' : 'CONFLICT',
       stored.reason === 'not-found' || stored.reason === 'authority-expired' ? 404 : 409, 'Operator release refresh conflicted');
     return stored.value;
-  } catch (error) { unavailable(error); }
+  } catch (error) {
+    // Fixed stage and error categories only: never log a PAT, signed URL, source or parser message.
+    const kind = error instanceof ValidationError ? 'validation' : error instanceof AppError ? 'app'
+      : error instanceof RangeError ? 'range' : error instanceof TypeError ? 'type' : 'other';
+    logger.warn('GitHub release acquisition unavailable', { stage, releaseId, kind });
+    unavailable(error);
+  }
 }
