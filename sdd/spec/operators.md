@@ -654,11 +654,12 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 2. The catalog presents release registration, installation configuration, promotion and enablement as separate controls, with server-side grants rather than navigation as authority. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 3. Newly registered managed operators cannot start until separately approved and enabled. <!-- @impl: src/operators/registry.ts::OperatorRegistry.registerManagement --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 4. Conflicts require explicit reconciliation, and management mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operator-management.ts --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
+5. Enterprise admins manage the catalog within the same Administration navigation as Environment; authorized non-admin managers retain a separate accessible entry. A selected operator presents its source/trust overview, release, installation and grant decisions in navigable sections; the pinned release and enablement remain distinguishable. <!-- @impl: web-ui/src/App.tsx --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (uses Enterprise Administration navigation; makes the selected operator) -->
 
 **Constraints:**
 
 - The catalog and its APIs are enterprise-only; SaaS has no legacy administration API.
-- Secret readback is prohibited. Comprehensive usability redesign remains a separate task, not a claim of visual acceptance.
+- Secret readback is prohibited. The retired Gate 1 editor is not reinstated.
 
 **Priority:** P0
 

@@ -383,7 +383,10 @@ const OperatorManagementRoute: Component = () => {
         <button type="button" onClick={() => { void load(); }}>Retry</button></div>
     }>
       <Show when={user()} fallback={<div class="app-loading"><div class="app-loading-spinner" /><span>Loading operators...</span></div>}>
-        {(current) => <OperatorManagement userEmail={current().email} isAdmin={current().role === 'admin'} />}
+        {(current) => <Show when={current().role === 'admin'}
+          fallback={<OperatorManagement userEmail={current().email} />}>
+          <AdministrationLayout><OperatorManagement userEmail={current().email} isAdmin /></AdministrationLayout>
+        </Show>}
       </Show>
     </Show>
   );

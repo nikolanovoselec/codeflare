@@ -136,18 +136,17 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
     }
   };
 
-  return <main class="operator-management">
+  return <div class="operator-management" classList={{ 'is-embedded': props.isAdmin }} role={props.isAdmin ? undefined : 'main'}>
     <div class="admin-page">
-      <header class="admin-page-header"><div><p class="admin-eyebrow">Codeflare</p><h1 ref={heading} tabindex="-1">Operators</h1>
-        <p>Manage exact releases and named installations. Invocation and activity remain personal.</p></div>
-        <nav class="operator-actions" aria-label="Operators navigation"><a href="/app">Back to workspace</a><a href="/operators" onClick={event => showSection(event, false)}>Catalog</a><a href="/operators?view=activity" onClick={event => showSection(event, true)}>My activity</a></nav>
+      <header class="admin-page-header"><div><p class="admin-eyebrow">Operator management</p><h1 ref={heading} tabindex="-1">Operators</h1>
+        <p>Discover releases, approve an exact version, then enable each installation separately. Activity remains personal.</p></div>
+        <nav class="operator-actions" aria-label="Operators navigation"><Show when={!props.isAdmin}><a href="/app">Back to workspace</a></Show><a href="/operators" aria-current={!activityView() ? 'page' : undefined} onClick={event => showSection(event, false)}>Catalog</a><a href="/operators?view=activity" aria-current={activityView() ? 'page' : undefined} onClick={event => showSection(event, true)}>My activity</a></nav>
       </header>
       <Show when={!activityView()} fallback={<OperatorManagementActivity installationId={invocationId() || undefined} />}>
       <Show when={error()}><div class="operator-message" role="alert" aria-atomic="true"><p>{error()}</p>
         <button class="admin-secondary-button" disabled={busy()} onClick={() => void refresh()}>Refresh current state</button></div></Show>
       <Show when={notice()}><p role="status" class="operator-message">{notice()}</p></Show>
       <Show when={busy()}><p role="status">Saving and reconciling current state…</p></Show>
-      <Show when={props.isAdmin && !selected()}><ManagementAccessPanel /></Show>
       <Show when={!selected()} fallback={<>
         <button class="admin-secondary-button" disabled={busy()} onClick={() => navigate('')}>Back to catalog</button>
         <Show when={detailLoading()}><p role="status">Loading operator details…</p></Show>
@@ -175,7 +174,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
           <Show when={!loading() && !catalogError()}>
             <Show when={items().length} fallback={<p>No operators match this catalog view.</p>}>
               <ul class="operator-list"><For each={items()}>{operator => <li class="admin-area-row">
-                <div><strong>{name(operator)}</strong><p>{operator.profile} · {operator.realm} · {operator.enabled ? 'Enabled installations' : 'Disabled'}</p></div>
+                <div><strong>{name(operator)}</strong><p>{operator.profile} · {operator.realm} · {operator.enabled ? 'Operator enabled' : 'Operator disabled'}</p></div>
                 <button class="admin-secondary-button" disabled={busy()} aria-label={`Manage ${name(operator)}`} onClick={() => navigate(operator.id)}>Manage</button>
               </li>}</For></ul>
             </Show>
@@ -209,10 +208,11 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
             </form>
           </section>
         </Show>
+        <Show when={props.isAdmin}><details class="operator-global-access"><summary>Global management access</summary><ManagementAccessPanel /></details></Show>
       </Show>
       </Show>
     </div>
-  </main>;
+  </div>;
 };
 
 const LineField: Component<{ label: string; values: string[]; onChange: (values: string[]) => void; hint: string; email?: boolean }> = props => {
@@ -265,12 +265,17 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
   onCleanup(() => setSourcePat(''));
   const operator = () => props.detail.operator;
   return <>
-    <section class="admin-panel operator-panel"><h2>{name(operator())}</h2><p>{operator().profile} · {operator().realm} · Revision {operator().revision}</p>
-      <p>Source: {operator().repositoryUrl} · Repository ID {operator().repositoryId}</p>
-      <p>Source credential: {operator().source.credentialConfigured ? 'Configured (write-only)' : 'Not configured'}</p>
-      <p>Approved workflow: {operator().source.approvedWorkflow ? `${operator().source.approvedWorkflow!.id} · ${operator().source.approvedWorkflow!.ref}` : 'Not selected'}</p>
-      <p>Operator capability ceiling: {operator().policy.capabilities.join(', ') || 'None'}</p>
-      <p>Resource profile: {operator().policy.resourceProfileId ?? 'None'}</p>
+    <section class="admin-panel operator-panel operator-overview" aria-label="Operator overview">
+      <div class="admin-panel-heading"><div><p class="admin-eyebrow">{operator().profile} · {operator().realm}</p><h2>{name(operator())}</h2>
+        <p><span class="operator-state">{operator().enabled ? 'Operator enabled' : 'Operator disabled'}</span> · Revision {operator().revision}</p></div></div>
+      <div class="admin-editor-layout"><dl>
+        <div><dt>Source repository</dt><dd>{operator().repositoryUrl}</dd></div>
+        <div><dt>Repository ID</dt><dd>{operator().repositoryId}</dd></div>
+        <div><dt>Source credential</dt><dd>{operator().source.credentialConfigured ? 'Configured (write-only)' : 'Not configured'}</dd></div>
+        <div><dt>Approved workflow</dt><dd>{operator().source.approvedWorkflow ? `${operator().source.approvedWorkflow!.id} · ${operator().source.approvedWorkflow!.ref}` : 'Not selected'}</dd></div>
+        <div><dt>Capability ceiling</dt><dd>{operator().policy.capabilities.join(', ') || 'None'}</dd></div>
+        <div><dt>Resource profile</dt><dd>{operator().policy.resourceProfileId ?? 'None'}</dd></div>
+      </dl><aside class="admin-editor-context"><h3>Before enabling</h3><p>Discover a release, select its exact version for an installation, then enable that installation for new activities. Existing activities keep their pinned version.</p></aside></div>
       <details><summary>Edit source</summary><p>Replacing source or trust invalidates approval and disables new starts. Approve exact releases again before enabling.</p>
         <form onSubmit={event => { event.preventDefault(); void props.perform(async () => {
           const credential = sourcePat(); setSourcePat('');
@@ -283,7 +288,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
         </form>
       </details>
     </section>
-    <section class="admin-panel operator-panel"><div class="operator-section-heading"><h2>Releases</h2>
+    <nav class="operator-actions operator-section-nav" aria-label="Operator sections"><a href="#operator-releases">Releases</a><a href="#operator-installations">Installations</a><a href="#operator-grants">Access grants</a></nav>
+    <section id="operator-releases" class="admin-panel operator-panel"><div class="operator-section-heading"><h2>Releases</h2>
       <button class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(() => api.refreshManagedReleases(operator().id, operator().revision), 'Release discovery refreshed. Nothing was approved or enabled.')}>Refresh releases</button></div>
       <p>Discovery is not approval. Approve and pin an exact release to an installation, then enable it separately.</p>
       <Show when={props.detail.releases.length} fallback={<p>No releases discovered.</p>}><ul class="operator-list"><For each={props.detail.releases}>{release => <li>
@@ -293,7 +299,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
           <dt>Requested capabilities</dt><dd>{release.requestedCapabilities?.join(', ') || 'Not reported by discovery'}</dd></dl>
       </li>}</For></ul></Show>
     </section>
-    <section class="admin-panel operator-panel"><h2>Installations</h2><p>Names are local labels. Promotion affects new activities only and leaves the installation disabled.</p>
+    <section id="operator-installations" class="admin-panel operator-panel"><h2>Installations</h2><p>Names are local labels. Promotion affects new activities only; enablement is a separate action.</p>
       <Show when={props.detail.installations.length} fallback={<p>No installations yet.</p>}><For each={props.detail.installations}>{installation => <InstallationEditor installation={installation} releases={props.detail.releases} releaseId={releaseSelections()[installation.id] ?? ''} onReleaseChange={releaseId => setReleaseSelections(selections => ({ ...selections, [installation.id]: releaseId }))} locked={props.locked} perform={props.perform} />}</For></Show>
       <form onSubmit={event => { event.preventDefault(); void props.perform(async () => { await api.createInstallation(operator().id, { name: installationName().trim(), policy: policy(), revision: operator().revision }); setInstallationName(''); }, 'Disabled installation created. Approve a release before enabling.'); }}>
         <fieldset disabled={props.locked}><legend>Create installation</legend>
@@ -303,7 +309,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
         </fieldset>
       </form>
     </section>
-    <section class="admin-panel operator-panel"><h2>Access grants</h2><p>Managers also need global management eligibility. Manager grants never permit invocation or access to another person's activities.</p>
+    <section id="operator-grants" class="admin-panel operator-panel"><h2>Access grants</h2><p>Managers also need global management eligibility. Manager grants never permit invocation or access to another person's activities.</p>
       <form onSubmit={event => { event.preventDefault(); void props.perform(() => api.saveOperatorGrants(operator().id, { managers: managers(), invokers: invokers(), revision: operator().revision }), 'Grants saved. Management does not grant invocation.'); }}>
         <fieldset disabled={props.locked}><GrantFields title="Manager" value={managers()} onChange={setManagers} /><GrantFields title="Invoker" value={invokers()} onChange={setInvokers} />
           <button class="admin-primary-button" type="submit">Save grants</button></fieldset>
@@ -328,8 +334,9 @@ const InstallationEditor: Component<{ installation: api.ManagementInstallation; 
     } catch { setValidation('Configuration must be a JSON object, at most 64 KiB.'); return; }
     void props.perform(() => api.configureInstallation(installation().id, { revision: installation().revision, policy: policy(), configuration: value }), 'Installation configuration saved. Review current state before enabling.');
   }
-  return <article class="operator-installation"><h3>{installation().name}</h3><p>{installation().enabled ? 'Enabled for new activities' : 'Disabled'} · Revision {installation().revision}</p>
-    <p>Pinned release: {installation().releaseId ?? 'None'}</p>
+  return <article class="operator-installation" aria-label={`${installation().name} installation`}><h3>{installation().name}</h3>
+    <p><span class="operator-state">{installation().enabled ? 'Enabled for new activities' : 'Disabled'}</span> · Revision {installation().revision}</p>
+    <p>Pinned release: {props.releases.find(release => release.id === installation().releaseId)?.version ?? installation().releaseId ?? 'None'}</p>
     <Show when={props.releases.find(release => release.id === installation().releaseId)}>{release => <>
       <p>Pinned version: Core {release().coreVersion ?? 'not reported'} · Intent {release().intentVersion ?? 'not reported'}</p>
       <p>Bundle SHA-256: {release().bundleDigest}</p>

@@ -8,6 +8,7 @@
   font-family: var(--font-sans);
   overscroll-behavior: contain;
 }
+.operator-management.is-embedded { position: static; overflow: visible; min-width: 0; }
 .operator-management .admin-page { max-width: 1200px; }
 .operator-management h1:focus { outline: none; }
 .operator-management :is(a, button, input, select, textarea, summary):focus-visible {
@@ -30,6 +31,18 @@
 .operator-section-heading { justify-content: space-between; }
 .operator-actions { margin-block: var(--space-3); }
 .operator-actions > a { display: inline-flex; align-items: center; }
+.operator-actions > a[aria-current='page'] { color: var(--color-text-primary); font-weight: var(--font-semibold); text-decoration: underline; text-underline-offset: 5px; }
+.operator-global-access { margin-top: var(--space-6); }
+.operator-global-access > summary { font-weight: var(--font-semibold); }
+.operator-overview .admin-panel-heading { align-items: start; }
+.operator-overview .admin-editor-layout { margin-block: var(--space-4); }
+.operator-overview .admin-editor-context { align-self: start; }
+.operator-overview dl { margin: 0; }
+.operator-overview dl > div { margin-bottom: var(--space-3); }
+.operator-overview dt { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.operator-overview dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.operator-state { font-weight: var(--font-semibold); color: var(--color-text-primary); }
+.operator-section-nav { padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
 .operator-filters { display: grid; grid-template-columns: minmax(160px, 2fr) repeat(3, minmax(100px, 1fr)) auto; align-items: end; gap: var(--space-3); }
 .operator-list { list-style: none; padding: 0; margin: 0; }
 .operator-list > li { padding-block: var(--space-4); border-bottom: 1px solid var(--color-border-subtle); }
@@ -58,5 +71,6 @@
   .operator-list .admin-area-row > button,
   .operator-section-heading > .admin-primary-button { width: 100%; justify-content: center; }
   .operator-actions { align-items: stretch; }
+  .operator-overview .admin-editor-layout { grid-template-columns: minmax(0, 1fr); }
   .operator-actions > :is(button, a) { min-height: 44px; }
 }
