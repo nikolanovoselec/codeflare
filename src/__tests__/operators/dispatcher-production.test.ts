@@ -226,6 +226,23 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(await f.capability._cf_cancelScheduleForFacet(path, created.schedule.id)).toMatchObject({ ok: true });
     expect(await f.capability._cf_getScheduleForFacet(path, created.schedule.id)).toBeUndefined();
   }));
+  it('admits only the activity-bound, connection-free child notifications without widening authority', () => fixture(async f => {
+    await start(f);
+    const plan = await f.activity.getRuntimePlan();
+    const path = [{ className: 'OperatorActivity', name: plan!.activityId },
+      { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const bridge = f.capability as unknown as {
+      _cf_subAgentConnectionMetas(path: typeof path): Promise<unknown>;
+      _cf_broadcastToSubAgent(path: typeof path, message: unknown, without?: string[]): Promise<void>;
+    };
+    expect(await bridge._cf_subAgentConnectionMetas(path)).toEqual([]);
+    await expect(bridge._cf_broadcastToSubAgent(path, { type: 'notice' })).resolves.toBeUndefined();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    const foreign = [{ ...path[0], name: 'other-activity' }, path[1]];
+    await expect(bridge._cf_subAgentConnectionMetas(foreign)).rejects.toThrow();
+    await expect(bridge._cf_broadcastToSubAgent(foreign, { type: 'notice' })).rejects.toThrow();
+    await expect(bridge._cf_broadcastToSubAgent(path, 'x'.repeat(64 * 1024 + 1))).rejects.toThrow();
+  }));
   it('orchestrates managed Dispatcher bundles without the default entrypoint path', () => fixture(async f => {
     const plan = await f.activity.getRuntimePlan();
     await runOperatorActivity(plan!.activityId, f.environment, () => { throw new Error('default capability must not be selected'); });
