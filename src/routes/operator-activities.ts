@@ -75,10 +75,10 @@ app.get('/:activityId/diagnostic', async c => {
   if (c.req.header('x-requested-with') !== 'XMLHttpRequest') return c.json({ error: 'Read denied' }, 403);
   const activityId = c.req.param('activityId');
   if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const reason = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).inspectFailedDispatcherReason();
-  if (reason === null) return c.notFound();
+  const inspection = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).inspectFailedDispatcherReason();
+  if (inspection === null) return c.notFound();
   c.header('Cache-Control', 'no-store');
-  return c.json({ reason });
+  return c.json(inspection);
 });
 app.get('/:activityId/result', handleBrowserDetail);
 app.post('/:activityId/result', async c => {
