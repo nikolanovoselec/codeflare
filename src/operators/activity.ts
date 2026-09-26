@@ -1414,6 +1414,28 @@ export class OperatorActivity extends Agent {
     try { await this.#reconciling; } finally { this.#reconciling = undefined; }
   }
 
+  /** Temporary owner-only EI inspection of an already fenced, exact failed submission. No admission or effects. */
+  async inspectFailedDispatcherReason(): Promise<string | null> {
+    const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+      this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+    if (!state || !lease || state.drive?.status !== 'unknown' || lease.status !== 'unknown'
+      || state.drive.generation !== lease.generation + 1 || !lease.submissionId
+      || !state.receipt || !isManagementReceipt(state.receipt)
+      || state.receipt.selection.operator.profile !== 'dispatcher'
+      || state.receipt.selection.release.bundleDigest !== lease.artifactDigest) return null;
+    try {
+      const response = await (await this.#dispatcherFacet(lease)).fetch(new Request(
+        'https://flue.internal/agents/Dispatcher/dispatcher', { signal: AbortSignal.timeout(5_000) }));
+      if (!response.ok) return null;
+      const value = JSON.parse(await readDispatcherBody(response));
+      const settlement = Array.isArray(value?.settlements)
+        ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
+      const reason = settlement?.outcome === 'failed' && settlement?.error?.type === 'operation_failed'
+        ? settlement.error.meta?.reason : null;
+      return typeof reason === 'string' && new TextEncoder().encode(reason).byteLength <= 4096 ? reason : null;
+    } catch { return null; }
+  }
+
   /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
