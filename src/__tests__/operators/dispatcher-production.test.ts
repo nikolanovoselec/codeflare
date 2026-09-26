@@ -33,6 +33,7 @@ async function fixture(test: (f: {
   artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
+  denyInference: (code: string) => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -51,6 +52,7 @@ async function fixture(test: (f: {
     let settlements: unknown[] = [];
     let aborted: string | undefined;
     let uncertain = false;
+    let inferenceDenial: string | null = null;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -79,6 +81,7 @@ async function fixture(test: (f: {
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+          if (inferenceDenial) return Response.json({ code: inferenceDenial, error: 'Private upstream detail' }, { status: 403 });
           return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
@@ -113,7 +116,8 @@ async function fixture(test: (f: {
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
-        loseResponse: () => { uncertain = true; }, nextAlarm: () => native.storage.getAlarm(),
+        loseResponse: () => { uncertain = true; }, denyInference: code => { inferenceDenial = code; },
+        nextAlarm: () => native.storage.getAlarm(),
       });
     } finally {
       await activity.cancelDrive();
@@ -165,10 +169,37 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await start(f);
     f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
     await f.activity.reconcileDispatcherLease();
-    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<string | null> };
-    expect(await inspection.inspectFailedDispatcherReason?.()).toBe('Synthetic fixture failure');
+    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
+    expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
+      operationCount: 0, denialCode: null });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect((await f.capability.fetch(read())).status).toBe(403);
+  }));
+  it('privately classifies only a persisted 403 inference response for a fenced submission', () => fixture(async f => {
+    await start(f);
+    f.denyInference('ROUTE_NOT_ELIGIBLE');
+    const inference = () => new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId: 'infer-1',
+        input: { messages: [{ role: 'user', content: 'Read only' }] } }) });
+    expect((await f.capability.fetch(inference())).status).toBe(403);
+    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
+    await f.activity.reconcileDispatcherLease();
+    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
+    expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
+      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE' });
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+  }));
+  it('does not expose an unrecognized protected error code in the private classification', () => fixture(async f => {
+    await start(f);
+    f.denyInference('PRIVATE_UPSTREAM_CODE');
+    expect((await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId: 'infer-unknown',
+        input: { messages: [{ role: 'user', content: 'Read only' }] } }) }))).status).toBe(403);
+    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
+    await f.activity.reconcileDispatcherLease();
+    const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
+    expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
+      operationCount: 1, denialCode: null });
   }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();

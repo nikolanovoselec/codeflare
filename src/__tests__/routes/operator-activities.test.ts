@@ -37,7 +37,8 @@ function fixture() {
     start: vi.fn(async () => ({ ok: true, phase: 'queued' })),
     cancelDrive: vi.fn(async () => ({ ok: true, state: { status: 'cancel-requested' } })),
     getBrowserDetail: vi.fn(async () => ({ ...summary, checkpoint: { step: 1 }, result: null })),
-    inspectFailedDispatcherReason: vi.fn(async () => 'Synthetic fixture failure'),
+    inspectFailedDispatcherReason: vi.fn(async () => ({ reason: 'Synthetic fixture failure',
+      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE' })),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
   };
   const registry = {
@@ -110,7 +111,8 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const owned = await request('/activity-1/diagnostic');
     expect(owned.status).toBe(200);
     expect(owned.headers.get('cache-control')).toBe('no-store');
-    expect(await owned.json()).toEqual({ reason: 'Synthetic fixture failure' });
+    expect(await owned.json()).toEqual({ reason: 'Synthetic fixture failure',
+      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE' });
     registry.getOwnedActivity.mockResolvedValueOnce(null);
     expect((await request('/activity-1/diagnostic')).status).toBe(404);
     expect((await request('/activity-1/diagnostic', 'GET', undefined, false)).status).toBe(403);
