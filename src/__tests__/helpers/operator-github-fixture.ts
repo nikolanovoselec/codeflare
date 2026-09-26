@@ -53,6 +53,8 @@ export type GitHubFixtureFault = 'provenance-repository' | 'provenance-compiler'
 
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
+  artifactCdnHost?: 'productionresultssa1.blob.core.windows.net' | 'productionresultssa3.blob.core.windows.net'
+    | 'productionresultssa8.blob.core.windows.net' | 'productionresultssa16.blob.core.windows.net';
   profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
   omitCompilerCommit?: boolean;
 } = {}) {
@@ -98,7 +100,7 @@ export async function createOperatorGitHubFixture(options: {
       const file = files.find(candidate => url.pathname === `/fixture/${candidate.id}`);
       return file ? new Response(file.bytes) : new Response('Unknown asset', { status: 404 });
     }
-    if (url.origin === 'https://productionresultssa3.blob.core.windows.net' && options.useCdn)
+    if (url.origin === `https://${options.artifactCdnHost ?? 'productionresultssa3.blob.core.windows.net'}` && options.useCdn)
       return url.pathname === '/fixture/operator-package' ? new Response(archiveBytes) : new Response('Unknown artifact', { status: 404 });
     if (url.origin !== 'https://api.github.com') return new Response('Unapproved host', { status: 403 });
     const path = url.pathname;
@@ -127,7 +129,7 @@ export async function createOperatorGitHubFixture(options: {
       if (request.headers.get('accept') !== 'application/vnd.github+json')
         return Response.json({ message: 'Artifact download requires JSON Accept' }, { status: 415 });
       if (options.useCdn) return new Response(null, { status: 302,
-        headers: { location: 'https://productionresultssa3.blob.core.windows.net/fixture/operator-package' } });
+        headers: { location: `https://${options.artifactCdnHost ?? 'productionresultssa3.blob.core.windows.net'}/fixture/operator-package` } });
       return new Response(archiveBytes);
     }
     return new Response('Unknown GitHub fixture endpoint', { status: 404 });

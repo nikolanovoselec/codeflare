@@ -13,7 +13,9 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = MAX_BUNDLE_BYTES + 256 * 1024;
 const API = 'https://api.github.com';
-const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com', 'productionresultssa3.blob.core.windows.net']);
+const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com',
+  'productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
+  'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net']);
 const FILES = ['operator-manifest.json', 'operator-bundle.json', 'operator-provenance.json'] as const;
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
