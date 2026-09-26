@@ -63,6 +63,7 @@ describe('Edge-level setup redirect', () => {
     ['POST', '/api/admin/operators/demo/policy'],
   ])('returns 404 for the retired legacy operator administration %s %s', async (method, path) => {
     const { env } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
     const response = await worker.fetch(new Request(`https://example.com${path}`, { method }), env, createMockCtx());
     expect(response.status).toBe(404);
   });
