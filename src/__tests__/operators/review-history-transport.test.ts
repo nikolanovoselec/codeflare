@@ -33,13 +33,13 @@ function zip(name: string, bytes: Uint8Array, compressed = false) {
   return Buffer.concat([local, filename, payload, descriptor, central, filename, end]);
 }
 function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: boolean; redirect?: string;
-  neverFinish?: boolean; revokeAfter?: boolean; foreignCheck?: boolean } = {}) {
+  neverFinish?: boolean; revokeAfter?: boolean; foreignCheck?: boolean; foreignComment?: boolean } = {}) {
   let valid = true;
   const signed = options.redirect ?? 'https://pipelines.actions.githubusercontent.com/signed-artifact';
   const fetch = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.origin === 'https://api.github.com') {
-      if (request.headers.get('authorization') !== `Bearer ${authority.token}` || request.redirect !== 'error')
+      if (request.headers.get('authorization') !== `Bearer ${authority.token}` || request.redirect !== 'manual')
         return Response.json({}, { status: 403 });
       if (options.revokeAfter) valid = false;
       if (url.pathname === '/repos/owner/repo') return Response.json({ id: 138, permissions: { pull: true } });
@@ -52,6 +52,10 @@ function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: bo
         return Response.json(Array.from({ length: options.missing ? 100 : 1 }, (_, id) => ({ id: id + 1,
           body: 'opaque prior comment', user: { id: 777 } })));
       }
+      if (url.pathname === '/repos/owner/repo/issues/comments/501') return Response.json({
+        id: 501, issue_url: `https://api.github.com/repos/owner/repo/issues/${options.foreignComment ? 35 : 34}`,
+        body: 'opaque prior comment', user: { id: 777 },
+      });
       if (url.pathname === '/repos/owner/repo/check-runs/99') return Response.json({
         id: 99, head_sha: options.foreignCheck ? 'd'.repeat(40) : priorHead, app: { id: 888 },
       });
@@ -84,6 +88,13 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
       .toMatchObject({ complete: true, value: [{ id: 1, body: 'opaque prior comment' }] });
     expect(JSON.stringify(await transport.read({ schemaVersion: 1, operation: 'run', id: 7 })))
       .not.toContain(authority.token);
+  });
+
+  it('reads only a comment whose issue URL belongs to the prepared PR', async () => {
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'comment', id: 501 }))
+      .toMatchObject({ complete: true, value: { id: 501, body: 'opaque prior comment' } });
+    expect(await fixture({ foreignComment: true }).transport.read({ schemaVersion: 1, operation: 'comment', id: 501 }))
+      .toMatchObject({ complete: false });
   });
 
   it('reads a valid near-limit prior artifact by ID after an authenticated run and a bearer-free signed redirect', async () => {

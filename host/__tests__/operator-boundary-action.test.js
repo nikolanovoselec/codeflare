@@ -56,12 +56,13 @@ async function publicationFixture() {
   const comments = new Map();
   const checks = new Map();
   let loseArtifactResponse = false, loseCommentResponse = false;
+  let observedHead = result.head;
   let nextArtifactId = 99, nextCommentId = 100, nextCheckId = 101;
   const ports = {
     activityGeneration: 1,
     ledger: {
       current: async () => ({ activityId, generation: 1, repositoryId: 138, pullRequest: 34,
-        head: result.head, base: 'e'.repeat(40), mergeBase: 'f'.repeat(40) }),
+        head: observedHead, base: 'e'.repeat(40), mergeBase: 'f'.repeat(40) }),
       effect: async ({ operation, effect, digest: contentDigest, externalId }) => {
         const saved = effects.get(effect);
         if (saved && saved.digest !== contentDigest) return { status: 'conflict' };
@@ -115,7 +116,8 @@ async function publicationFixture() {
   };
   return { collected, projection, ports, artifactRows, comments, checks,
     loseArtifactResponse: () => { loseArtifactResponse = true; },
-    loseCommentResponse: () => { loseCommentResponse = true; } };
+    loseCommentResponse: () => { loseCommentResponse = true; },
+    advanceHead: head => { observedHead = head; } };
 }
 
 test('REQ-OPERATOR-056: exact projection and journal allow one authenticated artifact, comment and shadow check', async () => {
@@ -126,8 +128,16 @@ test('REQ-OPERATOR-056: exact projection and journal allow one authenticated art
   assert.equal(JSON.stringify(artifact).includes(JSON.stringify(result)), true);
   assert.equal(artifact.digest, Buffer.from(await crypto.subtle.digest('SHA-256',
     new TextEncoder().encode(JSON.stringify({ binding: artifact.binding, result: artifact.result })))).toString('hex'));
-  assert.equal(f.comments.get(101).body.includes('Review complete'), true);
+  const commentBody = f.comments.get(101).body;
+  const marker = `review-138-34-${activityId}-generation-1:${artifact.digest}`;
+  assert.equal(commentBody.includes('Review complete'), true);
+  assert.equal(commentBody.includes(`<!-- codeflare-review:${marker} -->`), true);
+  assert.deepEqual(JSON.parse(commentBody.slice(commentBody.lastIndexOf('\n') + 1)),
+    { head: result.head, artifactDigest: artifact.digest });
   assert.equal(f.checks.get(102).conclusion, 'success');
+  assert.equal(f.checks.get(102).head_sha, result.head);
+  assert.equal(f.checks.get(102).external_id, marker);
+  assert.equal(f.checks.get(102).app.id, 888);
   assert.deepEqual(await publishBoundaryResult(f.collected, f.projection, f.ports),
     { status: 'published', artifactId: 100, commentId: 101, checkId: 102 });
   assert.equal(f.artifactRows.size, 1);
@@ -139,13 +149,21 @@ test('REQ-OPERATOR-056: exact projection and journal allow one authenticated art
 
 test('REQ-OPERATOR-056: a completed review with unresolved findings publishes only a failing check', async () => {
   const f = await publicationFixture();
-  f.collected.result = { ...result, history: { ...result.history, clear: false,
-    findings: [{ id: 'unresolved', lane: 'code-reviewer', message: 'Still open' }] },
-  presentation: { ...result.presentation, check: { ...result.presentation.check, conclusion: 'failure' } } };
+  const finding = { id: 'unresolved', lane: 'code-reviewer', message: 'Still open' };
+  f.collected.result = { ...result, originalReports: [{ lane: 'code-reviewer', findings: [finding] }],
+    history: { ...result.history, clear: false, findings: [finding] },
+    presentation: { ...result.presentation, commentBody: 'Review findings: 1 unresolved',
+      check: { ...result.presentation.check, conclusion: 'failure' } } };
   f.projection.resultDigest = Buffer.from(await crypto.subtle.digest('SHA-256',
     new TextEncoder().encode(JSON.stringify(f.collected.result)))).toString('hex');
   assert.equal((await publishBoundaryResult(f.collected, f.projection, f.ports)).status, 'published');
   assert.equal(f.checks.get(102).conclusion, 'failure');
+  const artifact = f.artifactRows.get(100).body;
+  assert.deepEqual(artifact.result.originalReports[0].findings, [finding]);
+  const comment = f.comments.get(101).body;
+  assert.equal(comment.includes('Review findings: 1 unresolved'), true);
+  assert.deepEqual(JSON.parse(comment.slice(comment.lastIndexOf('\n') + 1)),
+    { head: result.head, artifactDigest: artifact.digest });
 });
 
 test('REQ-OPERATOR-055/056: lost comment response reconciles the exact actor and ID without duplicate publication', async () => {
@@ -155,6 +173,22 @@ test('REQ-OPERATOR-055/056: lost comment response reconciles the exact actor and
     { status: 'published', artifactId: 100, commentId: 101, checkId: 102 });
   assert.equal(f.comments.size, 1);
   assert.equal(f.checks.size, 1);
+});
+
+test('REQ-OPERATOR-056: a changed PR revision after comment publication fences the old shadow check', async () => {
+  const f = await publicationFixture();
+  const send = f.ports.github.fetch;
+  f.ports.github.fetch = async request => {
+    const response = await send(request);
+    if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/issues/34/comments')) {
+      f.advanceHead('d'.repeat(40));
+    }
+    return response;
+  };
+  assert.notEqual((await publishBoundaryResult(f.collected, f.projection, f.ports)).status, 'published');
+  assert.equal(f.artifactRows.size, 1);
+  assert.equal(f.comments.size, 1);
+  assert.equal(f.checks.size, 0);
 });
 
 test('REQ-OPERATOR-055/056: lost artifact response recovers exact ID but altered readback cannot publish', async () => {

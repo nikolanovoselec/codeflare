@@ -80,7 +80,7 @@ export function createAuthenticatedHistoryTransport(input: {
   const current = async () => { await input.current(); if (Date.now() >= deadline) throw Error('History deadline'); };
   const get = async (path: string, max = COLLECTION_LIMIT): Promise<unknown> => {
     await current();
-    const request = new Request(`${API}${path}`, { redirect: 'error', signal: AbortSignal.timeout(5_000),
+    const request = new Request(`${API}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(5_000),
       headers: { authorization: `Bearer ${input.token}`, accept: 'application/vnd.github+json',
         'x-github-api-version': '2022-11-28' } });
     const response = await input.fetch(request);
@@ -137,7 +137,7 @@ export function createAuthenticatedHistoryTransport(input: {
         case 'artifact-list': value = await get(`${root}/actions/artifacts?per_page=100&page=${request.page}${request.name
           ? `&name=${request.name}` : ''}`); break;
         case 'checks-page': {
-          const head = request.head ?? input.head;
+          const head = 'head' in request && typeof request.head === 'string' ? request.head : input.head;
           if (head !== input.head) await associated(head);
           value = await get(`${root}/commits/${head}/check-runs?per_page=100&page=${request.page}`); break;
         }
@@ -161,7 +161,7 @@ export function createAuthenticatedHistoryTransport(input: {
             || !/^(?:[a-z0-9-]+\.)*actions\.githubusercontent\.com$/.test(signed.hostname))
             throw Error('Invalid signed archive origin');
           await current();
-          const signedRequest = new Request(signed.href, { redirect: 'error', signal: AbortSignal.timeout(5_000) });
+          const signedRequest = new Request(signed.href, { redirect: 'manual', signal: AbortSignal.timeout(5_000) });
           const response = await input.fetch(signedRequest);
           if (!response.ok || response.redirected || response.url && response.url !== signed.href)
             throw Error('Archive unavailable');
@@ -175,9 +175,9 @@ export function createAuthenticatedHistoryTransport(input: {
         }
       }
       if (request.operation === 'comment' || request.operation === 'check') {
-        const item = value as { id?: number; pull_request_url?: string; head_sha?: string };
+        const item = value as { id?: number; issue_url?: string; head_sha?: string };
         if (item.id !== request.id || request.operation === 'comment'
-          && item.pull_request_url !== `${API}${root}/pulls/${input.pullRequest}`
+          && item.issue_url !== `${API}${root}/issues/${input.pullRequest}`
           || request.operation === 'check' && !SHA.test(item.head_sha ?? '')) throw Error('Foreign item');
         if (request.operation === 'check' && item.head_sha !== input.head) await associated(item.head_sha!);
       }
