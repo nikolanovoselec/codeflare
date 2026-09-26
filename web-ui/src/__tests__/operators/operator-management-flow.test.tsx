@@ -125,11 +125,66 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Versions & updates' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh releases' }));
     fireEvent.click(screen.getByRole('button', { name: 'Installed version' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
+    const install = await screen.findByRole('button', { name: 'Install operator' });
+    await waitFor(() => expect(install).toBeEnabled());
+    fireEvent.click(install);
     fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     await waitFor(() => expect(created).toEqual({ name: 'default', policy, revision: 4 }));
   });
+  it.each(['promotion failed', 'promotion response lost'])('reconciles a created but unpinned installation when %s without a duplicate or automatic enable', async outcome => {
+    let installations: Array<Omit<typeof installation, 'releaseId'> & { releaseId: string | null }> = [];
+    let creates = 0; let promotions = 0; let enables = 0;
+    serve = (url, init) => {
+      if (url.pathname.endsWith('/installations') && init?.method === 'POST') {
+        creates++; installations = [{ ...installation, revision: 1 }]; return json(installations[0], 201);
+      }
+      if (url.pathname.endsWith('/promote')) {
+        promotions++;
+        if (promotions === 1) {
+          if (outcome === 'promotion response lost') installations = [{ ...installations[0], releaseId: release.id, revision: 2 }];
+          return json({ error: 'Uncertain promotion' }, 503);
+        }
+        installations = [{ ...installations[0], releaseId: release.id, revision: 2 }];
+        return json(installations[0]);
+      }
+      if (url.pathname.endsWith('/enable')) enables++;
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: { ...operator, revision: installations.length ? 4 : 3 }, installations }) : json({ items: [operator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/uncertain promotion/i);
+    expect(creates).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh current state' }));
+    if (outcome === 'promotion failed') {
+      const install = await screen.findByRole('button', { name: 'Install operator' });
+      await waitFor(() => expect(install).toBeEnabled());
+      fireEvent.click(install);
+      fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+      fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
+      await waitFor(() => expect(promotions).toBe(2));
+    } else {
+      expect(await screen.findByText(`Pinned release: GitHub release #${release.githubReleaseId}`)).toBeInTheDocument();
+      expect(promotions).toBe(1);
+    }
+    expect(creates).toBe(1);
+    expect(enables).toBe(0);
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Installed version' })).getByRole('status')).toHaveTextContent('Installed — not enabled'));
+  });
+
+  it('distinguishes an installed pin with unavailable release details from no installation', async () => {
+    serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), installations: [{ ...installation, releaseId: 'missing-release' }] }) : json({ items: [operator], cursor: null });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const installed = await screen.findByRole('region', { name: 'Installed version' });
+    expect(within(installed).getByText('Installed version details unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Install operator' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No version installed', { selector: 'p' })).not.toBeInTheDocument();
+  });
+
   it('edits source with a blank write-only credential and clears it on submission', async () => {
     let saved: unknown;
     serve = (url, init) => {
@@ -176,6 +231,32 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save management access' }));
     await waitFor(() => expect(saved).toEqual({ revision: 1, managers: { users: ['delegate@example.test'], groups: [] }, ceiling: controls.ceiling }));
   });
+  it('reloads configured identity choices during explicit stale-state reconciliation', async () => {
+    let optionsReads = 0;
+    let saves = 0;
+    vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
+      const url = new URL(input, window.location.origin);
+      if (url.pathname.endsWith('/options')) {
+        optionsReads++;
+        return Promise.resolve(json({ ...choices, users: optionsReads === 1 ? ['manager@example.test'] : ['manager@example.test', 'delegate@example.test'] }));
+      }
+      if (url.pathname.endsWith('/grants') && init?.method === 'POST') {
+        saves++; return Promise.resolve(json({ error: 'Stale' }, 409));
+      }
+      return Promise.resolve(url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null }));
+    }));
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
+    const grants = await screen.findByRole('region', { name: 'Access grants' });
+    expect(within(grants).queryByRole('checkbox', { name: 'delegate@example.test' })).not.toBeInTheDocument();
+    fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
+    await waitFor(() => expect(saves).toBe(1));
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh current state' }));
+    expect(await within(grants).findAllByRole('checkbox', { name: 'delegate@example.test' })).toHaveLength(2);
+    expect(optionsReads).toBe(2);
+  });
+
   it('keeps manager and invoker grants independent in the public mutation contract', async () => {
     let saved: unknown;
     serve = (url, init) => {

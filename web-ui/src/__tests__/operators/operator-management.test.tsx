@@ -119,10 +119,10 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
             name: 'Review operator', description: 'Checks repository changes under an approved Review policy.',
             sourceCommit: 'd'.repeat(40), manifestDigest: 'e'.repeat(64), bundleDigest: 'f'.repeat(64),
             interfaceVersion: 1, approved: true }],
-        installations: [{ id: 'installation-1', operatorId: 'operator-1', name: 'Integration', releaseId: 'release-1',
-          revision: 2, enabled: true, policy: { capabilities: [], resourceProfileId: null } },
-          { id: 'installation-2', operatorId: 'operator-1', name: 'Secondary', releaseId: 'release-0',
-            revision: 2, enabled: false, policy: { capabilities: [], resourceProfileId: null } }],
+        installations: [{ id: 'installation-2', operatorId: 'operator-1', name: 'Secondary', releaseId: 'release-0',
+          revision: 2, enabled: false, policy: { capabilities: [], resourceProfileId: null } },
+          { id: 'installation-1', operatorId: 'operator-1', name: 'Integration', releaseId: 'release-1',
+            revision: 2, enabled: true, policy: { capabilities: [], resourceProfileId: null } }],
         grants: { managers: { users: [], groups: [] }, invokers: { users: [], groups: [] } },
       });
       return response({ error: 'Not found' }, 404);
@@ -320,6 +320,27 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
       policy: { capabilities: ['inference'], resourceProfileId: 'review-profile' } });
   });
 
+  it('requires explicit usable registration limits before accepting a source', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test'], groups: [],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: ['review-profile'],
+        ceiling: { capabilities: ['session'], resourceProfileIds: ['review-profile'] } });
+      if (path === '/api/operator-management/operators') return response({ items: [], cursor: null });
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
+    const form = screen.getByRole('region', { name: 'Register operator' });
+    expect(await within(form).findByRole('checkbox', { name: /session/i })).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
+    expect(within(form).getByText(/select the capabilities and resource profile needed before registration/i)).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole('checkbox', { name: /session/i }));
+    expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Operator resource profile' }), { target: { value: 'review-profile' } });
+    expect(within(form).getByRole('button', { name: 'Register source' })).toBeEnabled();
+  });
+
   it('keeps persisted configuration when saving restrictions, without an unused JSON editor', async () => {
     const saves: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -359,12 +380,12 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
       configuration: { existing: 'keep' } });
   });
 
-  it('makes an unavailable saved grant visible and requires explicit removal before saving', async () => {
+  it('keeps saved identities absent from this session’s choices through unrelated grant edits and allows deliberate removal', async () => {
     const saves: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const path = new URL(request.url).pathname;
-      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test'], groups: [],
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test', 'invoker@example.test'], groups: [],
         capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
         ceiling: { capabilities: [], resourceProfileIds: [] } });
       if (path === '/api/operator-management/operators') return response({ items: [
@@ -372,10 +393,10 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
       if (path === '/api/operator-management/operators/operator-1') return response({
         operator: { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false,
           revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
-          managers: { users: ['missing@example.test'], groups: [] }, invokers: { users: [], groups: [] },
+          managers: { users: ['missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] }, invokers: { users: [], groups: [] },
           policy: { capabilities: [], resourceProfileId: null }, source: { kind: 'github-release',
             repositoryUrl: 'https://github.com/acme/review', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } },
-        releases: [], installations: [], grants: { managers: { users: ['missing@example.test'], groups: [] },
+        releases: [], installations: [], grants: { managers: { users: ['missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
           invokers: { users: [], groups: [] } },
       });
       if (path === '/api/operator-management/operators/operator-1/grants') { saves.push(await request.json()); return response({}); }
@@ -385,13 +406,19 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
     const grants = await screen.findByRole('region', { name: /access grants/i });
-    expect(within(grants).getByText(/missing@example.test.*unavailable/i)).toBeInTheDocument();
-    expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeDisabled();
-    fireEvent.click(within(grants).getByRole('checkbox', { name: /missing@example.test/i }));
-    expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeEnabled();
+    expect(within(grants).getByText(/missing@example.test.*not listed.*retained/i)).toBeInTheDocument();
+    expect(within(grants).getByText(/former-team.*not listed.*retained/i)).toBeInTheDocument();
+    const invokers = within(grants).getByRole('group', { name: 'Who can run this operator grants' });
+    fireEvent.click(within(invokers).getByRole('checkbox', { name: 'invoker@example.test' }));
     fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
     await waitFor(() => expect(saves).toHaveLength(1));
-    expect(saves[0]).toMatchObject({ managers: { users: [], groups: [] } });
+    expect(saves[0]).toMatchObject({ managers: { users: ['missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
+      invokers: { users: ['invoker@example.test'], groups: [] } });
+    await waitFor(() => expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeEnabled());
+    fireEvent.click(within(grants).getByRole('checkbox', { name: /missing@example.test/i }));
+    fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
+    await waitFor(() => expect(saves).toHaveLength(2));
+    expect(saves[1]).toMatchObject({ managers: { users: [], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] } });
   });
 
   it('does not offer a grant mutation when configured identity choices are unavailable', async () => {
