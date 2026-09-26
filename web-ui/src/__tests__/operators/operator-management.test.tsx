@@ -103,7 +103,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
             repositoryId: 42, credentialConfigured: true, approvedWorkflow: { id: 7, ref: 'refs/heads/develop' } } },
         releases: [{ id: 'release-1', operatorId: 'operator-1', githubReleaseId: 17,
           sourceCommit: 'a'.repeat(40), manifestDigest: 'b'.repeat(64), bundleDigest: 'c'.repeat(64),
-          interfaceVersion: 1, approved: true, version: 'v0.1.2' }],
+          interfaceVersion: 1, approved: true }],
         installations: [{ id: 'installation-1', operatorId: 'operator-1', name: 'Integration', releaseId: 'release-1',
           revision: 2, enabled: true, policy: { capabilities: [], resourceProfileId: null } }],
         grants: { managers: { users: [], groups: [] }, invokers: { users: [], groups: [] } },
@@ -120,7 +120,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.getByRole('heading', { name: 'Installations' })).toBeInTheDocument();
     const installation = screen.getByRole('article', { name: 'Integration installation' });
     expect(within(installation).getByText('Enabled for new activities')).toBeInTheDocument();
-    expect(within(installation).getByText('Pinned release: v0.1.2')).toBeInTheDocument();
+    expect(within(installation).getByText('Pinned release: GitHub release #17')).toBeInTheDocument();
     expect(within(installation).getByRole('button', { name: 'Disable Integration' })).toBeInTheDocument();
   });
 
