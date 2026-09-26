@@ -1,6 +1,6 @@
 import { inflateRawSync } from 'node:zlib';
 import { z } from 'zod';
-import { AppError } from '../lib/error-types';
+import { AppError, ValidationError } from '../lib/error-types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
