@@ -1360,7 +1360,13 @@ export class OperatorActivity extends Agent {
         const settlement = Array.isArray(value?.settlements)
           ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
         if (!settlement) {
-          dispatcherLog.warn('Dispatcher settlement unavailable', { stage: 'pending', count: Array.isArray(value?.settlements) ? value.settlements.length : 0 });
+          const messages = Array.isArray(value?.messages) ? value.messages : [];
+          dispatcherLog.warn('Dispatcher settlement unavailable', {
+            stage: 'pending', count: Array.isArray(value?.settlements) ? value.settlements.length : 0,
+            messageCount: messages.length,
+            assistantCount: messages.filter((message: { role?: unknown }) => message?.role === 'assistant').length,
+            toolCount: messages.filter((message: { role?: unknown }) => message?.role === 'tool').length,
+          });
           return;
         }
         await authorizeDispatcherPlan(plan, this.#appEnv);
