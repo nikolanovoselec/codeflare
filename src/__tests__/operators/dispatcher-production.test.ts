@@ -34,7 +34,7 @@ async function fixture(test: (f: {
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
   denyInference: (code: string) => void; denyRead: (body: unknown, resource?: 'files' | 'checks') => void;
-  oversizedChecks: () => void;
+  oversizedChecks: (count?: number, outputBytes?: number) => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -55,7 +55,7 @@ async function fixture(test: (f: {
     let uncertain = false;
     let inferenceDenial: string | null = null;
     let readDenial: { body: unknown; resource?: 'files' | 'checks' } | null = null;
-    let oversizedChecks = false;
+    let oversizedChecks: { count: number; outputBytes: number } | null = null;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -84,9 +84,18 @@ async function fixture(test: (f: {
             ? request.url.includes('/files?') : request.url.includes('/check-runs?')))) {
             return Response.json(readDenial.body, { status: 403 });
           }
-          if (oversizedChecks && request.url.includes('/check-runs?')) return Response.json({ total_count: 76,
-            check_runs: Array.from({ length: 76 }, (_, index) => ({ name: `check-${index}`,
-              conclusion: 'success', output: 'x'.repeat(3000) })) });
+          if (oversizedChecks && request.url.includes('/check-runs?')) {
+            const url = new URL(request.url);
+            const perPage = Number(url.searchParams.get('per_page'));
+            const page = Number(url.searchParams.get('page'));
+            const first = (page - 1) * perPage;
+            const count = Math.max(0, Math.min(perPage, oversizedChecks.count - first));
+            return Response.json({ total_count: oversizedChecks.count,
+              check_runs: Array.from({ length: count }, (_, index) => ({ name: `check-${first + index}`,
+                conclusion: 'success', output: 'x'.repeat(oversizedChecks.outputBytes) })) }, {
+              headers: first + count < oversizedChecks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
+            });
+          }
           return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
@@ -128,7 +137,7 @@ async function fixture(test: (f: {
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; }, denyInference: code => { inferenceDenial = code; },
         denyRead: (body, resource) => { readDenial = { body, resource }; },
-        oversizedChecks: () => { oversizedChecks = true; },
+        oversizedChecks: (count = 76, outputBytes = 3000) => { oversizedChecks = { count, outputBytes }; },
         nextAlarm: () => native.storage.getAlarm(),
       });
     } finally {
@@ -242,7 +251,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   it('privately identifies a bounded checks overflow as an unknown effect without returning evidence', () => fixture(async f => {
     await start(f);
     expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(200);
-    f.oversizedChecks();
+    f.oversizedChecks(1, 70_000);
     expect((await f.capability.fetch(read('submission-checks', { resource: 'checks' }))).status).toBe(409);
     f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
     await f.activity.reconcileDispatcherLease();
@@ -250,6 +259,27 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       protectedReceipts: [{ resource: 'pull-request', phase: 'completed', status: 200 },
         { resource: 'checks', phase: 'unknown', status: null }] });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+  }));
+  it('returns all 76 authorized check conclusions from bounded pages without forwarding large metadata', () => fixture(async f => {
+    await start(f); f.oversizedChecks();
+    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
+    expect(evidence.truncated).toBe(false);
+    expect(evidence.data.check_runs).toHaveLength(76);
+    expect(evidence.data.check_runs[75]).toEqual({ name: 'check-75', conclusion: 'success' });
+    expect(new TextEncoder().encode(JSON.stringify(evidence)).byteLength).toBeLessThan(64 * 1024);
+    expect(f.sent.some(request => new URL(request.url).searchParams.get('page') === '8')).toBe(true);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+  it('marks a check list beyond the 100-run bound as truncated rather than complete', () => fixture(async f => {
+    await start(f); f.oversizedChecks(101);
+    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
+    expect(evidence.truncated).toBe(true);
+    expect(evidence.data.check_runs.length).toBeLessThanOrEqual(100);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
   }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();
