@@ -92,7 +92,7 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const operator = await registered.json() as { id: string; revision: number };
     const refreshed = await request(`/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision });
     expect(refreshed.status).toBe(200);
-    const release = (await refreshed.json() as { items: Array<{ id: string; githubReleaseId: number; description: string }> }).items[0]!;
+    const release = (await refreshed.json() as { items: Array<{ id: string; githubReleaseId: number }> }).items[0]!;
     const current = await request(`/operators/${operator.id}`);
     const currentRevision = (await current.json() as { operator: { revision: number } }).operator.revision;
     const first = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'inactive', policy, revision: currentRevision });
@@ -107,13 +107,14 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const pinned = await promoted.json() as { revision: number };
     expect((await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: pinned.revision })).status).toBe(200);
     const sourceRow = ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=?', release.id).one();
+    const verifiedPurpose = (JSON.parse(sourceRow.manifest) as { description: string }).description;
     ctx.storage.sql.exec('INSERT INTO operator_releases VALUES(?,?,?,?)', 'zz-other-release', operator.id,
       JSON.stringify({ ...JSON.parse(sourceRow.data), id: 'zz-other-release' }),
       JSON.stringify({ ...JSON.parse(sourceRow.manifest), name: 'Wrong version', description: 'An unrelated version with a different purpose.' }));
     const catalog = await request('/operators');
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id, installationCount: 2,
-      installedGithubReleaseId: release.githubReleaseId, description: release.description })] });
+      installedGithubReleaseId: release.githubReleaseId, description: verifiedPurpose })] });
   }));
 
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {

@@ -158,7 +158,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/operation was not confirmed.*refresh current state/i);
     expect(creates).toBe(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh current state' }));
+    const refresh = screen.getByRole('button', { name: 'Refresh current state' });
+    await waitFor(() => expect(refresh).toBeEnabled());
+    fireEvent.click(refresh);
     if (outcome === 'promotion failed') {
       const install = await screen.findByRole('button', { name: 'Install operator' });
       await waitFor(() => expect(install).toBeEnabled());

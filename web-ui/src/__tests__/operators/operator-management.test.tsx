@@ -337,8 +337,11 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(within(form).getByText(/select the capabilities and resource profile needed before registration/i)).toBeInTheDocument();
     fireEvent.click(within(form).getByRole('checkbox', { name: /session/i }));
     expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
-    fireEvent.change(within(form).getByRole('combobox', { name: 'Operator resource profile' }), { target: { value: 'review-profile' } });
-    expect(within(form).getByRole('button', { name: 'Register source' })).toBeEnabled();
+    const resource = within(form).getByRole('combobox', { name: 'Operator resource profile' });
+    fireEvent.change(resource, { target: { value: 'review-profile' } });
+    expect(resource).toHaveValue('review-profile');
+    expect(within(form).getByRole('checkbox', { name: /session/i })).toBeChecked();
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Register source' })).toBeEnabled());
   });
 
   it('keeps persisted configuration when saving restrictions, without an unused JSON editor', async () => {
@@ -399,7 +402,15 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
         releases: [], installations: [], grants: { managers: { users: ['manager@example.test', 'missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
           invokers: { users: [], groups: [] } },
       });
-      if (path === '/api/operator-management/operators/operator-1/grants') { saves.push(await request.json()); return response({}); }
+      if (path === '/api/operator-management/operators/operator-1/grants') {
+        saves.push(await request.json());
+        return response({ id: 'operator-1', profile: 'dispatcher', realm: 'internal', enabled: false, revision: 2,
+          repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
+          managers: { users: ['manager@example.test', 'missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
+          invokers: { users: [], groups: [] }, policy: { capabilities: [], resourceProfileId: null },
+          source: { kind: 'github-release', repositoryUrl: 'https://github.com/acme/review', repositoryId: 1,
+            credentialConfigured: true, approvedWorkflow: null } });
+      }
       return response({ error: 'Not found' }, 404);
     }));
     render(() => <App />);
