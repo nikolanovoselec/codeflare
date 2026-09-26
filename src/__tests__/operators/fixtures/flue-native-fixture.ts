@@ -20,7 +20,7 @@ export type NativeDelivery = {
   activityId: string; generation: number; operationId: string; requestDigest: string;
   marker: string; mode: 'read' | 'hold' | 'receipt-window' | 'unknown' | 'probe';
 };
-type ProductionEvidence = Record<'pull-request' | 'files' | 'checks', unknown>;
+type ProductionEvidence = Partial<Record<'pull-request' | 'files' | 'checks', unknown>>;
 type ProductionCall = { path: string; resource?: string };
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }

@@ -17,7 +17,7 @@ type Snapshot = {
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
-    settlements: Array<{ submissionId: string; outcome: string }> } | null;
+    settlements: Array<{ submissionId: string; outcome: string; error?: { meta?: { reason?: string } } }> } | null;
 };
 type Harness = {
   fetch(path: string, init?: RequestInit): Promise<Response>;
@@ -174,6 +174,28 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.productionCalls.some(call => call.path === '/v1/dispatcher/inference')).toBe(true);
       expect(value.external).toEqual([]);
       expect(value.activity.sessionId).toBeNull();
+    });
+
+    it('keeps a denied parent read attributable without a conflicting model retry', async () => {
+      const { id } = await prepare();
+      const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: { files: {}, checks: {} }, // No pull-request evidence: the parent returns 403.
+      });
+      expect(admitted.status).toBe(202);
+      const end = Date.now() + 10_000;
+      let value = await snapshot(id);
+      let settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      while (!settlement && Date.now() < end) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        value = await snapshot(id);
+        settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      }
+      const reason = settlement?.error?.meta?.reason ?? '';
+      const failure = reason.includes('Parent inference denied: 409') ? 'inference-conflict'
+        : reason.includes('Parent read denied: 403') ? 'read-denied' : 'other';
+      expect({ outcome: settlement?.outcome ?? 'missing', failure }).toEqual({ outcome: 'failed', failure: 'read-denied' });
+      expect(value.external).toEqual([]);
     });
 
     it('isolates two activities SQLite and recovers their exact pinned state after native root/facet eviction', async () => {
