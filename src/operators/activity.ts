@@ -1683,8 +1683,59 @@ export class OperatorActivity extends Agent {
       result: state.drive?.result ?? null } : null;
   }
 
+  /** Read one already-settled Dispatcher assessment; never resume or re-admit its submission. */
+  private async completeSettledDispatcherAssessment(): Promise<void> {
+    const matches = (state: AdmissionState | undefined, lease: DispatcherLease | undefined): boolean => {
+      const checkpoint = state?.drive?.checkpoint;
+      return !!state && !!lease && state.drive?.status === 'waiting' && !!state.receipt
+        && isManagementReceipt(state.receipt) && state.receipt.selection.operator.profile === 'dispatcher'
+        && checkpoint !== null && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
+        && (checkpoint as Record<string, unknown>).submissionId === lease.submissionId
+        && (checkpoint as Record<string, unknown>).inputDigest === lease.inputDigest
+        && (checkpoint as Record<string, unknown>).artifactDigest === lease.artifactDigest
+        && lease.status === 'settled' && lease.generation === state.drive.generation
+        && lease.submissionId !== null && lease.settledSubmissionId === lease.submissionId
+        && lease.inputDigest === state.receipt.intentDigest
+        && lease.artifactDigest === state.receipt.selection.release.bundleDigest;
+    };
+    const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+      this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+    if (!matches(state, lease)) return;
+    let assessment: unknown;
+    try {
+      const response = await (await this.#dispatcherFacet(lease!)).fetch(new Request(
+        'https://flue.internal/agents/Dispatcher/dispatcher', { signal: AbortSignal.timeout(5_000) }));
+      if (!response.ok) return;
+      const snapshot = JSON.parse(await readDispatcherBody(response));
+      const settlements = Array.isArray(snapshot?.settlements)
+        ? snapshot.settlements.filter((item: { submissionId?: unknown }) => item?.submissionId === lease!.submissionId) : [];
+      if (settlements.length !== 1 || settlements[0].outcome !== 'completed' || !Array.isArray(snapshot?.messages)) return;
+      const parts = snapshot.messages.flatMap((message: { submissionId?: unknown; parts?: unknown }) =>
+        message?.submissionId === lease!.submissionId && Array.isArray(message.parts)
+          ? message.parts.filter((part: { type?: unknown }) => part?.type === 'data-assessment') : []);
+      if (parts.length !== 1) return;
+      const value = parts[0].data;
+      if (!value || typeof value !== 'object' || Array.isArray(value) || !z.json().safeParse(value).success
+        || new TextEncoder().encode(JSON.stringify(value)).byteLength > 64 * 1024) return;
+      assessment = value;
+    } catch { return; }
+    const committed = await this.ctx.storage.transaction(async tx => {
+      const [record, currentLease] = await Promise.all([tx.get<AdmissionState>('admission'),
+        tx.get<DispatcherLease>(DISPATCHER_LEASE)]);
+      if (!matches(record, currentLease) || currentLease!.generation !== lease!.generation) return false;
+      const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
+      if (Object.values(operations).some(operation => operation.phase !== 'completed')) return false;
+      await tx.put<AdmissionState>('admission', { ...record!, drive: {
+        ...record!.drive!, status: 'completed', checkpoint: null, result: assessment,
+      }, updatedAt: Date.now() });
+      return true;
+    });
+    if (committed) await this.publishBrowserSummary();
+  }
+
   async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
     | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
+    await this.completeSettledDispatcherAssessment();
     const outcome = await this.ctx.storage.transaction<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
       | { ok: false; reason: 'not-ready' | 'not-admitted' }>(async tx => {
       const state = await tx.get<AdmissionState>('admission');

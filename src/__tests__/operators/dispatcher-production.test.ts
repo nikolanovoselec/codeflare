@@ -212,12 +212,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       await start(f);
       const output = { readOnly: true, observedHead: 'b'.repeat(40) };
       const part = { type: 'data-assessment', data: output };
-      f.messages(variant === 'missing' ? [] : variant === 'foreign'
+      const messages = variant === 'missing' ? [] : variant === 'foreign'
         ? [{ submissionId: 'foreign', parts: [part] }]
         : [{ submissionId: 'submission-1', parts: variant === 'duplicate' ? [part, part]
-          : [{ type: 'data-assessment', data: { payload: 'x'.repeat(70 * 1024) } }] }]);
+          : [{ type: 'data-assessment', data: { payload: 'x'.repeat(70 * 1024) } }] }];
+      if (variant !== 'oversized') f.messages(messages);
       f.settle(); await f.activity.reconcileDispatcherLease();
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+      if (variant === 'oversized') f.messages(messages);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     }));
