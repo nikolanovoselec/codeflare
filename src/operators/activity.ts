@@ -1418,6 +1418,7 @@ export class OperatorActivity extends Agent {
   async inspectFailedDispatcherReason(): Promise<{
     reason: string; operationCount: number;
     denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null;
+    readDenial: 'policy' | 'unclassified-403' | null;
   } | null> {
     const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
@@ -1438,17 +1439,22 @@ export class OperatorActivity extends Agent {
       if (typeof reason !== 'string' || new TextEncoder().encode(reason).byteLength > 4096) return null;
       const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
       let denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null = null;
+      let readDenial: 'policy' | 'unclassified-403' | null = null;
       for (const [id, operation] of Object.entries(operations)) {
         if (operation.generation !== lease.generation || operation.phase !== 'completed') continue;
         const saved = await this.ctx.storage.get<{ status: number; body: string }>(`dispatcher:response:${id}`);
         if (saved?.status !== 403) continue;
+        // The pinned child names its first read by resource. This only classifies
+        // an existing receipt; it does not authorize or retry an operation.
+        if (id.endsWith('-pull-request')) readDenial = 'unclassified-403';
         try {
           const code = JSON.parse(saved.body)?.code;
           if (code === 'ROUTE_NOT_ELIGIBLE' || code === 'REASONING_NOT_ELIGIBLE'
             || code === 'OPERATOR_CAPABILITY_DENIED') denialCode = code;
+          if (id.endsWith('-pull-request') && code === 'OPERATOR_GITHUB_DENIED') readDenial = 'policy';
         } catch { /* An unrecognized response is never reflected. */ }
       }
-      return { reason, operationCount: Object.keys(operations).length, denialCode };
+      return { reason, operationCount: Object.keys(operations).length, denialCode, readDenial };
     } catch { return null; }
   }
 
