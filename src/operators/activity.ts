@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
+import { createLogger } from '../lib/logger';
 import { canInvokeOperator, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
@@ -73,6 +74,7 @@ interface DispatcherOperationRecord {
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_LIMIT_MS = 30_000;
+const dispatcherLog = createLogger('dispatcher-settlement');
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
   '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
@@ -1343,6 +1345,7 @@ export class OperatorActivity extends Agent {
         return;
       }
       if (lease.status !== 'running' || !lease.submissionId) return;
+      let stage = 'status';
       try {
         const plan = await this.getRuntimePlan();
         if (!plan) throw new Error('Dispatcher plan unavailable');
@@ -1354,19 +1357,25 @@ export class OperatorActivity extends Agent {
         const settlement = Array.isArray(value?.settlements)
           ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
         if (!settlement) {
+          stage = 'recheck';
           // A child may settle just after this snapshot; the deadline alarm cannot
           // read it once the lease expires. Recheck within the original lease.
           const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
           if (remainingSeconds > 0) await this.schedule(Math.min(5, remainingSeconds), 'reconcileDispatcherLease', { generation: lease.generation });
           return;
         }
+        stage = 'authorize';
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
+            outcome: ['failed', 'aborted', 'completed'].includes(settlement.outcome) ? settlement.outcome : 'unrecognized' });
           await this.interruptDrive(lease.generation); return;
         }
+        stage = 'operations';
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
         const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
         if (Object.values(operations).some(operation => operation.phase !== 'completed')) {
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'operations' });
           await this.interruptDrive(lease.generation); return;
         }
         await this.ctx.storage.transaction(async tx => {
@@ -1376,10 +1385,17 @@ export class OperatorActivity extends Agent {
             || current!.submissionId !== lease.submissionId) throw new Error('Stale Dispatcher settlement');
           await tx.put(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease.submissionId });
         });
+        stage = 'commit';
         const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'waiting',
           checkpoint: { submissionId: lease.submissionId, inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest } });
-        if (!committed.ok) await this.interruptDrive(lease.generation);
-      } catch { await this.interruptDrive(lease.generation); }
+        if (!committed.ok) {
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
+          await this.interruptDrive(lease.generation);
+        }
+      } catch {
+        dispatcherLog.warn('Dispatcher settlement rejected', { stage });
+        await this.interruptDrive(lease.generation);
+      }
     })();
     try { await this.#reconciling; } finally { this.#reconciling = undefined; }
   }
