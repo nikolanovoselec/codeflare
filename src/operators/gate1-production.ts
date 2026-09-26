@@ -137,7 +137,9 @@ export async function createDispatcherOperation(input: {
   const base = `https://${host}/repos/${parent.repository}`;
   const get = async (path: string) => {
     await current();
-    return transport.fetch(new Request(base + path, { headers: { accept: 'application/vnd.github+json' } }));
+    return transport.fetch(new Request(base + path, { headers: {
+      accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
+    } }));
   };
   return async () => {
     const pull = await get(`/pulls/${parent.pullRequest}`);
