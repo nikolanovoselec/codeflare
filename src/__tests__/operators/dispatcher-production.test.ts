@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { Agent } from 'agents';
 import { OperatorActivity, OperatorDispatcherCapability, createOperatorIntentDigest } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
@@ -200,12 +201,32 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       bounds: { files: 3, checks: 76 } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle(); await f.activity.reconcileDispatcherLease();
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
+      sdkCleanupReleased: true });
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
-      executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+      executionStatus: 'completed', collectionStatus: 'consumed', sdkCleanupReleased: true, result: assessment } });
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
       executionStatus: 'completed', result: assessment } });
     expect((await f.activity.getBrowserDetail())?.result).toEqual(assessment);
+  }));
+  it('keeps SDK cleanup unproved on failure and retries only cleanup after terminal collection', () => fixture(async f => {
+    const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
+    const original = sdk._cf_cleanupFacetPrefix;
+    let failCleanup = true;
+    vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockImplementation(function (this: Agent, ...args: unknown[]) {
+      if (failCleanup) throw new Error('Synthetic SDK cleanup failure');
+      return original.apply(this, args);
+    });
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting', sdkCleanupReleased: false });
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', sdkCleanupReleased: false, result: assessment } });
+    failCleanup = false;
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
   }));
   it.each(['missing', 'foreign', 'duplicate', 'oversized'] as const)(
     'does not manufacture a terminal assessment from %s settled evidence', variant => fixture(async f => {

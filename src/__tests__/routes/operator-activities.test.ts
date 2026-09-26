@@ -37,8 +37,6 @@ function fixture() {
     start: vi.fn(async () => ({ ok: true, phase: 'queued' })),
     cancelDrive: vi.fn(async () => ({ ok: true, state: { status: 'cancel-requested' } })),
     getBrowserDetail: vi.fn(async () => ({ ...summary, checkpoint: { step: 1 }, result: null })),
-    inspectFailedDispatcherReason: vi.fn(async () => ({ reason: 'Synthetic fixture failure',
-      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE', readDenial: 'policy' })),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
   };
   const registry = {
@@ -106,18 +104,9 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(waitUntil).not.toHaveBeenCalled();
   });
 
-  it('limits temporary failed-submission inspection to the owner on Enterprise with a deliberate read header', async () => {
-    const { request, registry, env } = fixture();
-    const owned = await request('/activity-1/diagnostic');
-    expect(owned.status).toBe(200);
-    expect(owned.headers.get('cache-control')).toBe('no-store');
-    expect(await owned.json()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE', readDenial: 'policy' });
-    registry.getOwnedActivity.mockResolvedValueOnce(null);
+  it('does not expose the retired failed-submission diagnostic', async () => {
+    const { request } = fixture();
     expect((await request('/activity-1/diagnostic')).status).toBe(404);
-    expect((await request('/activity-1/diagnostic', 'GET', undefined, false)).status).toBe(403);
-    expect((await request('/activity-1/diagnostic', 'GET', undefined, true,
-      { ...env, ENTERPRISE_MODE: 'inactive' })).status).toBe(404);
   });
 
   it('returns detail and collects a result only after the durable index proves exact ownership', async () => {
