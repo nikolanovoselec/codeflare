@@ -35,6 +35,7 @@ async function fixture(test: (f: {
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
   denyInference: (code: string) => void; denyRead: (body: unknown, resource?: 'files' | 'checks') => void;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
+  messages: (value: unknown[]) => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -51,6 +52,7 @@ async function fixture(test: (f: {
     release: { id: 'release', bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit }, manifestJson: '{}' };
     let revoked = false;
     let settlements: unknown[] = [];
+    let messages: unknown[] = [];
     let aborted: string | undefined;
     let uncertain = false;
     let inferenceDenial: string | null = null;
@@ -69,7 +71,7 @@ async function fixture(test: (f: {
           return Response.json({ ok: true });
         }
         if (request.method === 'POST') return Response.json({ submissionId: 'submission-1' }, { status: 202 });
-        return Response.json({ settlements });
+        return Response.json({ settlements, messages });
       },
     };
     // Agent validates the native DurableObjectState brand and SQLite capability.
@@ -134,6 +136,7 @@ async function fixture(test: (f: {
     try {
       await test({ activity, capability, environment, artifactDigest, sent,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
+        messages: value => { messages = value; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
@@ -190,6 +193,34 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
   }));
+  it('collects the settled pinned assessment once as a terminal result without another submission', () => fixture(async f => {
+    await start(f);
+    const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
+      evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
+      bounds: { files: 3, checks: 76 } };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: assessment } });
+    expect((await f.activity.getBrowserDetail())?.result).toEqual(assessment);
+  }));
+  it.each(['missing', 'foreign', 'duplicate', 'oversized'] as const)(
+    'does not manufacture a terminal assessment from %s settled evidence', variant => fixture(async f => {
+      await start(f);
+      const output = { readOnly: true, observedHead: 'b'.repeat(40) };
+      const part = { type: 'data-assessment', data: output };
+      f.messages(variant === 'missing' ? [] : variant === 'foreign'
+        ? [{ submissionId: 'foreign', parts: [part] }]
+        : [{ submissionId: 'submission-1', parts: variant === 'duplicate' ? [part, part]
+          : [{ type: 'data-assessment', data: { payload: 'x'.repeat(70 * 1024) } }] }]);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    }));
   it('privately reads only the bounded failed submission reason after fencing without reviving execution', () => fixture(async f => {
     await start(f);
     f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
