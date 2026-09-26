@@ -3,10 +3,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-li
 
 const getSetupStatus = vi.fn();
 const getUser = vi.fn();
+const getAdminConfiguration = vi.fn();
 
 vi.mock('../../api/client', () => ({
   getSetupStatus: (...args: unknown[]) => getSetupStatus(...args),
   getUser: (...args: unknown[]) => getUser(...args),
+  getAdminConfiguration: (...args: unknown[]) => getAdminConfiguration(...args),
   getAuthProviders: vi.fn(),
   getOnboardingConfig: vi.fn(),
   getAuthStatus: vi.fn(),
@@ -33,6 +35,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1280 });
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
   getSetupStatus.mockResolvedValue({ configured: true });
+  getAdminConfiguration.mockResolvedValue({ mode: 'enterprise', revision: 1, applicableSections: [], sections: { domain: {} } });
   getUser.mockResolvedValue({
     email: 'manager@example.test', authenticated: true, bucketName: 'operators', role: 'user',
     enterpriseMode: true, operatorManagementEligible: true, saasMode: false, onboardingComplete: true, accessTier: 'advanced',
@@ -53,6 +56,15 @@ afterEach(() => {
 });
 
 describe('REQ-OPERATOR-049: /operators management interface', () => {
+  it('opens the installed release catalog from the Enterprise Administration Operators URL', async () => {
+    window.history.replaceState({}, '', '/admin/operators');
+    render(() => <App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/operators'));
+    expect(await screen.findByText(longName)).toBeInTheDocument();
+    expect(screen.queryByText('Endpoint URL')).not.toBeInTheDocument();
+  });
+
   it('renders the separate management area for an authorized manager rather than Administration navigation', async () => {
     render(() => <App />);
 
