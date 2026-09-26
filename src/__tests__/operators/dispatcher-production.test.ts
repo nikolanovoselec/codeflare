@@ -33,7 +33,7 @@ async function fixture(test: (f: {
   artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
-  denyInference: (code: string) => void;
+  denyInference: (code: string) => void; denyRead: (body: unknown) => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -53,6 +53,7 @@ async function fixture(test: (f: {
     let aborted: string | undefined;
     let uncertain = false;
     let inferenceDenial: string | null = null;
+    let readDenial: unknown = null;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -77,6 +78,7 @@ async function fixture(test: (f: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+          if (readDenial !== null) return Response.json(readDenial, { status: 403 });
           return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
@@ -117,6 +119,7 @@ async function fixture(test: (f: {
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; }, denyInference: code => { inferenceDenial = code; },
+        denyRead: body => { readDenial = body; },
         nextAlarm: () => native.storage.getAlarm(),
       });
     } finally {
@@ -171,7 +174,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await f.activity.reconcileDispatcherLease();
     const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
     expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 0, denialCode: null });
+      operationCount: 0, denialCode: null, readDenial: null });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect((await f.capability.fetch(read())).status).toBe(403);
   }));
@@ -186,7 +189,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await f.activity.reconcileDispatcherLease();
     const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
     expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE' });
+      operationCount: 1, denialCode: 'ROUTE_NOT_ELIGIBLE', readDenial: null });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
   }));
   it('does not expose an unrecognized protected error code in the private classification', () => fixture(async f => {
@@ -199,8 +202,22 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await f.activity.reconcileDispatcherLease();
     const inspection = f.activity as unknown as { inspectFailedDispatcherReason?: () => Promise<unknown> };
     expect(await inspection.inspectFailedDispatcherReason?.()).toEqual({ reason: 'Synthetic fixture failure',
-      operationCount: 1, denialCode: null });
+      operationCount: 1, denialCode: null, readDenial: null });
   }));
+  it.each([
+    { response: { code: 'OPERATOR_GITHUB_DENIED' }, expected: 'policy' },
+    { response: { message: 'Opaque upstream response' }, expected: 'unclassified-403' },
+  ])('classifies only an already-persisted pull-request 403 without returning its body ($expected)',
+    ({ response, expected }) => fixture(async f => {
+      await start(f); f.denyRead(response);
+      expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(403);
+      f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { reason: 'Synthetic fixture failure' } });
+      await f.activity.reconcileDispatcherLease();
+      const inspection = await f.activity.inspectFailedDispatcherReason();
+      expect(inspection).toEqual({ reason: 'Synthetic fixture failure', operationCount: 1,
+        denialCode: null, readDenial: expected });
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
