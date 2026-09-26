@@ -62,7 +62,7 @@
   .operator-management .admin-page-header { flex-wrap: wrap; }
 }
 @media (max-width: 899px) {
-  .operator-management section[id^='operator-'] { scroll-margin-top: 72px; }
+  .admin-shell:has(.operator-management) { scroll-padding-top: 72px; }
 }
 @media (max-width: 600px) {
   .operator-management .admin-page { padding: var(--space-4); }
