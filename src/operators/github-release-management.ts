@@ -13,7 +13,9 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = MAX_BUNDLE_BYTES + 256 * 1024;
 const API = 'https://api.github.com';
-const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com']);
+const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com',
+  'productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
+  'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net']);
 const FILES = ['operator-manifest.json', 'operator-bundle.json', 'operator-provenance.json'] as const;
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
@@ -95,7 +97,8 @@ async function readBounded(response: Response, limit: number, signal: AbortSigna
 }
 
 /** PAT only on a locally constructed API URL. At most one uncredentialed CDN redirect. */
-async function githubBytes(path: string, pat: string, limit: number, deadline: number, binary = false): Promise<Uint8Array> {
+async function githubBytes(path: string, pat: string, limit: number, deadline: number, binary = false,
+  accept = binary ? 'application/octet-stream' : 'application/vnd.github+json'): Promise<Uint8Array> {
   if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid GitHub path');
   const controller = new AbortController();
   const remaining = Math.min(10_000, deadline - Date.now());
@@ -104,7 +107,7 @@ async function githubBytes(path: string, pat: string, limit: number, deadline: n
   let response: Response | undefined;
   try {
     response = await fetch(new Request(`${API}${path}`, { method: 'GET', redirect: 'manual', signal: controller.signal, headers: {
-      accept: binary ? 'application/octet-stream' : 'application/vnd.github+json', authorization: `Bearer ${pat}`,
+      accept, authorization: `Bearer ${pat}`,
       'x-github-api-version': '2022-11-28', 'user-agent': 'Codeflare-Operator-Acquisition',
     } }));
     if (binary && (response.status === 302 || response.status === 307)) {
@@ -263,7 +266,7 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   const artifact = artifactSchema.parse(artifacts.artifacts[0]);
   if (artifact.size_in_bytes > MAX_ARCHIVE_BYTES || artifact.workflow_run.id !== run.id || artifact.workflow_run.repository_id !== source.repositoryId
     || artifact.workflow_run.head_repository_id !== source.repositoryId || artifact.workflow_run.head_sha !== provenance.sourceCommit) throw new Error('GitHub build artifact mismatch');
-  const archive = await githubBytes(`/repositories/${source.repositoryId}/actions/artifacts/${artifact.id}/zip`, pat, MAX_ARCHIVE_BYTES, deadline, true);
+  const archive = await githubBytes(`/repositories/${source.repositoryId}/actions/artifacts/${artifact.id}/zip`, pat, MAX_ARCHIVE_BYTES, deadline, true, 'application/vnd.github+json');
   if (archive.length !== artifact.size_in_bytes || `sha256:${await digest(archive)}` !== artifact.digest) throw new Error('GitHub build digest mismatch');
   const built = packageArchive(archive);
   for (const name of FILES) if (await digest(built.get(name)!) !== digests.get(name)) throw new Error('Release bytes differ from approved build');

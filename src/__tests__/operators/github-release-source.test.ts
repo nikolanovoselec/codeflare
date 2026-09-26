@@ -106,8 +106,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(fixture.requests.every(outbound => outbound.origin === 'https://api.github.com')).toBe(true);
   }));
 
-  it('REQ-OPERATOR-044: release CDN transport succeeds without forwarding acquisition credentials', async () => withManagementApi(async request => {
-    const fixture = await createOperatorGitHubFixture({ useCdn: true });
+  it.each(['productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
+    'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net'] as const)(
+    'REQ-OPERATOR-044: release CDN transport via %s succeeds without forwarding acquisition credentials', async artifactCdnHost => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
     vi.stubGlobal('fetch', fixture.fetcher);
     const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
@@ -120,8 +122,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     const discovered = await refreshed.json() as { items: unknown[] };
     expect(discovered.items).toHaveLength(1);
     // The outbound origin/header contract is intentional security evidence, not private-call counting.
-    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com');
-    expect(cdnRequests.length).toBeGreaterThan(0);
+    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com'
+      || outbound.origin === `https://${artifactCdnHost}`);
+    expect(cdnRequests.some(outbound => outbound.origin === 'https://release-assets.githubusercontent.com')).toBe(true);
+    expect(cdnRequests.some(outbound => outbound.origin === `https://${artifactCdnHost}`)).toBe(true);
     expect(cdnRequests.every(outbound => outbound.authorization === null)).toBe(true);
     expect(fixture.requests.some(outbound => outbound.origin === 'https://api.github.com'
       && outbound.authorization === `Bearer ${registration.githubPat}`)).toBe(true);
