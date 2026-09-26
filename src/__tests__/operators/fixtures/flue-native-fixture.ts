@@ -8,6 +8,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
+import { parseDispatcherOperation } from '../../../operators/gate1-production';
 
 export type NativeArtifact = {
   schemaVersion: 1; sourceCommit: string;
@@ -243,6 +244,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     const path = new URL(request.url).pathname;
     if (path === '/fixture/inference' || path === '/v1/dispatcher/inference') {
       if (path === '/v1/dispatcher/inference') {
+        // The exact pinned model adapter must speak the real parent's restricted wire contract.
+        try { await parseDispatcherOperation(request.clone()); }
+        catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
         const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
         calls.push({ path });
         await this.ctx.storage.put('fixture:production-calls', calls);
