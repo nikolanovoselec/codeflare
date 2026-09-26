@@ -110,7 +110,7 @@ async function scenario(run: (fixture: {
       deadline: Date.now() + 300_000, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'review-release', bundleDigest: 'e'.repeat(64), workflowId: 531, workflowDigest: actionDigest,
       session, operatorId: 'review-operator', revision: { head, base, mergeBase },
-      ...(options.baseRef ? { protectedRef: `refs/heads/${options.baseRef}` } : {}),
+      protectedRef: `refs/heads/${options.baseRef ?? 'main'}`,
       ...(options.roundGeneration === null ? {} : { roundGeneration: options.roundGeneration ?? 1 }) });
     if (!reservation.ok) throw Error('Expected real Registry preparation');
     activityId = reservation.value.activityId;
@@ -250,6 +250,9 @@ describe('REQ-OPERATOR-050/052/053/054: Activity-owned approved packet preparati
     trust.workflowRevision = 'f'.repeat(40);
     expect(await f.packetCurrent()).toBe(false);
     trust.workflowRevision = workflowSha;
+    trust.human = false;
+    expect(await f.packetCurrent()).toBe(false);
+    trust.human = true;
     await f.expireBoundary();
     expect(await f.packetCurrent()).toBe(false);
   }));
@@ -441,6 +444,10 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
         generation: 2, status: 'completed', collected: true,
       });
       expect(await f.publish()).toMatchObject({ status: 'new' });
+      trust.human = false;
+      expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) }))
+        .not.toMatchObject({ status: 'new' });
+      trust.human = true;
       trust.baseRef = baseRef === 'main' ? 'master' : 'main';
       expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) }))
         .not.toMatchObject({ status: 'new' });

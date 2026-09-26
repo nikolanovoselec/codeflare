@@ -780,10 +780,17 @@ export class OperatorActivity extends Agent {
     const verifier = await capabilityVerifier(capability);
     return this.ctx.storage.transaction<WebhookReadResult>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
-      const checked = this.checkWebhookRead(state, verifier);
+      // Redemption alone may reread its immutable terminal bytes after lost delivery.
+      // Status and continuation retain their single-use consumed fence.
+      if (state?.webhook?.readVerifier !== verifier) return { ok: false, reason: state?.webhook
+        ? 'invalid-capability' : 'not-prepared' };
+      if (state.webhook.expiresAt <= Date.now()) return { ok: false, reason: 'capability-expired' };
+      const checked = this.checkWebhookRead(state.webhook.consumed
+        ? { ...state, webhook: { ...state.webhook, consumed: false } } : state, verifier);
       if (!checked.ok) return checked;
       if (!checked.terminal) return { ok: false, reason: 'not-ready' };
-      await tx.put<AdmissionState>('admission', { ...state!, webhook: { ...state!.webhook!, consumed: true } });
+      if (!state.webhook.consumed) await tx.put<AdmissionState>('admission', { ...state,
+        webhook: { ...state.webhook, consumed: true } });
       return checked;
     });
   }

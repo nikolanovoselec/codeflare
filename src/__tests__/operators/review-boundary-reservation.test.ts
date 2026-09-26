@@ -4,7 +4,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 
 const protectedEnv = { ENCRYPTION_KEY: btoa('k'.repeat(32)) };
-const first = { repositoryId: 138, pullRequest: 34, contextDigest: 'a'.repeat(64),
+const first = { repositoryId: 138, pullRequest: 34, protectedRef: 'refs/heads/main', contextDigest: 'a'.repeat(64),
   ownerKey: 'b'.repeat(64), installationId: 'review-install', deadline: Date.now() + 300_000,
   controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
   releaseId: 'review-release', bundleDigest: 'e'.repeat(64), workflowId: 531, workflowDigest: 'c'.repeat(64),
@@ -61,7 +61,11 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
     { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).rejects.toThrow();
   }));
   it('does not reuse a prepared Activity when the authenticated PR base ref changes without a SHA change', () => withRegistry(async registry => {
-    const main = { ...first, protectedRef: 'refs/heads/main' };
+    const controls = await registry.getManagementControls();
+    expect((await registry.setManagementControls({ ...controls, boundaryActions: [
+      controls.boundaryActions![0], { ...controls.boundaryActions![0], protectedRef: 'refs/heads/develop' },
+    ] }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).ok).toBe(true);
+    const main = { ...first, controlsRevision: 2, protectedRef: 'refs/heads/main' };
     const original = await registry.reserveBoundaryPreparation(main);
     expect(original.ok).toBe(true);
     expect(await registry.getBoundaryPreparation(first.repositoryId, first.pullRequest))

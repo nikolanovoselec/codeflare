@@ -25,10 +25,12 @@
     "knip": "knip"
   },
   "dependencies": {
+    "@actions/artifact": "6.2.1",
     "@cloudflare/containers": "^0.3.7",
     "@streamparser/json": "0.0.26",
     "aws4fetch": "^1.0.20",
     "edgepush": "0.1.1",
+    "fflate": "0.8.3",
     "hono": "^4.13.5",
     "zod": "^4.5.4"
   },

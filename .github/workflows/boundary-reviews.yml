@@ -1,7 +1,8 @@
 name: Boundary Reviews (shadow)
 
-on: # zizmor: ignore[dangerous-triggers] Pinned protected code only; no PR checkout or candidate execution.
+on: # zizmor: ignore[dangerous-triggers] Protected base Codeflare code only; never checkout PR content.
   pull_request_target:
+    branches: [develop, master, main]
     types: [opened, reopened, synchronize, ready_for_review]
 
 permissions: {}
@@ -21,22 +22,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: nikolanovoselec/codeflare-operator-conductor
-          ref: ee2df9d7dd8f07c1f0f88458e3fe08bdc45ea8f8
-          path: trusted-conductor
-          token: ${{ secrets.CONDUCTOR_READ_TOKEN }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: trusted-conductor/package-lock.json
-      - run: npm ci
-        working-directory: trusted-conductor
-      - name: Collect exact claimed Review result
-        run: node trusted-conductor/scripts/review-protected-job.mjs collect
+      - name: Collect exact claimed operator result
+        run: node scripts/operator-boundary-action.mjs collect
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
           CODEFLARE_ORIGIN: ${{ vars.CODEFLARE_ENTERPRISE_ORIGIN }}
           REVIEW_TRANSFER_FILE: ${{ runner.temp }}/boundary-result.json
       - name: Transfer bounded terminal bytes, not authority
@@ -62,27 +58,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: nikolanovoselec/codeflare-operator-conductor
-          ref: ee2df9d7dd8f07c1f0f88458e3fe08bdc45ea8f8
-          path: trusted-conductor
-          token: ${{ secrets.CONDUCTOR_READ_TOKEN }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: trusted-conductor/package-lock.json
       - run: npm ci
-        working-directory: trusted-conductor
       - name: Read bounded collector transfer
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           artifact-ids: ${{ needs.collect.outputs.artifact_id }}
           path: ${{ runner.temp }}/review-transfer
       - name: Publish with independent protected identity
-        run: node trusted-conductor/scripts/review-protected-job.mjs publish
+        run: node scripts/operator-boundary-action.mjs publish
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
           CODEFLARE_ORIGIN: ${{ vars.CODEFLARE_ENTERPRISE_ORIGIN }}
           REVIEW_COMMENT_AUTHOR_ID: ${{ vars.REVIEW_COMMENT_AUTHOR_ID }}
           REVIEW_CHECK_APP_ID: ${{ vars.REVIEW_CHECK_APP_ID }}

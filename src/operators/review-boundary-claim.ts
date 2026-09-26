@@ -49,7 +49,7 @@ function tokenHints(token: string): { repository: string; workflowSha: string } 
 
 /** No caller-provided GitHub identity, event metadata or prepared actor is authoritative. */
 export function verifyBoundaryActionRun(input: {
-  prepared: Pick<BoundaryPreparation, 'repositoryId' | 'pullRequest' | 'revision' | 'workflowId'>;
+  prepared: Pick<BoundaryPreparation, 'repositoryId' | 'pullRequest' | 'revision' | 'workflowId' | 'protectedRef'>;
   oidc: Omit<BoundaryActionIdentity, 'eventName'> & { eventName: string };
   action: { repositoryId: number; workflowId: number; workflowPath: string; protectedRef: string;
     branchSha: string; applicable: boolean };
@@ -57,7 +57,7 @@ export function verifyBoundaryActionRun(input: {
     run: { id: number; run_attempt: number; workflow_id: number; event: string; path: string;
       repository: { id: number }; pull_requests: Array<{ number: number }> };
     pullRequest: { number: number; state: string; head: { sha: string; repo: { id: number } };
-      base: { sha: string; repo: { id: number } } };
+      base: { sha: string; ref: string; repo: { id: number } } };
     compare: { merge_base_commit: { sha: string } };
     headPullRequests: number[]; matchingPullRequests: number[] };
 }): BoundaryActionClaimContext | null {
@@ -65,6 +65,8 @@ export function verifyBoundaryActionRun(input: {
     const { prepared: p, oidc, action, github: g } = input;
     const r = p.revision;
     if (!action.applicable || p.repositoryId !== action.repositoryId || p.workflowId !== action.workflowId
+      || !/^refs\/heads\/(main|master|develop)$/.test(p.protectedRef)
+      || p.protectedRef !== action.protectedRef
       || oidc.repositoryId !== p.repositoryId || oidc.eventName !== 'pull_request_target'
       || oidc.workflowSha !== action.branchSha
       || oidc.workflowRef !== `${oidc.repository}/${action.workflowPath}@${action.protectedRef}`
@@ -77,6 +79,7 @@ export function verifyBoundaryActionRun(input: {
       || g.pullRequest.number !== p.pullRequest || g.pullRequest.state !== 'open'
       || g.pullRequest.head.repo.id !== p.repositoryId || g.pullRequest.base.repo.id !== p.repositoryId
       || g.pullRequest.head.sha !== r.head || g.pullRequest.base.sha !== r.base
+      || `refs/heads/${g.pullRequest.base.ref}` !== p.protectedRef
       || g.compare.merge_base_commit.sha !== r.mergeBase
       || g.headPullRequests.length !== 1 || g.headPullRequests[0] !== p.pullRequest
       || g.matchingPullRequests.length !== 1 || g.matchingPullRequests[0] !== p.pullRequest
@@ -99,7 +102,7 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
       await readBoundedResponse(response, 128 * 1024, 'Action claim GitHub context'))) as unknown;
   }
-  const repo = await github(root) as { id: number; full_name: string; default_branch: string };
+  const repo = await github(root) as { id: number; full_name: string };
   const branchPath = `${root}/branches/${encodeURIComponent(action.protectedRef.slice('refs/heads/'.length))}`;
   const [workflow, branch, pr, run] = await Promise.all([
     github(`${root}/actions/workflows/${action.workflowId}`), github(branchPath),
@@ -117,7 +120,7 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     github(`${root}/compare/${prepared.revision.base}...${prepared.revision.head}`),
   ]) as [{ content: string; encoding: string }, Array<{ number: number }>,
     Array<{ number: number }>, { merge_base_commit: { sha: string } }];
-  const applicable = (await resolveBoundaryAction({ action, repository: repo,
+  const applicable = (await resolveBoundaryAction({ action, repository: repo, baseRef: prepared.protectedRef,
     workflow, branch, contents, event: 'pull_request_target' })).selection === 'remote';
   return verifyBoundaryActionRun({ prepared, oidc: identity, action: {
     repositoryId: action.repositoryId, workflowId: action.workflowId,
@@ -127,6 +130,37 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     pullRequest: pr, compare: compared,
     headPullRequests: headPulls.map(pull => pull.number),
     matchingPullRequests: matchingPulls.map(pull => pull.number) } });
+}
+
+/** A claimed run does not renew the human or installation authority for later effects. */
+async function currentBoundaryActor(env: Env, prepared: BoundaryPreparation): Promise<boolean> {
+  if (!env.CONTAINER || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return false;
+  try {
+    const activity = env.OPERATOR_ACTIVITY.getByName(prepared.activityId);
+    const owner = await activity.getExecutionContext();
+    if (!owner || owner.activityId !== prepared.activityId || owner.operatorId !== prepared.operatorId) return false;
+    const container = env.CONTAINER.getByName(getContainerId(prepared.session.bucket,
+      prepared.session.sessionId)) as unknown as { openReviewHuman(input: { bucket: string; sessionId: string;
+        email: string }): Promise<{ human: import('../lib/jwt').VerifiedHumanAccessClaims; accessJwt: string }> };
+    const sealed = await container.openReviewHuman({ bucket: prepared.session.bucket,
+      sessionId: prepared.session.sessionId, email: owner.owner.email });
+    const current = await requireOperatorHumanContext(new Request('https://codeflare.invalid/', {
+      headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+    }), env, sealed.human.email);
+    if (current.human.subject !== sealed.human.subject || current.human.issuer !== sealed.human.issuer
+      || current.human.email.toLowerCase() !== sealed.human.email.toLowerCase()
+      || JSON.stringify(current.human.audiences) !== JSON.stringify(sealed.human.audiences)
+      || current.human.expiresAt * 1000 <= Date.now()
+      || await operatorOwnerKey(current.human) !== prepared.ownerKey) return false;
+    const selection = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(prepared.installationId);
+    return selection.ok && selection.value.operator.operatorId === prepared.operatorId
+      && selection.value.installation.revision === prepared.installationRevision
+      && selection.value.operator.revision === prepared.operatorRevision
+      && selection.value.controlsRevision === prepared.controlsRevision
+      && selection.value.release.id === prepared.releaseId
+      && selection.value.release.bundleDigest === prepared.bundleDigest
+      && canInvokeOperator(current.human, selection.value.operator);
+  } catch { return false; }
 }
 
 /** Parent-only claim: GitHub authenticates the job; sealed Access authenticates the human. */
@@ -147,7 +181,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     if (!prepared || prepared.phase !== 'prepared' || prepared.deadline <= Date.now()
       || prepared.revision.head !== input.head || prepared.revision.base !== input.base
       || prepared.revision.mergeBase !== input.mergeBase) return { status: 'missing-handoff' };
-    const action = await registry.getBoundaryAction(input.repositoryId);
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
     if (!action || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision
       || !action.events.includes('pull_request_target')) return { status: 'stale' };
@@ -229,12 +263,12 @@ export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: s
     const guard = await registry.getBoundaryStartGuard(activityId);
     if (!guard?.claimed) return false;
     const prepared = await registry.getBoundaryPreparation(guard.repositoryId, guard.pullRequest);
-    const action = await registry.getBoundaryAction(guard.repositoryId);
+    const action = prepared && await registry.getBoundaryAction(guard.repositoryId, prepared.protectedRef);
     if (!prepared || prepared.phase !== 'claimed' || prepared.activityId !== activityId
       || prepared.contextDigest !== guard.contextDigest || !guard.workflowSha || !SHA.test(guard.workflowSha)
       || prepared.claimedWorkflowSha !== guard.workflowSha || !action
       || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
-      || action.controlsRevision !== prepared.controlsRevision) return false;
+      || action.controlsRevision !== prepared.controlsRevision || !await currentBoundaryActor(env, prepared)) return false;
     const token = await getValidGithubToken(env, guard.session.bucket);
     if (!token) return false;
     const root = `/repos/${repository}`;
@@ -255,6 +289,7 @@ export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: s
       runId: guard.runId, runAttempt: guard.runAttempt };
     const current = await verifyCurrentBoundaryAction(prepared, action, identity, expected, token);
     return !!current && sameClaim(current, expected, action.workflowId)
+      && await currentBoundaryActor(env, prepared)
       && (await registry.getBoundaryStartGuard(activityId))?.claimed === true;
   } catch { return false; }
 }
@@ -285,7 +320,7 @@ export async function prepareBoundaryPublication(env: Env, oidcToken: string,
       || prepared.contextDigest !== input.contextDigest || prepared.session.generation !== input.sessionGeneration
       || prepared.revision.head !== input.head || prepared.revision.base !== input.base
       || prepared.revision.mergeBase !== input.mergeBase || prepared.workflowId !== input.workflowId) return { status: 'stale' };
-    const action = await registry.getBoundaryAction(input.repositoryId);
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
     if (!action || action.workflowId !== input.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision || !action.events.includes('pull_request_target')) return { status: 'stale' };
     const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
@@ -312,7 +347,7 @@ export async function prepareBoundaryPublication(env: Env, oidcToken: string,
         && live?.lifecycleState === 'running' && live.lifecycleGeneration === input.sessionGeneration
         && (live.boundaryActivityId === input.activityId || live.boundaryActivityId == null);
     }
-    if (!await currentOwners()) return { status: 'stale' };
+    if (!await currentOwners() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     if (env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
       || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unknown' };
     const githubToken = await getValidGithubToken(env, prepared.session.bucket);
@@ -321,7 +356,7 @@ export async function prepareBoundaryPublication(env: Env, oidcToken: string,
       const verified = await verifyCurrentBoundaryAction(prepared, action, signed, input, githubToken);
       return !!verified && sameClaim(verified, input, input.workflowId);
     };
-    if (!await current() || !await currentOwners()) return { status: 'stale' };
+    if (!await current() || !await currentOwners() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     const [evidence, owned, resources] = await Promise.all([
       activity.getBoundaryPublicationEvidence(input.activityId), activity.getOwnedSession(),
       activity.getPackageResources(),
@@ -364,7 +399,7 @@ export async function prepareBoundaryPublication(env: Env, oidcToken: string,
       packets: packets.map(packet => ({ lane: packet.lane, digest: packet.sha256 })) }),
     resultDigest: input.resultDigest, activityGeneration: input.activityGeneration };
     if (new TextEncoder().encode(JSON.stringify({ status: 'ready', projection })).byteLength > 64 * 1024
-      || !await current() || !await currentOwners()) return { status: 'stale' };
+      || !await current() || !await currentOwners() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     const observed = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
     return observed?.activityId === input.activityId && observed.contextDigest === input.contextDigest
       && observed.roundGeneration === 1 && observed.deadline > Date.now()
@@ -399,7 +434,7 @@ export async function operateBoundaryPublication(env: Env, oidcToken: string,
       || prepared.session.generation !== input.sessionGeneration
       || prepared.revision.head !== input.head || prepared.revision.base !== input.base
       || prepared.revision.mergeBase !== input.mergeBase) return { status: 'stale' };
-    const action = await registry.getBoundaryAction(input.repositoryId);
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
     if (!action || action.workflowId !== input.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision || !action.events.includes('pull_request_target')) {
       return { status: 'stale' };
@@ -427,17 +462,17 @@ export async function operateBoundaryPublication(env: Env, oidcToken: string,
         && terminal.binding.contextDigest === input.contextDigest
         && JSON.stringify(terminal.binding.session) === JSON.stringify(prepared!.session);
     }
-    if (!await admissionCurrent()) return { status: 'stale' };
+    if (!await admissionCurrent() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     if (env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
       || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unknown' };
     const githubToken = await getValidGithubToken(env, prepared.session.bucket);
     if (!githubToken) return { status: 'unknown' };
     const current = () => verifyCurrentBoundaryAction(prepared, action, signed, input, githubToken);
-    if (!await current() || !await admissionCurrent()) return { status: 'stale' };
+    if (!await current() || !await admissionCurrent() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     const result = input.operation === 'begin' ? await registry.beginBoundaryPublication(input)
       : input.operation === 'complete' ? await registry.completeBoundaryPublication({ ...input, externalId: input.externalId! })
         : await registry.getBoundaryPublication(input) ?? { status: 'stale' as const };
-    if (!await current() || !await admissionCurrent()) return { status: 'stale' };
+    if (!await current() || !await admissionCurrent() || !await currentBoundaryActor(env, prepared)) return { status: 'stale' };
     const observed = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
     return observed?.activityId === input.activityId && observed.contextDigest === input.contextDigest
       ? result : { status: 'stale' };

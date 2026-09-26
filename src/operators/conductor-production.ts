@@ -21,6 +21,7 @@ import { isBucketMigrating, isR2SseDisabledForBucket } from '../lib/r2-regime-st
 import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from './owned-session-runtime';
 import { OwnedOperatorSessionService } from './owned-session';
 import { OperatorConductorCapability } from './conductor-capability';
+import { createAuthenticatedHistoryTransport } from './review-history-transport';
 import { operatorActivitySessionStore, createOperatorSyncReader,
   type OperatorActivityStub } from './owned-session-production';
 import { verifyOperatorSync } from './sync-verification';
@@ -243,7 +244,48 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     await current();
     return { preparationId: saved.preparationId, attachment: saved.attachment, bytes: base64(bytes) };
   };
+  const history = (() => {
+    const reference = invocation.source.reference;
+    if (invocation.source.kind !== 'session' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(reference)
+      || !env.OPERATOR_REGISTRY) return undefined;
+    let transport: ReturnType<typeof createAuthenticatedHistoryTransport> | undefined;
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const current = async () => {
+      await authorize();
+      if (Date.now() >= input.driveDeadline) throw new Error('History drive expired');
+      const guard = await registry.getBoundaryStartGuard(plan.activityId);
+      if (!guard?.claimed || guard.session.bucket !== ownerBucket
+        || guard.head !== invocation.revision.reference || !guard.runId || !guard.runAttempt
+        || !await verifyCurrentClaimedBoundaryPacket(env, plan.activityId, reference)) {
+        throw new Error('History boundary changed');
+      }
+      return guard;
+    };
+    return { read: async (request: Parameters<NonNullable<ReturnType<typeof createAuthenticatedHistoryTransport>>['read']>[0]) => {
+      try {
+        const guard = await current();
+        if (!transport) {
+          const token = await getValidGithubToken(env, ownerBucket);
+          if (!token) throw new Error('History credential unavailable');
+          const frozen = { repositoryId: guard.repositoryId, pullRequest: guard.pullRequest,
+            head: guard.head, base: guard.base, contextDigest: guard.contextDigest, runId: guard.runId,
+            runAttempt: guard.runAttempt, workflowSha: guard.workflowSha, generation: guard.generation };
+          transport = createAuthenticatedHistoryTransport({ repository: reference,
+            repositoryId: frozen.repositoryId, pullRequest: frozen.pullRequest, head: frozen.head,
+            base: frozen.base, token, fetch: request => fetch(request), current: async () => {
+              const next = await current();
+              if (Object.entries(frozen).some(([key, value]) => (next as unknown as Record<string, unknown>)[key] !== value))
+                throw new Error('History claim changed');
+            } });
+        }
+        const result = await transport.read(request);
+        await current();
+        return result;
+      } catch { return { complete: false }; }
+    } };
+  })();
   const capability = new OperatorConductorCapability({ current: async () => { await authorize(); },
+    ...(history ? { history } : {}),
     packets: { prepare: preparePacket },
     session: { ensure: async request => ({ status: (await ensure(request)).status }),
       stop: async () => ({ status: (await stop()).status }) },

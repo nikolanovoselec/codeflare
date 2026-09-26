@@ -6,7 +6,7 @@ const activityId = 'activity-one';
 const startCapability = 's'.repeat(43);
 const readCapability = 'r'.repeat(43);
 const handoff = { origin: 'https://enterprise.example', activityId, startCapability };
-const result = { schemaVersion: 1, activityId, activityGeneration: 1, repositoryId: 138,
+const result = { schemaVersion: 1, activityId, activityGeneration: 1, generation: 1, repositoryId: 138,
   pullRequest: 34, head: 'a'.repeat(40), packageDigest: 'b'.repeat(64), status: 'complete',
   cleanup: 'stopped', manifestDigest: 'c'.repeat(64), originalReports: [],
   history: { sourceDigest: 'd'.repeat(64), coverageAdvanced: true, clear: true,
@@ -55,7 +55,7 @@ async function publicationFixture() {
   const artifactRows = new Map();
   const comments = new Map();
   const checks = new Map();
-  let loseArtifactResponse = false;
+  let loseArtifactResponse = false, loseCommentResponse = false;
   let nextArtifactId = 99, nextCommentId = 100, nextCheckId = 101;
   const ports = {
     activityGeneration: 1,
@@ -102,7 +102,9 @@ async function publicationFixture() {
           return Response.json(checks.get(Number(url.pathname.split('/').at(-1))));
         if (request.method === 'POST' && url.pathname.endsWith('/issues/34/comments')) {
           const body = await request.json(); const row = { id: ++nextCommentId, user: { id: 777 }, ...body };
-          comments.set(row.id, row); return Response.json(row);
+          comments.set(row.id, row);
+          if (loseCommentResponse) { loseCommentResponse = false; throw Error('Lost comment acknowledgement'); }
+          return Response.json(row);
         }
         if (request.method === 'POST' && url.pathname.endsWith('/check-runs')) {
           const body = await request.json(); const row = { id: ++nextCheckId, app: { id: 888 }, ...body };
@@ -112,14 +114,18 @@ async function publicationFixture() {
       } },
   };
   return { collected, projection, ports, artifactRows, comments, checks,
-    loseArtifactResponse: () => { loseArtifactResponse = true; } };
+    loseArtifactResponse: () => { loseArtifactResponse = true; },
+    loseCommentResponse: () => { loseCommentResponse = true; } };
 }
 
 test('REQ-OPERATOR-056: exact projection and journal allow one authenticated artifact, comment and shadow check', async () => {
   const f = await publicationFixture();
   assert.deepEqual(await publishBoundaryResult(f.collected, f.projection, f.ports),
     { status: 'published', artifactId: 100, commentId: 101, checkId: 102 });
-  assert.equal(JSON.stringify(f.artifactRows.get(100)).includes(JSON.stringify(result)), true);
+  const artifact = f.artifactRows.get(100).body;
+  assert.equal(JSON.stringify(artifact).includes(JSON.stringify(result)), true);
+  assert.equal(artifact.digest, Buffer.from(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(JSON.stringify({ binding: artifact.binding, result: artifact.result })))).toString('hex'));
   assert.equal(f.comments.get(101).body.includes('Review complete'), true);
   assert.equal(f.checks.get(102).conclusion, 'success');
   assert.deepEqual(await publishBoundaryResult(f.collected, f.projection, f.ports),
@@ -140,6 +146,15 @@ test('REQ-OPERATOR-056: a completed review with unresolved findings publishes on
     new TextEncoder().encode(JSON.stringify(f.collected.result)))).toString('hex');
   assert.equal((await publishBoundaryResult(f.collected, f.projection, f.ports)).status, 'published');
   assert.equal(f.checks.get(102).conclusion, 'failure');
+});
+
+test('REQ-OPERATOR-055/056: lost comment response reconciles the exact actor and ID without duplicate publication', async () => {
+  const f = await publicationFixture(); f.loseCommentResponse();
+  assert.notEqual((await publishBoundaryResult(f.collected, f.projection, f.ports)).status, 'published');
+  assert.deepEqual(await publishBoundaryResult(f.collected, f.projection, f.ports),
+    { status: 'published', artifactId: 100, commentId: 101, checkId: 102 });
+  assert.equal(f.comments.size, 1);
+  assert.equal(f.checks.size, 1);
 });
 
 test('REQ-OPERATOR-055/056: lost artifact response recovers exact ID but altered readback cannot publish', async () => {

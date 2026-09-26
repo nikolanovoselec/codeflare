@@ -34,6 +34,7 @@ export interface ConductorCapabilityOperations {
   storage: {
     read(input: { key: string; maxBytes: number }): Promise<Uint8Array | null>;
   };
+  history?: { read(input: HistoryReadRequest): Promise<HistoryReadResult> };
 }
 
 function response(status: number, value: unknown): Response {
@@ -57,6 +58,24 @@ const seal = z.strictObject({ schemaVersion: z.literal(1), operationId: ID,
   paths: z.array(KEY).min(1).max(128).refine(paths => new Set(paths).size === paths.length) });
 const read = z.strictObject({ schemaVersion: z.literal(1), key: KEY,
   maxBytes: z.number().int().positive().max(MAX_BODY) });
+const numberId = z.number().int().positive().safe();
+const page = z.number().int().min(1).max(20);
+const sha = z.string().regex(/^[a-f0-9]{40}$/);
+export const historyRead = z.discriminatedUnion('operation', [
+  z.strictObject({ schemaVersion: z.literal(1), operation: z.literal('repository') }),
+  z.strictObject({ schemaVersion: z.literal(1), operation: z.literal('pr-context'), pullRequest: numberId.optional(),
+    head: sha.optional(), base: sha.optional() }),
+  z.strictObject({ schemaVersion: z.literal(1), operation: z.literal('head-association'), head: sha }),
+  z.strictObject({ schemaVersion: z.literal(1), operation: z.literal('merge-base'), head: sha, base: sha }),
+  ...(['comments-page', 'artifact-list', 'checks-page'] as const).map(operation =>
+    z.strictObject({ schemaVersion: z.literal(1), operation: z.literal(operation), page,
+      ...(operation === 'checks-page' ? { head: sha.optional() } : {}),
+      ...(operation === 'artifact-list' ? { name: z.string().regex(/^boundary-review-[a-f0-9]{64}$/).optional() } : {}) })),
+  ...(['comment', 'artifact', 'check', 'run'] as const).map(operation =>
+    z.strictObject({ schemaVersion: z.literal(1), operation: z.literal(operation), id: numberId })),
+]);
+export type HistoryReadRequest = z.infer<typeof historyRead>;
+export type HistoryReadResult = { complete: boolean; value?: any };
 
 /** Profile-neutral, generation-bound operations for installed Conductor packages. */
 export class OperatorConductorCapability {
@@ -95,6 +114,13 @@ export class OperatorConductorCapability {
         case '/v1/pi/ensure': empty.parse(body); return response(200, await this.operations.pi.ensure());
         case '/v1/pi/tasks': return response(200, await this.operations.pi.task(task.parse(body)));
         case '/v1/sync/seal': return response(200, await this.operations.sync.seal(seal.parse(body)));
+        case '/v1/history/read': {
+          const value = historyRead.parse(body);
+          if (!this.operations.history) throw new Error('History unavailable');
+          const result = await this.operations.history.read(value);
+          await this.operations.current();
+          return response(200, result);
+        }
         case '/v1/storage/read': {
           const value = read.parse(body);
           const stored = await this.operations.storage.read(value);

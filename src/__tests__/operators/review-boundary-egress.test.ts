@@ -45,6 +45,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
         invokers: { users: ['owner@example.test'], groups: [] } },
       release: { id: 'review-release', bundleDigest: 'e'.repeat(64) }, controlsRevision: 4,
     } }),
+    getManagementControls: async () => ({ boundaryActions: [] }),
     getBoundaryAction: async () => options.denied ? null : ({ repositoryId: 138, installationId: 'review-install',
       workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
       workflowDigest, events: ['pull_request_target'], controlsRevision: 4 }),
