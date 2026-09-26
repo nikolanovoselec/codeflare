@@ -77,6 +77,7 @@ const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
   '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
   '_cf_releaseFacetKeepAlive', '_cf_registerFacetRun', '_cf_unregisterFacetRun',
+  '_cf_broadcastToSubAgent', '_cf_subAgentConnectionMetas',
 ] as const;
 type DispatcherSdkMethod = typeof DISPATCHER_SDK_METHODS[number];
 
@@ -1523,6 +1524,10 @@ export class OperatorActivity extends Agent {
     if (['_cf_getScheduleForFacet', '_cf_cancelScheduleForFacet', '_cf_registerFacetRun', '_cf_unregisterFacetRun'].includes(method)
       && (typeof args[1] !== 'string' || !/^[A-Za-z0-9:._-]{1,128}$/.test(args[1]))) throw new Error('Dispatcher SDK identity denied');
     if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK generation changed');
+    // This activity grants no subagent connections. Answer the pinned SDK's
+    // connection-free facet protocol without exposing parent connections or data.
+    if (method === '_cf_subAgentConnectionMetas') return [];
+    if (method === '_cf_broadcastToSubAgent') return;
     if (method === '_cf_acquireFacetKeepAlive') {
       const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
       if (Object.keys(tokens).length >= 64) throw new Error('Dispatcher keepalive limit');
@@ -1651,5 +1656,11 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
   }
   async _cf_unregisterFacetRun(ownerPath: DispatcherFacetPath, runId: string): Promise<void> {
     return this.#bridge('_cf_unregisterFacetRun', [ownerPath, runId]);
+  }
+  async _cf_broadcastToSubAgent(ownerPath: DispatcherFacetPath, message: unknown, without?: readonly string[]): Promise<void> {
+    return this.#bridge('_cf_broadcastToSubAgent', [ownerPath, message, without]);
+  }
+  async _cf_subAgentConnectionMetas(ownerPath: DispatcherFacetPath): Promise<unknown[]> {
+    return this.#bridge('_cf_subAgentConnectionMetas', [ownerPath]);
   }
 }

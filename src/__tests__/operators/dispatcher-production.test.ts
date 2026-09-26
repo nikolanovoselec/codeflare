@@ -232,8 +232,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const path = [{ className: 'OperatorActivity', name: plan!.activityId },
       { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
     const bridge = f.capability as unknown as {
-      _cf_subAgentConnectionMetas(path: typeof path): Promise<unknown>;
-      _cf_broadcastToSubAgent(path: typeof path, message: unknown, without?: string[]): Promise<void>;
+      _cf_subAgentConnectionMetas(ownerPath: typeof path): Promise<unknown>;
+      _cf_broadcastToSubAgent(ownerPath: typeof path, message: unknown, without?: string[]): Promise<void>;
     };
     expect(await bridge._cf_subAgentConnectionMetas(path)).toEqual([]);
     await expect(bridge._cf_broadcastToSubAgent(path, { type: 'notice' })).resolves.toBeUndefined();
