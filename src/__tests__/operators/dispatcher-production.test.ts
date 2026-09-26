@@ -84,16 +84,17 @@ async function fixture(test: (f: {
             ? request.url.includes('/files?') : request.url.includes('/check-runs?')))) {
             return Response.json(readDenial.body, { status: 403 });
           }
-          if (oversizedChecks && request.url.includes('/check-runs?')) {
+          const checks = oversizedChecks;
+          if (checks && request.url.includes('/check-runs?')) {
             const url = new URL(request.url);
             const perPage = Number(url.searchParams.get('per_page'));
             const page = Number(url.searchParams.get('page'));
             const first = (page - 1) * perPage;
-            const count = Math.max(0, Math.min(perPage, oversizedChecks.count - first));
-            return Response.json({ total_count: oversizedChecks.count,
+            const count = Math.max(0, Math.min(perPage, checks.count - first));
+            return Response.json({ total_count: checks.count,
               check_runs: Array.from({ length: count }, (_, index) => ({ name: `check-${first + index}`,
-                conclusion: 'success', output: 'x'.repeat(oversizedChecks.outputBytes) })) }, {
-              headers: first + count < oversizedChecks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
+                conclusion: 'success', output: 'x'.repeat(checks.outputBytes) })) }, {
+              headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
           return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });

@@ -138,12 +138,41 @@ export async function createDispatcherOperation(input: {
     // package. The parent validates only the bounded admitted PR/read scope.
     if (!/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Pull request evidence unavailable');
     if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
-    const response = await get(resource === 'files' ? `/pulls/${parent.pullRequest}/files?per_page=100&page=1`
-      : `/commits/${observed.head.sha}/check-runs?per_page=100&page=1`);
-    if (!response.ok) return response;
-    const data = JSON.parse(await readDispatcherBody(response));
-    return Response.json({ data, observedHead: observed.head.sha,
-      truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
+    if (resource === 'files') {
+      const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
+      if (!response.ok) return response;
+      const data = JSON.parse(await readDispatcherBody(response));
+      return Response.json({ data, observedHead: observed.head.sha,
+        truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
+    }
+    // GitHub check-run pages carry verbose output that can exceed the protected
+    // 64 KiB response bound. Read at most 100 runs in small pages, then pass only
+    // the fields the installed Dispatcher uses to assess completeness.
+    const checkRuns: Array<{ name: string; conclusion: string | null }> = [];
+    let total: number | null = null;
+    let truncated = false;
+    for (let page = 1; page <= 10; page++) {
+      const response = await get(`/commits/${observed.head.sha}/check-runs?per_page=10&page=${page}`);
+      if (!response.ok) return response;
+      const data = JSON.parse(await readDispatcherBody(response));
+      if (!Number.isSafeInteger(data?.total_count) || data.total_count < 0
+        || !Array.isArray(data.check_runs) || data.check_runs.length > 10
+        || data.check_runs.some((run: { name?: unknown; conclusion?: unknown }) => !run
+          || typeof run.name !== 'string' || (run.conclusion !== null && typeof run.conclusion !== 'string'))) {
+        throw new Error('Check evidence unavailable');
+      }
+      if (total === null) total = data.total_count;
+      if (data.total_count !== total) { truncated = true; break; }
+      checkRuns.push(...data.check_runs.map((run: { name: string; conclusion: string | null }) => ({
+        name: run.name, conclusion: run.conclusion,
+      })));
+      if (total > 100 || checkRuns.length > total) { truncated = true; break; }
+      const more = /rel="next"/.test(response.headers.get('link') ?? '');
+      if (checkRuns.length === total) { truncated = more; break; }
+      if (data.check_runs.length !== 10 || !more) { truncated = true; break; }
+    }
+    return Response.json({ data: { check_runs: checkRuns }, observedHead: observed.head.sha,
+      truncated: truncated || checkRuns.length !== total });
   };
 }
 
