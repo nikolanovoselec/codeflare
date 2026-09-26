@@ -12,7 +12,6 @@ import { createOperatorIntentDigest, type BoundaryActivityBinding, type Operator
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
-import { GATE1_OPERATOR_ID } from './gate1-resources';
 import { projectOperatorPackageResources } from './package-resources';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -68,6 +67,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
+  if (requestedOperatorId === 'codeflare-gate1-fixture') {
+    throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
   let managementSelection: ManagementExecutionSelection | null = null;
   if (installationId) {
     const management: OperatorRegistryResult<ManagementExecutionSelection> =
@@ -90,8 +92,10 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     }
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
-  const usesConsumerContract = (!installationId && operatorId === GATE1_OPERATOR_ID)
-    || managementSelection?.operator.profile === 'conductor';
+  if (operatorId === 'codeflare-gate1-fixture') {
+    throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
+  const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
   const invocation = usesConsumerContract
     ? (() => {
       const consumer = parseOperatorConsumerInvocation(bounded);

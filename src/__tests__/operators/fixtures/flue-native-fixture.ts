@@ -8,7 +8,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
-import { parseDispatcherOperation } from '../../../operators/gate1-production';
+import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
 
 export type NativeArtifact = {
   schemaVersion: 1; sourceCommit: string;

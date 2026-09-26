@@ -26,7 +26,6 @@ const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const VAPID_GATE = join(ROOT, 'scripts', 'ci', 'validate-vapid-config.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const deployWorkflow = parseYaml(deployYml);
-const gate1DeployWorkflow = parseYaml(readFileSync(join(WORKFLOWS, 'deploy-operator-gate1.yml'), 'utf8'));
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 const testWorkflow = parseYaml(testYml);
 

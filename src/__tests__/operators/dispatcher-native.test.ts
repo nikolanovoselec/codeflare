@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import type { DispatcherBundle } from '../../operators/distribution';
-import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { OperatorRuntimeCapability } from '../../operators/operator-runtime-capability';
 import { loadOperatorDispatcherClass } from '../../operators/loader';
 
 const activityId = 'dispatcher-activity';

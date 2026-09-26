@@ -9,7 +9,6 @@ export { FixtureFlueRoot, FixtureFlueTransport } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
-import { GATE1_BUNDLE_BYTES } from '../../../../fixtures/operator-gate1/src/bundle';
 import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
@@ -80,15 +79,6 @@ export class FixtureCapability extends WorkerEntrypoint<FixtureEnv> {
     return (this.ctx.props as { principal: string }).principal;
   }
   driveGeneration(): number { return (this.ctx.props as { generation: number }).generation; }
-  async fetch(request: Request): Promise<Response> {
-    if (request.method !== 'POST' || new URL(request.url).pathname !== '/v1/gate1/session') {
-      return Response.json({ error: 'Not found' }, { status: 404 });
-    }
-    const body = await request.json() as { activityId?: string; generation?: number };
-    return Response.json({ schemaVersion: 1, status: 'completed', checkpoint: null,
-      result: { fixture: 'codeflare-gate1', activityId: body.activityId,
-        via: body.generation === 1 ? 'parent-capability' : 'invalid-generation' } });
-  }
 }
 
 const conductorObjects = new Map<string, Uint8Array>();
@@ -166,13 +156,6 @@ async function loadConductorBundle(env: FixtureEnv, capability: Fetcher): Promis
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
   return loadOperatorWorker(env.LOADER, await parseOperatorBundle(bytes, digest), capability, null);
-}
-
-async function loadGate1Bundle(env: FixtureEnv, capability: Fetcher): Promise<Fetcher> {
-  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', GATE1_BUNDLE_BYTES)))
-    .map(byte => byte.toString(16).padStart(2, '0')).join('');
-  const parsed = await parseOperatorBundle(GATE1_BUNDLE_BYTES, digest);
-  return loadOperatorWorker(env.LOADER, parsed, capability, null);
 }
 
 export default {
@@ -256,17 +239,6 @@ export default {
             sha256: 'a'.repeat(64), locator: 'packet-1' }] };
         return loaded.fetch(new Request('https://operator.internal/drive', { method: 'POST',
           headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generation: 1, invocation }) }));
-      }
-      if (url.pathname === '/gate1-bundle') {
-        const loaded = await loadGate1Bundle(env, entrypoints.FixtureCapability({ props }));
-        const testCase = url.searchParams.get('case');
-        if (testCase === 'wrong-route') return await loaded.fetch(new Request('https://operator.internal/wrong'));
-        const body = testCase === 'malformed' ? '{' : JSON.stringify({ schemaVersion: 1, action: 'start',
-          activityId: 'gate1-activity', generation: 1, checkpoint: null,
-          invocation: { resources: { session: testCase === 'session' ? { profileId: 'gate1-pi-file-v1' } : null } },
-        });
-        return await loaded.fetch(new Request('https://operator.internal/drive', { method: 'POST',
-          headers: { 'content-type': 'application/json' }, body }));
       }
       return await create().fetch(request);
     } catch (error) {

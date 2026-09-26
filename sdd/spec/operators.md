@@ -215,7 +215,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Child code inherits neither unrestricted bindings nor durable isolate state. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 4. Native-runtime fixtures prove parent-bound identity and outbound allow/deny behavior, but do not count as deployment acceptance. <!-- @impl: src/operators/loader.ts::loadOperatorWorker --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
 
-**Constraints:** Child code receives no unrestricted binding or inherited outbound access. Default-entrypoint rules remain the legacy/Gate 1 contract; [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) owns the bounded Dispatcher extension.
+**Constraints:** Child code receives no unrestricted binding or inherited outbound access. Default-entrypoint rules remain deny-by-default; [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) owns the bounded Dispatcher extension.
 
 **Priority:** P0
 
@@ -240,7 +240,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Admission consumes start authority only after a matching receipt and fresh expiry check. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 4. Concurrent starts queue once, and uncertain responses reconcile against the same receipt. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 5. Disable-first admission remains unqueued, and unknown effects are never replayed automatically. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
-6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @manual: documentation/lanes/operator-gate-1.md G1-16 and G1-22 -->
+6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
 7. Overview reads use non-waking safe projections. <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
 **Constraints:** Unknown external effects are fenced rather than replayed.
@@ -299,13 +299,13 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 6. Preparation or transport uncertainty fences the drive as unknown. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 7. Request-attached bundle transport and runtime share one 25-second deadline that never exceeds invoking-human authority. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 
-**Constraints:** Runtime deadlines never exceed verified human authority. Legacy/Gate 1 remains request-attached; [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) owns asynchronous Dispatcher execution.
+**Constraints:** Runtime deadlines never exceed verified human authority. Supported direct work remains request-attached; [REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution) owns asynchronous Dispatcher execution.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations)
 
-**Verification:** Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Exact-head CI 35285707512 at `137ffcb5` is GREEN; deployed evidence is recorded in `documentation/lanes/operator-gate-1.md`.
+**Verification:** Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Legacy Gate 1 preparation and already-prepared execution are denied by separate retirement tests; deployment readback remains a separate release gate.
 
 **Status:** Implemented
 
@@ -401,7 +401,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. Owned-session services preserve distinct activity, Codeflare session, Pi conversation and task identities. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/gate1-resources.ts::resolveGate1Resources --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/gate1-resources.test.ts (REQ-OPERATOR-005: parent-owned Gate 1 resource mapping) -->
+1. Owned-session services preserve distinct activity, Codeflare session, Pi conversation and task identities. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) -->
 2. Session ownership and restrictions persist before startup. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/activity.ts::saveOwnedSession --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
 3. Lost startup responses reconcile against the same reservation, while uncertain configuration remains uncertain. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/owned-session-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
 4. Stop affects only the owned session. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/container/index.ts::stopOperatorSession --> <!-- @test: src/__tests__/operators/owned-session.test.ts (owned operator session service) --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
@@ -429,7 +429,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. The host manages one owned structured SDK conversation with stable operation IDs. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: host/src/operator-pi-sdk.ts::createProvisionedOperatorPiFactory --> <!-- @impl: src/operators/gate1-capability.ts::Gate1OperatorCapability --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-021: creates once, persists exact identity and reopens only the recorded file) --> <!-- @test: src/__tests__/operators/gate1-capability.test.ts (REQ-OPERATOR-005: finite Gate 1 session capability) -->
+1. The host manages one owned structured SDK conversation with stable operation IDs. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: host/src/operator-pi-sdk.ts::createProvisionedOperatorPiFactory --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-021: creates once, persists exact identity and reopens only the recorded file) -->
 2. The conversation supports bounded prompt, follow-up, steer, approved native-tool execution and observation, explicit approval-needed state, and awaited cancellation. <!-- @impl: host/src/operator-pi-http.ts::OperatorPiHttpController --> <!-- @test: host/__tests__/operator-pi-http.test.js (REQ-OPERATOR-021: fixed ensure/send/observe/abort API omits the private session file) -->
 3. Conversation intent persists before submission, and same-ID retries, including concurrent submissions, reconcile to one invocation. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-021: concurrent same-ID submission reserves one prompt invocation) -->
 4. Only the recorded session file and ID may reopen a conversation. <!-- @impl: host/src/operator-pi-sdk.ts::createProvisionedOperatorPiFactory --> <!-- @test: host/__tests__/operator-pi-sdk.test.js (REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory) -->
@@ -876,11 +876,10 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Acceptance Criteria:**
 
-1. A distribution fixture proves approved artifact loading. <!-- @impl: fixtures/operator-gate1/src/index.ts::handleGate1FixtureRequest --> <!-- @test: src/__tests__/operators/gate1-fixture-distribution.test.ts (REQ-OPERATOR-009: live Gate 1 fixture distribution) -->
-2. A direct fixture proves bounded execution without a session. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runDirectFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
-3. A session fixture proves bounded owned-session execution. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runSessionFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
-4. A webhook fixture proves capability-authenticated handoff. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runWebhookCallerFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
-5. Fixture execution leaves local-review resources unchanged. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: src/__tests__/operators/legacy-review-unchanged.test.ts (REQ-OPERATOR-009: unchanged canonical local-review resource) -->
+1. A direct fixture proves bounded execution without a session. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runDirectFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
+2. A session fixture proves bounded owned-session execution. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runSessionFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
+3. A webhook fixture proves capability-authenticated handoff. <!-- @impl: src/__tests__/operators/fixtures/platform-acceptance.ts::runWebhookCallerFixture --> <!-- @test: src/__tests__/operators/platform-acceptance-fixtures.test.ts (REQ-OPERATOR-009: platform acceptance fixtures) -->
+4. Fixture execution leaves local-review resources unchanged. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: src/__tests__/operators/legacy-review-unchanged.test.ts (REQ-OPERATOR-009: unchanged canonical local-review resource) -->
 
 **Constraints:**
 
@@ -892,35 +891,31 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures), [REQ-OPERATOR-037](#req-operator-037-bounded-operator-consumer-inputs)
 
-**Verification:** Distribution, direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
+**Verification:** Direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
 
 **Status:** Implemented
 
 ---
 
-### REQ-OPERATOR-039: Gate 1 fixture deployment
+### REQ-OPERATOR-039: Retired Gate 1 fixture
 
-**Intent:** Deployment automation invokes the stateless fixture only after the intended Enterprise Integration release.
+**Intent:** The obsolete Gate 1 fixture cannot admit or execute new work, and deployment never reinstalls it.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. A successful Enterprise Integration deploy invokes the stateless Gate 1 fixture. <!-- @impl: .github/workflows/deploy.yml::operator-gate1-fixture --> <!-- @impl: .github/workflows/deploy-operator-gate1.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy) -->
-2. A failed primary deploy does not invoke the fixture. <!-- @impl: .github/workflows/deploy.yml::operator-gate1-fixture --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy) -->
-3. Other deployment targets do not invoke the fixture. <!-- @impl: .github/workflows/deploy.yml::operator-gate1-fixture --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy) -->
-4. The fixture call inherits repository credentials. <!-- @impl: .github/workflows/deploy.yml::operator-gate1-fixture --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy) -->
-5. The fixture connection secret remains owned by the Enterprise Integration environment. <!-- @impl: .github/workflows/deploy-operator-gate1.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gates automatic Gate 1 fixture deployment on a successful Enterprise Integration deploy) -->
+1. New fixture admission fails before Registry or Activity I/O. <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
+2. An already-prepared fixture receipt receives a denied capability without creating an owned session. <!-- @impl: src/operators/operator-runtime-capability.ts::OperatorRuntimeCapability --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-018: retired Gate 1 execution) -->
+3. Enterprise deployment does not dispatch the retired fixture. <!-- @impl: .github/workflows/deploy.yml --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (retired Gate 1 fixture deploy graph) -->
 
-**Constraints:**
-
-- Fixture success is not deployment acceptance.
+**Constraints:** Historical records are not deleted; installed Conductor and Dispatcher stay available.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-038](#req-operator-038-bounded-operator-consumer-fixtures)
+**Dependencies:** [REQ-OPERATOR-018](#req-operator-018-request-attached-operator-orchestration)
 
-**Verification:** Deployment gating is covered by the adjacent host tests. Enterprise and non-enterprise deployment evidence is recorded separately in `documentation/lanes/operator-gate-1.md`; implementation completion does not substitute for deployed acceptance. Exact-head CI 35285707512 at `137ffcb5` is GREEN.
+**Verification:** Behavioral admission, already-prepared execution and deploy-graph tests cover retirement; exact-head CI and Enterprise Integration rollout remain release gates.
 
 **Status:** Implemented
 
@@ -947,7 +942,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; deployed registration revision 5 and the approved artifact digest are recorded in `documentation/lanes/operator-gate-1.md`.
+**Verification:** Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; historical fixture registration does not prove current installed-release execution.
 
 **Status:** Implemented
 
@@ -1095,8 +1090,8 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 2. Non-enterprise mode issues no operator data request. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 3. Keyboard and focus behavior remains usable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-033 AC3: moves focus into the portalled panel and returns it to the trigger on dismissal) -->
 4. Stale, loading and error states remain distinguishable and recoverable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-5. Account switching does not expose another owner's activity. <!-- @manual: documentation/lanes/operator-gate-1.md G1-07 and G1-23 -->
-6. The activity surface remains usable on mobile. <!-- @manual: documentation/lanes/operator-gate-1.md G1-23 -->
+5. Account switching does not expose another owner's activity. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
+6. The activity surface remains usable on mobile. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 
 **Constraints:** Visual acceptance does not substitute for owner-scoped API enforcement.
 
@@ -1104,7 +1099,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Component behavior is automated; account-switch and mobile acceptance remain assigned to Gate 1.
+**Verification:** Component and owner-route behavior is automated; actual account-switch and mobile acceptance remain pending.
 
 **Status:** Implemented
 
