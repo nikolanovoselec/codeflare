@@ -10,6 +10,7 @@ const emptyGrant = (): api.ManagementGrant => ({ users: [], groups: [] });
 const emptyPolicy = (): api.ManagementPolicy => ({ capabilities: [], resourceProfileId: null });
 const lines = (value: string) => [...new Set(value.split('\n').map(line => line.trim()).filter(Boolean))];
 const name = (operator: api.ManagementSummary) => operator.name ?? operator.repositoryUrl ?? operator.id;
+const releaseLabel = (release: api.ManagementRelease) => release.version ?? release.name ?? `GitHub release #${release.githubReleaseId}`;
 const denied = (error: unknown) => error instanceof ApiError && [401, 403, 404].includes(error.status);
 function failure(error: unknown, mutation = false): string {
   if (denied(error)) return 'Access denied. Sign in with an authorized account or ask your administrator for access.';
@@ -293,7 +294,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; locked: boolean;
       <button class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(() => api.refreshManagedReleases(operator().id, operator().revision), 'Release discovery refreshed. Nothing was approved or enabled.')}>Refresh releases</button></div>
       <p>Discovery is not approval. Approve and pin an exact release to an installation, then enable it separately.</p>
       <Show when={props.detail.releases.length} fallback={<p>No releases discovered.</p>}><ul class="operator-list"><For each={props.detail.releases}>{release => <li>
-        <strong>{release.version ?? release.name ?? release.id}</strong><p>{release.approved ? 'Approved' : 'Discovered · not approved'} · GitHub release {release.githubReleaseId}</p>
+        <strong>{releaseLabel(release)}</strong><p>{release.approved ? 'Approved' : 'Discovered · not approved'} · GitHub release {release.githubReleaseId}</p>
         <Show when={release.coreVersion && release.intentVersion}><p>Core {release.coreVersion} · Intent {release.intentVersion} · Interface {release.interfaceVersion}</p></Show>
         <dl class="operator-facts"><dt>Source commit</dt><dd>{release.sourceCommit}</dd><dt>Bundle SHA-256</dt><dd>{release.bundleDigest}</dd><dt>Manifest SHA-256</dt><dd>{release.manifestDigest}</dd>
           <dt>Requested capabilities</dt><dd>{release.requestedCapabilities?.join(', ') || 'Not reported by discovery'}</dd></dl>
@@ -324,6 +325,7 @@ const InstallationEditor: Component<{ installation: api.ManagementInstallation; 
   const [validation, setValidation] = createSignal('');
   createEffect(() => { setPolicy(props.installation.policy); setConfiguration(JSON.stringify(props.installation.configuration ?? {}, null, 2)); });
   const installation = () => props.installation;
+  const pinnedRelease = () => props.releases.find(release => release.id === installation().releaseId);
   function configure() {
     let value: unknown;
     try {
@@ -336,15 +338,17 @@ const InstallationEditor: Component<{ installation: api.ManagementInstallation; 
   }
   return <article class="operator-installation" aria-label={`${installation().name} installation`}><h3>{installation().name}</h3>
     <p><span class="operator-state">{installation().enabled ? 'Enabled for new activities' : 'Disabled'}</span> · Revision {installation().revision}</p>
-    <p>Pinned release: {props.releases.find(release => release.id === installation().releaseId)?.version ?? installation().releaseId ?? 'None'}</p>
-    <Show when={props.releases.find(release => release.id === installation().releaseId)}>{release => <>
+    <Show when={pinnedRelease()} fallback={<p>Pinned release: {installation().releaseId ?? 'None'}</p>}>
+      {release => <p>Pinned release: {releaseLabel(release())}</p>}
+    </Show>
+    <Show when={pinnedRelease()}>{release => <>
       <p>Pinned version: Core {release().coreVersion ?? 'not reported'} · Intent {release().intentVersion ?? 'not reported'}</p>
       <p>Bundle SHA-256: {release().bundleDigest}</p>
     </>}</Show>
     <p>Granted capabilities: {installation().policy.capabilities.join(', ') || 'None'}</p>
     <p>Resource profile: {installation().policy.resourceProfileId ?? 'None'}</p>
     <label class="admin-form-field"><span>Release for {installation().name}</span><select disabled={props.locked} value={props.releaseId} onChange={event => props.onReleaseChange(event.currentTarget.value)}>
-      <option value="">Select exact release</option><For each={props.releases}>{release => <option value={release.id}>{release.version ?? release.id} · {release.approved ? 'approved' : 'requires approval'}</option>}</For></select></label>
+      <option value="">Select exact release</option><For each={props.releases}>{release => <option value={release.id}>{releaseLabel(release)} · {release.approved ? 'approved' : 'requires approval'}</option>}</For></select></label>
     <div class="operator-actions"><button class="admin-secondary-button" disabled={props.locked || !props.releaseId} aria-label={`Approve and promote ${installation().name}`} onClick={() => void props.perform(async () => {
       await api.promoteInstallation(installation().id, props.releaseId, installation().revision);
       props.onReleaseChange('');
