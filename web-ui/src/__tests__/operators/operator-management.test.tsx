@@ -302,7 +302,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const invoker = within(form).getByRole('group', { name: /initial invoker grants/i });
     expect(await within(invoker).findByRole('checkbox', { name: /invoker@example.test/i })).toBeInTheDocument();
     expect(within(form).getAllByRole('checkbox', { name: /review-team/i })).toHaveLength(2);
-    expect(within(form).getAllByText(/cannot be assigned here: Display Team/i)).toHaveLength(2);
+    expect(within(form).getAllByText(/cannot be newly assigned here: Display Team/i)).toHaveLength(2);
     expect(within(form).queryByRole('checkbox', { name: /Display Team/i })).not.toBeInTheDocument();
     expect(within(form).getByRole('checkbox', { name: /inference/i })).toBeInTheDocument();
     expect(within(form).getByRole('combobox', { name: /operator resource profile/i })).toBeInTheDocument();
@@ -393,10 +393,10 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
       if (path === '/api/operator-management/operators/operator-1') return response({
         operator: { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false,
           revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
-          managers: { users: ['missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] }, invokers: { users: [], groups: [] },
+          managers: { users: ['manager@example.test', 'missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] }, invokers: { users: [], groups: [] },
           policy: { capabilities: [], resourceProfileId: null }, source: { kind: 'github-release',
             repositoryUrl: 'https://github.com/acme/review', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } },
-        releases: [], installations: [], grants: { managers: { users: ['missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
+        releases: [], installations: [], grants: { managers: { users: ['manager@example.test', 'missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
           invokers: { users: [], groups: [] } },
       });
       if (path === '/api/operator-management/operators/operator-1/grants') { saves.push(await request.json()); return response({}); }
@@ -412,13 +412,13 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     fireEvent.click(within(invokers).getByRole('checkbox', { name: 'invoker@example.test' }));
     fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
     await waitFor(() => expect(saves).toHaveLength(1));
-    expect(saves[0]).toMatchObject({ managers: { users: ['missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
+    expect(saves[0]).toMatchObject({ managers: { users: ['manager@example.test', 'missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
       invokers: { users: ['invoker@example.test'], groups: [] } });
     await waitFor(() => expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeEnabled());
     fireEvent.click(within(grants).getByRole('checkbox', { name: /missing@example.test/i }));
     fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
     await waitFor(() => expect(saves).toHaveLength(2));
-    expect(saves[1]).toMatchObject({ managers: { users: [], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] } });
+    expect(saves[1]).toMatchObject({ managers: { users: ['manager@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] } });
   });
 
   it('does not offer a grant mutation when configured identity choices are unavailable', async () => {

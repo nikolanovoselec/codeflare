@@ -156,7 +156,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/uncertain promotion/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/operation was not confirmed.*refresh current state/i);
     expect(creates).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh current state' }));
     if (outcome === 'promotion failed') {
@@ -175,9 +175,24 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Installed version' })).getByRole('status')).toHaveTextContent('Installed — not enabled'));
   });
 
+  it('requires an explicit configuration choice when more than one is enabled', async () => {
+    serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), installations: [
+      { ...installation, releaseId: release.id, enabled: true },
+      { ...installation, id: 'installation-2', name: 'secondary', releaseId: release.id, enabled: true },
+    ] }) : json({ items: [operator], cursor: null });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const installed = await screen.findByRole('region', { name: 'Installed version' });
+    expect(within(installed).getByText(/Enabled configurations: test, secondary/)).toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Disable for new runs' })).not.toBeInTheDocument();
+    fireEvent.change(within(installed).getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
+    expect(within(installed).getByRole('button', { name: 'Disable for new runs' })).toBeInTheDocument();
+  });
+
   it('distinguishes an installed pin with unavailable release details from no installation', async () => {
     serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), installations: [{ ...installation, releaseId: 'missing-release' }] }) : json({ items: [operator], cursor: null });
     render(() => <OperatorManagement />);
+    expect(await screen.findByText('Open this operator to review its verified versions and purpose.')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     const installed = await screen.findByRole('region', { name: 'Installed version' });
     expect(within(installed).getByText('Installed version details unavailable')).toBeInTheDocument();
@@ -250,7 +265,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
     const grants = await screen.findByRole('region', { name: 'Access grants' });
     expect(within(grants).queryByRole('checkbox', { name: 'delegate@example.test' })).not.toBeInTheDocument();
-    fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
+    const save = within(grants).getByRole('button', { name: 'Save grants' });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
     await waitFor(() => expect(saves).toBe(1));
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh current state' }));
     expect(await within(grants).findAllByRole('checkbox', { name: 'delegate@example.test' })).toHaveLength(2);

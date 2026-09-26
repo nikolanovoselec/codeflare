@@ -940,15 +940,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  /** One verified package description and an unambiguous installed pin, if present. */
+  /** Project only an unambiguous pinned version or a sole discovered package description. */
   private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installationCount'> {
     const installations = this.ctx.storage.sql.exec<{ data: string }>(
-      'SELECT data FROM operator_installations WHERE operator_id=? LIMIT 100', operatorId).toArray();
-    const selectedId = installations.length === 1 ? (JSON.parse(installations[0].data) as ManagementInstallation).releaseId : null;
-    const release = selectedId
-      ? this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', selectedId, operatorId).toArray()[0]
-      : this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? ORDER BY id DESC LIMIT 1', operatorId).toArray()[0];
-    if (!release) return { installationCount: installations.length };
+      'SELECT data FROM operator_installations WHERE operator_id=? LIMIT 100', operatorId).toArray()
+      .map(row => JSON.parse(row.data) as ManagementInstallation);
+    const enabled = installations.filter(item => item.enabled);
+    const selectedId = enabled.length === 1 ? enabled[0].releaseId : installations.length === 1 ? installations[0].releaseId : null;
+    const releases = selectedId
+      ? this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', selectedId, operatorId).toArray()
+      : installations.length === 0
+        ? this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? LIMIT 2', operatorId).toArray()
+        : [];
+    if (releases.length !== 1) return { installationCount: installations.length };
+    const release = releases[0];
     const manifest = JSON.parse(release.manifest) as { name?: unknown; description?: unknown };
     if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
     return { name: manifest.name, description: manifest.description, installationCount: installations.length,
