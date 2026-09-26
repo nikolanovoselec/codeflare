@@ -245,8 +245,19 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     if (path === '/fixture/inference' || path === '/v1/dispatcher/inference') {
       if (path === '/v1/dispatcher/inference') {
         // The exact pinned model adapter must speak the real parent's restricted wire contract.
-        try { await parseDispatcherOperation(request.clone()); }
+        let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
+        try { operation = await parseDispatcherOperation(request.clone()); }
         catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
+        // The parent ledger permits an identical retry but rejects a different
+        // model turn under the same durable operation ID before any upstream I/O.
+        const digests = await this.ctx.storage.get<Record<string, string>>('fixture:inference-operations') ?? {};
+        const requestDigest = JSON.stringify({ path: operation.path, body: operation.body });
+        if (Object.hasOwn(digests, operation.operationId) && digests[operation.operationId] !== requestDigest) {
+          return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+        }
+        if (!Object.hasOwn(digests, operation.operationId)) {
+          await this.ctx.storage.put('fixture:inference-operations', { ...digests, [operation.operationId]: requestDigest });
+        }
         const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
         calls.push({ path });
         await this.ctx.storage.put('fixture:production-calls', calls);
