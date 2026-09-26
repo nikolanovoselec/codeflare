@@ -25,6 +25,7 @@ const relativePath = z.string().refine(value => canonicalPath(value, false));
 const artifactPath = z.string().refine(value => canonicalPath(value, true));
 const version = z.string().min(1).max(128);
 const capability = z.enum(['session', 'pi', 'storage', 'inference', 'fetch']);
+export const operatorCapabilityChoices = capability.options;
 
 const manifestSchema = z.strictObject({
   schemaVersion: z.literal(1),

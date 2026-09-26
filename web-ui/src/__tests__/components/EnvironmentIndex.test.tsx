@@ -139,7 +139,7 @@ beforeEach(() => {
   api.inventory.mockImplementation(async (route: string) => inventory(route, route === 'development' ? proof() : undefined));
   api.start.mockImplementation(async () => stream());
 });
-afterEach(cleanup);
+afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
   it('REQ-ENTERPRISE-044: automatic inventory cleanup advances the review revision without saving unrelated edits', async () => {
@@ -765,5 +765,32 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(saved().reasoningConfiguration.routeAssignments.development.verification).toEqual(observedProof);
     expect(saved().dynamicRoutes).toEqual(['development']);
     expect(screen.getByRole('table', { name: 'Dynamic routes' })).toBeVisible();
+  });
+});
+
+describe('REQ-OPERATOR-008: one Environment identity and operator-limit area', () => {
+  it('edits global eligibility alongside Access and Identity, not inside an operator', async () => {
+    window.history.replaceState({}, '', '/admin/environment/access');
+    api.configuration.mockResolvedValueOnce({ mode: 'enterprise', revision: 7, applicableSections: ['access'],
+      sections: { access: { adminUsers: ['admin@example.test'], userAccessGroups: ['review-team'], adminAccessGroups: [] } },
+      activeRunId: null, latest: {} });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+      if (path === '/api/operator-management/options') return new Response(JSON.stringify({ users: ['admin@example.test'],
+        groups: [{ issuer: 'https://team.cloudflareaccess.com', id: 'review-team' }],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
+        ceiling: { capabilities: ['inference'], resourceProfileIds: [] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (path === '/api/operator-management/access') return new Response(JSON.stringify({ revision: 1,
+        managers: { users: ['admin@example.test'], groups: [] }, ceiling: { capabilities: ['inference'], resourceProfileIds: [] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } });
+    }));
+    mount();
+    fireEvent.click(await screen.findByText('Operator eligibility and limits'));
+    const panel = await screen.findByRole('heading', { name: 'Operator eligibility and limits' });
+    expect(panel).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: /admin@example.test/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /inference/i })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Eligible manager users' })).not.toBeInTheDocument();
   });
 });

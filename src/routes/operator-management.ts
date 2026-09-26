@@ -3,7 +3,10 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups } from '../lib/access';
+import { getAllUsers } from '../lib/access-policy';
+import { SETUP_KEYS } from '../lib/kv-keys';
+import { operatorCapabilityChoices } from '../operators/distribution';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -27,7 +30,7 @@ const policy = z.strictObject({
 });
 const githubPat = z.string().min(1).max(16384).refine(value => !!value.trim() && !/[\r\n\0]/.test(value));
 const repositoryUrl = z.string().min(1).max(2048);
-const registrationBody = z.strictObject({ repositoryUrl, githubPat, profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), managers: grant, invokers: grant, policy });
+const registrationBody = z.strictObject({ repositoryUrl, githubPat, profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']).default('internal'), managers: grant, invokers: grant, policy });
 const configuration = z.record(z.string().max(256), z.json());
 const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}) });
 const revisionBody = z.strictObject({ revision });
@@ -152,6 +155,27 @@ function query(c: Context<RouteEnv>) {
     || (state !== undefined && state !== 'enabled' && state !== 'disabled') || (search !== undefined && (search.length > 256 || !search.trim()))) throw new ValidationError('Invalid operator catalog query');
   return { limit, cursor, profile, realm, state, search: search?.trim().toLowerCase() };
 }
+
+app.get('/options', async c => {
+  const context = c.get('operatorHuman');
+  const [users, userGroups, adminGroups] = await Promise.all([
+    context.platformAdmin ? getAllUsers(c.env.KV).then(entries => entries.map(entry => entry.email)) : Promise.resolve([context.human.email]),
+    c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP), c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP),
+  ]);
+  const configuredGroups = [...new Set([...parseAccessGroups(userGroups), ...parseAccessGroups(adminGroups)])];
+  // Environment may contain display names. Only IDs actually observed in this
+  // human's verified Access membership are safe to use in an issuer-bound ACL.
+  const verifiedGroups = new Set(context.human.groups ?? []);
+  const value = { users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
+    groups: configuredGroups.filter(id => verifiedGroups.has(id)).map(id => ({ issuer: context.human.issuer, id })),
+    unresolvedGroups: context.platformAdmin ? configuredGroups.filter(group => !verifiedGroups.has(group)) : [],
+    capabilities: operatorCapabilityChoices, resourceProfileIds: context.controls.ceiling.resourceProfileIds,
+    ceiling: context.controls.ceiling };
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 64 * 1024) {
+    throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
+  }
+  return c.json(value);
+});
 
 app.get('/access', c => {
   const context = c.get('operatorHuman');

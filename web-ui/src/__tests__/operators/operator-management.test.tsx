@@ -87,13 +87,23 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
   });
 
-  it('makes the selected operator, pinned release and installation decision path navigable', async () => {
+  it('makes the installed version primary and updates the existing installation without creating another', async () => {
+    const mutations: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const path = new URL(request.url, 'https://operators.example.test').pathname;
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test'], groups: [],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
+        ceiling: { capabilities: [], resourceProfileIds: [] } });
       if (path === '/api/operator-management/operators') return response({ items: [
         { id: 'operator-1', name: 'Review operator', profile: 'conductor', realm: 'internal', enabled: true },
       ], cursor: null });
+      if (request.method === 'POST') {
+        mutations.push(path);
+        if (path === '/api/operator-management/installations/installation-1/promote') return response({ id: 'installation-1',
+          operatorId: 'operator-1', name: 'Integration', releaseId: 'release-0', revision: 3, enabled: false,
+          policy: { capabilities: [], resourceProfileId: null }, configuration: {} });
+      }
       if (path === '/api/operator-management/operators/operator-1') return response({
         operator: { id: 'operator-1', name: 'Review operator', profile: 'conductor', realm: 'internal',
           enabled: true, revision: 3, repositoryId: 42, repositoryUrl: 'https://github.com/acme/review',
@@ -102,10 +112,17 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
           source: { kind: 'github-release', repositoryUrl: 'https://github.com/acme/review',
             repositoryId: 42, credentialConfigured: true, approvedWorkflow: { id: 7, ref: 'refs/heads/develop' } } },
         releases: [{ id: 'release-1', operatorId: 'operator-1', githubReleaseId: 17,
+          name: 'Review operator', description: 'Checks repository changes under an approved Review policy.',
           sourceCommit: 'a'.repeat(40), manifestDigest: 'b'.repeat(64), bundleDigest: 'c'.repeat(64),
-          interfaceVersion: 1, approved: true }],
+          interfaceVersion: 1, approved: true },
+          { id: 'release-0', operatorId: 'operator-1', githubReleaseId: 15,
+            name: 'Review operator', description: 'Checks repository changes under an approved Review policy.',
+            sourceCommit: 'd'.repeat(40), manifestDigest: 'e'.repeat(64), bundleDigest: 'f'.repeat(64),
+            interfaceVersion: 1, approved: true }],
         installations: [{ id: 'installation-1', operatorId: 'operator-1', name: 'Integration', releaseId: 'release-1',
-          revision: 2, enabled: true, policy: { capabilities: [], resourceProfileId: null } }],
+          revision: 2, enabled: true, policy: { capabilities: [], resourceProfileId: null } },
+          { id: 'installation-2', operatorId: 'operator-1', name: 'Secondary', releaseId: 'release-0',
+            revision: 2, enabled: false, policy: { capabilities: [], resourceProfileId: null } }],
         grants: { managers: { users: [], groups: [] }, invokers: { users: [], groups: [] } },
       });
       return response({ error: 'Not found' }, 404);
@@ -116,12 +133,67 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const overview = await screen.findByRole('region', { name: 'Operator overview' });
     expect(within(overview).getByText('Review operator')).toBeInTheDocument();
     const sections = screen.getByRole('navigation', { name: 'Operator sections' });
-    expect(within(sections).getByRole('link', { name: 'Installations' })).toHaveAttribute('href', '#operator-installations');
-    expect(screen.getByRole('heading', { name: 'Installations' })).toBeInTheDocument();
-    const installation = screen.getByRole('article', { name: 'Integration installation' });
-    expect(within(installation).getByText('Enabled for new activities')).toBeInTheDocument();
-    expect(within(installation).getByText('Pinned release: GitHub release #17')).toBeInTheDocument();
-    expect(within(installation).getByRole('button', { name: 'Disable Integration' })).toBeInTheDocument();
+    expect(within(sections).getByRole('button', { name: 'Installed version' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(sections).getByRole('button', { name: 'Versions & updates' })).toBeInTheDocument();
+    expect(screen.getByText('Pinned release: GitHub release #17')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disable for new runs' })).toBeInTheDocument();
+    const configurationChoice = screen.getByRole('combobox', { name: 'Installed configuration' });
+    fireEvent.change(configurationChoice, { target: { value: 'installation-2' } });
+    expect(screen.getByText('Pinned release: GitHub release #15')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
+    fireEvent.change(configurationChoice, { target: { value: 'installation-1' } });
+    expect(screen.queryByRole('button', { name: 'Create disabled installation' })).not.toBeInTheDocument();
+    expect(within(overview).getByText('Checks repository changes under an approved Review policy.')).toBeInTheDocument();
+    expect(screen.getByText('GitHub release #15', { selector: 'strong' })).not.toBeVisible();
+    fireEvent.click(within(sections).getByRole('button', { name: 'Versions & updates' }));
+    expect(screen.getByText('GitHub release #15', { selector: 'strong' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Other available versions' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Exact version' }), { target: { value: 'release-0' } });
+    expect(screen.getByText(/new runs will remain disabled/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
+    await waitFor(() => expect(mutations).toContain('/api/operator-management/installations/installation-1/promote'));
+    expect(mutations).not.toContain('/api/operator-management/operators/operator-1/installations');
+  });
+
+  it('offers guided first installation, pins the exact release, and never enables it automatically', async () => {
+    const mutations: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test'], groups: [],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
+        ceiling: { capabilities: ['inference'], resourceProfileIds: [] } });
+      if (path === '/api/operator-management/operators' && request.method === 'GET') return response({ items: [
+        { id: 'operator-1', name: 'Dispatcher', profile: 'dispatcher', realm: 'internal', enabled: false }], cursor: null });
+      if (path === '/api/operator-management/operators/operator-1') return response({ operator: {
+        id: 'operator-1', name: 'Dispatcher', profile: 'dispatcher', realm: 'internal', enabled: false,
+        revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/dispatcher',
+        managers: { users: ['manager@example.test'], groups: [] }, invokers: { users: [], groups: [] },
+        policy: { capabilities: ['inference'], resourceProfileId: null }, source: { kind: 'github-release',
+          repositoryUrl: 'https://github.com/acme/dispatcher', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null },
+      }, releases: [{ id: 'release-1', operatorId: 'operator-1', githubReleaseId: 17,
+        description: 'Read-only pull-request assessment.', sourceCommit: 'a'.repeat(40),
+        manifestDigest: 'b'.repeat(64), bundleDigest: 'c'.repeat(64), interfaceVersion: 1, approved: true }],
+      installations: [], grants: { managers: { users: ['manager@example.test'], groups: [] }, invokers: { users: [], groups: [] } } });
+      if (request.method === 'POST') {
+        mutations.push(path);
+        if (path.endsWith('/installations')) return response({ id: 'install-1', name: 'default', operatorId: 'operator-1',
+          releaseId: null, revision: 1, enabled: false, policy: { capabilities: ['inference'], resourceProfileId: null }, configuration: {} }, 201);
+        if (path.endsWith('/promote')) return response({ id: 'install-1', name: 'default', operatorId: 'operator-1',
+          releaseId: 'release-1', revision: 2, enabled: false, policy: { capabilities: ['inference'], resourceProfileId: null }, configuration: {} });
+      }
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    const installed = await screen.findByRole('region', { name: 'Installed version' });
+    expect(within(installed).getByText('No version installed')).toBeInTheDocument();
+    fireEvent.click(within(installed).getByRole('button', { name: 'Install operator' }));
+    fireEvent.change(screen.getByRole('combobox', { name: /version to install/i }), { target: { value: 'release-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /install selected version/i }));
+    await waitFor(() => expect(mutations).toEqual([
+      '/api/operator-management/operators/operator-1/installations', '/api/operator-management/installations/install-1/promote']));
+    expect(mutations).not.toContain('/api/operator-management/installations/install-1/enable');
   });
 
   it('switches views on ordinary navigation without changing the current tab on modified clicks', async () => {
@@ -186,13 +258,31 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.getByRole('button', { name: /register operator/i })).toBeVisible();
   });
 
+  it('does not present realm as a registration choice, catalog filter, or permission boundary', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test'], groups: [],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
+        ceiling: { capabilities: [], resourceProfileIds: [] } });
+      if (path === '/api/operator-management/operators') return response({ items: [
+        { id: 'operator-1', name: 'Review operator', profile: 'conductor', realm: 'external', enabled: false }], cursor: null });
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    expect(await screen.findByText('Review operator')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/external/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Register operator' }));
+    expect(screen.getByRole('region', { name: 'Register operator' })).not.toHaveTextContent('Operator realm');
+  });
+
   it('assigns only configured users, stable groups and supported limits without free-text identities', async () => {
     const calls: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const path = new URL(request.url).pathname;
       if (path === '/api/operator-management/options') return response({ users: ['manager@example.test', 'invoker@example.test'],
-        groups: [{ issuer: 'https://team.cloudflareaccess.com', id: 'review-team' }],
+        groups: [{ issuer: 'https://team.cloudflareaccess.com', id: 'review-team' }], unresolvedGroups: ['Display Team'],
         capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: ['review-profile'],
         ceiling: { capabilities: ['inference', 'fetch'], resourceProfileIds: ['review-profile'] } });
       if (path === '/api/operator-management/operators' && request.method === 'POST') {
@@ -212,6 +302,8 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const invoker = within(form).getByRole('group', { name: /initial invoker grants/i });
     expect(await within(invoker).findByRole('checkbox', { name: /invoker@example.test/i })).toBeInTheDocument();
     expect(within(form).getAllByRole('checkbox', { name: /review-team/i })).toHaveLength(2);
+    expect(within(form).getAllByText(/cannot be assigned here: Display Team/i)).toHaveLength(2);
+    expect(within(form).queryByRole('checkbox', { name: /Display Team/i })).not.toBeInTheDocument();
     expect(within(form).getByRole('checkbox', { name: /inference/i })).toBeInTheDocument();
     expect(within(form).getByRole('combobox', { name: /operator resource profile/i })).toBeInTheDocument();
     expect(within(form).queryByRole('textbox', { name: /manager users|manager groups|operator capabilities/i })).not.toBeInTheDocument();
@@ -221,7 +313,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     fireEvent.change(within(form).getByRole('combobox', { name: /operator resource profile/i }), { target: { value: 'review-profile' } });
     fireEvent.input(within(form).getByRole('textbox', { name: 'GitHub repository URL' }), { target: { value: 'https://github.com/acme/review' } });
     fireEvent.input(within(form).getByLabelText('Repository-read PAT'), { target: { value: 'opaque-token' } });
-    fireEvent.submit(within(form).getByRole('button', { name: 'Register disabled operator' }).closest('form')!);
+    fireEvent.submit(within(form).getByRole('button', { name: 'Register source' }).closest('form')!);
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ invokers: { users: ['invoker@example.test'],
       groups: [{ issuer: 'https://team.cloudflareaccess.com', id: 'review-team' }] },
@@ -257,11 +349,11 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     }));
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
-    const installation = await screen.findByRole('article', { name: 'Runner installation' });
-    fireEvent.click(within(installation).getByText('Configure Runner'));
-    expect(within(installation).queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
-    fireEvent.click(await within(installation).findByRole('checkbox', { name: /inference/i }));
-    fireEvent.click(within(installation).getByRole('button', { name: /save.*runner/i }));
+    const installed = await screen.findByRole('region', { name: 'Installed version' });
+    fireEvent.click(within(installed).getByText('Technical details and advanced restrictions'));
+    expect(within(installed).queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
+    fireEvent.click(await within(installed).findByRole('checkbox', { name: /inference/i }));
+    fireEvent.click(within(installed).getByRole('button', { name: /save restrictions for runner/i }));
     await waitFor(() => expect(saves).toHaveLength(1));
     expect(saves[0]).toMatchObject({ policy: { capabilities: ['inference'], resourceProfileId: null },
       configuration: { existing: 'keep' } });
@@ -291,6 +383,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     }));
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Permissions' }));
     const grants = await screen.findByRole('region', { name: /access grants/i });
     expect(within(grants).getByText(/missing@example.test.*unavailable/i)).toBeInTheDocument();
     expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeDisabled();
@@ -302,7 +395,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
   });
 
   it('does not offer a grant mutation when configured identity choices are unavailable', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
       if (path === '/api/operator-management/operators') return response({ items: [], cursor: null });
       return response({ error: 'Unavailable' }, 503);
@@ -310,6 +403,6 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
     expect(await screen.findByText(/identity choices.*unavailable/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Register disabled operator' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Register source' })).toBeDisabled();
   });
 });

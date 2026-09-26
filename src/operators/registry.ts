@@ -96,6 +96,8 @@ export interface ManagementRelease {
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
   repositoryId: number; sourceRevision: number; coreVersion: string; intentVersion: string;
   requestedCapabilities: string[];
+  /** Verified manifest metadata projected for display, never persisted into the immutable release identity. */
+  name?: string; description?: string;
   assets: Array<{ id: number; name: string; digest: string }>;
   provenance: { compilerCommit?: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
@@ -159,6 +161,7 @@ interface ManagementOperatorState {
 }
 export interface ManagementOperatorProjection {
   id: string; operatorId: string; revision: number; repositoryUrl: string; repositoryId: number;
+  name?: string; description?: string; installedGithubReleaseId?: number; installationCount?: number;
   profile: ManagementOperatorProfile; realm: ManagementOperatorRealm; enabled: boolean;
   managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy;
   source: { kind: 'github-release'; repositoryUrl: string; repositoryId: number;
@@ -937,6 +940,21 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
+  /** One verified package description and an unambiguous installed pin, if present. */
+  private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installationCount'> {
+    const installations = this.ctx.storage.sql.exec<{ data: string }>(
+      'SELECT data FROM operator_installations WHERE operator_id=? LIMIT 100', operatorId).toArray();
+    const selectedId = installations.length === 1 ? (JSON.parse(installations[0].data) as ManagementInstallation).releaseId : null;
+    const release = selectedId
+      ? this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', selectedId, operatorId).toArray()[0]
+      : this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? ORDER BY id DESC LIMIT 1', operatorId).toArray()[0];
+    if (!release) return { installationCount: installations.length };
+    const manifest = JSON.parse(release.manifest) as { name?: unknown; description?: unknown };
+    if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
+    return { name: manifest.name, description: manifest.description, installationCount: installations.length,
+      ...(selectedId ? { installedGithubReleaseId: (JSON.parse(release.data) as ManagementRelease).githubReleaseId } : {}) };
+  }
+
   /** Permission/search/filter indexes are applied before keyset pagination. No global scan or hidden totals. */
   async listManagementOperators(query: ManagementCatalogQuery): Promise<{ items: ManagementOperatorProjection[]; cursor: string | null }> {
     this.managementSchema();
@@ -954,7 +972,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     params.push(query.limit + 1);
     const rows = this.ctx.storage.sql.exec<{ id: string; data: string; enabled: number }>(
       `SELECT c.id,c.data,c.enabled FROM operator_catalog c WHERE ${clauses.join(' AND ')} ORDER BY c.id LIMIT ?`, ...params).toArray();
-    const items = rows.slice(0, query.limit).map(row => managementProjection(JSON.parse(row.data), Boolean(row.enabled)));
+    const items = rows.slice(0, query.limit).map(row => ({ ...managementProjection(JSON.parse(row.data), Boolean(row.enabled)),
+      ...this.managementCatalogFacts(row.id) }));
     return { items, cursor: rows.length > query.limit ? items[items.length - 1].id : null };
   }
 
@@ -962,7 +981,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const state = this.managementState(operatorId);
     if (!state) return { ok: false, reason: 'not-found' };
     const enabled = this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', operatorId).toArray().length > 0;
-    return { ok: true, value: managementProjection(state, enabled) };
+    return { ok: true, value: { ...managementProjection(state, enabled), ...this.managementCatalogFacts(operatorId) } };
   }
 
   /** Parent-only: the acquisition PAT never enters release, installation or activity records. */
@@ -973,8 +992,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   async getManagementReleases(operatorId: string): Promise<ManagementRelease[]> {
     this.managementSchema();
-    return this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
-      .toArray().map(row => JSON.parse(row.data));
+    return this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
+      .toArray().map(row => {
+        const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown };
+        if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
+        return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description };
+      });
   }
 
   async getManagementInstallations(operatorId: string): Promise<ManagementInstallation[]> {

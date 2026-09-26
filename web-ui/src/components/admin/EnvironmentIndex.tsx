@@ -14,6 +14,7 @@ import {
   type ConfigurationRun,
 } from '../../api/client';
 import EnvironmentAreaFields, { environmentValues } from './EnvironmentAreaFields';
+import { ManagementAccessPanel } from '../OperatorManagement';
 import AiRoutingReview, { AiRoutingSummary } from './AiRoutingReview';
 import { environmentContext, executionOutcome, operatorTaskLabel } from './administration-presentation';
 
@@ -115,6 +116,7 @@ export const EnvironmentAreaDetail: Component = () => {
   const [error, setError] = createSignal<string>();
   const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
   const [aiRoutingDirty, setAiRoutingDirty] = createSignal(false);
+  const [operatorLimitsOpen, setOperatorLimitsOpen] = createSignal(false);
   const [revision, setRevision] = createSignal(configuration.revision);
   const reconcileRevision = (nextRevision: number) => {
     if (nextRevision <= revision()) return;
@@ -256,6 +258,9 @@ export const EnvironmentAreaDetail: Component = () => {
         </details>
         <Show when={['succeeded','failed','interrupted'].includes(currentRun().state)}><div class="admin-form-actions"><button type="button" class="admin-primary-button" onClick={() => window.location.reload()}>Reload current settings</button></div></Show>
       </section>}</Show>
+      <Show when={resolved().section === 'access' && configuration.mode === 'enterprise'}><details class="admin-panel" onToggle={event => setOperatorLimitsOpen(event.currentTarget.open)}>
+        <summary>Operator eligibility and limits</summary><Show when={operatorLimitsOpen()}><ManagementAccessPanel /></Show>
+      </details></Show>
     </div>}
   </Show>;
 };

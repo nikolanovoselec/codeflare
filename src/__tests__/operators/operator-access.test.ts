@@ -96,20 +96,49 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
-  it('projects only configured identity options and authorized limits to eligible managers, not Access credentials', async () => withApi(async request => {
+  it('projects only verified configured identity options and authorized limits to eligible managers, not Access credentials', async () => withApi(async request => {
+    actor.groups = ['operators', 'review-team'];
     await delegate(request);
+    actor.role = 'admin';
     const options = await request('/api/operator-management/options');
     expect(options.status).toBe(200);
-    expect(await options.json()).toMatchObject({ users: ['manager@example.test', 'invoker@example.test'],
-      groups: [{ issuer: 'https://issuer.example.test', id: 'review-team' }],
+    expect(await options.json()).toMatchObject({ users: ['invoker@example.test', 'manager@example.test'],
+      groups: [{ issuer: 'https://issuer.example.test', id: 'review-team' }], unresolvedGroups: ['Display Team', 'unverified-id'],
       capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'],
       ceiling: { capabilities: [], resourceProfileIds: [] } });
-    actor.role = 'user'; actor.email = 'outsider@example.test'; actor.groups = [];
+    actor.role = 'user';
+    const managerOptions = await request('/api/operator-management/options');
+    expect(managerOptions.status).toBe(200);
+    expect(await managerOptions.json()).toMatchObject({ users: ['manager@example.test'] });
+    actor.email = 'outsider@example.test'; actor.groups = [];
     expect((await request('/api/operator-management/options')).status).toBe(404);
   }, async kv => {
     await kv.put('user:manager@example.test', JSON.stringify({ role: 'user' }));
     await kv.put('user:invoker@example.test', JSON.stringify({ role: 'user' }));
-    await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team');
+    await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team,Display Team,unverified-id');
+  }));
+  it('projects package-authored purpose with discovered releases without exposing a credential', async () => withApi(async request => {
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', registration);
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    expect((await request(`/api/operator-management/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision })).status).toBe(200);
+    const detail = await request(`/api/operator-management/operators/${operator.id}`);
+    expect(detail.status).toBe(200);
+    const data = await detail.json() as { releases: Array<{ description?: string; name?: string }> };
+    expect(data.releases[0]?.description).toEqual(expect.any(String));
+    expect(data.releases[0]?.description?.length).toBeGreaterThan(8);
+    const catalog = await request('/api/operator-management/operators');
+    expect((await catalog.json() as { items: Array<{ description?: string }> }).items[0]?.description).toBe(data.releases[0]?.description);
+    expect(JSON.stringify(data)).not.toContain(registration.githubPat);
+  }));
+  it('registers without a realm choice and keeps the legacy internal storage value', async () => withApi(async request => {
+    await delegate(request);
+    const input = { repositoryUrl: registration.repositoryUrl, githubPat: registration.githubPat,
+      profile: registration.profile, managers: registration.managers, invokers: registration.invokers, policy: registration.policy };
+    const result = await request('/api/operator-management/operators', 'POST', input);
+    expect(result.status).toBe(201);
+    expect(await result.json()).toMatchObject({ realm: 'internal' });
   }));
   it('binds target Action trust only through current platform-admin controls and retains it on unrelated edits', async () => withApi(async request => {
     const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
