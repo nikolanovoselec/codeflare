@@ -120,7 +120,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.getByRole('heading', { name: 'Installations' })).toBeInTheDocument();
     const installation = screen.getByRole('article', { name: 'Integration installation' });
     expect(within(installation).getByText('Enabled for new activities')).toBeInTheDocument();
-    expect(within(installation).getByText(/v0\.1\.2/)).toBeInTheDocument();
+    expect(within(installation).getByText('Pinned release: v0.1.2')).toBeInTheDocument();
     expect(within(installation).getByRole('button', { name: 'Disable Integration' })).toBeInTheDocument();
   });
 
