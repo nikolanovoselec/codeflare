@@ -1420,6 +1420,8 @@ export class OperatorActivity extends Agent {
     denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null;
     readDenial: 'policy' | 'unclassified-403' | 'files-policy' | 'files-unclassified-403'
       | 'checks-policy' | 'checks-unclassified-403' | null;
+    protectedReceipts?: Array<{ resource: 'inference' | 'pull-request' | 'files' | 'checks';
+      phase: DispatcherOperationRecord['phase']; status: number | null }>;
   } | null> {
     const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
@@ -1442,9 +1444,17 @@ export class OperatorActivity extends Agent {
       let denialCode: 'ROUTE_NOT_ELIGIBLE' | 'REASONING_NOT_ELIGIBLE' | 'OPERATOR_CAPABILITY_DENIED' | null = null;
       let readDenial: 'policy' | 'unclassified-403' | 'files-policy' | 'files-unclassified-403'
         | 'checks-policy' | 'checks-unclassified-403' | null = null;
+      const protectedReceipts: Array<{ resource: 'inference' | 'pull-request' | 'files' | 'checks';
+        phase: DispatcherOperationRecord['phase']; status: number | null }> = [];
+      let hasUnknownReceipt = false;
       for (const [id, operation] of Object.entries(operations)) {
-        if (operation.generation !== lease.generation || operation.phase !== 'completed') continue;
-        const saved = await this.ctx.storage.get<{ status: number; body: string }>(`dispatcher:response:${id}`);
+        if (operation.generation !== lease.generation) continue;
+        const resource = id.endsWith('-pull-request') ? 'pull-request' : id.endsWith('-files') ? 'files'
+          : id.endsWith('-checks') ? 'checks' : id.includes('-inference-') ? 'inference' : null;
+        if (operation.phase === 'unknown') hasUnknownReceipt = true;
+        const saved = operation.phase === 'completed'
+          ? await this.ctx.storage.get<{ status: number; body: string }>(`dispatcher:response:${id}`) : null;
+        if (resource) protectedReceipts.push({ resource, phase: operation.phase, status: saved?.status ?? null });
         if (saved?.status !== 403) continue;
         // The pinned child names each read by resource. This only classifies
         // an existing receipt; it does not authorize or retry an operation.
@@ -1462,7 +1472,8 @@ export class OperatorActivity extends Agent {
           }
         } catch { /* An unrecognized response is never reflected. */ }
       }
-      return { reason, operationCount: Object.keys(operations).length, denialCode, readDenial };
+      return { reason, operationCount: Object.keys(operations).length, denialCode, readDenial,
+        ...(hasUnknownReceipt ? { protectedReceipts } : {}) };
     } catch { return null; }
   }
 
