@@ -64,6 +64,19 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(JSON.stringify(prepareAuthorized.mock.calls[0])).not.toContain('private.jwt');
   });
 
+  it('rejects the retired Gate 1 fixture before Registry or Activity I/O', async () => {
+    const resolveForExecution = vi.fn();
+    const prepareAuthorized = vi.fn();
+    const env = { ...encryption,
+      OPERATOR_REGISTRY: { getByName: () => ({ resolveForExecution }) },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized }) },
+    } as unknown as Env;
+    await expect(prepareOperatorActivity({ operatorId: 'codeflare-gate1-fixture', invocation: {} },
+      { human: claims, accessJwt: 'private.jwt' }, env)).rejects.toMatchObject({ statusCode: 404 });
+    expect(resolveForExecution).not.toHaveBeenCalled();
+    expect(prepareAuthorized).not.toHaveBeenCalled();
+  });
+
   it('binds a Gate 1 invocation to the server-generated activity identity before persistence', async () => {
     const prepareAuthorized = vi.fn(async (_intent: unknown, _context: unknown, _invocationJson: string) =>
       ({ ok: true, phase: 'prepared' }));
