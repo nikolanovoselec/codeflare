@@ -31,6 +31,7 @@ const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperat
     messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
     tool_choice: z.json().optional(), max_tokens: z.number().int().min(1).max(8192).optional(),
     temperature: z.number().min(0).max(2).optional(), stream: z.boolean().optional(),
+    stream_options: z.strictObject({ include_usage: z.literal(true) }).optional(),
   }) });
 
 export type DispatcherOperation = { operationId: string; path: string; body: unknown };
