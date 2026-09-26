@@ -13,11 +13,11 @@ type Assessment = NativeDelivery & {
 type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
-  productionCalls: Array<{ path: string; resource?: string }>;
+  productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
-    settlements: Array<{ submissionId: string; outcome: string; error?: { meta?: { reason?: string } } }> } | null;
+    settlements: Array<{ submissionId: string; outcome: string }> } | null;
 };
 type Harness = {
   fetch(path: string, init?: RequestInit): Promise<Response>;
@@ -191,10 +191,14 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         value = await snapshot(id);
         settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
       }
-      const reason = settlement?.error?.meta?.reason ?? '';
-      const failure = reason.includes('Parent inference denied: 409') ? 'inference-conflict'
-        : reason.includes('Parent read denied: 403') ? 'read-denied' : 'other';
-      expect({ outcome: settlement?.outcome ?? 'missing', failure }).toEqual({ outcome: 'failed', failure: 'read-denied' });
+      // Flue can finish a model turn after a failed tool, but denied evidence
+      // cannot become an assessment or an inference-identity conflict.
+      expect(settlement).toBeDefined();
+      expect(value.productionCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: '/v1/dispatcher/github/read', resource: 'pull-request', status: 403 }),
+        expect.objectContaining({ path: '/v1/dispatcher/inference', modelTurn: 'after-tool', status: 200 }),
+      ]));
+      expect(results(value)).toEqual([]);
       expect(value.external).toEqual([]);
     });
 
