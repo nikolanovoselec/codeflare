@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 
 const getSetupStatus = vi.fn();
 const getUser = vi.fn();
@@ -73,6 +73,55 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.getByRole('button', { name: /register operator/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: new RegExp(`manage ${longName}`, 'i') })).toBeInTheDocument();
     expect(screen.queryByTestId('workspace')).not.toBeInTheDocument();
+  });
+
+  it('uses Enterprise Administration navigation for admins while preserving manager access', async () => {
+    getUser.mockResolvedValue({ email: 'admin@example.test', authenticated: true, bucketName: 'operators', role: 'admin',
+      enterpriseMode: true, operatorManagementEligible: true, saasMode: false, onboardingComplete: true });
+    render(() => <App />);
+
+    const navigation = await screen.findByRole('navigation', { name: 'Administration' });
+    expect(within(navigation).getByRole('link', { name: 'Operators' })).toHaveAttribute('aria-current', 'page');
+    expect(within(navigation).getByRole('link', { name: 'Environment' })).toHaveAttribute('href', '/admin/environment');
+    expect(screen.getByRole('button', { name: 'Open administration navigation' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Operator catalog' })).toBeInTheDocument();
+  });
+
+  it('makes the selected operator, pinned release and installation decision path navigable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url, 'https://operators.example.test').pathname;
+      if (path === '/api/operator-management/operators') return response({ items: [
+        { id: 'operator-1', name: 'Review operator', profile: 'conductor', realm: 'internal', enabled: true },
+      ], cursor: null });
+      if (path === '/api/operator-management/operators/operator-1') return response({
+        operator: { id: 'operator-1', name: 'Review operator', profile: 'conductor', realm: 'internal',
+          enabled: true, revision: 3, repositoryId: 42, repositoryUrl: 'https://github.com/acme/review',
+          managers: { users: [], groups: [] }, invokers: { users: [], groups: [] },
+          policy: { capabilities: [], resourceProfileId: null },
+          source: { kind: 'github-release', repositoryUrl: 'https://github.com/acme/review',
+            repositoryId: 42, credentialConfigured: true, approvedWorkflow: { id: 7, ref: 'refs/heads/develop' } } },
+        releases: [{ id: 'release-1', operatorId: 'operator-1', githubReleaseId: 17,
+          sourceCommit: 'a'.repeat(40), manifestDigest: 'b'.repeat(64), bundleDigest: 'c'.repeat(64),
+          interfaceVersion: 1, approved: true, version: 'v0.1.2' }],
+        installations: [{ id: 'installation-1', operatorId: 'operator-1', name: 'Integration', releaseId: 'release-1',
+          revision: 2, enabled: true, policy: { capabilities: [], resourceProfileId: null } }],
+        grants: { managers: { users: [], groups: [] }, invokers: { users: [], groups: [] } },
+      });
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Review operator' }));
+
+    const overview = await screen.findByRole('region', { name: 'Operator overview' });
+    expect(within(overview).getByText('Review operator')).toBeInTheDocument();
+    const sections = screen.getByRole('navigation', { name: 'Operator sections' });
+    expect(within(sections).getByRole('link', { name: 'Installations' })).toHaveAttribute('href', '#operator-installations');
+    expect(screen.getByRole('heading', { name: 'Installations' })).toBeInTheDocument();
+    const installation = screen.getByRole('article', { name: 'Integration installation' });
+    expect(within(installation).getByText('Enabled for new activities')).toBeInTheDocument();
+    expect(within(installation).getByText(/v0\.1\.2/)).toBeInTheDocument();
+    expect(within(installation).getByRole('button', { name: 'Disable Integration' })).toBeInTheDocument();
   });
 
   it('switches views on ordinary navigation without changing the current tab on modified clicks', async () => {
