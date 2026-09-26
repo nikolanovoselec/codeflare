@@ -10,6 +10,7 @@
 }
 .operator-management.is-embedded { position: static; overflow: visible; min-width: 0; }
 .operator-management .admin-page { max-width: 1200px; }
+.operator-management [hidden] { display: none !important; }
 .operator-management h1:focus { outline: none; }
 .operator-management :is(a, button, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--color-accent);
@@ -17,6 +18,7 @@
 }
 .operator-management :is(h1, h2, h3, p, strong, dd, a, button, output) { overflow-wrap: anywhere; }
 .operator-management :is(input, select, textarea) { width: 100%; min-width: 0; max-width: 100%; }
+.operator-management input[type='checkbox'] { width: auto; min-width: 1rem; }
 .operator-management :is(button, a) { min-height: 40px; }
 .operator-management summary { min-height: 44px; padding-block: var(--space-3); cursor: pointer; }
 .operator-management button { white-space: normal; }
@@ -46,7 +48,7 @@
 .operator-management .admin-routing-intro { margin-top: var(--space-4); }
 .operator-install-setup { margin-block: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); }
 .operator-install-setup > h3 { margin-top: 0; }
-.operator-filters { display: grid; grid-template-columns: minmax(160px, 2fr) repeat(3, minmax(100px, 1fr)) auto; align-items: end; gap: var(--space-3); }
+.operator-filters { display: grid; grid-template-columns: minmax(160px, 2fr) repeat(2, minmax(100px, 1fr)) auto; align-items: end; gap: var(--space-3); }
 .operator-list { list-style: none; padding: 0; margin: 0; }
 .operator-list > li { padding-block: var(--space-4); border-bottom: 1px solid var(--color-border-subtle); }
 .operator-list .admin-area-row { gap: var(--space-4); }

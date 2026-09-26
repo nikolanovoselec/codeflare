@@ -158,7 +158,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
       <Show when={error()}><div class="operator-message" role="alert" aria-atomic="true"><p>{error()}</p>
         <button class="admin-secondary-button" disabled={busy()} onClick={() => void refresh()}>Refresh current state</button></div></Show>
       <Show when={notice()}><p role="status" class="operator-message">{notice()}</p></Show>
-      <Show when={choicesError()}><p role="alert" class="operator-message">Identity choices and limits are unavailable. <a href="/admin/environment/access">Manage identities in Environment</a> or <button type="button" class="admin-secondary-button" onClick={() => void loadChoices()}>Retry choices</button>.</p></Show>
+      <Show when={choicesError() && !catalogError()}><p role="alert" class="operator-message">Identity choices and limits are unavailable. <a href="/admin/environment/access">Manage identities in Environment</a> or <button type="button" class="admin-secondary-button" onClick={() => void loadChoices()}>Retry choices</button>.</p></Show>
       <Show when={busy()}><p role="status">Saving and reconciling current state…</p></Show>
       <Show when={!selected()} fallback={<>
         <button class="admin-secondary-button" disabled={busy()} onClick={() => navigate('')}>Back to catalog</button>
@@ -283,7 +283,7 @@ const PolicyFields: Component<{ title: string; value: api.ManagementPolicy; capa
     <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => props.onChange({ ...props.value,
       capabilities: props.value.capabilities.filter(value => value !== item) })} /><span>{item} · unavailable — deselect to remove</span></label>
   }</For></div></div>
-    <label class="admin-form-field"><span>{props.title} resource profile</span><select value={props.value.resourceProfileId ?? ''} onChange={event => props.onChange({ ...props.value, resourceProfileId: event.currentTarget.value || null })}>
+    <label class="admin-form-field"><span>{props.title} resource profile</span><select aria-label={`${props.title} resource profile`} value={props.value.resourceProfileId ?? ''} onChange={event => props.onChange({ ...props.value, resourceProfileId: event.currentTarget.value || null })}>
       <option value="">None</option><For each={props.profiles}>{id => <option value={id}>{id}</option>}</For>
       <Show when={props.value.resourceProfileId && !props.profiles.includes(props.value.resourceProfileId)}><option value={props.value.resourceProfileId ?? ''} disabled>{props.value.resourceProfileId} · unavailable</option></Show>
     </select><small>Predefined resource restrictions. An installation cannot exceed its operator's limit.</small></label></div>
@@ -321,6 +321,10 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const otherReleases = () => props.detail.releases.filter(item => item.id !== installation()?.releaseId);
   const selectedRelease = () => props.detail.releases.find(item => item.id === releaseId());
   const canChoose = () => !!props.choices && !props.locked;
+  function openSection(next: 'installed' | 'versions' | 'permissions') {
+    setSection(next); setReleaseId(''); setInstallOpen(false);
+    queueMicrotask(() => document.getElementById(`operator-${next}`)?.scrollIntoView?.({ block: 'start' }));
+  }
   async function installSelected() {
     const chosen = selectedRelease();
     if (!chosen || !canChoose()) return;
@@ -346,13 +350,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <p>Codeflare runs the selected, approved release only for an authorized person. Each activity keeps the version selected when it started; results remain in My activity.</p></div>
     </section>
     <nav class="admin-routing-nav operator-section-nav" aria-label="Operator sections">
-      <button type="button" aria-pressed={section() === 'installed'} onClick={() => { setSection('installed'); setReleaseId(''); }}>Installed version</button>
-      <button type="button" aria-pressed={section() === 'versions'} onClick={() => { setSection('versions'); setReleaseId(''); setInstallOpen(false); }}>Versions &amp; updates</button>
-      <button type="button" aria-pressed={section() === 'permissions'} onClick={() => { setSection('permissions'); setReleaseId(''); setInstallOpen(false); }}>Permissions</button>
+      <button type="button" aria-pressed={section() === 'installed'} onClick={() => openSection('installed')}>Installed version</button>
+      <button type="button" aria-pressed={section() === 'versions'} onClick={() => openSection('versions')}>Versions &amp; updates</button>
+      <button type="button" aria-pressed={section() === 'permissions'} onClick={() => openSection('permissions')}>Permissions</button>
     </nav>
-    <section hidden={section() !== 'installed'} class="admin-panel operator-panel admin-routing-pane" aria-label="Installed version">
+    <section id="operator-installed" hidden={section() !== 'installed'} class="admin-panel operator-panel admin-routing-pane" aria-label="Installed version">
       <h2>Installed version</h2>
-      <Show when={props.detail.installations.length > 1}><label class="admin-form-field"><span>Installed configuration</span><select value={installation()?.id} onChange={event => setInstallationId(event.currentTarget.value)}>
+      <Show when={props.detail.installations.length > 1}><label class="admin-form-field"><span>Installed configuration</span><select aria-label="Installed configuration" value={installation()?.id} onChange={event => setInstallationId(event.currentTarget.value)}>
         <For each={props.detail.installations}>{item => <option value={item.id}>{item.name} · {item.releaseId ? 'version installed' : 'no version installed'}</option>}</For>
       </select><small>Each configuration has its own pinned release and enablement.</small></label></Show>
       <Show when={currentRelease()} fallback={<p>No version installed</p>}>{release => <>
@@ -370,7 +374,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       <Show when={!currentRelease()}><button type="button" class="admin-primary-button" disabled={props.locked || !props.detail.releases.length} onClick={() => setInstallOpen(true)}>Install operator</button></Show>
       <Show when={installOpen() && !currentRelease()}><div class="operator-install-setup"><h3>Choose an exact version</h3>
         <p>Installation pins this verified release but does not enable new runs. The operator’s existing limits apply; review them in Permissions.</p>
-        <label class="admin-form-field"><span>Version to install</span><select value={releaseId()} onChange={event => setReleaseId(event.currentTarget.value)}><option value="">Select a verified release</option>
+        <label class="admin-form-field"><span>Version to install</span><select aria-label="Version to install" value={releaseId()} onChange={event => setReleaseId(event.currentTarget.value)}><option value="">Select a verified release</option>
           <For each={props.detail.releases}>{item => <option value={item.id}>{releaseLabel(item)} · {item.approved ? 'approved' : 'requires approval'}</option>}</For></select></label>
         <Show when={selectedRelease()}>{item => <p>You selected {releaseLabel(item())}. Existing activities keep their original version. Enabling new runs is a separate step.</p>}</Show>
         <div class="operator-actions"><button type="button" class="admin-primary-button" disabled={!canChoose() || !releaseId()} onClick={() => void installSelected()}>Install selected version</button>
@@ -402,7 +406,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         </fieldset></form>}</Show>
       </details>
     </section>
-    <section hidden={section() !== 'versions'} class="admin-panel operator-panel admin-routing-pane" aria-label="Versions and updates">
+    <section id="operator-versions" hidden={section() !== 'versions'} class="admin-panel operator-panel admin-routing-pane" aria-label="Versions and updates">
       <div class="operator-section-heading"><h2>Versions &amp; updates</h2><button class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
         () => api.refreshManagedReleases(operator().id, operator().revision), 'Release discovery refreshed; no version changed.')}>Refresh releases</button></div>
       <p>Other available versions include previous versions that can be selected for rollback. GitHub release numbers identify releases, but do not establish which is newer.</p>
@@ -412,13 +416,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <p>{item.approved ? 'Approved' : 'Requires approval'} · Core {item.coreVersion ?? 'not reported'} · Intent {item.intentVersion ?? 'not reported'}</p>
       </li>}</For></ul></Show>
       <Show when={installation()?.releaseId && otherReleases().length}><div class="operator-install-setup"><h3>Change installed version</h3>
-        <label class="admin-form-field"><span>Exact version</span><select value={releaseId()} onChange={event => setReleaseId(event.currentTarget.value)}><option value="">Select a version</option>
+        <label class="admin-form-field"><span>Exact version</span><select aria-label="Exact version" value={releaseId()} onChange={event => setReleaseId(event.currentTarget.value)}><option value="">Select a version</option>
           <For each={otherReleases()}>{item => <option value={item.id}>{releaseLabel(item)}</option>}</For></select></label>
         <Show when={selectedRelease()}>{item => <p>Switch {installation()?.name} to {releaseLabel(item())}? New runs will remain disabled until you enable them; running activities keep their pinned version.</p>}</Show>
         <button type="button" class="admin-primary-button" disabled={!canChoose() || !releaseId()} onClick={() => void installSelected()}>Install selected version</button>
       </div></Show>
     </section>
-    <section hidden={section() !== 'permissions'} class="admin-panel operator-panel admin-routing-pane" aria-label="Access grants">
+    <section id="operator-permissions" hidden={section() !== 'permissions'} class="admin-panel operator-panel admin-routing-pane" aria-label="Access grants">
       <h2>Permissions</h2><p>Choose from existing Environment identities. Managing an operator never grants permission to run it or view another person’s activities.</p>
       <form onSubmit={event => { event.preventDefault(); void props.perform(() => api.saveOperatorGrants(operator().id, {
         managers: managers(), invokers: invokers(), revision: operator().revision,

@@ -383,7 +383,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     }));
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Permissions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
     const grants = await screen.findByRole('region', { name: /access grants/i });
     expect(within(grants).getByText(/missing@example.test.*unavailable/i)).toBeInTheDocument();
     expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeDisabled();

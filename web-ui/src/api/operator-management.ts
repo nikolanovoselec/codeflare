@@ -29,7 +29,6 @@ const detailSchema = z.object({ operator: operatorSchema, releases: z.array(rele
   installations: z.array(installationSchema), grants: z.object({ managers: grantSchema, invokers: grantSchema }) });
 export type ManagementSummary = z.infer<typeof summarySchema>;
 export type ManagementRelease = z.infer<typeof releaseSchema>;
-export type ManagementInstallation = z.infer<typeof installationSchema>;
 export type ManagementDetail = z.infer<typeof detailSchema>;
 export interface CatalogQuery { cursor?: string; query?: string; profile?: string; realm?: string; state?: string }
 export interface RegistrationInput { repositoryUrl: string; githubPat: string; profile: 'conductor' | 'dispatcher';
