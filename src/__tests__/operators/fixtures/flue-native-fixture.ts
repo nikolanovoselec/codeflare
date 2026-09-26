@@ -154,7 +154,8 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence) {
     try {
       if (!('mode' in delivery) && productionEvidence) await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
-      const response = await (await this.child()).fetch(new Request('https://flue.internal/dispatcher', {
+      const path = 'mode' in delivery ? '/dispatcher' : '/agents/Dispatcher/dispatcher';
+      const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: 'user', body: JSON.stringify(delivery) }),
       }));
@@ -177,7 +178,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     while (Date.now() < active.expiresAt) {
       const current = await this.ctx.storage.get<typeof active>('fixture:active-submission');
       if (!current || current.submissionId !== active.submissionId || current.generation !== active.generation) return;
-      const response = await (await this.child()).fetch(new Request('https://flue.internal/dispatcher'));
+      const path = await this.ctx.storage.get('fixture:production-evidence')
+        ? '/agents/Dispatcher/dispatcher' : '/dispatcher';
+      const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`));
       const conversation = await response.json() as { settlements?: Array<{ submissionId?: string; outcome?: string }> };
       const settlement = conversation.settlements?.find(item => item.submissionId === active.submissionId);
       if (settlement) {
@@ -206,7 +209,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     let failure: string | undefined;
     try {
       const child = await this.child();
-      const response = await child.fetch(new Request('https://flue.internal/dispatcher'));
+      const path = await this.ctx.storage.get('fixture:production-evidence')
+        ? '/agents/Dispatcher/dispatcher' : '/dispatcher';
+      const response = await child.fetch(new Request(`https://flue.internal${path}`));
       conversation = await response.json();
       facet = await child.fixtureSnapshot();
     } catch (error) { failure = String(error); }
