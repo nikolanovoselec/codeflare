@@ -6,6 +6,7 @@ import worker from '../../index';
 import type { Env } from '../../types';
 import { OperatorRegistry } from '../../operators/registry';
 import { createMockKV } from '../helpers/mock-kv';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
 
 const actor = vi.hoisted(() => ({ email: 'manager@example.test', role: 'user', groups: ['operators'] as string[] | undefined }));
@@ -34,11 +35,12 @@ const registration = {
   invokers: { users: ['invoker@example.test'], groups: [] },
   policy: { capabilities: [], resourceProfileId: null },
 };
-async function withApi(test: (request: RequestApi) => Promise<void>) {
+async function withApi(test: (request: RequestApi) => Promise<void>, configureKv?: (kv: ReturnType<typeof createMockKV>) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     const kv = createMockKV();
+    await configureKv?.(kv);
     const request: RequestApi = (path, method = 'GET', body, csrf = true) => worker.fetch(new Request(`https://operators.example.test${path}`, {
       method, headers: { 'content-type': 'application/json', 'cf-access-authenticated-user-email': actor.email,
         ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}), 'cf-access-jwt-assertion': 'verified-access-token' },
@@ -94,6 +96,21 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
+  it('projects only configured identity options and authorized limits to eligible managers, not Access credentials', async () => withApi(async request => {
+    await delegate(request);
+    const options = await request('/api/operator-management/options');
+    expect(options.status).toBe(200);
+    expect(await options.json()).toMatchObject({ users: ['manager@example.test', 'invoker@example.test'],
+      groups: [{ issuer: 'https://issuer.example.test', id: 'review-team' }],
+      capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'],
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    actor.role = 'user'; actor.email = 'outsider@example.test'; actor.groups = [];
+    expect((await request('/api/operator-management/options')).status).toBe(404);
+  }, async kv => {
+    await kv.put('user:manager@example.test', JSON.stringify({ role: 'user' }));
+    await kv.put('user:invoker@example.test', JSON.stringify({ role: 'user' }));
+    await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team');
+  }));
   it('binds target Action trust only through current platform-admin controls and retains it on unrelated edits', async () => withApi(async request => {
     const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
       workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',

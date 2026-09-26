@@ -185,4 +185,131 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/verification failed/i));
     expect(screen.getByRole('button', { name: /register operator/i })).toBeVisible();
   });
+
+  it('assigns only configured users, stable groups and supported limits without free-text identities', async () => {
+    const calls: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test', 'invoker@example.test'],
+        groups: [{ issuer: 'https://team.cloudflareaccess.com', id: 'review-team' }],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: ['review-profile'],
+        ceiling: { capabilities: ['inference', 'fetch'], resourceProfileIds: ['review-profile'] } });
+      if (path === '/api/operator-management/operators' && request.method === 'POST') {
+        calls.push(await request.json());
+        return response({ id: 'new-operator', revision: 1, profile: 'dispatcher', realm: 'internal',
+          enabled: false, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
+          managers: { users: [], groups: [] }, invokers: { users: [], groups: [] },
+          policy: { capabilities: [], resourceProfileId: null }, source: { kind: 'github-release',
+            repositoryUrl: 'https://github.com/acme/review', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } }, 201);
+      }
+      if (path === '/api/operator-management/operators') return response({ items: [], cursor: null });
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
+    const form = screen.getByRole('region', { name: 'Register operator' });
+    const invoker = within(form).getByRole('group', { name: /initial invoker grants/i });
+    expect(await within(invoker).findByRole('checkbox', { name: /invoker@example.test/i })).toBeInTheDocument();
+    expect(within(form).getAllByRole('checkbox', { name: /review-team/i })).toHaveLength(2);
+    expect(within(form).getByRole('checkbox', { name: /inference/i })).toBeInTheDocument();
+    expect(within(form).getByRole('combobox', { name: /operator resource profile/i })).toBeInTheDocument();
+    expect(within(form).queryByRole('textbox', { name: /manager users|manager groups|operator capabilities/i })).not.toBeInTheDocument();
+    fireEvent.click(within(invoker).getByRole('checkbox', { name: /invoker@example.test/i }));
+    fireEvent.click(within(invoker).getByRole('checkbox', { name: /review-team/i }));
+    fireEvent.click(within(form).getByRole('checkbox', { name: /inference/i }));
+    fireEvent.change(within(form).getByRole('combobox', { name: /operator resource profile/i }), { target: { value: 'review-profile' } });
+    fireEvent.input(within(form).getByRole('textbox', { name: 'GitHub repository URL' }), { target: { value: 'https://github.com/acme/review' } });
+    fireEvent.input(within(form).getByLabelText('Repository-read PAT'), { target: { value: 'opaque-token' } });
+    fireEvent.submit(within(form).getByRole('button', { name: 'Register disabled operator' }).closest('form')!);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({ invokers: { users: ['invoker@example.test'],
+      groups: [{ issuer: 'https://team.cloudflareaccess.com', id: 'review-team' }] },
+      policy: { capabilities: ['inference'], resourceProfileId: 'review-profile' } });
+  });
+
+  it('keeps persisted configuration when saving restrictions, without an unused JSON editor', async () => {
+    const saves: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path === '/api/operator-management/options') return response({ users: [], groups: [],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
+        ceiling: { capabilities: ['inference'], resourceProfileIds: [] } });
+      if (path === '/api/operator-management/operators') return response({ items: [
+        { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false }], cursor: null });
+      if (path === '/api/operator-management/operators/operator-1') return response({
+        operator: { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false,
+          revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
+          managers: { users: [], groups: [] }, invokers: { users: [], groups: [] }, policy: { capabilities: ['inference'], resourceProfileId: null },
+          source: { kind: 'github-release', repositoryUrl: 'https://github.com/acme/review', repositoryId: 1,
+            credentialConfigured: true, approvedWorkflow: null } }, releases: [],
+        installations: [{ id: 'install-1', operatorId: 'operator-1', name: 'Runner', releaseId: null, revision: 1,
+          enabled: false, policy: { capabilities: [], resourceProfileId: null }, configuration: { existing: 'keep' } }],
+        grants: { managers: { users: [], groups: [] }, invokers: { users: [], groups: [] } },
+      });
+      if (path === '/api/operator-management/installations/install-1/configure') {
+        saves.push(await request.json());
+        return response({ id: 'install-1', operatorId: 'operator-1', name: 'Runner', releaseId: null, revision: 2,
+          enabled: false, policy: { capabilities: ['inference'], resourceProfileId: null }, configuration: { existing: 'keep' } });
+      }
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
+    const installation = await screen.findByRole('article', { name: 'Runner installation' });
+    fireEvent.click(within(installation).getByText('Configure Runner'));
+    expect(within(installation).queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
+    fireEvent.click(await within(installation).findByRole('checkbox', { name: /inference/i }));
+    fireEvent.click(within(installation).getByRole('button', { name: /save.*runner/i }));
+    await waitFor(() => expect(saves).toHaveLength(1));
+    expect(saves[0]).toMatchObject({ policy: { capabilities: ['inference'], resourceProfileId: null },
+      configuration: { existing: 'keep' } });
+  });
+
+  it('makes an unavailable saved grant visible and requires explicit removal before saving', async () => {
+    const saves: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path === '/api/operator-management/options') return response({ users: ['manager@example.test'], groups: [],
+        capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
+        ceiling: { capabilities: [], resourceProfileIds: [] } });
+      if (path === '/api/operator-management/operators') return response({ items: [
+        { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false }], cursor: null });
+      if (path === '/api/operator-management/operators/operator-1') return response({
+        operator: { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false,
+          revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
+          managers: { users: ['missing@example.test'], groups: [] }, invokers: { users: [], groups: [] },
+          policy: { capabilities: [], resourceProfileId: null }, source: { kind: 'github-release',
+            repositoryUrl: 'https://github.com/acme/review', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } },
+        releases: [], installations: [], grants: { managers: { users: ['missing@example.test'], groups: [] },
+          invokers: { users: [], groups: [] } },
+      });
+      if (path === '/api/operator-management/operators/operator-1/grants') { saves.push(await request.json()); return response({}); }
+      return response({ error: 'Not found' }, 404);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
+    const grants = await screen.findByRole('region', { name: /access grants/i });
+    expect(within(grants).getByText(/missing@example.test.*unavailable/i)).toBeInTheDocument();
+    expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeDisabled();
+    fireEvent.click(within(grants).getByRole('checkbox', { name: /missing@example.test/i }));
+    expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeEnabled();
+    fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
+    await waitFor(() => expect(saves).toHaveLength(1));
+    expect(saves[0]).toMatchObject({ managers: { users: [], groups: [] } });
+  });
+
+  it('does not offer a grant mutation when configured identity choices are unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+      if (path === '/api/operator-management/operators') return response({ items: [], cursor: null });
+      return response({ error: 'Unavailable' }, 503);
+    }));
+    render(() => <App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
+    expect(await screen.findByText(/identity choices.*unavailable/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Register disabled operator' })).toBeDisabled();
+  });
 });
