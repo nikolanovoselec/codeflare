@@ -101,8 +101,9 @@ export function createAuthenticatedHistoryTransport(input: {
   };
   const associated = async (head: string) => {
     if (!SHA.test(head)) throw Error('Invalid head');
-    const pulls = await get(`${root}/commits/${head}/pulls`) as Array<{ number?: number; head?: { sha?: string } }>;
-    if (!Array.isArray(pulls) || !pulls.some(pr => pr.number === input.pullRequest && pr.head?.sha === head))
+    const pulls = await get(`${root}/commits/${head}/pulls`) as Array<{ number?: number }>;
+    // This endpoint associates the commit with the PR, but its PR head is mutable after a later push.
+    if (!Array.isArray(pulls) || !pulls.some(pr => pr.number === input.pullRequest))
       throw Error('Foreign head');
   };
   const run = async (id: number) => {
@@ -158,8 +159,10 @@ export function createAuthenticatedHistoryTransport(input: {
           if (redirect.status !== 302 || !location) throw Error('Missing signed archive');
           const signed = new URL(location);
           if (signed.protocol !== 'https:' || signed.username || signed.password
-            || !/^(?:[a-z0-9-]+\.)*actions\.githubusercontent\.com$/.test(signed.hostname))
-            throw Error('Invalid signed archive origin');
+            || !/^(?:[a-z0-9-]+\.)*actions\.githubusercontent\.com$/.test(signed.hostname)
+            && !['productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
+              'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net']
+              .includes(signed.hostname)) throw Error('Invalid signed archive origin');
           await current();
           const signedRequest = new Request(signed.href, { redirect: 'manual', signal: AbortSignal.timeout(5_000) });
           const response = await input.fetch(signedRequest);

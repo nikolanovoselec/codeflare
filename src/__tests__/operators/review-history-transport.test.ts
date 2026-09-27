@@ -46,7 +46,11 @@ function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: bo
       if (url.pathname === '/repos/owner/repo/pulls/34') return Response.json({ number: 34, state: 'open',
         head: { sha: currentHead, repo: { id: 138 } }, base: { sha: 'c'.repeat(40), repo: { id: 138 } } });
       if (url.pathname === `/repos/owner/repo/commits/${priorHead}/pulls`)
-        return Response.json([{ number: 34, state: 'open', head: { sha: priorHead } }]);
+        return Response.json([{ number: 34, state: 'open', head: { sha: currentHead } }]);
+      if (url.pathname === `/repos/owner/repo/commits/${priorHead}/check-runs`)
+        return Response.json({ check_runs: [{ id: 99, head_sha: priorHead }] });
+      if (url.pathname === `/repos/owner/repo/compare/${'c'.repeat(40)}...${priorHead}`)
+        return Response.json({ status: 'ahead', base_commit: { sha: 'c'.repeat(40) } });
       if (url.pathname === '/repos/owner/repo/issues/34/comments') {
         if (options.missing && Number(url.searchParams.get('page')) === 2) return Response.json({}, { status: 503 });
         return Response.json(Array.from({ length: options.missing ? 100 : 1 }, (_, id) => ({ id: id + 1,
@@ -104,6 +108,15 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
     expect(Buffer.from(result.value.bytes, 'base64')).toEqual(Buffer.from(stored));
   });
 
+  it('reads a signed GitHub Blob artifact without forwarding the parent bearer', async () => {
+    const result = await fixture({ redirect: 'https://productionresultssa1.blob.core.windows.net/artifacts/review.zip?sig=abc' })
+      .transport.read({ schemaVersion: 1, operation: 'artifact', id: 701 });
+    expect(result).toMatchObject({ complete: true, value: { id: 701, runId: 7 } });
+    expect(Buffer.from(result.value.bytes, 'base64')).toEqual(Buffer.from(stored));
+    expect(await fixture({ redirect: 'https://untrusted.blob.core.windows.net/artifacts/review.zip' })
+      .transport.read({ schemaVersion: 1, operation: 'artifact', id: 701 })).toMatchObject({ complete: false });
+  });
+
   it('reads deflated, descriptor-backed artifacts from a protected-base run distinct from the PR head', async () => {
     const result = await fixture({ compressed: true }).transport.read({ schemaVersion: 1,
       operation: 'artifact', id: 701 });
@@ -111,9 +124,13 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
     expect(Buffer.from(result.value.bytes, 'base64')).toEqual(Buffer.from(stored));
   });
 
-  it('binds a historical check to an associated prior PR head instead of requiring the current head', async () => {
+  it('binds historical checks to a prior commit associated with the PR after its current head changes', async () => {
     expect(await fixture().transport.read({ schemaVersion: 1, operation: 'check', id: 99 }))
       .toMatchObject({ complete: true, value: { id: 99, head_sha: priorHead } });
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'checks-page', head: priorHead, page: 1 }))
+      .toMatchObject({ complete: true, value: { check_runs: [{ id: 99, head_sha: priorHead }] } });
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'merge-base', base: 'c'.repeat(40), head: priorHead }))
+      .toMatchObject({ complete: true, value: { status: 'ahead' } });
     expect(await fixture({ foreignCheck: true }).transport.read({ schemaVersion: 1, operation: 'check', id: 99 }))
       .toMatchObject({ complete: false });
   });
