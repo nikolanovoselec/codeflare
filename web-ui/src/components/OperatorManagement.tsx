@@ -183,11 +183,15 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   };
   const showSection = (event: MouseEvent, activity: boolean) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
     cancelSearch(); setActivityView(activity); setSelected(''); setInvocationId(''); setRegistering(false); setPat('');
     if (!activity) {
       setQuery({ query: '', cursor: '', profile: '', state: '' });
       setSearch('');
     }
+    const url = new URL(window.location.href);
+    url.search = activity ? '?view=activity' : '';
+    window.history.pushState({}, '', url);
   };
 
   return <div class="operator-management" classList={{ 'is-embedded': props.isAdmin }} role={props.isAdmin ? undefined : 'main'}>
@@ -196,7 +200,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
         <p>Choose a verified operator. Installing a version does not enable new runs.</p></div>
         <nav class="operator-actions" aria-label="Operators navigation"><Show when={!props.isAdmin}><a href="/app">Back to workspace</a></Show><a href="/operators" aria-current={!activityView() ? 'page' : undefined} onClick={event => showSection(event, false)}>Catalog</a><a href="/operators?view=activity" aria-current={activityView() ? 'page' : undefined} onClick={event => showSection(event, true)}>My activity</a></nav>
       </header>
-      <Show when={!activityView()} fallback={<OperatorManagementActivity installationId={invocationId() || undefined} />}>
+      <Show when={!activityView()} fallback={<OperatorManagementActivity installationId={invocationId() || undefined} onBackToCatalog={event => showSection(event, false)} />}>
       {feedback('')}
       <Show when={choicesError() && !catalogError()}><p role="alert" class="operator-message">Identity choices and limits are unavailable. <a href="/admin/environment/access">Manage identities in Environment</a> or <button type="button" class="admin-secondary-button" onClick={() => void loadChoices()}>Retry choices</button>.</p></Show>
       <Show when={!selected()} fallback={<>
