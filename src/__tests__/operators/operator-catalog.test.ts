@@ -105,7 +105,9 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const promoted = await request(`/installations/${active.id}/promote`, 'POST', { releaseId: release.id, revision: active.revision });
     expect(promoted.status).toBe(200);
     const pinned = await promoted.json() as { revision: number };
-    expect((await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: pinned.revision })).status).toBe(200);
+    const enabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: pinned.revision });
+    expect(enabled.status).toBe(200);
+    const enabledRevision = (await enabled.json() as { revision: number }).revision;
     const sourceRow = ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=?', release.id).one();
     const verifiedPurpose = (JSON.parse(sourceRow.manifest) as { description: string }).description;
     ctx.storage.sql.exec('INSERT INTO operator_releases VALUES(?,?,?,?)', 'zz-other-release', operator.id,
@@ -115,12 +117,23 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id, installationCount: 2,
       installedGithubReleaseId: release.githubReleaseId, description: verifiedPurpose })] });
+    // Simulate a catalog written before package-authored metadata was searchable.
+    ctx.storage.sql.exec('UPDATE operator_catalog SET search=? WHERE id=?', `${registration.repositoryUrl} ${operator.id}`, operator.id);
+    ctx.storage.sql.exec('DELETE FROM operator_search WHERE id=?', operator.id);
+    ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS operator_search_schema (version INTEGER PRIMARY KEY)');
+    ctx.storage.sql.exec('DELETE FROM operator_search_schema');
     for (const term of ['Review operator', 'Review fixture']) {
       const results = await request(`/operators?query=${encodeURIComponent(term)}`);
       expect(results.status).toBe(200);
       expect(await results.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id })], cursor: null });
     }
     expect(await (await request('/operators?query=Wrong%20version')).json()).toMatchObject({ items: [], cursor: null });
+    identity.email = 'ungranted@example.test';
+    expect((await request('/operators?query=Review%20operator')).status).toBe(404);
+    identity.email = 'manager@example.test';
+    const disabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: false, revision: enabledRevision });
+    expect(disabled.status).toBe(200);
+    expect(await (await request('/operators?query=Review%20operator')).json()).toMatchObject({ items: [], cursor: null });
   }));
 
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {

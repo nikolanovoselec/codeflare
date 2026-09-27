@@ -483,6 +483,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       CREATE INDEX IF NOT EXISTS operator_catalog_filters ON operator_catalog(profile, realm, enabled, id);
       CREATE TABLE IF NOT EXISTS operator_acl (principal TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(principal,id));
       CREATE TABLE IF NOT EXISTS operator_search (gram TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(gram,id));
+      CREATE TABLE IF NOT EXISTS operator_search_schema (version INTEGER PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS operator_releases (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, data TEXT NOT NULL, manifest TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS operator_release_owner ON operator_releases(operator_id,id);
       CREATE TABLE IF NOT EXISTS operator_installations (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL, data TEXT NOT NULL, UNIQUE(operator_id,name));
@@ -506,6 +507,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const columns = this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(operator_boundary_handoffs)').toArray();
     if (!columns.some(column => column.name === 'run_id')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_id INTEGER');
     if (!columns.some(column => column.name === 'run_attempt')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_attempt INTEGER');
+    if (!this.ctx.storage.sql.exec('SELECT version FROM operator_search_schema WHERE version=1').toArray().length) {
+      for (const row of this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_catalog').toArray()) {
+        this.indexManagementSearch(JSON.parse(row.data) as ManagementOperatorState);
+      }
+      this.ctx.storage.sql.exec('INSERT INTO operator_search_schema VALUES(1)');
+    }
   }
 
   private managementControls(): ManagementControls {
@@ -901,20 +908,27 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return row ? JSON.parse(row.data) as ManagementOperatorState : null;
   }
 
+  private indexManagementSearch(state: ManagementOperatorState): void {
+    const sql = this.ctx.storage.sql;
+    const facts = this.managementCatalogFacts(state.id);
+    const search = [state.repositoryUrl, state.id, facts.name, facts.description].filter(Boolean).join(' ').toLowerCase();
+    sql.exec('UPDATE operator_catalog SET search=? WHERE id=?', search, state.id);
+    sql.exec('DELETE FROM operator_search WHERE id=?', state.id);
+    const grams = new Set<string>();
+    for (let n = 1; n <= 3; n++) for (let i = 0; i <= search.length - n; i++) grams.add(search.slice(i, i + n));
+    for (const gram of grams) sql.exec('INSERT INTO operator_search VALUES(?,?)', gram, state.id);
+  }
+
   private saveManagement(state: ManagementOperatorState): ManagementOperatorProjection {
     const sql = this.ctx.storage.sql;
     const enabled = sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', state.id).toArray().length > 0;
-    const search = `${state.repositoryUrl} ${state.id}`.toLowerCase();
-    sql.exec('INSERT OR REPLACE INTO operator_catalog VALUES(?,?,?,?,?,?)', state.id, state.profile, state.realm, Number(enabled), search, JSON.stringify(state));
+    sql.exec('INSERT OR REPLACE INTO operator_catalog VALUES(?,?,?,?,?,?)', state.id, state.profile, state.realm, Number(enabled), '', JSON.stringify(state));
     sql.exec('DELETE FROM operator_acl WHERE id=?', state.id);
     for (const principal of new Set([...state.managers.users.map(user => `u:${user.trim().toLowerCase()}`),
       ...state.managers.groups.map(group => `g:${JSON.stringify([group.issuer, group.id])}`)])) {
       sql.exec('INSERT INTO operator_acl VALUES(?,?)', principal, state.id);
     }
-    sql.exec('DELETE FROM operator_search WHERE id=?', state.id);
-    const grams = new Set<string>();
-    for (let n = 1; n <= 3; n++) for (let i = 0; i <= search.length - n; i++) grams.add(search.slice(i, i + n));
-    for (const gram of grams) sql.exec('INSERT INTO operator_search VALUES(?,?)', gram, state.id);
+    this.indexManagementSearch(state);
     return managementProjection(state, enabled);
   }
 
@@ -1048,6 +1062,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     sql.exec('INSERT OR REPLACE INTO operator_installations VALUES(?,?,?,?,?)', value.id, value.operatorId, value.name.toLowerCase(), Number(value.enabled), JSON.stringify(value));
     sql.exec('INSERT INTO operator_configuration_history VALUES(?,?,?)', value.id, value.revision, JSON.stringify(value));
     sql.exec('UPDATE operator_catalog SET enabled=EXISTS(SELECT 1 FROM operator_installations WHERE operator_id=? AND enabled=1) WHERE id=?', value.operatorId, value.operatorId);
+    const state = sql.exec<{ data: string }>('SELECT data FROM operator_catalog WHERE id=?', value.operatorId).one();
+    this.indexManagementSearch(JSON.parse(state.data) as ManagementOperatorState);
   }
 
   /** Add candidates and pinned bytes atomically; never overwrite an identity or discard rollback artifacts. */

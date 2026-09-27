@@ -17,7 +17,7 @@ const releaseLabel = (release: api.ManagementRelease) => release.tagName ?? rele
 const releaseDisplay = (release: api.ManagementRelease) => `${releaseLabel(release)}${release.publishedAt ? ` · Published ${new Date(release.publishedAt).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' })}` : ''}`;
 const ReleaseChoices: Component<{ label: string; releases: api.ManagementRelease[]; selected: string; onSelect: (id: string) => void }> = props =>
   <fieldset class="admin-area-list-compact"><legend>{props.label}</legend><For each={props.releases}>{item =>
-    <label class="admin-area-row admin-toggle-field"><input type="radio" name={props.label} value={item.id} checked={props.selected === item.id} onChange={() => props.onSelect(item.id)} />
+    <label class="admin-toggle-field"><input type="radio" name={props.label} value={item.id} checked={props.selected === item.id} onChange={() => props.onSelect(item.id)} />
       <span class="admin-form-field"><strong>{releaseLabel(item)}</strong><small>{item.publishedAt ? `Published ${new Date(item.publishedAt).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' })}` : 'Publication time unavailable'} · {item.approved ? 'Approved' : 'Requires approval'}</small></span>
     </label>
   }</For></fieldset>;
