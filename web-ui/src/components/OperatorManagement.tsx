@@ -442,7 +442,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <div class="admin-connection-status" data-state={installation()?.enabled ? 'passed' : 'unclear'}>
           <div><strong>{releaseDisplay(release())}</strong><span role="status">{installation()?.enabled ? 'Enabled for new runs' : 'Installed — not enabled'}</span></div>
         </div>
-        <Show when={!release().tagName || !release().publishedAt}><div class="operator-release-recovery"><p>Publication time unavailable for this release. Refresh to check GitHub for verified version and publication details.</p>
+        <Show when={!release().tagName || !release().publishedAt}><div class="operator-release-recovery"><p>{release().publishedAt ? 'Version label unavailable for this release.' : 'Publication time unavailable for this release.'} Refresh to check GitHub for verified version and publication details.</p>
           <button type="button" class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
             () => api.refreshManagedReleases(operator().id, operator().revision), 'Release details refreshed; the installed version and enablement are unchanged.', 'installed-metadata')}>Refresh release details</button>
           {props.feedback('installed-metadata')}</div></Show>

@@ -110,6 +110,17 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(pane).toHaveTextContent('Enabled for new runs');
   });
 
+  it('does not claim publication time is missing when only the version label is absent', async () => {
+    serve = url => url.pathname.endsWith('/operator-1')
+      ? json({ operator, releases: [{ ...release, tagName: undefined }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+      : json({ items: [operator], cursor: null });
+    await open();
+    const pane = screen.getByRole('region', { name: 'Installed version' });
+    expect(pane).toHaveTextContent(/Published.*2026/);
+    expect(pane).toHaveTextContent('Version label unavailable for this release.');
+    expect(pane).not.toHaveTextContent('Publication time unavailable for this release.');
+  });
+
   it('shows the selected installed version alongside the count when two configurations have one enabled pin', async () => {
     serve = url => url.pathname.endsWith('/operator-1') ? json({ operator, releases: [release], installations: [installed, { ...installed, id: 'installation-2', enabled: false }], grants: { managers: grant, invokers: { users: [], groups: [] } } })
       : json({ items: [{ ...operator, installationCount: 2 }], cursor: null });
@@ -126,7 +137,8 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
       : json({ items: [{ ...operator, installedTagName: undefined, installedPublishedAt: undefined }], cursor: null });
     render(() => <OperatorManagement />);
     const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
-    expect(await within(catalog).findByText(/Installed version details unavailable/)).toBeInTheDocument();
+    const row = (await within(catalog).findByRole('button', { name: 'Manage Conductor Review' })).closest('li')!;
+    expect(row).toHaveTextContent('Installed version details unavailable');
     expect(catalog).not.toHaveTextContent('Pinned release #456');
   });
   it('reveals Search beside Register, filters as the person types, and clears on close without a submit', async () => {
