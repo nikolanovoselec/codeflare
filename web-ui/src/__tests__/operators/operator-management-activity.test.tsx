@@ -16,6 +16,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
+  it('returns from the guided form to the catalog without starting an activity', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1');
+    let admissions = 0;
+    serve = (url, init) => {
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') admissions++;
+      return json({ items: [], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('link', { name: 'Back to operators' }));
+    expect(await screen.findByRole('heading', { name: 'Catalog', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Assess a Renovate pull request' })).not.toBeInTheDocument();
+    expect(window.location.search).toBe('');
+    expect(admissions).toBe(0);
+  });
   it('prefills a user-chosen read-only Renovate demo without starting it, and rejects invalid targets before preparation', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=nikolanovoselec%2Fkomodo&pullRequest=1253');
     let preparations = 0;
