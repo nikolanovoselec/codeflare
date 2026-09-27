@@ -163,7 +163,7 @@ interface ManagementOperatorState {
 }
 export interface ManagementOperatorProjection {
   id: string; operatorId: string; revision: number; repositoryUrl: string; repositoryId: number;
-  name?: string; description?: string; installedGithubReleaseId?: number; installationCount?: number;
+  name?: string; description?: string; installedGithubReleaseId?: number; installedTagName?: string; installedPublishedAt?: string; installationCount?: number;
   profile: ManagementOperatorProfile; realm: ManagementOperatorRealm; enabled: boolean;
   managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy;
   source: { kind: 'github-release'; repositoryUrl: string; repositoryId: number;
@@ -957,7 +957,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }
 
   /** Project only an unambiguous pinned version or a sole discovered package description. */
-  private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installationCount'> {
+  private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installedTagName' | 'installedPublishedAt' | 'installationCount'> {
     const installations = this.ctx.storage.sql.exec<{ data: string }>(
       'SELECT data FROM operator_installations WHERE operator_id=? LIMIT 100', operatorId).toArray()
       .map(row => JSON.parse(row.data) as ManagementInstallation);
@@ -972,8 +972,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const release = releases[0];
     const manifest = JSON.parse(release.manifest) as { name?: unknown; description?: unknown };
     if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
+    const pinned = selectedId ? JSON.parse(release.data) as ManagementRelease : undefined;
     return { name: manifest.name, description: manifest.description, installationCount: installations.length,
-      ...(selectedId ? { installedGithubReleaseId: (JSON.parse(release.data) as ManagementRelease).githubReleaseId } : {}) };
+      ...(pinned ? { installedGithubReleaseId: pinned.githubReleaseId, installedTagName: pinned.tagName,
+        installedPublishedAt: pinned.publishedAt } : {}) };
   }
 
   /** Permission/search/filter indexes are applied before keyset pagination. No global scan or hidden totals. */

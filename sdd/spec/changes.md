@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-27
+
+- **Operators presentation and scope explanations are corrected without changing authorization** ([REQ-OPERATOR-049](operator-registry.md#req-operator-049-operators-management-interface)). The catalog exposes the uniquely selected installed release's verified tag and UTC publication time rather than presenting its GitHub release number as a version. Alternatives are selected from one descriptive list. Environment Access & Identity uses the Administration form system and explains action limits and scope IDs as binding labels, not provisioned profiles. Four Samsung Browser screenshots motivated a cohesive desktop/mobile correction; exact-head CI and Integration-only visual acceptance are still pending.
+
 ## 2026-09-26
 
 - **Legacy Gate 1 backend and fixture deployment are retired** ([REQ-OPERATOR-039](operators.md#req-operator-039-retired-gate-1-fixture)). New fixture admission fails before Registry or Activity I/O, already-prepared fixture receipts receive a denied loopback, and Enterprise deployments no longer dispatch its fixture Worker. The Gate 1-only source, workflow, and current documentation are removed without deleting historical records or changing installed Conductor/Dispatcher behavior. Exact-head CI and Enterprise Integration rollout remain separate release gates.

@@ -258,7 +258,7 @@ export const EnvironmentAreaDetail: Component = () => {
         </details>
         <Show when={['succeeded','failed','interrupted'].includes(currentRun().state)}><div class="admin-form-actions"><button type="button" class="admin-primary-button" onClick={() => window.location.reload()}>Reload current settings</button></div></Show>
       </section>}</Show>
-      <Show when={resolved().section === 'access' && configuration.mode === 'enterprise'}><details class="admin-panel" onToggle={event => setOperatorLimitsOpen(event.currentTarget.open)}>
+      <Show when={resolved().section === 'access' && configuration.mode === 'enterprise'}><details class="admin-panel operator-global-access" onToggle={event => setOperatorLimitsOpen(event.currentTarget.open)}>
         <summary>Operator eligibility and limits</summary><Show when={operatorLimitsOpen()}><ManagementAccessPanel /></Show>
       </details></Show>
     </div>}
