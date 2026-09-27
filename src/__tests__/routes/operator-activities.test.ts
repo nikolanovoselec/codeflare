@@ -42,6 +42,7 @@ function fixture() {
   const registry = {
     listOwnedActivities: vi.fn(async () => [summary]),
     getOwnedActivity: vi.fn(async (_ownerId: string, activityId: string) => activityId === summary.activityId ? summary : null),
+    resolveManagementExecution: vi.fn(async (_id: string): Promise<unknown> => ({ ok: false, reason: 'not-found' })),
   };
   const kv = createMockKV();
   kv._store.set('user:owner@example.test', JSON.stringify({ role: 'user', accessTier: 'advanced' }));
@@ -72,6 +73,28 @@ function fixture() {
 beforeEach(() => vi.clearAllMocks());
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
+  it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
+    const { request, registry, activity } = fixture();
+    const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+      invokers: { users: [claims.email], groups: [] } },
+      release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher' }),
+      installation: { id: 'installation-1', releaseId: 'release-1' } };
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
+    const preview = await request('/installations/installation-1/preview');
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true });
+    expect(activity.start).not.toHaveBeenCalled();
+    expect(orchestration.prepare).not.toHaveBeenCalled();
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, operator: { ...selection.operator, invokers: { users: [], groups: [] } } } });
+    expect((await request('/installations/installation-1/preview')).status).toBe(404);
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, manifestJson: JSON.stringify({ name: 'Custom Dispatcher' }) } });
+    const unsupported = await request('/installations/installation-1/preview');
+    expect(unsupported.status).toBe(200);
+    expect(await unsupported.json()).toMatchObject({ name: 'Custom Dispatcher', guidedAssessment: false });
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection,
+      operator: { ...selection.operator, repositoryUrl: 'https://github.com/elsewhere/dispatcher' } } });
+    expect(await (await request('/installations/installation-1/preview')).json()).toMatchObject({ guidedAssessment: false });
+  });
   it('returns a side-effect-free safe summary collection for the exact human account', async () => {
     const { request, registry, activity } = fixture();
     const response = await request();
@@ -102,6 +125,11 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(orchestration.prepare).not.toHaveBeenCalled();
     expect(orchestration.run).not.toHaveBeenCalled();
     expect(waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('does not expose the retired failed-submission diagnostic', async () => {
+    const { request } = fixture();
+    expect((await request('/activity-1/diagnostic')).status).toBe(404);
   });
 
   it('returns detail and collects a result only after the durable index proves exact ownership', async () => {

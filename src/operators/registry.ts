@@ -96,6 +96,10 @@ export interface ManagementRelease {
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
   repositoryId: number; sourceRevision: number; coreVersion: string; intentVersion: string;
   requestedCapabilities: string[];
+  /** Verified GitHub release metadata. Absent on records acquired before display metadata was retained. */
+  tagName?: string; publishedAt?: string;
+  /** Verified manifest metadata projected for display, never persisted into the immutable release identity. */
+  name?: string; description?: string;
   assets: Array<{ id: number; name: string; digest: string }>;
   provenance: { compilerCommit?: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
@@ -109,10 +113,15 @@ export interface ManagementControls {
 
 export interface BoundaryPreparation {
   repositoryId: number; pullRequest: number; contextDigest: string; ownerKey: string;
+  /** Authenticated PR base and exact configured binding frozen at reservation. */
+  protectedRef: string;
+  roundGeneration?: number;
   installationId: string; operatorId: string; deadline: number; activityId: string; phase: 'pending' | 'prepared' | 'claimed';
   revision: { head: string; base: string; mergeBase: string };
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string; workflowId: number; workflowDigest: string;
+  /** Signed workflow commit captured with the one-time Action claim; legacy claims cannot prepare packets. */
+  claimedWorkflowSha?: string;
   session: { bucket: string; sessionId: string; generation: number };
 }
 export type BoundaryPublicationInput = {
@@ -154,6 +163,7 @@ interface ManagementOperatorState {
 }
 export interface ManagementOperatorProjection {
   id: string; operatorId: string; revision: number; repositoryUrl: string; repositoryId: number;
+  name?: string; description?: string; installedGithubReleaseId?: number; installationCount?: number;
   profile: ManagementOperatorProfile; realm: ManagementOperatorRealm; enabled: boolean;
   managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy;
   source: { kind: 'github-release'; repositoryUrl: string; repositoryId: number;
@@ -473,6 +483,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       CREATE INDEX IF NOT EXISTS operator_catalog_filters ON operator_catalog(profile, realm, enabled, id);
       CREATE TABLE IF NOT EXISTS operator_acl (principal TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(principal,id));
       CREATE TABLE IF NOT EXISTS operator_search (gram TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(gram,id));
+      CREATE TABLE IF NOT EXISTS operator_search_schema (version INTEGER PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS operator_releases (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, data TEXT NOT NULL, manifest TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS operator_release_owner ON operator_releases(operator_id,id);
       CREATE TABLE IF NOT EXISTS operator_installations (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL, data TEXT NOT NULL, UNIQUE(operator_id,name));
@@ -496,6 +507,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const columns = this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(operator_boundary_handoffs)').toArray();
     if (!columns.some(column => column.name === 'run_id')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_id INTEGER');
     if (!columns.some(column => column.name === 'run_attempt')) this.ctx.storage.sql.exec('ALTER TABLE operator_boundary_handoffs ADD COLUMN run_attempt INTEGER');
+    if (!this.ctx.storage.sql.exec('SELECT version FROM operator_search_schema WHERE version=1').toArray().length) {
+      for (const row of this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_catalog').toArray()) {
+        this.indexManagementSearch(JSON.parse(row.data) as ManagementOperatorState);
+      }
+      this.ctx.storage.sql.exec('INSERT INTO operator_search_schema VALUES(1)');
+    }
   }
 
   private managementControls(): ManagementControls {
@@ -506,11 +523,13 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   async getManagementControls(): Promise<ManagementControls> { return this.managementControls(); }
 
-  async getBoundaryAction(repositoryId: number): Promise<BoundaryActionBinding | null> {
-    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) return null;
+  async getBoundaryAction(repositoryId: number, protectedRef: string): Promise<BoundaryActionBinding | null> {
+    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0
+      || !/^refs\/heads\/(main|master|develop)$/.test(protectedRef)) return null;
     const controls = this.managementControls();
-    const action = controls.boundaryActions?.find(value => value.repositoryId === repositoryId);
-    return action ? { ...structuredClone(action), controlsRevision: controls.revision } : null;
+    const matches = controls.boundaryActions?.filter(value => value.repositoryId === repositoryId
+      && value.protectedRef === protectedRef) ?? [];
+    return matches.length === 1 ? { ...structuredClone(matches[0]), controlsRevision: controls.revision } : null;
   }
 
   /** Atomic PR-revision reservation; never returns an Action start credential. */
@@ -519,6 +538,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }): Promise<OperatorRegistryResult<{ activityId: string; created: boolean }>> {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
+      || !/^refs\/heads\/(main|master|develop)$/.test(input.protectedRef)
+      || (input.roundGeneration !== undefined && (!Number.isSafeInteger(input.roundGeneration) || input.roundGeneration < 1))
       || !/^[a-f0-9]{64}$/.test(input.contextDigest) || !/^[a-f0-9]{64}$/.test(input.ownerKey)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(input.installationId)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(input.operatorId)
@@ -545,7 +566,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
         input.repositoryId, input.pullRequest).toArray()[0];
       const previous = row ? JSON.parse(row.data) as BoundaryPreparation : null;
-      const action = this.managementControls().boundaryActions?.find(binding => binding.repositoryId === input.repositoryId);
+      const actions = this.managementControls().boundaryActions?.filter(binding => binding.repositoryId === input.repositoryId
+        && binding.protectedRef === input.protectedRef) ?? [];
+      const action = actions.length === 1 ? actions[0] : null;
       const selected = this.managementExecution(input.installationId);
       if (!action || this.managementControls().revision !== input.controlsRevision
         || action.installationId !== input.installationId || action.workflowId !== input.workflowId
@@ -562,7 +585,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         && previous.revision?.base === input.revision.base
         && previous.revision?.mergeBase === input.revision.mergeBase;
       if (previous?.contextDigest === input.contextDigest) {
-        if (previous.ownerKey !== input.ownerKey || previous.session?.bucket !== input.session.bucket
+        if (previous.protectedRef !== input.protectedRef || previous.ownerKey !== input.ownerKey
+          || previous.session?.bucket !== input.session.bucket
           || previous.session?.sessionId !== input.session.sessionId) {
           return { ok: false, reason: 'activity-conflict' };
         }
@@ -574,7 +598,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         return { ok: false, reason: 'revision-conflict' };
       }
       const next: BoundaryPreparation = { repositoryId: input.repositoryId, pullRequest: input.pullRequest,
-        contextDigest: input.contextDigest, ownerKey: input.ownerKey, installationId: input.installationId,
+        contextDigest: input.contextDigest, ownerKey: input.ownerKey, protectedRef: input.protectedRef,
+        ...(input.roundGeneration !== undefined ? { roundGeneration: input.roundGeneration } : {}),
+        installationId: input.installationId,
         operatorId: input.operatorId, revision: structuredClone(input.revision),
         controlsRevision: input.controlsRevision, installationRevision: input.installationRevision,
         operatorRevision: input.operatorRevision, releaseId: input.releaseId, bundleDigest: input.bundleDigest,
@@ -600,7 +626,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   private boundarySelectionCurrent(current: BoundaryPreparation): boolean {
     const controls = this.managementControls();
-    const action = controls.boundaryActions?.find(binding => binding.repositoryId === current.repositoryId);
+    const actions = controls.boundaryActions?.filter(binding => binding.repositoryId === current.repositoryId
+      && binding.protectedRef === current.protectedRef) ?? [];
+    const action = actions.length === 1 ? actions[0] : null;
     const selected = this.managementExecution(current.installationId);
     return !!action && selected.ok && controls.revision === current.controlsRevision
       && action.installationId === current.installationId && action.workflowId === current.workflowId
@@ -616,7 +644,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   /** Parent-only guard for Activity's final queue transition; no handoff authority leaves this read. */
   async getBoundaryStartGuard(activityId: string): Promise<{ claimed: boolean; repositoryId: number; pullRequest: number;
     head: string; base: string; mergeBase: string; workflowId: number; runId: number; runAttempt: number;
-    generation: number; contextDigest: string; session: BoundaryPreparation['session'] } | null> {
+    generation: number; contextDigest: string; workflowSha: string | null;
+    session: BoundaryPreparation['session'] } | null> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return null;
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>(
@@ -631,7 +660,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       head: current.revision.head, base: current.revision.base, mergeBase: current.revision.mergeBase,
       workflowId: current.workflowId, runId: handoff?.run_id ?? 0, runAttempt: handoff?.run_attempt ?? 0,
       generation: current.session.generation, contextDigest: current.contextDigest,
-      session: structuredClone(current.session) };
+      workflowSha: current.claimedWorkflowSha ?? null, session: structuredClone(current.session) };
   }
 
   /** Terminal publication reconciliation uses immutable claimed identity, not permission to
@@ -658,14 +687,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   /** OIDC and live session authority are verified by the authenticated parent before this one-time claim. */
   async claimBoundaryPreparation(input: { repositoryId: number; pullRequest: number; head: string; base: string;
-    mergeBase: string; workflowId: number; runId: number; runAttempt: number }): Promise<OperatorRegistryResult<{
+    mergeBase: string; workflowId: number; runId: number; runAttempt: number;
+    workflowSha?: string }): Promise<OperatorRegistryResult<{
       activityId: string; startCapability: string; repositoryId: number; pullRequest: number;
       head: string; base: string; mergeBase: string; workflowId: number; runId: number;
       runAttempt: number; generation: number; session: BoundaryPreparation['session'] }>> {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
       || ![input.head, input.base, input.mergeBase].every(sha => /^[a-f0-9]{40}$/i.test(sha))
-      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)) {
+      || ![input.workflowId, input.runId, input.runAttempt].every(n => Number.isSafeInteger(n) && n > 0)
+      || input.workflowSha !== undefined && !/^[a-f0-9]{40}$/.test(input.workflowSha)) {
       throw new ValidationError('Invalid Action claim');
     }
     this.managementSchema();
@@ -676,6 +707,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!row) return null;
       const current = JSON.parse(row.data) as BoundaryPreparation;
       if (current.phase !== 'prepared' || current.deadline <= Date.now()
+        || (current.roundGeneration !== undefined && current.roundGeneration !== 1)
         || current.revision.head !== input.head || current.revision.base !== input.base
         || current.revision.mergeBase !== input.mergeBase || current.workflowId !== input.workflowId
         || !this.boundarySelectionCurrent(current)) return null;
@@ -685,7 +717,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       this.ctx.storage.sql.exec('UPDATE operator_boundary_handoffs SET consumed=1,run_id=?,run_attempt=? WHERE activity_id=? AND consumed=0',
         input.runId, input.runAttempt, current.activityId);
       this.ctx.storage.sql.exec('UPDATE operator_boundary_preparations SET data=? WHERE repository_id=? AND pull_request=?',
-        JSON.stringify({ ...current, phase: 'claimed' }), input.repositoryId, input.pullRequest);
+        JSON.stringify({ ...current, phase: 'claimed',
+          ...(input.workflowSha ? { claimedWorkflowSha: input.workflowSha } : {}) }),
+        input.repositoryId, input.pullRequest);
       return { current, ciphertext: handoff.ciphertext };
     });
     if (!claimed) return { ok: false, reason: 'activity-conflict' };
@@ -804,7 +838,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const current = row ? JSON.parse(row.data) as BoundaryPreparation : null;
       if (!current || current.activityId !== activityId || current.contextDigest !== contextDigest
         || current.deadline <= Date.now() || startExpiresAt > current.deadline || current.phase !== 'pending') return false;
-      const action = this.managementControls().boundaryActions?.find(binding => binding.repositoryId === repositoryId);
+      const actions = this.managementControls().boundaryActions?.filter(binding => binding.repositoryId === repositoryId
+        && binding.protectedRef === current.protectedRef) ?? [];
+      const action = actions.length === 1 ? actions[0] : null;
       const selected = this.managementExecution(current.installationId);
       if (!action || !selected.ok || this.managementControls().revision !== current.controlsRevision
         || action.installationId !== current.installationId || action.workflowId !== current.workflowId
@@ -830,20 +866,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   async setManagementControls(input: ManagementControls, actor: { email: string; expiresAt: number }): Promise<OperatorRegistryResult<ManagementControls>> {
     this.managementSchema();
     if (input.boundaryActions !== undefined) {
-      const seen = new Set<number>();
+      const seen = new Set<string>();
       if (!Array.isArray(input.boundaryActions) || input.boundaryActions.length > 100) throw new ValidationError('Invalid boundary Action bindings');
       for (const action of input.boundaryActions) {
         if (!action || !Number.isSafeInteger(action.repositoryId) || action.repositoryId <= 0
-          || seen.has(action.repositoryId) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
+          || seen.has(`${action.repositoryId}:${action.protectedRef}`) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
           || !/^[A-Za-z0-9_-]{1,128}$/.test(action.installationId)
           || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(action.workflowPath)
-          || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(action.protectedRef)
+          || !/^refs\/heads\/(main|master|develop)$/.test(action.protectedRef)
           || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)
           || !Array.isArray(action.events) || action.events.length === 0
           || action.events.some(event => event !== 'pull_request_target' && event !== 'pull_request' && event !== 'push')) {
           throw new ValidationError('Invalid boundary Action binding');
         }
-        seen.add(action.repositoryId);
+        seen.add(`${action.repositoryId}:${action.protectedRef}`);
       }
     }
     return this.ctx.storage.transactionSync(() => {
@@ -872,20 +908,27 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return row ? JSON.parse(row.data) as ManagementOperatorState : null;
   }
 
+  private indexManagementSearch(state: ManagementOperatorState): void {
+    const sql = this.ctx.storage.sql;
+    const facts = this.managementCatalogFacts(state.id);
+    const search = [state.repositoryUrl, state.id, facts.name, facts.description].filter(Boolean).join(' ').toLowerCase();
+    sql.exec('UPDATE operator_catalog SET search=? WHERE id=?', search, state.id);
+    sql.exec('DELETE FROM operator_search WHERE id=?', state.id);
+    const grams = new Set<string>();
+    for (let n = 1; n <= 3; n++) for (let i = 0; i <= search.length - n; i++) grams.add(search.slice(i, i + n));
+    for (const gram of grams) sql.exec('INSERT INTO operator_search VALUES(?,?)', gram, state.id);
+  }
+
   private saveManagement(state: ManagementOperatorState): ManagementOperatorProjection {
     const sql = this.ctx.storage.sql;
     const enabled = sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', state.id).toArray().length > 0;
-    const search = `${state.repositoryUrl} ${state.id}`.toLowerCase();
-    sql.exec('INSERT OR REPLACE INTO operator_catalog VALUES(?,?,?,?,?,?)', state.id, state.profile, state.realm, Number(enabled), search, JSON.stringify(state));
+    sql.exec('INSERT OR REPLACE INTO operator_catalog VALUES(?,?,?,?,?,?)', state.id, state.profile, state.realm, Number(enabled), '', JSON.stringify(state));
     sql.exec('DELETE FROM operator_acl WHERE id=?', state.id);
     for (const principal of new Set([...state.managers.users.map(user => `u:${user.trim().toLowerCase()}`),
       ...state.managers.groups.map(group => `g:${JSON.stringify([group.issuer, group.id])}`)])) {
       sql.exec('INSERT INTO operator_acl VALUES(?,?)', principal, state.id);
     }
-    sql.exec('DELETE FROM operator_search WHERE id=?', state.id);
-    const grams = new Set<string>();
-    for (let n = 1; n <= 3; n++) for (let i = 0; i <= search.length - n; i++) grams.add(search.slice(i, i + n));
-    for (const gram of grams) sql.exec('INSERT INTO operator_search VALUES(?,?)', gram, state.id);
+    this.indexManagementSearch(state);
     return managementProjection(state, enabled);
   }
 
@@ -913,6 +956,26 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
+  /** Project only an unambiguous pinned version or a sole discovered package description. */
+  private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installationCount'> {
+    const installations = this.ctx.storage.sql.exec<{ data: string }>(
+      'SELECT data FROM operator_installations WHERE operator_id=? LIMIT 100', operatorId).toArray()
+      .map(row => JSON.parse(row.data) as ManagementInstallation);
+    const enabled = installations.filter(item => item.enabled);
+    const selectedId = enabled.length === 1 ? enabled[0].releaseId : installations.length === 1 ? installations[0].releaseId : null;
+    const releases = selectedId
+      ? this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', selectedId, operatorId).toArray()
+      : installations.length === 0
+        ? this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? LIMIT 2', operatorId).toArray()
+        : [];
+    if (releases.length !== 1) return { installationCount: installations.length };
+    const release = releases[0];
+    const manifest = JSON.parse(release.manifest) as { name?: unknown; description?: unknown };
+    if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
+    return { name: manifest.name, description: manifest.description, installationCount: installations.length,
+      ...(selectedId ? { installedGithubReleaseId: (JSON.parse(release.data) as ManagementRelease).githubReleaseId } : {}) };
+  }
+
   /** Permission/search/filter indexes are applied before keyset pagination. No global scan or hidden totals. */
   async listManagementOperators(query: ManagementCatalogQuery): Promise<{ items: ManagementOperatorProjection[]; cursor: string | null }> {
     this.managementSchema();
@@ -930,7 +993,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     params.push(query.limit + 1);
     const rows = this.ctx.storage.sql.exec<{ id: string; data: string; enabled: number }>(
       `SELECT c.id,c.data,c.enabled FROM operator_catalog c WHERE ${clauses.join(' AND ')} ORDER BY c.id LIMIT ?`, ...params).toArray();
-    const items = rows.slice(0, query.limit).map(row => managementProjection(JSON.parse(row.data), Boolean(row.enabled)));
+    const items = rows.slice(0, query.limit).map(row => ({ ...managementProjection(JSON.parse(row.data), Boolean(row.enabled)),
+      ...this.managementCatalogFacts(row.id) }));
     return { items, cursor: rows.length > query.limit ? items[items.length - 1].id : null };
   }
 
@@ -938,7 +1002,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const state = this.managementState(operatorId);
     if (!state) return { ok: false, reason: 'not-found' };
     const enabled = this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', operatorId).toArray().length > 0;
-    return { ok: true, value: managementProjection(state, enabled) };
+    return { ok: true, value: { ...managementProjection(state, enabled), ...this.managementCatalogFacts(operatorId) } };
   }
 
   /** Parent-only: the acquisition PAT never enters release, installation or activity records. */
@@ -949,8 +1013,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   async getManagementReleases(operatorId: string): Promise<ManagementRelease[]> {
     this.managementSchema();
-    return this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
-      .toArray().map(row => JSON.parse(row.data));
+    return this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
+      .toArray().map(row => {
+        const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown };
+        if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
+        return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description };
+      });
   }
 
   async getManagementInstallations(operatorId: string): Promise<ManagementInstallation[]> {
@@ -994,6 +1062,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     sql.exec('INSERT OR REPLACE INTO operator_installations VALUES(?,?,?,?,?)', value.id, value.operatorId, value.name.toLowerCase(), Number(value.enabled), JSON.stringify(value));
     sql.exec('INSERT INTO operator_configuration_history VALUES(?,?,?)', value.id, value.revision, JSON.stringify(value));
     sql.exec('UPDATE operator_catalog SET enabled=EXISTS(SELECT 1 FROM operator_installations WHERE operator_id=? AND enabled=1) WHERE id=?', value.operatorId, value.operatorId);
+    const state = sql.exec<{ data: string }>('SELECT data FROM operator_catalog WHERE id=?', value.operatorId).one();
+    this.indexManagementSearch(JSON.parse(state.data) as ManagementOperatorState);
   }
 
   /** Add candidates and pinned bytes atomically; never overwrite an identity or discard rollback artifacts. */
@@ -1012,20 +1082,29 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         const previous = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=?', release.id).toArray()[0];
         if (previous) {
           const old = JSON.parse(previous.data) as ManagementRelease;
+          const enriched = { ...old, tagName: old.tagName ?? release.tagName,
+            publishedAt: old.publishedAt ?? release.publishedAt };
           const previousIdentity = { ...old, approved: false,
             provenance: { ...old.provenance } };
           const candidateIdentity = { ...release, approved: false,
             provenance: { ...release.provenance } };
+          delete previousIdentity.tagName; delete previousIdentity.publishedAt;
+          delete candidateIdentity.tagName; delete candidateIdentity.publishedAt;
           // Releases acquired before compiler provenance was mandatory remain
           // immutable and usable. Never invent or persist a compiler identity;
           // only ignore the new field while comparing that exact legacy row.
           if (previousIdentity.provenance.compilerCommit === undefined) {
             delete candidateIdentity.provenance.compilerCommit;
           }
-          if (JSON.stringify(previousIdentity) !== JSON.stringify(candidateIdentity)) {
+          if ((old.tagName !== undefined && old.tagName !== release.tagName)
+            || (old.publishedAt !== undefined && old.publishedAt !== release.publishedAt)
+            || JSON.stringify(previousIdentity) !== JSON.stringify(candidateIdentity)) {
             throw new ValidationError('Immutable release identity changed');
           }
-          releases.push(old);
+          if (old.tagName !== enriched.tagName || old.publishedAt !== enriched.publishedAt) {
+            this.ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?', JSON.stringify(enriched), release.id);
+          }
+          releases.push(enriched);
         } else {
           if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_releases WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Retained release limit reached');
           this.ctx.storage.sql.exec('INSERT INTO operator_releases VALUES(?,?,?,?)', release.id, operatorId, JSON.stringify(release), candidate.manifestJson);
@@ -1098,7 +1177,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (fence) return fence;
       if (installation.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       if (enabled) {
-        if (!this.withinManagementCeiling(installation.policy)) throw new ValidationError('Installation exceeds management ceiling');
+        if (!this.restrictivePolicy(installation.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
         if (!installation.releaseId || installation.approvedSourceRevision !== state!.sourceRevision) return { ok: false, reason: 'artifact-unapproved' };
         const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId, installation.operatorId).toArray()[0];
         if (!row) return { ok: false, reason: 'artifact-unapproved' };
@@ -1128,6 +1207,25 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson), revision: installation.revision + 1, enabled: false };
       this.saveInstallation(value);
       return { ok: true, value };
+    });
+  }
+
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+    this.managementSchema();
+    return this.ctx.storage.transactionSync(() => {
+      const state = this.managementState(operatorId);
+      const fence = this.managementFence(state, authority);
+      if (fence) return fence;
+      const policy = { ...state!.policy, capabilities };
+      if (!this.withinManagementCeiling(policy)) throw new ValidationError('Operator capabilities exceed management ceiling');
+      if (capabilities.length === state!.policy.capabilities.length
+        && capabilities.every(value => state!.policy.capabilities.includes(value))) return { ok: true, value: this.saveManagement(state!) };
+      const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
+      for (const row of rows) {
+        const installation = this.parseManagementInstallation(row.data);
+        this.saveInstallation({ ...installation, revision: installation.revision + 1, enabled: false });
+      }
+      return { ok: true, value: this.saveManagement({ ...state!, revision: state!.revision + 1, policy }) };
     });
   }
 
@@ -1170,7 +1268,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const state = this.managementState(installation.operatorId);
     if (!state || !installation.enabled) return { ok: false, reason: 'disabled' };
     const row = this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId ?? '', installation.operatorId).toArray()[0];
-    if (!row || installation.approvedSourceRevision !== state.sourceRevision || !this.withinManagementCeiling(installation.policy)) return { ok: false, reason: 'artifact-unapproved' };
+    if (!row || installation.approvedSourceRevision !== state.sourceRevision || !this.restrictivePolicy(installation.policy, state.policy)) return { ok: false, reason: 'artifact-unapproved' };
     const release = JSON.parse(row.data) as ManagementRelease;
     if (!release.approved) return { ok: false, reason: 'artifact-unapproved' };
     return { ok: true, value: { installation, operator: managementProjection(state, true), release, manifestJson: row.manifest, controlsRevision: this.managementControls().revision } };

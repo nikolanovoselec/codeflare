@@ -21,7 +21,6 @@ import publicRoutes from './routes/public/index';
 import operatorWebhookRoutes from './routes/operator-webhook';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
-import adminOperatorsRoutes from './routes/admin/operators';
 import operatorManagementRoutes from './routes/operator-management';
 import operatorActivitiesRoutes from './routes/operator-activities';
 import adminConfigurationRoutes from './routes/admin/configuration';
@@ -298,7 +297,6 @@ app.route('/api/github', githubRoutes);
 app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
-app.route('/api/admin/operators', adminOperatorsRoutes);
 app.route('/api/operator-management', operatorManagementRoutes);
 app.route('/api/operator-activities', operatorActivitiesRoutes);
 app.route('/api/admin/configuration', adminConfigurationRoutes);
@@ -306,6 +304,9 @@ app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
 app.route('/api/admin/reasoning', adminReasoningRoutes);
 app.route('/api/admin/usage', adminUsageRoutes);
+// The retired test registry must not fall through the broader /api/admin auth routes.
+app.all('/api/admin/operators', c => c.notFound());
+app.all('/api/admin/operators/*', c => c.notFound());
 app.route('/api/admin', adminUsageReportRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/notifications', notificationRoutes);
@@ -564,7 +565,7 @@ export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
 export { OperatorActivity, OperatorDispatcherCapability } from './operators/activity';
-export { OperatorRuntimeCapability } from './operators/gate1-production';
+export { OperatorRuntimeCapability } from './operators/operator-runtime-capability';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +

@@ -4,7 +4,7 @@ import { verifyBoundaryActionRun } from '../../operators/review-boundary-claim';
 const sha = (character: string) => character.repeat(40);
 const prepared = { repositoryId: 138, pullRequest: 34, revision: {
   head: sha('a'), base: sha('b'), mergeBase: sha('c'),
-}, workflowId: 531 };
+}, workflowId: 531, protectedRef: 'refs/heads/main' };
 const oidc = { repositoryId: 138, repository: 'owner/repo', eventName: 'pull_request_target' as const,
   workflowRef: 'owner/repo/.github/workflows/boundary-reviews.yml@refs/heads/main',
   workflowSha: sha('d'), runId: 87, runAttempt: 1 };
@@ -16,7 +16,7 @@ const github = { repository: { id: 138, full_name: 'owner/repo' },
     path: '.github/workflows/boundary-reviews.yml', head_sha: sha('e'),
     repository: { id: 138 }, pull_requests: [{ number: 34 }] },
   pullRequest: { number: 34, state: 'open', head: { sha: prepared.revision.head, repo: { id: 138 } },
-    base: { sha: prepared.revision.base, repo: { id: 138 } } },
+    base: { sha: prepared.revision.base, ref: 'main', repo: { id: 138 } } },
   compare: { merge_base_commit: { sha: prepared.revision.mergeBase } },
   headPullRequests: [34], matchingPullRequests: [34] };
 const input = { prepared, oidc, action, github };
@@ -54,6 +54,8 @@ describe('REQ-OPERATOR-054: protected Action run and fresh GitHub PR context', (
         head: { ...github.pullRequest.head, sha: sha('e') } } } },
       { github: { ...github, pullRequest: { ...github.pullRequest,
         base: { ...github.pullRequest.base, sha: sha('e') } } } },
+      { github: { ...github, pullRequest: { ...github.pullRequest,
+        base: { ...github.pullRequest.base, ref: 'develop' } } } },
       { github: { ...github, compare: { merge_base_commit: { sha: sha('e') } } } },
       { github: { ...github, headPullRequests: [34, 35] } },
       { github: { ...github, matchingPullRequests: [] } },

@@ -13,7 +13,9 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = MAX_BUNDLE_BYTES + 256 * 1024;
 const API = 'https://api.github.com';
-const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com']);
+const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com',
+  'productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
+  'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net']);
 const FILES = ['operator-manifest.json', 'operator-bundle.json', 'operator-provenance.json'] as const;
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
@@ -95,7 +97,8 @@ async function readBounded(response: Response, limit: number, signal: AbortSigna
 }
 
 /** PAT only on a locally constructed API URL. At most one uncredentialed CDN redirect. */
-async function githubBytes(path: string, pat: string, limit: number, deadline: number, binary = false): Promise<Uint8Array> {
+async function githubBytes(path: string, pat: string, limit: number, deadline: number, binary = false,
+  accept = binary ? 'application/octet-stream' : 'application/vnd.github+json'): Promise<Uint8Array> {
   if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid GitHub path');
   const controller = new AbortController();
   const remaining = Math.min(10_000, deadline - Date.now());
@@ -104,7 +107,7 @@ async function githubBytes(path: string, pat: string, limit: number, deadline: n
   let response: Response | undefined;
   try {
     response = await fetch(new Request(`${API}${path}`, { method: 'GET', redirect: 'manual', signal: controller.signal, headers: {
-      accept: binary ? 'application/octet-stream' : 'application/vnd.github+json', authorization: `Bearer ${pat}`,
+      accept, authorization: `Bearer ${pat}`,
       'x-github-api-version': '2022-11-28', 'user-agent': 'Codeflare-Operator-Acquisition',
     } }));
     if (binary && (response.status === 302 || response.status === 307)) {
@@ -244,8 +247,10 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   const provenance = provenanceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(files.get('operator-provenance.json')!)));
   if (!provenance.compilerCommit && !allowLegacyProvenance) throw new Error('Compiler provenance is required');
   if (dispatcherBundle && dispatcherBundle.sourceCommit !== provenance.sourceCommit) throw new Error('Dispatcher source mismatch');
+  const approvedBranchRef = source.approvedWorkflow.ref.slice(`${workflowPath}@`.length);
   if (provenance.repositoryId !== source.repositoryId || provenance.manifestDigest !== manifestDigest || provenance.bundleDigest !== bundleDigest
-    || provenance.workflow.id !== source.approvedWorkflow.id || provenance.workflow.ref !== source.approvedWorkflow.ref) throw new Error('GitHub provenance mismatch');
+    || provenance.workflow.id !== source.approvedWorkflow.id
+    || (provenance.workflow.ref !== source.approvedWorkflow.ref && provenance.workflow.ref !== approvedBranchRef)) throw new Error('GitHub provenance mismatch');
   const run = runSchema.parse(await githubJson(`/repositories/${source.repositoryId}/actions/runs/${provenance.workflow.runId}`, pat, deadline));
   if (run.id !== provenance.workflow.runId || run.run_attempt !== provenance.workflow.runAttempt || run.workflow_id !== source.approvedWorkflow.id
     || run.head_sha !== provenance.sourceCommit || run.repository.id !== source.repositoryId || run.head_repository.id !== source.repositoryId
@@ -263,7 +268,7 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   const artifact = artifactSchema.parse(artifacts.artifacts[0]);
   if (artifact.size_in_bytes > MAX_ARCHIVE_BYTES || artifact.workflow_run.id !== run.id || artifact.workflow_run.repository_id !== source.repositoryId
     || artifact.workflow_run.head_repository_id !== source.repositoryId || artifact.workflow_run.head_sha !== provenance.sourceCommit) throw new Error('GitHub build artifact mismatch');
-  const archive = await githubBytes(`/repositories/${source.repositoryId}/actions/artifacts/${artifact.id}/zip`, pat, MAX_ARCHIVE_BYTES, deadline, true);
+  const archive = await githubBytes(`/repositories/${source.repositoryId}/actions/artifacts/${artifact.id}/zip`, pat, MAX_ARCHIVE_BYTES, deadline, true, 'application/vnd.github+json');
   if (archive.length !== artifact.size_in_bytes || `sha256:${await digest(archive)}` !== artifact.digest) throw new Error('GitHub build digest mismatch');
   const built = packageArchive(archive);
   for (const name of FILES) if (await digest(built.get(name)!) !== digests.get(name)) throw new Error('Release bytes differ from approved build');
@@ -272,6 +277,7 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
     sourceRevision: source.sourceRevision, sourceCommit: provenance.sourceCommit, manifestDigest, bundleDigest, interfaceVersion: 1,
     coreVersion: manifest.coreVersion, intentVersion: manifest.intentVersion,
     requestedCapabilities: [...manifest.requiredCapabilities], approved: false,
+    tagName: remote.tag_name, publishedAt: remote.published_at,
     assets: FILES.map(name => { const asset = remote.assets.find(candidate => candidate.name === name)!; return { id: asset.id, name, digest: digests.get(name)! }; }),
     provenance: { ...(provenance.compilerCommit ? { compilerCommit: provenance.compilerCommit } : {}),
       workflowId: run.workflow_id, workflowRef: source.approvedWorkflow.ref, runId: run.id,
@@ -351,5 +357,7 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
     if (!stored.ok) throw new AppError(stored.reason === 'not-found' || stored.reason === 'authority-expired' ? 'NOT_FOUND' : 'CONFLICT',
       stored.reason === 'not-found' || stored.reason === 'authority-expired' ? 404 : 409, 'Operator release refresh conflicted');
     return stored.value;
-  } catch (error) { unavailable(error); }
+  } catch (error) {
+    unavailable(error);
+  }
 }

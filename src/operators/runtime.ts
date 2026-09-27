@@ -18,7 +18,7 @@ interface OperatorRuntimeOptions {
   loader: OperatorLoaderBinding;
   bundle: OperatorBundle;
   invocation?: unknown;
-  bind: (generation: number) => { capability: Fetcher; outbound: Fetcher | null }
+  bind: (generation: number, driveDeadline: number) => { capability: Fetcher; outbound: Fetcher | null }
     | Promise<{ capability: Fetcher; outbound: Fetcher | null }>;
 }
 
@@ -72,7 +72,7 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
       }, remaining);
     });
     const execute = async () => {
-      const bindings = await options.bind(generation);
+      const bindings = await options.bind(generation, driveDeadline);
       const worker = loadOperatorWorker(options.loader, options.bundle, bindings.capability, bindings.outbound);
       response = await worker.fetch(new Request('https://operator.internal/drive', {
         method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json' },

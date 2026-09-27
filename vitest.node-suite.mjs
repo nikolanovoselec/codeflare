@@ -11,6 +11,7 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/operators/loader-flue.test.ts',
   // Phase-1 regression fence for canonical local-review packet bytes.
   'src/__tests__/operators/legacy-review-unchanged.test.ts',
+  'src/__tests__/operators/approved-git-pack.test.ts',
   // CI gate scripts: spawned as subprocesses against temp trees.
   'src/__tests__/ci/suite-gates.test.ts',
   'src/__tests__/ci/usage-d1-deploy.test.ts',

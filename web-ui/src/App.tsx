@@ -22,7 +22,6 @@ const UsagePage = lazy(() => import('./components/UsagePage'));
 const AdminSubscriptionManagement = lazy(() => import('./components/admin/SubscriptionManagement'));
 const AdministrationLayout = lazy(() => import('./components/admin/AdministrationLayout'));
 const AdministrationOverview = lazy(() => import('./components/admin/AdministrationOverview'));
-const OperatorsPage = lazy(() => import('./components/admin/OperatorsPage'));
 const EnvironmentIndex = lazy(() => import('./components/admin/EnvironmentIndex'));
 const EnvironmentAreaDetail = lazy(async () => ({ default: (await import('./components/admin/EnvironmentIndex')).EnvironmentAreaDetail }));
 const AnalyticsPage = lazy(() => import('./components/admin/AnalyticsPage'));
@@ -384,7 +383,10 @@ const OperatorManagementRoute: Component = () => {
         <button type="button" onClick={() => { void load(); }}>Retry</button></div>
     }>
       <Show when={user()} fallback={<div class="app-loading"><div class="app-loading-spinner" /><span>Loading operators...</span></div>}>
-        {(current) => <OperatorManagement userEmail={current().email} isAdmin={current().role === 'admin'} />}
+        {(current) => <Show when={current().role === 'admin'}
+          fallback={<OperatorManagement userEmail={current().email} />}>
+          <AdministrationLayout><OperatorManagement userEmail={current().email} isAdmin /></AdministrationLayout>
+        </Show>}
       </Show>
     </Show>
   );
@@ -422,7 +424,7 @@ const App: Component = () => {
         <Route path="/analytics/users/:userKey" component={AnalyticsUserDetail} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity" component={ActivityPage} />
-        <Route path="/operators" component={OperatorsPage} />
+        <Route path="/operators" component={() => <Navigate href="/operators" />} />
       </Route>
       <Route
         path="/*"

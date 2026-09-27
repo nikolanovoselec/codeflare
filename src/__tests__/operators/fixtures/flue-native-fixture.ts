@@ -8,6 +8,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
+import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
 
 export type NativeArtifact = {
   schemaVersion: 1; sourceCommit: string;
@@ -19,8 +20,8 @@ export type NativeDelivery = {
   activityId: string; generation: number; operationId: string; requestDigest: string;
   marker: string; mode: 'read' | 'hold' | 'receipt-window' | 'unknown' | 'probe';
 };
-type ProductionEvidence = Record<'pull-request' | 'files' | 'checks', unknown>;
-type ProductionCall = { path: string; resource?: string };
+type ProductionEvidence = Partial<Record<'pull-request' | 'files' | 'checks', unknown>>;
+type ProductionCall = { path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' };
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
@@ -154,7 +155,8 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence) {
     try {
       if (!('mode' in delivery) && productionEvidence) await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
-      const response = await (await this.child()).fetch(new Request('https://flue.internal/dispatcher', {
+      const path = 'mode' in delivery ? '/dispatcher' : '/agents/Dispatcher/dispatcher';
+      const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: 'user', body: JSON.stringify(delivery) }),
       }));
@@ -177,7 +179,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     while (Date.now() < active.expiresAt) {
       const current = await this.ctx.storage.get<typeof active>('fixture:active-submission');
       if (!current || current.submissionId !== active.submissionId || current.generation !== active.generation) return;
-      const response = await (await this.child()).fetch(new Request('https://flue.internal/dispatcher'));
+      const path = await this.ctx.storage.get('fixture:production-evidence')
+        ? '/agents/Dispatcher/dispatcher' : '/dispatcher';
+      const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`));
       const conversation = await response.json() as { settlements?: Array<{ submissionId?: string; outcome?: string }> };
       const settlement = conversation.settlements?.find(item => item.submissionId === active.submissionId);
       if (settlement) {
@@ -206,7 +210,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     let failure: string | undefined;
     try {
       const child = await this.child();
-      const response = await child.fetch(new Request('https://flue.internal/dispatcher'));
+      const path = await this.ctx.storage.get('fixture:production-evidence')
+        ? '/agents/Dispatcher/dispatcher' : '/dispatcher';
+      const response = await child.fetch(new Request(`https://flue.internal${path}`));
       conversation = await response.json();
       facet = await child.fixtureSnapshot();
     } catch (error) { failure = String(error); }
@@ -237,15 +243,29 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   async transport(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path === '/fixture/inference' || path === '/v1/dispatcher/inference') {
+      const body = await request.clone().json() as { input: { messages?: Array<{ role: string }> } };
+      const done = body.input.messages?.at(-1)?.role === 'tool';
       if (path === '/v1/dispatcher/inference') {
+        // The exact pinned model adapter must speak the real parent's restricted wire contract.
+        let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
+        try { operation = await parseDispatcherOperation(request.clone()); }
+        catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
+        // The parent ledger permits an identical retry but rejects a different
+        // model turn under the same durable operation ID before any upstream I/O.
+        const digests = await this.ctx.storage.get<Record<string, string>>('fixture:inference-operations') ?? {};
+        const requestDigest = JSON.stringify({ path: operation.path, body: operation.body });
+        if (Object.hasOwn(digests, operation.operationId) && digests[operation.operationId] !== requestDigest) {
+          return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+        }
+        if (!Object.hasOwn(digests, operation.operationId)) {
+          await this.ctx.storage.put('fixture:inference-operations', { ...digests, [operation.operationId]: requestDigest });
+        }
         const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
-        calls.push({ path });
+        calls.push({ path, status: 200, modelTurn: done ? 'after-tool' : 'initial' });
         await this.ctx.storage.put('fixture:production-calls', calls);
       }
       // Official Workers-AI adapter consumes OpenAI-compatible SSE. Exactly one
       // real Flue tool is offered by the deterministic model, no model billing.
-      const body = await request.json() as { input: { messages?: Array<{ role: string }> } };
-      const done = body.input.messages?.at(-1)?.role === 'tool';
       const chunks = done ? [{ choices: [{ index: 0, delta: { content: 'Assessment complete' }, finish_reason: 'stop' }] }] : [
         { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `fixture-tool-${crypto.randomUUID()}`, type: 'function',
           function: { name: 'assess_renovate', arguments: '{}' } }] }, finish_reason: null }] },
@@ -266,12 +286,11 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     }
     if (typeof payload.resource === 'string') {
       const evidence = await this.ctx.storage.get<ProductionEvidence>('fixture:production-evidence');
-      if (!evidence || !Object.hasOwn(evidence, payload.resource)) {
-        return Response.json({ error: 'Unapproved production read' }, { status: 403 });
-      }
+      const allowed = !!evidence && Object.hasOwn(evidence, payload.resource);
       const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
-      calls.push({ path, resource: payload.resource });
+      calls.push({ path, resource: payload.resource, status: allowed ? 200 : 403 });
       await this.ctx.storage.put('fixture:production-calls', calls);
+      if (!allowed) return Response.json({ error: 'Unapproved production read' }, { status: 403 });
       return Response.json(evidence[payload.resource as keyof ProductionEvidence]);
     }
     const delivery = payload as NativeDelivery;

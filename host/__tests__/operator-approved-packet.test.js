@@ -22,6 +22,7 @@ async function fixture(t, { unsafeLink = false, historicalBlob = false } = {}) {
   const repo = path.join(root, 'source');
   await mkdir(repo);
   git(repo, ['init', '-q']);
+  git(repo, ['config', 'uploadpack.allowReachableSHA1InWant', 'true']);
   git(repo, ['config', 'user.name', 'Fixture']);
   git(repo, ['config', 'user.email', 'fixture@example.test']);
   await mkdir(path.join(repo, 'src'));
@@ -48,7 +49,31 @@ async function fixture(t, { unsafeLink = false, historicalBlob = false } = {}) {
   git(repo, ['commit', '-qm', 'review head']);
   const head = git(repo, ['rev-parse', 'HEAD']).toString().trim();
   const pack = git(repo, ['pack-objects', '--stdout', '--revs'], Buffer.from(`${head}\n`));
-  return { root, base, head, pack };
+  return { root, repo, base, head, pack };
+}
+
+function uploadPack(f) {
+  const pkt = line => Buffer.from(`${(Buffer.byteLength(line) + 4).toString(16).padStart(4, '0')}${line}`);
+  const request = Buffer.concat([pkt(`want ${f.head} side-band-64k no-progress\n`),
+    pkt(`want ${f.base}\n`), Buffer.from('0000'), pkt('done\n')]);
+  const response = git(f.repo, ['upload-pack', '--stateless-rpc', f.repo], request);
+  let offset = 0;
+  const chunks = [];
+  while (offset < response.length) {
+    const size = Number.parseInt(response.subarray(offset, offset + 4).toString('ascii'), 16);
+    assert.ok(Number.isInteger(size) && size <= 65520 && offset + size <= response.length);
+    offset += 4;
+    if (size === 0) break;
+    const line = response.subarray(offset, offset + size - 4);
+    offset += size - 4;
+    if (line.toString() === 'NAK\n') continue;
+    assert.equal(line[0], 1, 'only pack data channel is accepted');
+    chunks.push(line.subarray(1));
+  }
+  assert.equal(offset, response.length);
+  const pack = Buffer.concat(chunks);
+  assert.equal(pack.subarray(0, 4).toString(), 'PACK');
+  return pack;
 }
 
 function binding(f, overrides = {}) {
@@ -73,6 +98,14 @@ test('REQ-OPERATOR-050/053: trusted script builds the exact acknowledged-head pa
   const wholeTree = JSON.parse(Buffer.from(await run(f, { acknowledgedHead: null })).toString('utf8'));
   assert.equal(wholeTree.scope, 'all');
   assert.ok(wholeTree.files.includes('src/app.ts'));
+  await assert.rejects(readFile(path.join(f.root, 'hook-ran')));
+});
+
+test('REQ-OPERATOR-050/053: genuine bounded upload-pack bytes enter the isolated exact-revision runner', async t => {
+  const f = await fixture(t);
+  const packet = JSON.parse(Buffer.from(await run(f, { pack: uploadPack(f) })).toString('utf8'));
+  assert.equal(packet.range, `${f.base}..${f.head}`);
+  assert.ok(packet.files.includes('src/app.ts'));
   await assert.rejects(readFile(path.join(f.root, 'hook-ran')));
 });
 

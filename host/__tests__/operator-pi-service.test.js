@@ -50,6 +50,25 @@ test('REQ-OPERATOR-021: trusted config binds identity/root/profile and produces 
   assert.equal((await readFile(path.join(root, '.codeflare/operator-pi.json'), 'utf8')).includes('pi-1'), true);
 });
 
+test('REQ-OPERATOR-021: isolated config binds a finite approved input and rejects widened authority', () => {
+  const init = { schemaVersion: 1, profileId: 'approved-profile', contextPath: 'review/input.json', context: '{}',
+    inputs: [{ kind: 'resource', reference: 'review/child.md', target: 'review/resources/child.md' }],
+    tasks: [{ id: 'child', instruction: 'review/resources/child.md',
+      reads: ['review/input.json', 'review/resources/child.md'], output: 'reports/child.json' }] };
+  const base = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', root: '/owned/activity-1',
+    profile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'off',
+      systemPrompt: 'Approved operator context', tools: ['read', 'write'] },
+    mode: 'isolated', initialization: init, deadline: Date.now() + 60_000 };
+  assert.ok(createOperatorPiService({ serializedConfig: JSON.stringify(base), allowedRoot: '/owned' }));
+  for (const bad of [
+    { ...base, initialization: { ...init, tasks: [{ ...init.tasks[0], output: '../secret' }] } },
+    { ...base, initialization: { ...init, inputs: [{ ...init.inputs[0], target: '/etc/passwd' }] } },
+    { ...base, profile: { ...base.profile, tools: ['read', 'write', 'bash'] } },
+    { ...base, deadline: Date.now() - 1 },
+    { ...base, githubToken: 'forged' },
+  ]) assert.throws(() => createOperatorPiService({ serializedConfig: JSON.stringify(bad), allowedRoot: '/owned' }));
+});
+
 test('REQ-OPERATOR-021: absent config preserves ordinary host and malformed or escaping config fails closed', () => {
   assert.equal(createOperatorPiService({ allowedRoot: '/owned' }), undefined);
   assert.throws(() => createOperatorPiService({ serializedConfig: '{', allowedRoot: '/owned' }), /configuration/i);

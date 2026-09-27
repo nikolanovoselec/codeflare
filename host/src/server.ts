@@ -34,6 +34,7 @@ import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { createOperatorPiService } from './operator-pi-service.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
+import { runApprovedPacket } from './operator-approved-packet.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
@@ -276,8 +277,17 @@ const operatorSync = createOperatorSyncService({
   ...(process.env.R2_BUCKET_NAME ? { bucket: process.env.R2_BUCKET_NAME } : {}),
 });
 
+// The source user's Enterprise host can execute only the image-baked fixed task.
+// Restricted operator sessions never receive this route or a Git credential.
+const operatorPacket = process.env.ENTERPRISE_MODE === 'active' && !process.env.CODEFLARE_OPERATOR_SESSION
+  ? { run: (input: Parameters<typeof runApprovedPacket>[0], options: { signal: AbortSignal }) =>
+    runApprovedPacket(input, { scriptPath: '/opt/codeflare/operator-approved-packet/build-review-packet.mjs',
+      signal: options.signal }) }
+  : null;
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
   ...(operatorSync ? { operatorSync } : {}),
   sessionManager,

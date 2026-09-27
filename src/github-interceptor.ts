@@ -426,9 +426,13 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
         body = new Response(metadataBytes).body;
         const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(metadataBytes)) as {
           number?: number; head?: { sha?: string; ref?: string };
+          base?: { sha?: string; ref?: string; repo?: { id?: number } };
         };
         if (metadata.number !== input.pullRequest || metadata.head?.sha !== input.targetHead
-          || !metadata.head.ref || !/^[A-Za-z0-9._/-]+$/.test(metadata.head.ref)) throw Error('PR moved');
+          || !metadata.head.ref || !/^[A-Za-z0-9._/-]+$/.test(metadata.head.ref)
+          || metadata.base?.repo?.id !== input.repositoryId
+          || !/^(main|master|develop)$/.test(metadata.base?.ref ?? '')
+          || !/^[a-f0-9]{40}$/i.test(metadata.base?.sha ?? '')) throw Error('PR moved');
         const sessionId = props.sessionId;
         const session = boundarySession!;
         const ref = { bucket, sessionId, email: props.user };
@@ -440,6 +444,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
         if (authority.human.subject !== sealed.human.subject) throw Error('Human changed');
         selection = await selectVerifiedBoundaryAction(this.env, authority.human, {
           owner: prRead[1], repository: prRead[2], repositoryId: input.repositoryId,
+          baseRef: metadata.base!.ref!, baseSha: metadata.base!.sha!,
         }, api);
         if (selection === 'remote' && selectionMode === '1') {
           const ready = await session.stageBoundaryInput({ sessionId, generation: boundaryGeneration,

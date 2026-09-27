@@ -69,6 +69,41 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
       provenance: expect.not.objectContaining({ compilerCommit: expect.anything() }) })] });
   }));
 
+  it('enriches a legacy retained release with verified publication metadata without changing its installation or enablement', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const created = await request('/operators', 'POST', registration);
+    const operator = await created.json() as { operatorId: string; revision: number };
+    const first = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(first.status).toBe(200);
+    const release = (await first.json() as { items: Array<{ id: string }> }).items[0]!;
+    const detail = await request(`/operators/${operator.operatorId}`);
+    const current = await detail.json() as { operator: { revision: number } };
+    const installed = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'integration', policy, revision: current.operator.revision,
+    });
+    const installation = await installed.json() as { id: string; revision: number };
+    const promoted = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: installation.revision });
+    const pinned = await promoted.json() as { revision: number };
+    expect((await request(`/installations/${installation.id}/enable`, 'POST', { revision: pinned.revision, enabled: true })).status).toBe(200);
+    const row = ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=?', release.id).one();
+    const legacy = JSON.parse(row.data) as { tagName?: string; publishedAt?: string };
+    delete legacy.tagName; delete legacy.publishedAt;
+    ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?', JSON.stringify(legacy), release.id);
+    const before = await request(`/operators/${operator.operatorId}`);
+    const state = await before.json() as { operator: { revision: number } };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: state.operator.revision });
+    expect(refreshed.status).toBe(200);
+    await expect(refreshed.json()).resolves.toMatchObject({ items: [expect.objectContaining({
+      id: release.id, tagName: 'v1', publishedAt: '2026-09-21T12:00:00Z',
+    })] });
+    const after = await request(`/operators/${operator.operatorId}`);
+    await expect(after.json()).resolves.toMatchObject({ releases: [expect.objectContaining({
+      id: release.id, tagName: 'v1', publishedAt: '2026-09-21T12:00:00Z',
+    })], installations: [expect.objectContaining({ id: installation.id, releaseId: release.id, enabled: true })] });
+  }));
+
   it('rejects missing compiler provenance for a release that was not previously retained', async () => withManagementApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ omitCompilerCommit: true })).fetcher);
     expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,

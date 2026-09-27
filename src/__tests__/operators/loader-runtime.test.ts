@@ -67,28 +67,9 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     } });
   });
 
-  it('executes the exact Gate 1 artifact through the native Loader boundary', async () => {
-    const direct = await worker!.fetch('/gate1-bundle?case=direct');
-    expect(direct.status).toBe(200);
-    expect(await direct.json()).toEqual({ schemaVersion: 1, status: 'completed', checkpoint: null,
-      result: { fixture: 'codeflare-gate1', activityId: 'gate1-activity' } });
-
-    const session = await worker!.fetch('/gate1-bundle?case=session');
-    expect(session.status).toBe(200);
-    expect(await session.json()).toEqual({ schemaVersion: 1, status: 'completed', checkpoint: null,
-      result: { fixture: 'codeflare-gate1', activityId: 'gate1-activity', via: 'parent-capability' } });
-
-    const wrongRoute = await worker!.fetch('/gate1-bundle?case=wrong-route');
-    expect(wrongRoute.status).toBe(404);
-    expect(await wrongRoute.json()).toEqual({ error: 'Not found' });
-
-    const malformed = await worker!.fetch('/gate1-bundle?case=malformed');
-    expect(malformed.status).toBe(500);
-    expect(await malformed.json()).toEqual({ error: expect.any(String) });
-  });
 });
 
-// Same Wrangler instance and canonical Backend tests (node) lane as Gate 1.
+// Same Wrangler instance and canonical Backend tests (node) lane.
 registerNativeDispatcherCases({
   fetch: async (path, init): Promise<Response> =>
     (await worker!.fetch(path, init as unknown as Parameters<Unstable_DevWorker['fetch']>[1])) as unknown as Response,

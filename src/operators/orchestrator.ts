@@ -12,7 +12,6 @@ import { createOperatorIntentDigest, type BoundaryActivityBinding, type Operator
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
-import { GATE1_OPERATOR_ID } from './gate1-resources';
 import { projectOperatorPackageResources } from './package-resources';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -68,6 +67,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
+  if (requestedOperatorId === 'codeflare-gate1-fixture') {
+    throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
   let managementSelection: ManagementExecutionSelection | null = null;
   if (installationId) {
     const management: OperatorRegistryResult<ManagementExecutionSelection> =
@@ -90,8 +92,10 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     }
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
-  const usesConsumerContract = (!installationId && operatorId === GATE1_OPERATOR_ID)
-    || managementSelection?.operator.profile === 'conductor';
+  if (operatorId === 'codeflare-gate1-fixture') {
+    throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
+  const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
   const invocation = usesConsumerContract
     ? (() => {
       const consumer = parseOperatorConsumerInvocation(bounded);
@@ -151,9 +155,9 @@ function parsePinnedManifest(manifestJson: string, endpoint: string) {
   return manifest;
 }
 
-export type OperatorCapabilityBinder = (activityId: string, generation: number) => Fetcher;
+export type OperatorCapabilityBinder = (activityId: string, generation: number, driveDeadline: number) => Fetcher;
 type OperatorRuntimeExports = { OperatorRuntimeCapability(input: {
-  props: { activityId: string; generation: number };
+  props: { activityId: string; generation: number; driveDeadline: number };
 }): Fetcher };
 
 /** Resolve the platform loopback export before an activity is allowed to start. */
@@ -162,8 +166,8 @@ export function bindOperatorRuntimeCapability(ctx: unknown): OperatorCapabilityB
   if (!runtimeExports?.OperatorRuntimeCapability) {
     throw new AppError('UNAVAILABLE', 503, 'Operator runtime capability unavailable');
   }
-  return (activityId, generation) =>
-    runtimeExports.OperatorRuntimeCapability({ props: { activityId, generation } });
+  return (activityId, generation, driveDeadline) =>
+    runtimeExports.OperatorRuntimeCapability({ props: { activityId, generation, driveDeadline } });
 }
 
 /** One request-attached direct drive. Any uncertain attempt is durably fenced and never replayed here. */
@@ -218,7 +222,7 @@ export async function runOperatorActivity(
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
       invocation, expectedGeneration,
-      bind: async generation => ({ capability: bindCapability(activityId, generation), outbound: null }),
+      bind: async (generation, driveDeadline) => ({ capability: bindCapability(activityId, generation, driveDeadline), outbound: null }),
     });
     if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
   } catch {

@@ -6,6 +6,7 @@ import worker from '../../index';
 import type { Env } from '../../types';
 import { OperatorRegistry } from '../../operators/registry';
 import { createMockKV } from '../helpers/mock-kv';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
 
 const actor = vi.hoisted(() => ({ email: 'manager@example.test', role: 'user', groups: ['operators'] as string[] | undefined }));
@@ -34,11 +35,12 @@ const registration = {
   invokers: { users: ['invoker@example.test'], groups: [] },
   policy: { capabilities: [], resourceProfileId: null },
 };
-async function withApi(test: (request: RequestApi) => Promise<void>) {
+async function withApi(test: (request: RequestApi) => Promise<void>, configureKv?: (kv: ReturnType<typeof createMockKV>) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     const kv = createMockKV();
+    await configureKv?.(kv);
     const request: RequestApi = (path, method = 'GET', body, csrf = true) => worker.fetch(new Request(`https://operators.example.test${path}`, {
       method, headers: { 'content-type': 'application/json', 'cf-access-authenticated-user-email': actor.email,
         ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}), 'cf-access-jwt-assertion': 'verified-access-token' },
@@ -67,7 +69,7 @@ async function delegate(request: RequestApi) {
   expect(result.status).toBe(200);
   actor.role = 'user';
 }
-async function enabledInstallation(request: RequestApi, operator: { id: string; revision: number }): Promise<string> {
+async function enabledInstallation(request: RequestApi, operator: { id: string; revision: number }, installedPolicy: { capabilities: string[]; resourceProfileId: string | null } = registration.policy): Promise<string> {
   const refreshed = await request(`/api/operator-management/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision });
   expect(refreshed.status).toBe(200);
   const release = (await refreshed.json() as { items: Array<{ id: string }> }).items[0]!;
@@ -75,7 +77,7 @@ async function enabledInstallation(request: RequestApi, operator: { id: string; 
   expect(detail.status).toBe(200);
   const current = await detail.json() as { operator: { revision: number } };
   const created = await request(`/api/operator-management/operators/${operator.id}/installations`, 'POST', {
-    revision: current.operator.revision, name: 'access-fixture', policy: registration.policy,
+    revision: current.operator.revision, name: 'access-fixture', policy: installedPolicy,
   });
   expect(created.status).toBe(201);
   const installation = await created.json() as { id: string; revision: number };
@@ -94,6 +96,84 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
+  it('edits operator capabilities within Environment limits and disables current runs without changing pins or installation restrictions', async () => withApi(async request => {
+    await delegate(request);
+    actor.role = 'admin';
+    expect((await request('/api/operator-management/access', 'POST', { revision: 1, managers: registration.managers,
+      ceiling: { capabilities: ['fetch'], resourceProfileIds: [] } })).status).toBe(200);
+    actor.role = 'user';
+    const policy = { capabilities: ['fetch'], resourceProfileId: null };
+    const registered = await request('/api/operator-management/operators', 'POST', { ...registration, policy });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator, policy);
+    const path = `/api/operator-management/operators/${operator.id}/capabilities`;
+    const current = await request(`/api/operator-management/operators/${operator.id}`);
+    const before = await current.json() as { operator: { revision: number }; installations: Array<{ id: string; releaseId: string; revision: number; policy: typeof policy; enabled: boolean }> };
+    const body = { revision: before.operator.revision, capabilities: [] };
+    expect((await request(path, 'POST', body, false)).status).toBe(403);
+    actor.email = 'outsider@example.test'; actor.groups = [];
+    expect((await request(path, 'POST', body)).status).toBe(404);
+    actor.email = 'manager@example.test'; actor.groups = ['operators'];
+    expect((await request(path, 'POST', { ...body, capabilities: ['pi'] })).status).toBe(404);
+    expect((await request(path, 'POST', { ...body, revision: body.revision + 1 })).status).toBe(409);
+    const changed = await request(path, 'POST', body);
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({ policy: { capabilities: [], resourceProfileId: null }, revision: body.revision + 1 });
+    const detail = await request(`/api/operator-management/operators/${operator.id}`);
+    const after = await detail.json() as { installations: typeof before.installations };
+    expect(after.installations[0]).toMatchObject({ id, releaseId: before.installations[0]!.releaseId,
+      policy, revision: before.installations[0]!.revision + 1, enabled: false });
+    expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
+      revision: after.installations[0]!.revision, enabled: true })).status).toBe(400);
+    expect((await request(path, 'POST', { revision: body.revision + 1, capabilities: ['fetch'] })).status).toBe(200);
+    expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
+      revision: after.installations[0]!.revision, enabled: true })).status).toBe(200);
+  }));
+  it('projects only verified configured identity options and authorized limits to eligible managers, not Access credentials', async () => withApi(async request => {
+    actor.groups = ['operators', 'review-team'];
+    await delegate(request);
+    actor.role = 'admin';
+    const options = await request('/api/operator-management/options');
+    expect(options.status).toBe(200);
+    expect(await options.json()).toMatchObject({ users: ['invoker@example.test', 'manager@example.test'],
+      groups: [{ issuer: 'https://issuer.example.test', id: 'review-team' }], unresolvedGroups: ['Display Team', 'unverified-id'],
+      capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'],
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    actor.role = 'user';
+    const managerOptions = await request('/api/operator-management/options');
+    expect(managerOptions.status).toBe(200);
+    expect(await managerOptions.json()).toMatchObject({ users: ['manager@example.test'] });
+    actor.email = 'outsider@example.test'; actor.groups = [];
+    expect((await request('/api/operator-management/options')).status).toBe(404);
+  }, async kv => {
+    await kv.put('user:manager@example.test', JSON.stringify({ role: 'user' }));
+    await kv.put('user:invoker@example.test', JSON.stringify({ role: 'user' }));
+    await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team,Display Team,unverified-id');
+  }));
+  it('projects package-authored purpose with discovered releases without exposing a credential', async () => withApi(async request => {
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', registration);
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    expect((await request(`/api/operator-management/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision })).status).toBe(200);
+    const detail = await request(`/api/operator-management/operators/${operator.id}`);
+    expect(detail.status).toBe(200);
+    const data = await detail.json() as { releases: Array<{ description?: string; name?: string }> };
+    expect(data.releases[0]?.description).toEqual(expect.any(String));
+    expect(data.releases[0]?.description?.length).toBeGreaterThan(8);
+    const catalog = await request('/api/operator-management/operators');
+    expect((await catalog.json() as { items: Array<{ description?: string }> }).items[0]?.description).toBe(data.releases[0]?.description);
+    expect(JSON.stringify(data)).not.toContain(registration.githubPat);
+  }));
+  it('registers without a realm choice and keeps the legacy internal storage value', async () => withApi(async request => {
+    await delegate(request);
+    const input = { repositoryUrl: registration.repositoryUrl, githubPat: registration.githubPat,
+      profile: registration.profile, managers: registration.managers, invokers: registration.invokers, policy: registration.policy };
+    const result = await request('/api/operator-management/operators', 'POST', input);
+    expect(result.status).toBe(201);
+    expect(await result.json()).toMatchObject({ realm: 'internal' });
+  }));
   it('binds target Action trust only through current platform-admin controls and retains it on unrelated edits', async () => withApi(async request => {
     const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
       workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',

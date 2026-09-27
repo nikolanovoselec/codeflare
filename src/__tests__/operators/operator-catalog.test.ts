@@ -31,7 +31,7 @@ const registration = { repositoryUrl: 'https://github.com/acme/review-operator',
   profile: 'conductor', realm: 'internal', managers: { users: ['manager@example.test'], groups: [] },
   invokers: { users: ['manager@example.test'], groups: [] }, policy };
 
-async function withManagementApi(test: (request: (path: string, method?: string, body?: unknown) => Promise<Response>) => Promise<void>) {
+async function withManagementApi(test: (request: (path: string, method?: string, body?: unknown) => Promise<Response>, ctx: DurableObjectState) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
@@ -43,7 +43,7 @@ async function withManagementApi(test: (request: (path: string, method?: string,
       }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
     { KV: kv, ENCRYPTION_KEY: btoa('k'.repeat(32)), ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env,
     { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext);
-    await test(request);
+    await test(request, ctx);
   });
 }
 
@@ -83,6 +83,57 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     expect(secondInstallation).toMatchObject({ id: expect.any(String), revision: 1, releaseId: null, enabled: false });
     expect(secondInstallation.id).not.toBe(firstInstallation.id);
 
+  }));
+
+  it('projects the uniquely enabled pinned version rather than an arbitrary other release for multiple installations', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    const registered = await request('/operators', 'POST', registration);
+    const operator = await registered.json() as { id: string; revision: number };
+    const refreshed = await request(`/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(200);
+    const release = (await refreshed.json() as { items: Array<{ id: string; githubReleaseId: number }> }).items[0]!;
+    const current = await request(`/operators/${operator.id}`);
+    const currentRevision = (await current.json() as { operator: { revision: number } }).operator.revision;
+    const first = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'inactive', policy, revision: currentRevision });
+    expect(first.status).toBe(201);
+    const next = await request(`/operators/${operator.id}`);
+    const nextRevision = (await next.json() as { operator: { revision: number } }).operator.revision;
+    const second = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'active', policy, revision: nextRevision });
+    const active = await second.json() as { id: string; revision: number };
+    expect(second.status).toBe(201);
+    const promoted = await request(`/installations/${active.id}/promote`, 'POST', { releaseId: release.id, revision: active.revision });
+    expect(promoted.status).toBe(200);
+    const pinned = await promoted.json() as { revision: number };
+    const enabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: pinned.revision });
+    expect(enabled.status).toBe(200);
+    const enabledRevision = (await enabled.json() as { revision: number }).revision;
+    const sourceRow = ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=?', release.id).one();
+    const verifiedPurpose = (JSON.parse(sourceRow.manifest) as { description: string }).description;
+    ctx.storage.sql.exec('INSERT INTO operator_releases VALUES(?,?,?,?)', 'zz-other-release', operator.id,
+      JSON.stringify({ ...JSON.parse(sourceRow.data), id: 'zz-other-release' }),
+      JSON.stringify({ ...JSON.parse(sourceRow.manifest), name: 'Wrong version', description: 'An unrelated version with a different purpose.' }));
+    const catalog = await request('/operators');
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id, installationCount: 2,
+      installedGithubReleaseId: release.githubReleaseId, description: verifiedPurpose })] });
+    // Simulate a catalog written before package-authored metadata was searchable.
+    ctx.storage.sql.exec('UPDATE operator_catalog SET search=? WHERE id=?', `${registration.repositoryUrl} ${operator.id}`, operator.id);
+    ctx.storage.sql.exec('DELETE FROM operator_search WHERE id=?', operator.id);
+    ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS operator_search_schema (version INTEGER PRIMARY KEY)');
+    ctx.storage.sql.exec('DELETE FROM operator_search_schema');
+    for (const term of ['Review operator', 'Review fixture']) {
+      const results = await request(`/operators?query=${encodeURIComponent(term)}`);
+      expect(results.status).toBe(200);
+      expect(await results.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id })], cursor: null });
+    }
+    expect(await (await request('/operators?query=Wrong%20version')).json()).toMatchObject({ items: [], cursor: null });
+    identity.email = 'ungranted@example.test';
+    expect((await request('/operators?query=Review%20operator')).status).toBe(404);
+    identity.email = 'manager@example.test';
+    const disabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: false, revision: enabledRevision });
+    expect(disabled.status).toBe(200);
+    expect(await (await request('/operators?query=Review%20operator')).json()).toMatchObject({ items: [], cursor: null });
   }));
 
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {

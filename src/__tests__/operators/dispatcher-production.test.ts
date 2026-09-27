@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { Agent } from 'agents';
 import { OperatorActivity, OperatorDispatcherCapability, createOperatorIntentDigest } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
@@ -30,9 +31,11 @@ async function digest(value: string | Uint8Array) {
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; environment: Env;
-  artifactDigest: string; settle: (id?: string, outcome?: string) => void; expire: () => void;
+  artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
-  restart: () => OperatorActivity; loseResponse: () => void;
+  restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
+  oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
+  messages: (value: unknown[]) => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -49,8 +52,10 @@ async function fixture(test: (f: {
     release: { id: 'release', bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit }, manifestJson: '{}' };
     let revoked = false;
     let settlements: unknown[] = [];
+    let messages: unknown[] = [];
     let aborted: string | undefined;
     let uncertain = false;
+    let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -64,7 +69,7 @@ async function fixture(test: (f: {
           return Response.json({ ok: true });
         }
         if (request.method === 'POST') return Response.json({ submissionId: 'submission-1' }, { status: 202 });
-        return Response.json({ settlements });
+        return Response.json({ settlements, messages });
       },
     };
     // Agent validates the native DurableObjectState brand and SQLite capability.
@@ -75,6 +80,20 @@ async function fixture(test: (f: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+          const checks = oversizedChecks;
+          if (checks && request.url.includes('/check-runs?')) {
+            const url = new URL(request.url);
+            const perPage = Number(url.searchParams.get('per_page'));
+            const page = Number(url.searchParams.get('page'));
+            const first = (page - 1) * perPage;
+            const count = Math.max(0, Math.min(perPage, checks.count - first));
+            return Response.json({ total_count: checks.count,
+              check_runs: Array.from({ length: count }, (_, index) => ({ id: checks.overlap && first > 0 && index === 0
+                ? first - 1 : first + index, name: `check-${first + index}`,
+                conclusion: 'success', output: 'x'.repeat(checks.outputBytes) })) }, {
+              headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
+            });
+          }
           return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
@@ -109,11 +128,16 @@ async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
       await test({ activity, capability, environment, artifactDigest, sent,
-        settle: (id = 'submission-1', outcome = 'completed') => { settlements = [{ submissionId: id, outcome }]; },
+        settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
+        messages: value => { messages = value; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; },
+        oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
+          oversizedChecks = { count, outputBytes, overlap };
+        },
+        nextAlarm: () => native.storage.getAlarm(),
       });
     } finally {
       await activity.cancelDrive();
@@ -144,10 +168,109 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
     expect((await f.capability.fetch(read())).status).toBe(403);
   }));
+  it('rechecks a later settlement before the bounded lease expires without caller continuation', () => fixture(async f => {
+    const startedAt = Date.now();
+    await start(f);
+    await f.activity.reconcileDispatcherLease();
+    const alarm = await f.nextAlarm();
+    expect(alarm).not.toBeNull();
+    expect(alarm!).toBeLessThan(startedAt + 15_000);
+    f.settle();
+    vi.spyOn(Date, 'now').mockReturnValue(alarm! + 1_000);
+    await f.activity.alarm();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+  }));
   it('fences failed settlement rather than granting a continuation', () => fixture(async f => {
     await start(f); f.settle('submission-1', 'failed'); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+  }));
+  it('collects the settled pinned assessment once as a terminal result without another submission', () => fixture(async f => {
+    await start(f);
+    const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
+      evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
+      bounds: { files: 3, checks: 76 } };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
+      sdkCleanupReleased: true });
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', collectionStatus: 'consumed', sdkCleanupReleased: true, result: assessment } });
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: assessment } });
+    expect((await f.activity.getBrowserDetail())?.result).toEqual(assessment);
+  }));
+  it('keeps SDK cleanup unproved on failure and retries only cleanup after terminal collection', () => fixture(async f => {
+    const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
+    const original = sdk._cf_cleanupFacetPrefix;
+    let failCleanup = true;
+    vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockImplementation(function (this: Agent, ...args: unknown[]) {
+      if (failCleanup) throw new Error('Synthetic SDK cleanup failure');
+      return original.apply(this, args);
+    });
+    try {
+      await start(f);
+      const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting', sdkCleanupReleased: false });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: false, result: assessment } });
+      failCleanup = false;
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { failCleanup = false; }
+  }));
+  it.each(['missing', 'foreign', 'duplicate', 'oversized'] as const)(
+    'does not manufacture a terminal assessment from %s settled evidence', variant => fixture(async f => {
+      await start(f);
+      const output = { readOnly: true, observedHead: 'b'.repeat(40) };
+      const part = { type: 'data-assessment', data: output };
+      const messages = variant === 'missing' ? [] : variant === 'foreign'
+        ? [{ submissionId: 'foreign', parts: [part] }]
+        : [{ submissionId: 'submission-1', parts: variant === 'duplicate' ? [part, part]
+          : [{ type: 'data-assessment', data: { payload: 'x'.repeat(70 * 1024) } }] }];
+      if (variant !== 'oversized') f.messages(messages);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+      if (variant === 'oversized') f.messages(messages);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    }));
+  it('fences a single checks page exceeding the protected 64 KiB response bound', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(200);
+    f.oversizedChecks(1, 70_000);
+    expect((await f.capability.fetch(read('submission-checks', { resource: 'checks' }))).status).toBe(409);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+  }));
+  it('returns all 76 authorized check conclusions from bounded pages without forwarding large metadata', () => fixture(async f => {
+    await start(f); f.oversizedChecks();
+    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
+    expect(evidence.truncated).toBe(false);
+    expect(evidence.data.check_runs).toHaveLength(76);
+    expect(evidence.data.check_runs[75]).toEqual({ name: 'check-75', conclusion: 'success' });
+    expect(new TextEncoder().encode(JSON.stringify(evidence)).byteLength).toBeLessThan(64 * 1024);
+    expect(f.sent.some(request => new URL(request.url).searchParams.get('page') === '8')).toBe(true);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+  it('marks a check list beyond the 100-run bound as truncated rather than complete', () => fixture(async f => {
+    await start(f); f.oversizedChecks(101);
+    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
+    expect(evidence.truncated).toBe(true);
+    expect(evidence.data.check_runs.length).toBeLessThanOrEqual(100);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+  it('marks overlapping check pages incomplete even when the row count matches', () => fixture(async f => {
+    await start(f); f.oversizedChecks(20, 3000, true);
+    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { truncated: boolean };
+    expect(evidence.truncated).toBe(true);
   }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();
@@ -178,6 +301,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await start(f); expect((await f.capability.fetch(read())).status).toBe(200);
     f[action](); expect((await f.capability.fetch(read('read-2'))).status).toBe(403);
     expect(f.sent.map(r => r.url)).toEqual(['https://api.github.com/repos/owner/repo/pulls/17']);
+  }));
+  it('sends the parent-owned GitHub REST User-Agent for both bounded PR and files reads', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(read('files-read', { resource: 'files' }))).status).toBe(200);
+    expect(f.sent.map(request => request.headers.get('user-agent'))).toEqual([
+      'Codeflare-Operator-Dispatcher', 'Codeflare-Operator-Dispatcher',
+    ]);
+    expect(f.sent.every(request => !request.headers.has('authorization'))).toBe(true);
   }));
   it('reconciles completed operation output and conflicts on changed semantics', () => fixture(async f => {
     await start(f); const first = await f.capability.fetch(read());
@@ -225,6 +356,23 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       .rejects.toThrow();
     expect(await f.capability._cf_cancelScheduleForFacet(path, created.schedule.id)).toMatchObject({ ok: true });
     expect(await f.capability._cf_getScheduleForFacet(path, created.schedule.id)).toBeUndefined();
+  }));
+  it('admits only the activity-bound, connection-free child notifications without widening authority', () => fixture(async f => {
+    await start(f);
+    const plan = await f.activity.getRuntimePlan();
+    const path = [{ className: 'OperatorActivity', name: plan!.activityId },
+      { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const bridge = f.capability as unknown as {
+      _cf_subAgentConnectionMetas(ownerPath: typeof path): Promise<unknown>;
+      _cf_broadcastToSubAgent(ownerPath: typeof path, message: unknown, without?: string[]): Promise<void>;
+    };
+    expect(await bridge._cf_subAgentConnectionMetas(path)).toEqual([]);
+    await expect(bridge._cf_broadcastToSubAgent(path, { type: 'notice' })).resolves.toBeUndefined();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    const foreign = [{ ...path[0], name: 'other-activity' }, path[1]];
+    await expect(bridge._cf_subAgentConnectionMetas(foreign)).rejects.toThrow();
+    await expect(bridge._cf_broadcastToSubAgent(foreign, { type: 'notice' })).rejects.toThrow();
+    await expect(bridge._cf_broadcastToSubAgent(path, 'x'.repeat(64 * 1024 + 1))).rejects.toThrow();
   }));
   it('orchestrates managed Dispatcher bundles without the default entrypoint path', () => fixture(async f => {
     const plan = await f.activity.getRuntimePlan();

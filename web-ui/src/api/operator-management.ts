@@ -11,7 +11,8 @@ export const grantSchema = z.object({ users: z.array(z.string()).max(128),
 export const policySchema = z.object({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable() });
 export type ManagementGrant = z.infer<typeof grantSchema>;
 export type ManagementPolicy = z.infer<typeof policySchema>;
-const summarySchema = z.object({ id, name: z.string().optional(), repositoryUrl: z.string().optional(),
+const summarySchema = z.object({ id, name: z.string().optional(), description: z.string().optional(),
+  installedGithubReleaseId: z.number().int().positive().optional(), installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(),
   profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), enabled: z.boolean() });
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
   repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema, policy: policySchema,
@@ -20,7 +21,8 @@ const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number()
 });
 const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number().int().positive(), sourceCommit: z.string(),
   manifestDigest: digest, bundleDigest: digest, interfaceVersion: z.literal(1), approved: z.boolean(),
-  name: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
+  name: z.string().optional(), description: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
+  tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
   requestedCapabilities: z.array(z.string()).max(32).optional() });
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
   enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional() });
@@ -28,10 +30,9 @@ const detailSchema = z.object({ operator: operatorSchema, releases: z.array(rele
   installations: z.array(installationSchema), grants: z.object({ managers: grantSchema, invokers: grantSchema }) });
 export type ManagementSummary = z.infer<typeof summarySchema>;
 export type ManagementRelease = z.infer<typeof releaseSchema>;
-export type ManagementInstallation = z.infer<typeof installationSchema>;
 export type ManagementDetail = z.infer<typeof detailSchema>;
 export interface CatalogQuery { cursor?: string; query?: string; profile?: string; realm?: string; state?: string }
-export interface RegistrationInput { repositoryUrl: string; githubPat: string; profile: 'conductor' | 'dispatcher'; realm: 'internal' | 'external';
+export interface RegistrationInput { repositoryUrl: string; githubPat: string; profile: 'conductor' | 'dispatcher';
   managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy }
 const segment = (value: string) => encodeURIComponent(value);
 function request<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
@@ -45,6 +46,11 @@ export function listManagedOperators(query: CatalogQuery = {}) {
   for (const [key, value] of Object.entries(query)) if (value) search.set(key, value);
   return request(`/operators?${search}`, z.object({ items: z.array(summarySchema).max(100), cursor: z.string().nullable() }));
 }
+const choicesSchema = z.object({ users: z.array(z.string()), groups: z.array(z.object({ issuer: z.string(), id: z.string() })),
+  unresolvedGroups: z.array(z.string()).default([]), capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()),
+  ceiling: z.object({ capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()) }) });
+export type ManagementChoices = z.infer<typeof choicesSchema>;
+export const getManagementChoices = () => request('/options', choicesSchema);
 const accessSchema = z.object({ revision: z.number().int().nonnegative(), managers: grantSchema,
   ceiling: z.object({ capabilities: z.array(z.string()).max(32), resourceProfileIds: z.array(z.string()).max(128) }) });
 export type ManagementAccess = z.infer<typeof accessSchema>;
@@ -66,6 +72,8 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
+export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number }) =>
+  request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.
 function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
@@ -74,6 +82,8 @@ function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown
     { credentials: 'same-origin', schema });
 }
 export const getOwnedActivities = () => activityRequest('', z.object({ items: z.array(operatorActivitySummarySchema).max(100) }));
+export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
+  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
 export const startInstallationActivity = (activityId: string, capability: string) =>

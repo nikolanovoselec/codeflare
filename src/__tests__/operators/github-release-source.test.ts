@@ -56,7 +56,12 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(refreshed.status).toBe(200);
     expect(await refreshed.json()).toMatchObject({ items: [expect.objectContaining({ operatorId: operator.operatorId, githubReleaseId: 81,
       sourceCommit: 'a'.repeat(40), manifestDigest: expect.stringMatching(/^[0-9a-f]{64}$/), bundleDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-      interfaceVersion: 1, approved: false, provenance: expect.objectContaining({ compilerCommit: 'c'.repeat(40) }) })] });
+      interfaceVersion: 1, approved: false, tagName: 'v1', publishedAt: '2026-09-21T12:00:00Z',
+      provenance: expect.objectContaining({ compilerCommit: 'c'.repeat(40) }) })] });
+    const readback = await request(`/operators/${operator.operatorId}`);
+    await expect(readback.json()).resolves.toMatchObject({ releases: [expect.objectContaining({
+      tagName: 'v1', publishedAt: '2026-09-21T12:00:00Z',
+    })] });
   }));
 
   it('REQ-OPERATOR-048: acquires only the strict generated Dispatcher artifact and binds its source to provenance', async () => withManagementApi(async request => {
@@ -72,6 +77,28 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     await expect(refreshed.json()).resolves.toMatchObject({ items: [expect.objectContaining({
       sourceCommit: fixture.sourceCommit, bundleDigest: fixture.bundleDigest,
     })] });
+  }));
+
+  it.each([
+    { ref: 'refs/heads/main', accepted: true },
+    { ref: 'refs/heads/develop', accepted: false },
+    { ref: '.github/workflows/other.yml@refs/heads/main', accepted: false },
+  ])('REQ-OPERATOR-044: binds Dispatcher provenance $ref to the approved workflow', async ({ ref, accepted }) => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ profile: 'dispatcher', provenanceWorkflowRef: ref });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(accepted ? 200 : 503);
+    const detail = await request(`/operators/${operator.operatorId}`);
+    expect(detail.status).toBe(200);
+    const state = await detail.json() as { releases: Array<{ bundleDigest: string; approved: boolean }> };
+    expect(state.releases).toEqual(accepted ? [expect.objectContaining({
+      bundleDigest: fixture.bundleDigest, approved: false,
+    })] : []);
   }));
 
   it('REQ-OPERATOR-048: rejects a generated Dispatcher artifact whose embedded source differs from provenance', async () => withManagementApi(async request => {
@@ -106,8 +133,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(fixture.requests.every(outbound => outbound.origin === 'https://api.github.com')).toBe(true);
   }));
 
-  it('REQ-OPERATOR-044: release CDN transport succeeds without forwarding acquisition credentials', async () => withManagementApi(async request => {
-    const fixture = await createOperatorGitHubFixture({ useCdn: true });
+  it.each(['productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
+    'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net'] as const)(
+    'REQ-OPERATOR-044: release CDN transport via %s succeeds without forwarding acquisition credentials', async artifactCdnHost => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
     vi.stubGlobal('fetch', fixture.fetcher);
     const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
@@ -120,8 +149,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     const discovered = await refreshed.json() as { items: unknown[] };
     expect(discovered.items).toHaveLength(1);
     // The outbound origin/header contract is intentional security evidence, not private-call counting.
-    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com');
-    expect(cdnRequests.length).toBeGreaterThan(0);
+    const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com'
+      || outbound.origin === `https://${artifactCdnHost}`);
+    expect(cdnRequests.some(outbound => outbound.origin === 'https://release-assets.githubusercontent.com')).toBe(true);
+    expect(cdnRequests.some(outbound => outbound.origin === `https://${artifactCdnHost}`)).toBe(true);
     expect(cdnRequests.every(outbound => outbound.authorization === null)).toBe(true);
     expect(fixture.requests.some(outbound => outbound.origin === 'https://api.github.com'
       && outbound.authorization === `Bearer ${registration.githubPat}`)).toBe(true);

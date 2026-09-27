@@ -3,7 +3,10 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups } from '../lib/access';
+import { getAllUsers } from '../lib/access-policy';
+import { SETUP_KEYS } from '../lib/kv-keys';
+import { operatorCapabilityChoices } from '../operators/distribution';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -27,7 +30,7 @@ const policy = z.strictObject({
 });
 const githubPat = z.string().min(1).max(16384).refine(value => !!value.trim() && !/[\r\n\0]/.test(value));
 const repositoryUrl = z.string().min(1).max(2048);
-const registrationBody = z.strictObject({ repositoryUrl, githubPat, profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), managers: grant, invokers: grant, policy });
+const registrationBody = z.strictObject({ repositoryUrl, githubPat, profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']).default('internal'), managers: grant, invokers: grant, policy });
 const configuration = z.record(z.string().max(256), z.json());
 const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}) });
 const revisionBody = z.strictObject({ revision });
@@ -35,6 +38,7 @@ const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
+const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities });
 const configureBody = z.strictObject({ policy, configuration, revision });
 const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), managers: grant,
   ceiling: z.strictObject({ capabilities: policy.shape.capabilities, resourceProfileIds: z.array(z.string().regex(ID)).max(128)
@@ -153,6 +157,27 @@ function query(c: Context<RouteEnv>) {
   return { limit, cursor, profile, realm, state, search: search?.trim().toLowerCase() };
 }
 
+app.get('/options', async c => {
+  const context = c.get('operatorHuman');
+  const [users, userGroups, adminGroups] = await Promise.all([
+    context.platformAdmin ? getAllUsers(c.env.KV).then(entries => entries.map(entry => entry.email)) : Promise.resolve([context.human.email]),
+    c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP), c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP),
+  ]);
+  const configuredGroups = [...new Set([...parseAccessGroups(userGroups), ...parseAccessGroups(adminGroups)])];
+  // Environment may contain display names. Only IDs actually observed in this
+  // human's verified Access membership are safe to use in an issuer-bound ACL.
+  const verifiedGroups = new Set(context.human.groups ?? []);
+  const value = { users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
+    groups: configuredGroups.filter(id => verifiedGroups.has(id)).map(id => ({ issuer: context.human.issuer, id })),
+    unresolvedGroups: context.platformAdmin ? configuredGroups.filter(group => !verifiedGroups.has(group)) : [],
+    capabilities: operatorCapabilityChoices, resourceProfileIds: context.controls.ceiling.resourceProfileIds,
+    ceiling: context.controls.ceiling };
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 64 * 1024) {
+    throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
+  }
+  return c.json(value);
+});
+
 app.get('/access', c => {
   const context = c.get('operatorHuman');
   if (!context.platformAdmin) denied();
@@ -217,6 +242,16 @@ app.post('/operators/:operatorId/installations', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), input.policy);
   return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration)))), 201);
+});
+
+app.post('/operators/:operatorId/capabilities', async c => {
+  const operator = await managed(c, c.req.param('operatorId'));
+  requireMutationCsrf(c);
+  const input = await parseJsonBody(c, capabilitiesBody);
+  withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities });
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision)));
+  logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
+  return c.json(updated);
 });
 
 app.post('/operators/:operatorId/grants', async c => {

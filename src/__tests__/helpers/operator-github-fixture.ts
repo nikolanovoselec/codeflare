@@ -53,8 +53,10 @@ export type GitHubFixtureFault = 'provenance-repository' | 'provenance-compiler'
 
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
+  artifactCdnHost?: 'productionresultssa1.blob.core.windows.net' | 'productionresultssa3.blob.core.windows.net'
+    | 'productionresultssa8.blob.core.windows.net' | 'productionresultssa16.blob.core.windows.net';
   profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
-  omitCompilerCommit?: boolean;
+  omitCompilerCommit?: boolean; provenanceWorkflowRef?: string;
 } = {}) {
   const repositoryName = options.repositoryName ?? 'review-operator';
   const repository = { id: repositoryId, full_name: `acme/${repositoryName}`,
@@ -78,7 +80,7 @@ export async function createOperatorGitHubFixture(options: {
     sourceCommit, ...(options.omitCompilerCommit ? {} : {
       compilerCommit: options.fault === 'provenance-compiler' ? 'invalid' : 'c'.repeat(40),
     }), manifestDigest, bundleDigest,
-    workflow: { id: workflowId, ref: '.github/workflows/release.yml@refs/heads/main', runId, runAttempt: 1 } }));
+    workflow: { id: workflowId, ref: options.provenanceWorkflowRef ?? '.github/workflows/release.yml@refs/heads/main', runId, runAttempt: 1 } }));
   const files = [
     { id: 91, name: 'operator-manifest.json', bytes: manifest },
     { id: 92, name: 'operator-bundle.json', bytes: bundle },
@@ -98,6 +100,8 @@ export async function createOperatorGitHubFixture(options: {
       const file = files.find(candidate => url.pathname === `/fixture/${candidate.id}`);
       return file ? new Response(file.bytes) : new Response('Unknown asset', { status: 404 });
     }
+    if (url.origin === `https://${options.artifactCdnHost ?? 'productionresultssa3.blob.core.windows.net'}` && options.useCdn)
+      return url.pathname === '/fixture/operator-package' ? new Response(archiveBytes) : new Response('Unknown artifact', { status: 404 });
     if (url.origin !== 'https://api.github.com') return new Response('Unapproved host', { status: 403 });
     const path = url.pathname;
     if (path === `/repos/acme/${repositoryName}` || path === `/repositories/${repositoryId}`) return Response.json(repository);
@@ -121,7 +125,13 @@ export async function createOperatorGitHubFixture(options: {
       artifacts: [{ id: artifactId, name: 'operator-package', expired: false, size_in_bytes: archiveBytes.length,
         digest: `sha256:${artifactDigest}`, workflow_run: { id: runId, repository_id: repositoryId,
           head_repository_id: repositoryId, head_sha: sourceCommit } }] });
-    if (path === `/repositories/${repositoryId}/actions/artifacts/${artifactId}/zip`) return new Response(archiveBytes);
+    if (path === `/repositories/${repositoryId}/actions/artifacts/${artifactId}/zip`) {
+      if (request.headers.get('accept') !== 'application/vnd.github+json')
+        return Response.json({ message: 'Artifact download requires JSON Accept' }, { status: 415 });
+      if (options.useCdn) return new Response(null, { status: 302,
+        headers: { location: `https://${options.artifactCdnHost ?? 'productionresultssa3.blob.core.windows.net'}/fixture/operator-package` } });
+      return new Response(archiveBytes);
+    }
     return new Response('Unknown GitHub fixture endpoint', { status: 404 });
   };
   return { fetcher, requests, bundleDigest, manifestDigest, sourceCommit, assets,

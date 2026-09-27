@@ -3,7 +3,14 @@ import { createConductorProductionCapability } from '../../operators/conductor-p
 
 const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
   audiences: ['operator-audience'], expiresAt: Math.floor(Date.now() / 1000) + 300 };
-vi.mock('@cloudflare/containers', () => ({ getContainer: () => ({ fetch: async () => Response.json({}) }) }));
+const piTransport = vi.hoisted(() => ({ task: null as unknown }));
+vi.mock('@cloudflare/containers', () => ({ getContainer: () => ({ fetch: async (request: Request) => {
+  if (new URL(request.url).pathname === '/internal/operator/pi/tasks') {
+    piTransport.task = await request.json();
+    return Response.json({ taskId: 'approved-round', status: 'completed' });
+  }
+  return Response.json({});
+} }) }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
   resolveBucketName: async () => 'owner-bucket',
@@ -40,16 +47,50 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
     revision: { reference: 'a'.repeat(40), digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
     input: {}, attachments: [], resources: { inference: { routeId: 'provider-default', reasoningLevel: null },
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
-  const activity = { operatorGenerationCurrent: async () => true, getPackageResources: async () => [] };
+  const approvedFile = { name: 'packet-code.json', locator: 'approved-packet', size: 12,
+    sha256: 'a'.repeat(64), mediaType: 'application/json' };
+  let claimed = false;
+  const initialization = { schemaVersion: 1, profileId: 'review-profile', contextPath: 'review/input.json',
+    context: '{}', inputs: [
+      { kind: 'attachment', reference: approvedFile.name, target: 'review/packets/code.json' },
+      { kind: 'resource', reference: 'review/code.md', target: 'review/resources/code.md' },
+    ], tasks: [{ id: 'code', instruction: 'review/resources/code.md',
+      reads: ['review/input.json', 'review/packets/code.json', 'review/resources/code.md'],
+      output: 'reports/code.json' }] };
+  let checkpointInitialization: unknown = initialization;
+  const activity = { operatorGenerationCurrent: async () => true,
+    getPackageResources: async () => ({ schemaVersion: 1, artifactDigest: 'd'.repeat(64), files: [{
+      destination: 'review/code.md', sha256: 'b'.repeat(64), size: 8, content: 'approved',
+    }] }),
+    getCurrentDriveCheckpointJson: async (generation: number) => generation === 1
+      ? JSON.stringify({ initialization: checkpointInitialization }) : null,
+    readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: claimed ? [approvedFile] : [] }) };
   const env = { OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
     CONTAINER: {} };
   const plan = { activityId, deadline: Date.now() + 300_000, invocationJson: JSON.stringify(invocation),
     receipt: { selection }, executionContext: { policyDigest: 'e'.repeat(64) } };
   const { capability } = await createConductorProductionCapability({ env: env as never,
-    plan: plan as never, activity: activity as never, generation: 1 });
+    plan: plan as never, activity: activity as never, generation: 1,
+    driveDeadline: Date.now() + 25_000 });
   const response = await capability.fetch(new Request('https://operator.internal/v1/session/ensure', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1 }),
   }));
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ status: 'ready' });
+  claimed = true;
+  const post = (value: unknown) => capability.fetch(new Request('https://operator.internal/v1/session/ensure', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ schemaVersion: 1, initialization: value }),
+  }));
+  expect((await post({ ...initialization, profileId: 'other-profile' })).status).toBe(403);
+  expect((await post({ ...initialization, context: '{"substituted":true}' })).status).toBe(403);
+  expect((await post(initialization)).status).toBe(200);
+  checkpointInitialization = null;
+  expect((await post(initialization)).status).toBe(403);
+  const task = { schemaVersion: 1, taskId: 'approved-round', digest: 'c'.repeat(64), mode: 'tool',
+    toolName: 'run_approved_tasks', arguments: { initializationDigest: 'd'.repeat(64) } };
+  expect((await capability.fetch(new Request('https://operator.internal/v1/pi/tasks', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify(task) }))).status).toBe(200);
+  expect(piTransport.task).toEqual({ taskId: task.taskId, digest: task.digest, mode: task.mode,
+    toolName: task.toolName, arguments: task.arguments });
 });

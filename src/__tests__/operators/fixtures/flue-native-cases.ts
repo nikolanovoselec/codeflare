@@ -13,7 +13,7 @@ type Assessment = NativeDelivery & {
 type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
-  productionCalls: Array<{ path: string; resource?: string }>;
+  productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
@@ -174,6 +174,32 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.productionCalls.some(call => call.path === '/v1/dispatcher/inference')).toBe(true);
       expect(value.external).toEqual([]);
       expect(value.activity.sessionId).toBeNull();
+    });
+
+    it('keeps a denied parent read attributable without a conflicting model retry', async () => {
+      const { id } = await prepare();
+      const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: { files: {}, checks: {} }, // No pull-request evidence: the parent returns 403.
+      });
+      expect(admitted.status).toBe(202);
+      const end = Date.now() + 10_000;
+      let value = await snapshot(id);
+      let settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      while (!settlement && Date.now() < end) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        value = await snapshot(id);
+        settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      }
+      // Flue can finish a model turn after a failed tool, but denied evidence
+      // cannot become an assessment or an inference-identity conflict.
+      expect(settlement).toBeDefined();
+      expect(value.productionCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: '/v1/dispatcher/github/read', resource: 'pull-request', status: 403 }),
+        expect.objectContaining({ path: '/v1/dispatcher/inference', modelTurn: 'after-tool', status: 200 }),
+      ]));
+      expect(results(value)).toEqual([]);
+      expect(value.external).toEqual([]);
     });
 
     it('isolates two activities SQLite and recovers their exact pinned state after native root/facet eviction', async () => {

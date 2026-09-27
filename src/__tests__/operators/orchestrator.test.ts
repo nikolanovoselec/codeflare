@@ -64,64 +64,15 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(JSON.stringify(prepareAuthorized.mock.calls[0])).not.toContain('private.jwt');
   });
 
-  it('binds a Gate 1 invocation to the server-generated activity identity before persistence', async () => {
-    const prepareAuthorized = vi.fn(async (_intent: unknown, _context: unknown, _invocationJson: string) =>
-      ({ ok: true, phase: 'prepared' }));
-    const registry = { resolveForExecution: vi.fn(async () => ({ ok: true, value: {
-      operatorId: 'codeflare-gate1-fixture', revision: 3, artifactDigest: 'a'.repeat(64),
-      manifestJson: '{}', policyJson: '{"schemaVersion":1}',
-    } })) };
-    const env = { ...encryption,
-      OPERATOR_REGISTRY: { getByName: () => registry },
-      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized }) },
-    } as unknown as Env;
-    const invocation = {
-      schemaVersion: 1, interfaceVersion: 1, consumerId: 'gate1-acceptance',
-      activityId: 'caller-placeholder', operatorId: 'codeflare-gate1-fixture', runId: 'gate1-run',
-      source: { kind: 'direct', reference: 'gate1-session-smoke' },
-      revision: { reference: 'gate1-v1', digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
-      input: { scenario: 'session-smoke' }, attachments: [], resources: {
-        inference: { routeId: 'Development', reasoningLevel: 'high' },
-        session: { profileId: 'gate1-pi-file-v1' }, storage: { scopeId: 'gate1-output-v1' },
-      },
-    };
-
-    const result = await prepareOperatorActivity({ operatorId: 'codeflare-gate1-fixture', invocation },
-      { human: claims, accessJwt: 'private.jwt' }, env);
-
-    const persisted = JSON.parse(prepareAuthorized.mock.calls[0]![2]) as typeof invocation;
-    expect(persisted.activityId).toBe(result.activityId);
-    expect(persisted.activityId).not.toBe(invocation.activityId);
-    expect(persisted.operatorId).toBe('codeflare-gate1-fixture');
-  });
-
-  it('rejects a Gate 1 invocation that exceeds the persisted limit only after identity binding', async () => {
-    const prepareAuthorized = vi.fn(async (_intent: unknown, _context: unknown, _invocationJson: string) =>
-      ({ ok: true, phase: 'prepared' }));
-    const resolveForExecution = vi.fn(async () => ({ ok: true, value: {
-      operatorId: 'codeflare-gate1-fixture', revision: 3, artifactDigest: 'a'.repeat(64),
-      manifestJson: '{}', policyJson: '{"schemaVersion":1}',
-    } }));
+  it('rejects the retired Gate 1 fixture before Registry or Activity I/O', async () => {
+    const resolveForExecution = vi.fn();
+    const prepareAuthorized = vi.fn();
     const env = { ...encryption,
       OPERATOR_REGISTRY: { getByName: () => ({ resolveForExecution }) },
       OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized }) },
     } as unknown as Env;
-    const invocation = {
-      schemaVersion: 1, interfaceVersion: 1, consumerId: 'gate1-acceptance', activityId: 'a',
-      operatorId: 'codeflare-gate1-fixture', runId: 'gate1-run',
-      source: { kind: 'direct', reference: 'gate1-session-smoke' },
-      revision: { reference: 'gate1-v1', digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
-      input: { scenario: 'session-smoke', padding: '' }, attachments: [], resources: {
-        inference: { routeId: 'Development', reasoningLevel: 'high' },
-        session: { profileId: 'gate1-pi-file-v1' }, storage: { scopeId: 'gate1-output-v1' },
-      },
-    };
-    const encoded = () => new TextEncoder().encode(JSON.stringify(invocation)).byteLength;
-    invocation.input.padding = 'x'.repeat(64 * 1024 - encoded());
-    expect(encoded()).toBe(64 * 1024);
-
-    await expect(prepareOperatorActivity({ operatorId: 'codeflare-gate1-fixture', invocation },
-      { human: claims, accessJwt: 'private.jwt' }, env)).rejects.toThrow('Invalid consumer invocation');
+    await expect(prepareOperatorActivity({ operatorId: 'codeflare-gate1-fixture', invocation: {} },
+      { human: claims, accessJwt: 'private.jwt' }, env)).rejects.toMatchObject({ statusCode: 404 });
     expect(resolveForExecution).not.toHaveBeenCalled();
     expect(prepareAuthorized).not.toHaveBeenCalled();
   });
@@ -167,14 +118,20 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     } as unknown as Env;
 
     const loopback = { fetch: vi.fn(async () => new Response('loopback')) } as unknown as Fetcher;
-    const bindLoopback = vi.fn((_activityId: string, _generation: number) => loopback);
+    let capturedDeadline = 0;
+    const bindLoopback = vi.fn((_activityId: string, _generation: number, driveDeadline: number) => {
+      capturedDeadline = driveDeadline;
+      return loopback;
+    });
+    const startedAt = Date.now();
     await runOperatorActivity('activity-1', env, bindLoopback);
 
     expect(registry.getPinnedDistribution).toHaveBeenCalledWith('activity-1');
     expect(fetch).toHaveBeenCalledOnce();
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({ redirect: 'manual' });
     expect(loaded?.globalOutbound).toBeNull();
-    expect(bindLoopback).toHaveBeenCalledWith('activity-1', 1);
+    expect(capturedDeadline).toBeGreaterThan(startedAt);
+    expect(capturedDeadline).toBeLessThanOrEqual(startedAt + 30_000);
     expect(loaded?.env.OPERATOR).toBe(loopback);
     expect(requestBody).toMatchObject({ activityId: 'activity-1', generation: 1,
       invocation: { repository: 'owner/repo' } });

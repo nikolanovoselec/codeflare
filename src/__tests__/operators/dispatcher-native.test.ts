@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import type { DispatcherBundle } from '../../operators/distribution';
-import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { OperatorRuntimeCapability } from '../../operators/operator-runtime-capability';
 import { loadOperatorDispatcherClass } from '../../operators/loader';
 
 const activityId = 'dispatcher-activity';
@@ -68,6 +68,19 @@ const bundle: DispatcherBundle = {
   compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js',
   modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } },
 };
+
+describe('REQ-OPERATOR-018: retired Gate 1 execution', () => {
+  it('denies an old prepared fixture receipt without constructing a session', async () => {
+    const activity = { getRuntimePlan: async () => ({ activityId: 'old-gate1',
+      receipt: { operatorId: 'codeflare-gate1-fixture' },
+      invocationJson: '{"resources":{"session":{"profileId":"gate1-pi-file-v1"}}}',
+    }) };
+    const env = { OPERATOR_ACTIVITY: { getByName: () => activity } } as unknown as Env;
+    const runtime = new OperatorRuntimeCapability(
+      { props: { activityId: 'old-gate1', generation: 1 } } as unknown as ExecutionContext, env);
+    expect((await runtime.fetch(new Request('https://operator.internal/v1/fixture'))).status).toBe(403);
+  });
+});
 
 describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
   it('loads the approved generated class with only a generation-bound capability and denied direct outbound', () => {

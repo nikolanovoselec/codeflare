@@ -95,7 +95,7 @@ For an accepted operation, authenticated `POST /internal/bisync-trigger` invokes
 
 The activity-owned durable seal is separate from the host receipt: the parent prepares the operation scope before host effects, authorizes writes only while prepared, seals the private manifest prefix after upload, and accepts independent verification only for that sealed manifest digest and the declared `Operators/` files. A changed repeat conflicts. A lost or nonterminal response becomes `unknown` and is never automatically replayed. Shutdown may wait for an already uploading receipt but does not initiate persistence; restricted final sync remains denied. Ordinary human Sync now is unchanged. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown -->
 
-This host upload plus independent R2 readback provides implemented persistence mechanics, not deployed acceptance. Live owner isolation, real R2 evidence, expiry, restart, and incomplete-upload behavior remain Gate 1 deployment checks. The private endpoint envelopes are registered in [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis).
+This host upload plus independent R2 readback provides implemented persistence mechanics, not deployed acceptance. Live owner isolation, real R2 evidence, expiry, restart, and incomplete-upload behavior remain separate deployment acceptance gaps; the retired Gate 1 fixture cannot be used to perform those checks. The private endpoint envelopes are registered in [Internal Operator Host APIs](api-reference.md#internal-operator-host-apis).
 
 ### Initial Sync on Startup
 

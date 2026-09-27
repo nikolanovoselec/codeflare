@@ -4619,6 +4619,8 @@ NODE
     done
     [ -f "$operator_root/agent/auth.json" ] || printf '{}\n' > "$operator_root/agent/auth.json"
     chmod 0600 "$operator_root/agent/auth.json"
+    # Verified parent-owned inputs must reach the restricted tool root before readiness.
+    node /opt/codeflare/scripts/materialize-operator-inputs.mjs
     touch "$CODEFLARE_INIT_FLAG_FILE"
     echo "[entrypoint] Restricted operator startup ready (no whole-home restore or bisync baseline)"
 }

@@ -5,6 +5,7 @@
  */
 import { parseJwtStampingPolicy, type JwtStampingAuthority, type JwtStampingPolicy } from '../operators/jwt-stamping';
 import { parseOperatorPolicy, type OperatorPolicy } from '../operators/policy';
+import { parseOperatorPiInitializationShape, type OperatorPiInitialization } from '../operators/session-initialization';
 
 interface OperatorPiProfile {
   provider: string;
@@ -12,6 +13,7 @@ interface OperatorPiProfile {
   thinkingLevel: string;
   systemPrompt: string;
   tools: string[];
+  initialization?: OperatorPiInitialization;
 }
 export interface OperatorContainerProfile {
   schemaVersion: 1;
@@ -63,8 +65,8 @@ function bounded(value: unknown, max: number): value is string {
 function parsePiProfile(value: unknown): OperatorPiProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator Pi profile');
   const profile = value as Record<string, unknown>;
-  if (Object.keys(profile).length !== 5
-    || Object.keys(profile).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools'].includes(key))
+  if (Object.keys(profile).length !== (Object.hasOwn(profile, 'initialization') ? 6 : 5)
+    || Object.keys(profile).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools', 'initialization'].includes(key))
     || !bounded(profile.provider, 128) || !bounded(profile.model, 256)
     || !bounded(profile.thinkingLevel, 32) || !bounded(profile.systemPrompt, 64 * 1024)
     || !Array.isArray(profile.tools) || profile.tools.length > 64
@@ -73,7 +75,9 @@ function parsePiProfile(value: unknown): OperatorPiProfile {
     throw new Error('Invalid operator Pi profile');
   }
   return { provider: profile.provider, model: profile.model, thinkingLevel: profile.thinkingLevel,
-    systemPrompt: profile.systemPrompt, tools: [...profile.tools] as string[] };
+    systemPrompt: profile.systemPrompt, tools: [...profile.tools] as string[],
+    ...(Object.hasOwn(profile, 'initialization')
+      ? { initialization: parseOperatorPiInitializationShape(profile.initialization) } : {}) };
 }
 
 function parseHuman(value: unknown): OperatorContainerProfile['human'] {

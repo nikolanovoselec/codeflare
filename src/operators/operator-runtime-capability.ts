@@ -1,4 +1,3 @@
-import { getContainer } from '@cloudflare/containers';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
@@ -7,21 +6,10 @@ import { getAigConfig } from '../lib/aig-config';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { openOperatorExecutionAccess } from './execution-context';
-import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
-import { GATE1_OPERATOR_ID, resolveGate1Resources, type Gate1Resources } from './gate1-resources';
-import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from './owned-session-runtime';
-import { OwnedOperatorSessionService } from './owned-session';
-import { Gate1OperatorCapability } from './gate1-capability';
 import { createConductorProductionCapability } from './conductor-production';
-import { operatorActivitySessionStore, createOperatorSyncReader,
-  type OperatorActivityStub } from './owned-session-production';
-import { bootstrapOperatorSession } from './session-bootstrap';
-import { verifyOperatorSync } from './sync-verification';
 import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
-
-type Gate1Activity = OperatorActivityStub;
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
@@ -31,6 +19,7 @@ const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperat
     messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
     tool_choice: z.json().optional(), max_tokens: z.number().int().min(1).max(8192).optional(),
     temperature: z.number().min(0).max(2).optional(), stream: z.boolean().optional(),
+    stream_options: z.strictObject({ include_usage: z.literal(true) }).optional(),
   }) });
 
 export type DispatcherOperation = { operationId: string; path: string; body: unknown };
@@ -136,7 +125,9 @@ export async function createDispatcherOperation(input: {
   const base = `https://${host}/repos/${parent.repository}`;
   const get = async (path: string) => {
     await current();
-    return transport.fetch(new Request(base + path, { headers: { accept: 'application/vnd.github+json' } }));
+    return transport.fetch(new Request(base + path, { headers: {
+      accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
+    } }));
   };
   return async () => {
     const pull = await get(`/pulls/${parent.pullRequest}`);
@@ -147,16 +138,50 @@ export async function createDispatcherOperation(input: {
     // package. The parent validates only the bounded admitted PR/read scope.
     if (!/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Pull request evidence unavailable');
     if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
-    const response = await get(resource === 'files' ? `/pulls/${parent.pullRequest}/files?per_page=100&page=1`
-      : `/commits/${observed.head.sha}/check-runs?per_page=100&page=1`);
-    if (!response.ok) return response;
-    const data = JSON.parse(await readDispatcherBody(response));
-    return Response.json({ data, observedHead: observed.head.sha,
-      truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
+    if (resource === 'files') {
+      const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
+      if (!response.ok) return response;
+      const data = JSON.parse(await readDispatcherBody(response));
+      return Response.json({ data, observedHead: observed.head.sha,
+        truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
+    }
+    // GitHub check-run pages carry verbose output that can exceed the protected
+    // 64 KiB response bound. Read at most 100 runs in small pages, then pass only
+    // the fields the installed Dispatcher uses to assess completeness.
+    const checkRuns: Array<{ name: string; conclusion: string | null }> = [];
+    const seenCheckIds = new Set<number>();
+    let total: number | null = null;
+    let truncated = false;
+    for (let page = 1; page <= 10; page++) {
+      const response = await get(`/commits/${observed.head.sha}/check-runs?per_page=10&page=${page}`);
+      if (!response.ok) return response;
+      const data = JSON.parse(await readDispatcherBody(response));
+      if (!Number.isSafeInteger(data?.total_count) || data.total_count < 0
+        || !Array.isArray(data.check_runs) || data.check_runs.length > 10
+        || data.check_runs.some((run: { name?: unknown; conclusion?: unknown }) => !run
+          || typeof run.name !== 'string' || (run.conclusion !== null && typeof run.conclusion !== 'string'))) {
+        throw new Error('Check evidence unavailable');
+      }
+      const expectedTotal: number = total ?? data.total_count;
+      total = expectedTotal;
+      if (data.total_count !== expectedTotal) { truncated = true; break; }
+      for (const run of data.check_runs as Array<{ id: number; name: string; conclusion: string | null }>) {
+        if (!Number.isSafeInteger(run.id) || seenCheckIds.has(run.id)) { truncated = true; break; }
+        seenCheckIds.add(run.id);
+        checkRuns.push({ name: run.name, conclusion: run.conclusion });
+      }
+      if (truncated) break;
+      if (expectedTotal > 100 || checkRuns.length > expectedTotal) { truncated = true; break; }
+      const more = /rel="next"/.test(response.headers.get('link') ?? '');
+      if (checkRuns.length === expectedTotal) { truncated = more; break; }
+      if (data.check_runs.length !== 10 || !more) { truncated = true; break; }
+    }
+    return Response.json({ data: { check_runs: checkRuns }, observedHead: observed.head.sha,
+      truncated: truncated || checkRuns.length !== total });
   };
 }
 
-interface OperatorRuntimeCapabilityProps { activityId: string; generation: number }
+interface OperatorRuntimeCapabilityProps { activityId: string; generation: number; driveDeadline?: number }
 
 function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt): receipt is ManagementAdmissionReceipt {
   return 'selection' in receipt;
@@ -234,69 +259,10 @@ export class OperatorRuntimeCapability extends WorkerEntrypoint<Env> {
     if (isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'conductor') {
       try {
         const connected = await createConductorProductionCapability({ env: this.env, plan, activity,
-          generation: props.generation });
+          generation: props.generation, driveDeadline: props.driveDeadline ?? 0 });
         return connected.capability.fetch(request);
       } catch { return deniedCapability(props.activityId, props.generation); }
     }
-    if (isManagementReceipt(plan.receipt) || plan.receipt.operatorId !== GATE1_OPERATOR_ID) {
-      return deniedCapability(props.activityId, props.generation);
-    }
-    const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
-    if (invocation.resources.session === null) return deniedCapability(props.activityId, props.generation);
-    const connected = await createGate1ProductionCapability({ env: this.env, plan, activity,
-      generation: props.generation });
-    return connected.capability.fetch(request);
+    return deniedCapability(props.activityId, props.generation);
   }
-}
-
-/** Compose the single code-owned Gate 1 profile from protected parent state. */
-async function createGate1ProductionCapability(input: {
-  env: Env;
-  plan: OperatorRuntimePlan;
-  activity: Gate1Activity;
-  generation: number;
-}): Promise<{ capability: Fetcher; resources: Gate1Resources }> {
-  const { env, plan, activity } = input;
-  const authority = await openOperatorExecutionAccess(plan.executionContext, env);
-  const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
-  const receipt = plan.receipt;
-  if (isManagementReceipt(receipt) || !receipt.policyJson) throw new Error('Gate 1 policy unavailable');
-  const policy = parseOperatorPolicy(JSON.parse(receipt.policyJson));
-  const ownerBucket = await resolveBucketName(env, authority.human.email);
-  const { bootstrap } = await bootstrapOperatorSession({ env, authority, ownerBucket });
-  const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-    headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-  }), env);
-  const routes = await loadEnterpriseRouteConfig(env, groups);
-  const resources = await resolveGate1Resources({ invocation, operatorId: receipt.operatorId,
-    activityId: plan.activityId, ownerBucket, policy, policyDigest: plan.executionContext.policyDigest,
-    deadline: plan.deadline, human: authority.human, eligibleInference: {
-      routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
-      defaultReasoningLevel: routes.defaultReasoning,
-    } });
-  const packageResources = await activity.getPackageResources();
-  const runtime = new ContainerOwnedSessionRuntime({ activityId: plan.activityId, ownerBucket,
-    sessionId: resources.profile.sessionId, userEmail: authority.human.email.toLowerCase(), userGroups: groups,
-    routes, bootstrap, packageResources,
-    resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as OperatorContainerStub });
-  const service = new OwnedOperatorSessionService(operatorActivitySessionStore(activity), runtime);
-  const requestDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.invocationJson));
-  const digest = Array.from(new Uint8Array(requestDigest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
-  const ensure = () => service.ensure({ requestId: 'gate1-session-v1', requestDigest: digest,
-    activityId: plan.activityId, ownerBucket, profile: resources.profile, authority });
-  const stop = () => service.stop({ activityId: plan.activityId, ownerBucket, drain: false });
-  const container = getContainer(env.CONTAINER, `${ownerBucket}-${resources.profile.sessionId}`) as unknown as OperatorContainerStub;
-  const reader = await createOperatorSyncReader(env, ownerBucket, bootstrap);
-  const capability = new Gate1OperatorCapability({ activityId: plan.activityId, generation: input.generation,
-    deadline: plan.deadline, resources, session: { ensure, stop },
-    host: { fetch: (path, init) => container.fetch(new Request(`http://container${path}`, init)) },
-    sync: {
-      get: operationId => activity.getSync(operationId),
-      prepare: value => activity.prepareSync(value),
-      uploaded: (operationId, manifestDigest) => activity.recordSyncUploaded(operationId, manifestDigest),
-      verified: (operationId, evidence) => activity.recordSyncVerified(operationId, evidence),
-    },
-    verify: expected => verifyOperatorSync(expected, reader),
-  });
-  return { capability: capability as unknown as Fetcher, resources };
 }

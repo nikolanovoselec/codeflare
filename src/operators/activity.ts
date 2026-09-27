@@ -11,11 +11,12 @@ import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody } from './gate1-production';
+  readDispatcherBody } from './operator-runtime-capability';
 import { z } from 'zod';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
+import { createLogger } from '../lib/logger';
 import { canInvokeOperator, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
@@ -23,6 +24,7 @@ import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activit
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import type { OwnedOperatorSessionState } from './owned-session';
 import { parseOperatorPackageResourceProjection, type OperatorPackageResourceProjection } from './package-resources';
+import { parseOperatorAttachmentProjection, projectOperatorAttachments } from './attachments';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export type OperatorActivityPreparation = (OperatorAdmissionRequest | {
@@ -72,12 +74,26 @@ interface DispatcherOperationRecord {
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_LIMIT_MS = 30_000;
+const dispatcherLog = createLogger('dispatcher-settlement');
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
   '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
   '_cf_releaseFacetKeepAlive', '_cf_registerFacetRun', '_cf_unregisterFacetRun',
+  '_cf_broadcastToSubAgent', '_cf_subAgentConnectionMetas',
 ] as const;
 type DispatcherSdkMethod = typeof DISPATCHER_SDK_METHODS[number];
+
+interface ApprovedPacketRecord {
+  preparationId: string; lane: string;
+  attachment: { name: string; mediaType: string; size: number; sha256: string; locator: string };
+  claim: { contextDigest: string; runId: number; runAttempt: number; head: string; base: string;
+    mergeBase: string; workflowSha: string; sessionGeneration: number };
+}
+
+function sameApprovedPacketAttachment(a: ApprovedPacketRecord['attachment'], b: ApprovedPacketRecord['attachment']): boolean {
+  return a.name === b.name && a.mediaType === b.mediaType && a.locator === b.locator
+    && a.size === b.size && a.sha256 === b.sha256;
+}
 
 interface OperatorSyncState {
   operationId: string;
@@ -154,6 +170,7 @@ interface AdmissionState {
   invocationJson?: string;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
+  approvedPackets?: Record<string, ApprovedPacketRecord>;
   review?: OperatorReviewState;
   webhook?: { readVerifier: string; expiresAt: number; consumed: boolean; continuedGeneration?: number };
   ownerKey?: string;
@@ -163,6 +180,14 @@ interface AdmissionState {
 
 const syncIdentity = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const syncDigest = z.string().regex(/^[0-9a-f]{64}$/);
+const approvedPacketSchema = z.strictObject({
+  preparationId: syncIdentity, driveGeneration: z.number().int().positive().safe(),
+  lane: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/),
+  mediaType: z.string().regex(/^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/),
+  locator: syncIdentity, size: z.number().int().positive().max(8 * 1024 * 1024), sha256: syncDigest,
+  bytes: z.instanceof(Uint8Array),
+});
 const syncPreparationSchema = z.strictObject({
   operationId: syncIdentity, sessionId: syncIdentity, requestDigest: syncDigest, policyDigest: syncDigest,
   prefix: z.string().min(2).max(2048),
@@ -313,6 +338,39 @@ export class OperatorActivity extends Agent {
       status: state.drive.status, collected: state.webhook?.consumed === true };
   }
 
+  /** Parent-only frozen publication inputs; never expose result bytes or execution credentials. */
+  async getBoundaryPublicationEvidence(activityId: string): Promise<{
+    inputDigest: string; packageDigest: string; policyDigest: string; acknowledgedHead: string | null;
+    invocationJson: string;
+    context: { repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string };
+    resultDigest: string; packets: Array<{ lane: string; name: string; mediaType: string;
+      size: number; sha256: string; locator: string }>;
+  } | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.boundary || state.intent.activityId !== activityId || state.phase !== 'queued'
+      || !state.webhook?.consumed || !state.drive || !['completed', 'failed'].includes(state.drive.status)
+      || !state.receipt || !state.executionContext || !state.invocationJson) return null;
+    try {
+      const invocation = JSON.parse(state.invocationJson) as { inputDigest: string;
+        input: { context: { repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string };
+          acknowledgedHead: string | null } };
+      const context = invocation.input.context;
+      if (!syncDigest.safeParse(invocation.inputDigest).success
+        || context.repositoryId !== state.boundary.repositoryId || context.pullRequest !== state.boundary.pullRequest
+        || ![context.head, context.base, context.mergeBase].every(value => /^[0-9a-f]{40}$/.test(value))
+        || !(invocation.input.acknowledgedHead === null
+          || /^[0-9a-f]{40}$/.test(invocation.input.acknowledgedHead))) return null;
+      if (!await this.approvedPacketClaimsCurrent(state)) return null;
+      return { inputDigest: invocation.inputDigest, invocationJson: state.invocationJson,
+        context: structuredClone(context),
+        acknowledgedHead: invocation.input.acknowledgedHead,
+        packageDigest: state.executionContext.artifactDigest, policyDigest: state.executionContext.policyDigest,
+        resultDigest: await sha256(JSON.stringify(state.drive.result)),
+        packets: Object.values(state.approvedPackets ?? {}).map(record => ({ lane: record.lane,
+          ...structuredClone(record.attachment) })) };
+    } catch { return null; }
+  }
+
   /** Stop's exact binding wins durably over prepared, admitting and queued starts. */
   async cancelBoundaryStart(binding: BoundaryActivityBinding): Promise<{ ok: boolean }> {
     if (!boundaryBindingSchema.safeParse(binding).success) return { ok: false };
@@ -433,6 +491,77 @@ export class OperatorActivity extends Agent {
     return value == null ? null : structuredClone(parseOperatorPackageResourceProjection(value));
   }
 
+  private async approvedPacketClaimsCurrent(state: AdmissionState): Promise<boolean> {
+    if (!state.boundary) return false;
+    const records = Object.values(state.approvedPackets ?? {});
+    if (!records.length) return true;
+    try {
+      const guard = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getBoundaryStartGuard(state.intent.activityId);
+      if (!guard?.claimed || !guard.workflowSha) return false;
+      const claim = { contextDigest: guard.contextDigest, runId: guard.runId,
+        runAttempt: guard.runAttempt, head: guard.head, base: guard.base,
+        mergeBase: guard.mergeBase, workflowSha: guard.workflowSha, sessionGeneration: guard.generation };
+      return records.every(record => JSON.stringify(record.claim) === JSON.stringify(claim));
+    } catch { return false; }
+  }
+
+  /** Parent-only accepted packet identity; no candidate bytes are stored in Activity state. */
+  async saveApprovedPacketAttachment(input: unknown): Promise<{ ok: true; preparationId: string;
+    attachment: ApprovedPacketRecord['attachment'] } | { ok: false }> {
+    const parsed = approvedPacketSchema.safeParse(input);
+    if (!parsed.success || parsed.data.bytes.byteLength !== parsed.data.size) return { ok: false };
+    const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(parsed.data.bytes))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (actual !== parsed.data.sha256) return { ok: false };
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!before?.boundary || before.drive?.generation !== parsed.data.driveGeneration
+      || !await this.operatorGenerationCurrent(parsed.data.driveGeneration)) return { ok: false };
+    const guard = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getBoundaryStartGuard(before.intent.activityId);
+    if (!guard?.claimed || !guard.workflowSha || guard.contextDigest !== before.boundary.contextDigest
+      || JSON.stringify(guard.session) !== JSON.stringify(before.boundary.session)) return { ok: false };
+    const claim = { contextDigest: guard.contextDigest, runId: guard.runId, runAttempt: guard.runAttempt,
+      head: guard.head, base: guard.base, mergeBase: guard.mergeBase,
+      workflowSha: guard.workflowSha, sessionGeneration: guard.generation };
+    const { preparationId, lane, name, mediaType, locator, size, sha256 } = parsed.data;
+    const attachment = { name, mediaType, locator, size, sha256 };
+    return this.ctx.storage.transaction(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      if (!state?.boundary || state.phase !== 'queued' || state.intent.activityId !== before.intent.activityId
+        || state.drive?.status !== 'running' || state.drive.generation !== before.drive?.generation
+        || state.intent.deadline <= Date.now()
+        || state.boundary.contextDigest !== guard.contextDigest) return { ok: false } as const;
+      const existing = state.approvedPackets ?? {};
+      const prior = existing[lane];
+      if (!prior && await tx.get('ownedSession')) return { ok: false } as const;
+      if (prior) return prior.preparationId === preparationId
+        && sameApprovedPacketAttachment(prior.attachment, attachment)
+        && JSON.stringify(prior.claim) === JSON.stringify(claim)
+        ? { ok: true as const, preparationId, attachment: structuredClone(prior.attachment) }
+        : { ok: false as const };
+      if (Object.values(existing).some(record => record.preparationId === preparationId
+        || record.attachment.locator === locator || record.attachment.name === name)
+        || Object.keys(existing).length >= 16
+        || Object.values(existing).reduce((total, record) => total + record.attachment.size, size) > 8 * 1024 * 1024) {
+        return { ok: false } as const;
+      }
+      await tx.put<AdmissionState>('admission', { ...state,
+        approvedPackets: { ...existing, [lane]: { preparationId, lane, attachment, claim } } });
+      return { ok: true as const, preparationId, attachment };
+    });
+  }
+
+  /** The container receives only descriptors accepted for this still-current boundary. */
+  async readApprovedPacketAttachments(): Promise<{ schemaVersion: 1; activityId: string;
+    files: ApprovedPacketRecord['attachment'][] }> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state) return { schemaVersion: 1, activityId: '', files: [] };
+    if (!state.boundary || !await this.boundaryCurrent(state) || !await this.approvedPacketClaimsCurrent(state)) {
+      return { schemaVersion: 1, activityId: state.intent.activityId, files: [] };
+    }
+    return { schemaVersion: 1, activityId: state.intent.activityId,
+      files: Object.values(state.approvedPackets ?? {}).map(record => structuredClone(record.attachment)) };
+  }
+
   /** Activity-owned session state; immutable identity and profile, monotonic finite transitions. */
   async saveOwnedSession(input: unknown): Promise<{ ok: true } | { ok: false; reason: 'invalid' | 'conflict' }> {
     const value = input as Partial<OwnedOperatorSessionState>;
@@ -451,15 +580,52 @@ export class OperatorActivity extends Agent {
       || profile.ownerBucket !== value.ownerBucket) return { ok: false, reason: 'invalid' };
     const candidate = { ...value, profile } as OwnedOperatorSessionState;
     const transitions: Record<OwnedOperatorSessionState['status'], readonly OwnedOperatorSessionState['status'][]> = {
-      reserved: ['reserved', 'configuring'], configuring: ['configuring', 'configured', 'unknown'],
-      configured: ['configured', 'starting'], starting: ['starting', 'ready', 'unknown'],
+      reserved: ['reserved', 'configuring', 'stopping'],
+      configuring: ['configuring', 'configured', 'stopping', 'unknown'],
+      configured: ['configured', 'starting', 'stopping'],
+      starting: ['starting', 'ready', 'stopping', 'unknown'],
       ready: ['ready', 'stopping'], stopping: ['stopping', 'stopped', 'unknown'],
-      stopped: ['stopped'], unknown: ['unknown'],
+      stopped: ['stopped'], unknown: ['unknown', 'stopping'],
     };
-    return this.ctx.storage.transaction(async tx => {
+    const teardown = ['stopping', 'stopped', 'unknown'].includes(candidate.status);
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (before?.boundary && !teardown
+      && (!await this.boundaryCurrent(before) || !await this.approvedPacketClaimsCurrent(before))) {
+      return { ok: false, reason: 'invalid' };
+    }
+    const saved = await this.ctx.storage.transaction(async tx => {
       const admission = await tx.get<AdmissionState>('admission');
-      if (!admission || admission.phase !== 'queued' || admission.intent.activityId !== candidate.activityId) {
+      if (!admission || admission.intent.activityId !== candidate.activityId
+        || (admission.phase !== 'queued'
+          && !(admission.phase === 'cancelled' && ['stopping', 'stopped', 'unknown'].includes(candidate.status)))) {
         return { ok: false, reason: 'invalid' } as const;
+      }
+      if (admission.boundary) {
+        if (!admission.invocationJson) return { ok: false, reason: 'invalid' } as const;
+        if (!teardown && (!before?.boundary || admission.boundary.contextDigest !== before.boundary.contextDigest
+          || admission.drive?.generation !== before.drive?.generation
+          || admission.drive?.status !== before.drive?.status)) return { ok: false, reason: 'invalid' } as const;
+        try {
+          const initial = projectOperatorAttachments(JSON.parse(admission.invocationJson));
+          const attachments = parseOperatorAttachmentProjection({ schemaVersion: 1,
+            activityId: candidate.activityId, files: [...initial.files,
+              ...Object.values(admission.approvedPackets ?? {}).map(record => record.attachment)] });
+          const initialization = candidate.profile.piProfile.initialization;
+          if (Object.keys(admission.approvedPackets ?? {}).length > 0) {
+            const checkpoint = admission.drive?.checkpoint as { initialization?: unknown } | null;
+            const declared = new Set(initialization?.inputs.filter(item => item.kind === 'attachment')
+              .map(item => item.reference) ?? []);
+            if (!initialization || !checkpoint
+              || JSON.stringify(initialization) !== JSON.stringify(checkpoint.initialization)
+              || attachments.files.length !== declared.size
+              || attachments.files.some(file => !declared.has(file.name))) {
+              return { ok: false, reason: 'conflict' } as const;
+            }
+          }
+          const expected = await sha256(JSON.stringify({ invocationJson: admission.invocationJson, attachments,
+            ...(initialization ? { initialization } : {}) }));
+          if (candidate.requestDigest !== expected) return { ok: false, reason: 'conflict' } as const;
+        } catch { return { ok: false, reason: 'invalid' } as const; }
       }
       const existing = await tx.get<OwnedOperatorSessionState>('ownedSession');
       if (existing) {
@@ -471,6 +637,13 @@ export class OperatorActivity extends Agent {
       await tx.put('ownedSession', candidate);
       return { ok: true } as const;
     });
+    if (saved.ok && before?.boundary && !teardown) {
+      const after = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!after || !await this.boundaryCurrent(after) || !await this.approvedPacketClaimsCurrent(after)) {
+        return { ok: false, reason: 'invalid' };
+      }
+    }
+    return saved;
   }
 
   async getOwnedSession(): Promise<OwnedOperatorSessionState | null> {
@@ -610,10 +783,17 @@ export class OperatorActivity extends Agent {
     const verifier = await capabilityVerifier(capability);
     return this.ctx.storage.transaction<WebhookReadResult>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
-      const checked = this.checkWebhookRead(state, verifier);
+      // Redemption alone may reread its immutable terminal bytes after lost delivery.
+      // Status and continuation retain their single-use consumed fence.
+      if (state?.webhook?.readVerifier !== verifier) return { ok: false, reason: state?.webhook
+        ? 'invalid-capability' : 'not-prepared' };
+      if (state.webhook.expiresAt <= Date.now()) return { ok: false, reason: 'capability-expired' };
+      const checked = this.checkWebhookRead(state.webhook.consumed
+        ? { ...state, webhook: { ...state.webhook, consumed: false } } : state, verifier);
       if (!checked.ok) return checked;
       if (!checked.terminal) return { ok: false, reason: 'not-ready' };
-      await tx.put<AdmissionState>('admission', { ...state!, webhook: { ...state!.webhook!, consumed: true } });
+      if (!state.webhook.consumed) await tx.put<AdmissionState>('admission', { ...state,
+        webhook: { ...state.webhook, consumed: true } });
       return checked;
     });
   }
@@ -915,6 +1095,16 @@ export class OperatorActivity extends Agent {
       && await this.boundaryCurrent(record);
   }
 
+  /** Parent-only checkpoint read for the live generation; browser projections do not grant execution authority. */
+  async getCurrentDriveCheckpointJson(generation: number): Promise<string | null> {
+    if (!await this.operatorGenerationCurrent(generation)) return null;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (state?.drive?.status !== 'running' || state.drive.generation !== generation
+      || state.drive.checkpoint === null) return null;
+    const encoded = JSON.stringify(state.drive.checkpoint);
+    return typeof encoded === 'string' ? encoded : null;
+  }
+
   /** Validate bounded child output before committing the current generation only. */
   async commitDrive(generation: number, update: unknown): Promise<OperatorDriveResult> {
     let parsed: z.infer<typeof driveUpdateSchema>;
@@ -1155,6 +1345,7 @@ export class OperatorActivity extends Agent {
         return;
       }
       if (lease.status !== 'running' || !lease.submissionId) return;
+      let stage = 'status';
       try {
         const plan = await this.getRuntimePlan();
         if (!plan) throw new Error('Dispatcher plan unavailable');
@@ -1165,14 +1356,40 @@ export class OperatorActivity extends Agent {
         });
         const settlement = Array.isArray(value?.settlements)
           ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
-        if (!settlement) return;
+        if (!settlement) {
+          stage = 'recheck';
+          // A child may settle just after this snapshot; the deadline alarm cannot
+          // read it once the lease expires. Recheck within the original lease.
+          const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
+          if (remainingSeconds > 0) await this.schedule(Math.min(5, remainingSeconds), 'reconcileDispatcherLease', { generation: lease.generation });
+          return;
+        }
+        stage = 'authorize';
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
+          const errorType = settlement.error?.type;
+          const reason = typeof settlement.error?.meta?.reason === 'string' ? settlement.error.meta.reason : '';
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
+            outcome: ['failed', 'aborted', 'completed'].includes(settlement.outcome) ? settlement.outcome : 'unrecognized',
+            errorType: ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
+              'tool_output_validation', 'operation_failed', 'submission_timeout', 'submission_aborted',
+              'internal_error'].includes(errorType) ? errorType : 'other',
+            reasonAvailable: reason.length > 0,
+            reasonClass: [
+              /\b(model|provider|api key|cloudflare_ai)\b/i.test(reason) ? 'model' : null,
+              /\b(facet|rpc|schedule|bridge)\b/i.test(reason) ? 'bridge' : null,
+              /\b(fetch|network|gateway|http)\b/i.test(reason) ? 'transport' : null,
+              /\b(conversation|stream|persist|storage)\b/i.test(reason) ? 'state' : null,
+              /\b(tool|function)\b/i.test(reason) ? 'tool' : null,
+              /\b(undefined|not a function|cannot read properties)\b/i.test(reason) ? 'runtime-shape' : null,
+            ].filter(Boolean).join(',') || 'none' });
           await this.interruptDrive(lease.generation); return;
         }
+        stage = 'operations';
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
         const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
         if (Object.values(operations).some(operation => operation.phase !== 'completed')) {
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'operations' });
           await this.interruptDrive(lease.generation); return;
         }
         await this.ctx.storage.transaction(async tx => {
@@ -1182,10 +1399,17 @@ export class OperatorActivity extends Agent {
             || current!.submissionId !== lease.submissionId) throw new Error('Stale Dispatcher settlement');
           await tx.put(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease.submissionId });
         });
+        stage = 'commit';
         const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'waiting',
           checkpoint: { submissionId: lease.submissionId, inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest } });
-        if (!committed.ok) await this.interruptDrive(lease.generation);
-      } catch { await this.interruptDrive(lease.generation); }
+        if (!committed.ok) {
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
+          await this.interruptDrive(lease.generation);
+        }
+      } catch {
+        dispatcherLog.warn('Dispatcher settlement rejected', { stage });
+        await this.interruptDrive(lease.generation);
+      }
     })();
     try { await this.#reconciling; } finally { this.#reconciling = undefined; }
   }
@@ -1336,6 +1560,10 @@ export class OperatorActivity extends Agent {
     if (['_cf_getScheduleForFacet', '_cf_cancelScheduleForFacet', '_cf_registerFacetRun', '_cf_unregisterFacetRun'].includes(method)
       && (typeof args[1] !== 'string' || !/^[A-Za-z0-9:._-]{1,128}$/.test(args[1]))) throw new Error('Dispatcher SDK identity denied');
     if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK generation changed');
+    // This activity grants no subagent connections. Answer the pinned SDK's
+    // connection-free facet protocol without exposing parent connections or data.
+    if (method === '_cf_subAgentConnectionMetas') return [];
+    if (method === '_cf_broadcastToSubAgent') return;
     if (method === '_cf_acquireFacetKeepAlive') {
       const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
       if (Object.keys(tokens).length >= 64) throw new Error('Dispatcher keepalive limit');
@@ -1386,23 +1614,93 @@ export class OperatorActivity extends Agent {
     catch { /* execution state remains authoritative; the safe index can reconcile later */ }
   }
 
-  async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown }) | null> {
-    const state = await this.ctx.storage.get<AdmissionState>('admission');
-    return state ? { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null,
-      result: state.drive?.result ?? null } : null;
+  private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
+    if (!state.drive || !state.receipt || !isManagementReceipt(state.receipt)
+      || state.receipt.selection.operator.profile !== 'dispatcher') return undefined;
+    return !!lease && lease.generation === state.drive.generation && lease.inputDigest === state.receipt.intentDigest
+      && lease.artifactDigest === state.receipt.selection.release.bundleDigest && lease.sdkReleased === true;
   }
 
-  async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
-    | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
-    const outcome = await this.ctx.storage.transaction<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown } }
-      | { ok: false; reason: 'not-ready' | 'not-admitted' }>(async tx => {
+  async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
+    sdkCleanupReleased?: boolean }) | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state) return null;
+    const released = state.drive && state.receipt && isManagementReceipt(state.receipt)
+      && state.receipt.selection.operator.profile === 'dispatcher'
+      ? this.sdkCleanupReleased(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)) : undefined;
+    return { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null,
+      result: state.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) };
+  }
+
+  /** Read one already-settled Dispatcher assessment; never resume or re-admit its submission. */
+  private async completeSettledDispatcherAssessment(): Promise<void> {
+    const matches = (state: AdmissionState | undefined, lease: DispatcherLease | undefined): boolean => {
+      const checkpoint = state?.drive?.checkpoint;
+      return !!state && !!lease && state.drive?.status === 'waiting' && !!state.receipt
+        && isManagementReceipt(state.receipt) && state.receipt.selection.operator.profile === 'dispatcher'
+        && checkpoint !== null && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
+        && (checkpoint as Record<string, unknown>).submissionId === lease.submissionId
+        && (checkpoint as Record<string, unknown>).inputDigest === lease.inputDigest
+        && (checkpoint as Record<string, unknown>).artifactDigest === lease.artifactDigest
+        && lease.status === 'settled' && lease.generation === state.drive.generation
+        && lease.submissionId !== null && lease.settledSubmissionId === lease.submissionId
+        && lease.inputDigest === state.receipt.intentDigest
+        && lease.artifactDigest === state.receipt.selection.release.bundleDigest;
+    };
+    const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+      this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+    if (!matches(state, lease)) return;
+    let assessment: unknown;
+    try {
+      const response = await (await this.#dispatcherFacet(lease!)).fetch(new Request(
+        'https://flue.internal/agents/Dispatcher/dispatcher', { signal: AbortSignal.timeout(5_000) }));
+      if (!response.ok) return;
+      const snapshot = JSON.parse(await readDispatcherBody(response));
+      const settlements = Array.isArray(snapshot?.settlements)
+        ? snapshot.settlements.filter((item: { submissionId?: unknown }) => item?.submissionId === lease!.submissionId) : [];
+      if (settlements.length !== 1 || settlements[0].outcome !== 'completed' || !Array.isArray(snapshot?.messages)) return;
+      const parts = snapshot.messages.flatMap((message: { submissionId?: unknown; parts?: unknown }) =>
+        message?.submissionId === lease!.submissionId && Array.isArray(message.parts)
+          ? message.parts.filter((part: { type?: unknown }) => part?.type === 'data-assessment') : []);
+      if (parts.length !== 1) return;
+      const value = parts[0].data;
+      if (!value || typeof value !== 'object' || Array.isArray(value) || !z.json().safeParse(value).success
+        || new TextEncoder().encode(JSON.stringify(value)).byteLength > 64 * 1024) return;
+      assessment = value;
+    } catch { return; }
+    const committed = await this.ctx.storage.transaction(async tx => {
+      const [record, currentLease] = await Promise.all([tx.get<AdmissionState>('admission'),
+        tx.get<DispatcherLease>(DISPATCHER_LEASE)]);
+      if (!matches(record, currentLease) || currentLease!.generation !== lease!.generation) return false;
+      const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
+      if (Object.values(operations).some(operation => operation.phase !== 'completed')) return false;
+      await tx.put<AdmissionState>('admission', { ...record!, drive: {
+        ...record!.drive!, status: 'completed', checkpoint: null, result: assessment,
+      }, updatedAt: Date.now() });
+      return true;
+    });
+    if (committed) await this.publishBrowserSummary();
+  }
+
+  async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
+    sdkCleanupReleased?: boolean } } | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
+    await this.completeSettledDispatcherAssessment();
+    const before = await this.ctx.storage.get<AdmissionState>('admission');
+    if (before?.drive?.status === 'completed' && before.receipt && isManagementReceipt(before.receipt)
+      && before.receipt.selection.operator.profile === 'dispatcher') {
+      try { await this.#releaseDispatcherSdk(); }
+      catch { /* The immutable result remains readable; cleanup is not claimed. */ }
+    }
+    const outcome = await this.ctx.storage.transaction<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown;
+      result: unknown; sdkCleanupReleased?: boolean } } | { ok: false; reason: 'not-ready' | 'not-admitted' }>(async tx => {
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-admitted' };
       if (state.drive?.status !== 'completed' && state.drive?.status !== 'failed') return { ok: false, reason: 'not-ready' };
       const consumed = { ...state, browserCollectionConsumed: true, updatedAt: Date.now() };
+      const released = this.sdkCleanupReleased(consumed, await tx.get<DispatcherLease>(DISPATCHER_LEASE));
       await tx.put<AdmissionState>('admission', consumed);
       return { ok: true, detail: { ...this.browserSummary(consumed), checkpoint: consumed.drive?.checkpoint ?? null,
-        result: consumed.drive?.result ?? null } };
+        result: consumed.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) } };
     });
     if (outcome.ok) await this.publishBrowserSummary();
     return outcome;
@@ -1464,5 +1762,11 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
   }
   async _cf_unregisterFacetRun(ownerPath: DispatcherFacetPath, runId: string): Promise<void> {
     return this.#bridge('_cf_unregisterFacetRun', [ownerPath, runId]);
+  }
+  async _cf_broadcastToSubAgent(ownerPath: DispatcherFacetPath, message: unknown, without?: readonly string[]): Promise<void> {
+    return this.#bridge('_cf_broadcastToSubAgent', [ownerPath, message, without]);
+  }
+  async _cf_subAgentConnectionMetas(ownerPath: DispatcherFacetPath): Promise<unknown[]> {
+    return this.#bridge('_cf_subAgentConnectionMetas', [ownerPath]);
   }
 }

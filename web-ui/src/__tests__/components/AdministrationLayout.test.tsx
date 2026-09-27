@@ -42,5 +42,6 @@ describe('REQ-SETUP-019 AC2: gates navigation by deployment mode', () => {
     expect(screen.queryByRole('link', { name: 'Users' }) !== null).toBe(showsUsers);
     expect(screen.queryByRole('link', { name: 'Subscription Tiers' }) !== null).toBe(showsSubscriptions);
     expect(screen.queryByRole('link', { name: 'Operators' }) !== null).toBe(mode === 'enterprise');
+    if (mode === 'enterprise') expect(screen.getByRole('link', { name: 'Operators' })).toHaveAttribute('href', '/operators');
   });
 });

@@ -53,6 +53,22 @@ describe('operator container environment', () => {
     expect(vars).not.toHaveProperty('REMOTE_CURATION_ACTIVE');
   });
 
+  it('separates finite initialization from the SDK profile without granting ambient tools', () => {
+    const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile', contextPath: 'review/input.json',
+      context: '{}', inputs: [{ kind: 'resource' as const, reference: 'review/child.md',
+        target: 'review/resources/child.md' }], tasks: [{ id: 'child', instruction: 'review/resources/child.md',
+        reads: ['review/input.json', 'review/resources/child.md'], output: 'reports/child.json' }] };
+    const configured = { ...profile, piProfile: { ...profile.piProfile, tools: ['read', 'write'], initialization } };
+    const vars = buildEnvVars(state({ _operatorContainerProfile: configured }), { ENTERPRISE_MODE: 'active' } as Env);
+    expect(JSON.parse(vars.CODEFLARE_OPERATOR_PI_CONFIG)).toEqual({ schemaVersion: 1,
+      activityId: profile.activityId, sessionId: profile.sessionId,
+      root: '/home/user/.codeflare/operators/activity-1',
+      profile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'medium',
+        systemPrompt: 'Approved operator context', tools: ['read', 'write'] },
+      mode: 'isolated', initialization, deadline: profile.deadline });
+    expect(vars.CODEFLARE_OPERATOR_PI_CONFIG).not.toContain('real-github');
+  });
+
   it('preserves ordinary non-enterprise credential and full-sync behavior when no profile exists', () => {
     const vars = buildEnvVars(state({ _operatorContainerProfile: undefined }), {} as Env);
     expect(vars.R2_ACCESS_KEY_ID).toBe('real-r2-key');

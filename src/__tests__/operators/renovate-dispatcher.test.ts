@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Env } from '../../types';
-import { OperatorRuntimeCapability } from '../../operators/gate1-production';
+import { OperatorRuntimeCapability } from '../../operators/operator-runtime-capability';
 
 const activityId = 'renovate-activity';
 const generation = 2;
