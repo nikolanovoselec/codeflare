@@ -435,15 +435,27 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(saves[1]).toMatchObject({ managers: { users: ['manager@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] } });
   });
 
-  it('does not offer a grant mutation when configured identity choices are unavailable', async () => {
+  it('disables registration and permission saves when identity choices are unavailable', async () => {
+    const grants = { users: [], groups: [] };
+    const operator = { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false,
+      revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
+      managers: grants, invokers: grants, policy: { capabilities: [], resourceProfileId: null },
+      source: { kind: 'github-release', repositoryUrl: 'https://github.com/acme/review', repositoryId: 1,
+        credentialConfigured: true, approvedWorkflow: null } };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
-      if (path === '/api/operator-management/operators') return response({ items: [], cursor: null });
+      if (path === '/api/operator-management/operators') return response({ items: [operator], cursor: null });
+      if (path === '/api/operator-management/operators/operator-1') return response({ operator,
+        releases: [], installations: [], grants: { managers: grants, invokers: grants } });
       return response({ error: 'Unavailable' }, 503);
     }));
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
     expect(await screen.findByText(/identity choices.*unavailable/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Register source' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Test operator' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
+    const permissions = await screen.findByRole('region', { name: 'Access grants' });
+    expect(within(permissions).getByRole('button', { name: 'Save permissions' })).toBeDisabled();
   });
 });
