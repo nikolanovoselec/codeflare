@@ -42,7 +42,8 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
     const row = (await within(catalog).findByRole('button', { name: 'Manage Conductor Review' })).closest('li')!;
     expect(within(row).getByText('Conductor Review', { selector: 'strong' })).toBeInTheDocument();
-    expect(within(row).getByText('(Conductor)')).toBeInTheDocument();
+    expect(within(row).getByText('Conductor')).toBeInTheDocument();
+    expect(row).not.toHaveTextContent('(Conductor)');
     expect(row).toHaveTextContent('v0.1.2');
     expect(row).toHaveTextContent(/Published.*2026/);
     expect(row).not.toHaveTextContent('Pinned release #456');
@@ -77,7 +78,8 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     render(() => <OperatorManagement />);
     const row = (await screen.findByRole('button', { name: 'Manage Renovate Manager' })).closest('li')!;
     expect(within(row).getByText('Renovate Manager', { selector: 'strong' })).toBeInTheDocument();
-    expect(within(row).getByText('(Dispatcher)')).toBeInTheDocument();
+    expect(within(row).getByText('Dispatcher')).toBeInTheDocument();
+    expect(row).not.toHaveTextContent('(Dispatcher)');
   });
 
   it('does not assign the first-party name to a third-party Dispatcher or a mismatched repository identity', async () => {
@@ -178,7 +180,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
   it('separates verified package identity from the category and keeps source replacement out of restrictions', async () => {
     await open();
     expect(screen.getByRole('heading', { name: 'Conductor Review' })).toBeInTheDocument();
-    expect(screen.getByText('(Conductor)')).toBeInTheDocument();
+    expect(screen.getByText('Conductor')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Installed version' })).toHaveTextContent('v0.1.2');
     expect(screen.getByText('Conductor Review', { selector: 'dd' })).toBeInTheDocument();
     expect(screen.getByText(/protected pull request boundary/i)).toBeInTheDocument();

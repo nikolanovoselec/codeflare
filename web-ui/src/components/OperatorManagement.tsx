@@ -5,6 +5,7 @@ import { ApiError, apiErrorMessage } from '../api/fetch-helper';
 import OperatorManagementActivity from './OperatorManagementActivity';
 import '../styles/administration.css';
 import '../styles/ai-routing-workspace.css';
+import '../styles/settings-panel.css';
 import '../styles/operator-management.css';
 
 export interface OperatorManagementProps { userEmail?: string; isAdmin?: boolean }
@@ -244,7 +245,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
           <Show when={!loading() && !catalogError()}>
             <Show when={items().length} fallback={<p>No operators match this catalog view.</p>}>
               <ul class="operator-list"><For each={items()}>{operator => <li class="admin-area-row">
-                <div><div class="operator-identity"><strong>{name(operator)}</strong><span class="operator-type-pill">({category(operator)})</span></div><p>{operator.description || 'Open this operator to review its verified versions and purpose.'}</p>
+                <div><div class="operator-identity"><strong>{name(operator)}</strong><span class="settings-beta-badge operator-type-pill">{category(operator)}</span></div><p>{operator.description || 'Open this operator to review its verified versions and purpose.'}</p>
                   <div class="operator-catalog-meta"><Show when={catalogInstallation(operator).count}><span>{catalogInstallation(operator).count}</span></Show>
                     <Show when={operator.installedGithubReleaseId} fallback={<span>{operator.installationCount ? 'Configuration registered' : 'No version installed'}</span>}>
                       <span class="operator-catalog-version">Installed <b>{catalogInstallation(operator).pin}</b></span>
@@ -422,7 +423,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   }
   return <>
     <section class="admin-panel operator-panel operator-overview" aria-label="Operator overview">
-      <div class="admin-panel-heading"><div><div class="operator-identity"><h2>{name(operator())}</h2><span class="operator-type-pill">({category(operator())})</span></div>
+      <div class="admin-panel-heading"><div><div class="operator-identity"><h2>{name(operator())}</h2><span class="settings-beta-badge operator-type-pill">{category(operator())}</span></div>
         <p class="operator-state">{installation()?.enabled ? 'Enabled for new runs' : installation()?.releaseId ? 'Installed — not enabled' : props.detail.installations.length > 1 && !installation() ? 'Choose an installed configuration' : 'No version installed'}</p></div></div>
       <div class="admin-routing-intro"><p>{purpose()}</p></div>
     </section>
