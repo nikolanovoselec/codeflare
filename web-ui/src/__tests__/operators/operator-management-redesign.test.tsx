@@ -6,7 +6,7 @@ const grant = { users: ['owner@example.test'], groups: [{ issuer: 'example', id:
 const policy = { capabilities: ['session', 'storage'], resourceProfileId: 'review-profile' };
 const operator = { id: 'operator-1', revision: 3, name: 'Conductor Review', description: 'Reviews pull requests at protected boundaries.',
   repositoryUrl: 'https://github.com/example/conductor', repositoryId: 123, profile: 'conductor', realm: 'internal',
-  enabled: true, managers: grant, invokers: { users: [], groups: [] }, policy,
+  enabled: true, installedGithubReleaseId: 456, installedTagName: 'v0.1.2', installedPublishedAt: '2026-09-25T12:00:00Z', managers: grant, invokers: { users: [], groups: [] }, policy,
   source: { kind: 'github-release', repositoryUrl: 'https://github.com/example/conductor', repositoryId: 123,
     credentialConfigured: true, approvedWorkflow: null } };
 const release = { id: 'release-1', operatorId: 'operator-1', githubReleaseId: 456, sourceCommit: 'abc', manifestDigest: 'a'.repeat(64),
@@ -37,6 +37,26 @@ async function open() {
 }
 
 describe('REQ-OPERATOR-049: operator task hierarchy', () => {
+  it('presents the authored name, category and verified installed version in the catalog instead of an opaque release number', async () => {
+    render(() => <OperatorManagement />);
+    const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
+    const row = within(catalog).getByRole('button', { name: 'Manage Conductor Review' }).closest('li')!;
+    expect(within(row).getByText('Conductor Review', { selector: 'strong' })).toBeInTheDocument();
+    expect(within(row).getByText('(Conductor)')).toBeInTheDocument();
+    expect(row).toHaveTextContent('v0.1.2');
+    expect(row).toHaveTextContent(/Published.*2026/);
+    expect(row).not.toHaveTextContent('Pinned release #456');
+    expect(within(catalog).queryByRole('heading', { name: 'Catalog' })).not.toBeInTheDocument();
+  });
+
+  it('does not pretend an unverified installed version is a release number', async () => {
+    serve = url => url.pathname.endsWith('/operator-1') ? json({ operator, releases: [release], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+      : json({ items: [{ ...operator, installedTagName: undefined, installedPublishedAt: undefined }], cursor: null });
+    render(() => <OperatorManagement />);
+    const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
+    expect(catalog).toHaveTextContent('Installed version details unavailable');
+    expect(catalog).not.toHaveTextContent('Pinned release #456');
+  });
   it('reveals Search beside Register, filters as the person types, and clears on close without a submit', async () => {
     const queries: string[] = [];
     serve = url => { queries.push(url.searchParams.get('query') ?? ''); return json({ items: [operator], cursor: null }); };
@@ -74,7 +94,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
   it('separates verified package identity from the category and keeps source replacement out of restrictions', async () => {
     await open();
     expect(screen.getByRole('heading', { name: 'Conductor Review' })).toBeInTheDocument();
-    expect(screen.getByText('Conductor', { selector: '.admin-status' })).toBeInTheDocument();
+    expect(screen.getByText('(Conductor)')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Installed version' })).toHaveTextContent('v0.1.2');
     expect(screen.getByText('Conductor Review', { selector: 'dd' })).toBeInTheDocument();
     expect(screen.getByText(/protected pull request boundary/i)).toBeInTheDocument();
@@ -83,6 +103,17 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(screen.getByText(/Environment.*allow/i)).toBeInTheDocument();
     expect(screen.getByText('Change source', { selector: 'summary' })).toBeInTheDocument();
     expect(screen.getByText('Technical details', { selector: 'summary' })).toBeInTheDocument();
+  });
+
+  it('offers each alternative version once with its description and publication date beside the choice', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Versions & updates' }));
+    const pane = screen.getByRole('region', { name: 'Versions and updates' });
+    const choice = within(pane).getByRole('radio', { name: /version unavailable/i });
+    expect(choice.closest('label')).toHaveTextContent(/Publication time unavailable/);
+    expect(choice.closest('label')).toHaveTextContent('Reviews pull requests at protected boundaries.');
+    expect(within(pane).getAllByText('Reviews pull requests at protected boundaries.')).toHaveLength(1);
+    expect(within(pane).getByRole('button', { name: 'Install selected version' })).toBeDisabled();
   });
 
   it('edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled', async () => {

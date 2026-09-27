@@ -294,6 +294,24 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     await waitFor(() => expect(saved).toEqual({ revision: 2, policy, configuration: { repositoryId: 123 } }));
   });
+  it('explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources', async () => {
+    serve = url => url.pathname.endsWith('/access')
+      ? json({ revision: 1, managers: grant, ceiling: { capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: ['review-profile'] } })
+      : json({ items: [], cursor: null });
+    render(() => <ManagementAccessPanel />);
+    const global = await screen.findByRole('region', { name: 'Operator eligibility and limits' });
+    expect(within(global).getByText(/upper limits.*not.*run/i)).toBeInTheDocument();
+    expect(within(global).getByRole('checkbox', { name: /Session access/i })).toBeChecked();
+    expect(within(global).getByRole('checkbox', { name: /Coding agent/i })).toBeChecked();
+    expect(within(global).getByRole('checkbox', { name: /Scoped storage/i })).toBeChecked();
+    expect(within(global).getByRole('checkbox', { name: /Inference/i })).toBeChecked();
+    expect(within(global).getByRole('checkbox', { name: /Mediated requests/i })).toBeChecked();
+    expect(within(global).queryByText(/^pi —/)).not.toBeInTheDocument();
+    expect(within(global).getByText(/stable label.*session.*storage/i)).toBeInTheDocument();
+    expect(within(global).getByText(/does not create.*profile/i)).toBeInTheDocument();
+    expect(within(global).getByRole('textbox', { name: /Allowed scope IDs/i })).toHaveValue('review-profile');
+  });
+
   it('allows admin delegation through the Environment-owned global controls contract', async () => {
     const controls = { revision: 1, managers: grant, ceiling: { capabilities: ['fetch'], resourceProfileIds: [] } };
     let saved: unknown;
