@@ -13,6 +13,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
+  it('prefills a user-chosen read-only Renovate demo without starting it, and rejects invalid targets before preparation', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=nikolanovoselec%2Fkomodo&pullRequest=1253');
+    let preparations = 0;
+    serve = (url, init) => {
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations++;
+      return json({ items: [] });
+    };
+    render(() => <OperatorManagement />);
+    expect(screen.getByRole('textbox', { name: 'Repository' })).toHaveValue('nikolanovoselec/komodo');
+    expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(1253);
+    expect(preparations).toBe(0);
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'https://github.com/other/repository' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/repository.*owner\/repository/i);
+    expect(preparations).toBe(0);
+  });
   it('shows execution independently of cleanup and reconciles an explicit cancellation', async () => {
     let cancelled = false;
     serve = (url, init) => {
@@ -38,9 +54,11 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [summary] });
     };
     render(() => <OperatorManagement />);
-    fireEvent.input(screen.getByLabelText('Invocation JSON'), { target: { value: '{"repositoryId":123}' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
-    await waitFor(() => expect(admitted).toEqual({ installationId: 'installation-1', invocation: { repositoryId: 123 } }));
+    expect(screen.queryByLabelText('Invocation JSON')).not.toBeInTheDocument();
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
+    await waitFor(() => expect(admitted).toEqual({ installationId: 'installation-1', invocation: { repository: 'nikolanovoselec/komodo', pullRequest: 1253 } }));
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
     expect(screen.queryByText('s'.repeat(43))).not.toBeInTheDocument();
   });
@@ -58,21 +76,22 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [summary] });
     };
     render(() => <OperatorManagement />);
-    fireEvent.input(screen.getByLabelText('Invocation JSON'), { target: { value: '{}' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh activity state' })).not.toBeDisabled());
-    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh activity state' }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/invocation requires its own grant/i);
-    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     indexed = true;
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
     expect(await screen.findByRole('heading', { name: 'Activity activity-2' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled();
   });
 
   it('does not reconcile failed preparation against an earlier accepted activity', async () => {
@@ -87,18 +106,20 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [summary] });
     };
     render(() => <OperatorManagement />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled());
     preparationAvailable = false;
-    fireEvent.click(screen.getByRole('button', { name: 'Start activity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
     await waitFor(() => expect(screen.getByRole('button', { name: 'activity-1' })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: 'activity-1' }));
     expect(await screen.findByRole('heading', { name: 'Activity activity-1' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start activity' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh activities' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Start activity' })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled());
   });
 
   it('denies independent invocation and does not expose activity details on a denied list', async () => {
