@@ -71,7 +71,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
       : url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
-    expect(await within(screen.getByRole('region', { name: 'Installed version' })).findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
+    expect(await within(await screen.findByRole('region', { name: 'Installed version' })).findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Enable for new runs' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install operator' }));
     fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
