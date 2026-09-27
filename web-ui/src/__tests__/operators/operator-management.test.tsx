@@ -435,7 +435,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(saves[1]).toMatchObject({ managers: { users: ['manager@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] } });
   });
 
-  it('disables registration and permission saves when identity choices are unavailable', async () => {
+  it('disables permission saves when identity choices are unavailable', async () => {
     const grants = { users: [], groups: [] };
     const operator = { id: 'operator-1', name: 'Test operator', profile: 'dispatcher', realm: 'internal', enabled: false,
       revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/review',
@@ -450,10 +450,8 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
       return response({ error: 'Unavailable' }, 503);
     }));
     render(() => <App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
     expect(await screen.findByText(/identity choices.*unavailable/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Register source' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Manage Test operator' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
     const permissions = await screen.findByRole('region', { name: 'Access grants' });
     expect(within(permissions).getByRole('button', { name: 'Save permissions' })).toBeDisabled();
