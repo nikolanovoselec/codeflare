@@ -68,7 +68,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
   it('renders the separate management area for an authorized manager rather than Administration navigation', async () => {
     render(() => <App />);
 
-    expect(await screen.findByRole('heading', { name: /operators/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Operators', level: 1 })).toBeInTheDocument();
     expect(await screen.findByText(longName)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /register operator/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: new RegExp(`manage ${longName}`, 'i') })).toBeInTheDocument();

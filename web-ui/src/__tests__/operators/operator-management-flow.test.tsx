@@ -300,7 +300,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
       : json({ items: [], cursor: null });
     render(() => <ManagementAccessPanel />);
     const global = await screen.findByRole('region', { name: 'Operator eligibility and limits' });
-    expect(within(global).getByText(/upper limits.*not.*run/i)).toBeInTheDocument();
+    expect(await within(global).findByText(/upper limits.*not.*run/i)).toBeInTheDocument();
     expect(within(global).getByRole('checkbox', { name: /Session access/i })).toBeChecked();
     expect(within(global).getByRole('checkbox', { name: /Coding agent/i })).toBeChecked();
     expect(within(global).getByRole('checkbox', { name: /Scoped storage/i })).toBeChecked();

@@ -16,6 +16,13 @@ const category = (operator: api.ManagementSummary) => operator.profile === 'cond
 const releaseLabel = (release: api.ManagementRelease) => release.tagName ?? release.version ?? `GitHub release #${release.githubReleaseId}`;
 const published = (date: string) => new Date(date).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 const releaseDisplay = (release: api.ManagementRelease) => `${releaseLabel(release)}${release.publishedAt ? ` · Published ${published(release.publishedAt)}` : ''}`;
+const catalogInstallation = (operator: api.ManagementSummary) => {
+  const count = operator.installationCount && operator.installationCount > 1 ? `${operator.installationCount} configurations` : '';
+  const pin = operator.installedGithubReleaseId
+    ? operator.installedTagName ? `Installed ${operator.installedTagName}${operator.installedPublishedAt ? ` · Published ${published(operator.installedPublishedAt)}` : ' · Publication time unavailable'}` : 'Installed version details unavailable'
+    : count ? '' : operator.installationCount ? 'Installation registered' : 'No version installed';
+  return [count, pin].filter(Boolean).join(' · ');
+};
 const ReleaseChoices: Component<{ label: string; releases: api.ManagementRelease[]; selected: string; onSelect: (id: string) => void }> = props =>
   <fieldset class="admin-area-list-compact"><legend>{props.label}</legend><For each={props.releases}>{item =>
     <label class="admin-toggle-field"><input type="radio" name={props.label} value={item.id} checked={props.selected === item.id} onChange={() => props.onSelect(item.id)} />
@@ -232,7 +239,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
             <Show when={items().length} fallback={<p>No operators match this catalog view.</p>}>
               <ul class="operator-list"><For each={items()}>{operator => <li class="admin-area-row">
                 <div><div class="operator-identity"><strong>{name(operator)}</strong><span class="operator-type-pill">({category(operator)})</span></div><p>{operator.description || 'Open this operator to review its verified versions and purpose.'}</p>
-                  <p class="operator-catalog-state">{operator.installationCount && operator.installationCount > 1 ? `${operator.installationCount} configurations` : operator.installedGithubReleaseId ? operator.installedTagName ? `Installed ${operator.installedTagName}${operator.installedPublishedAt ? ` · Published ${published(operator.installedPublishedAt)}` : ' · Publication time unavailable'}` : 'Installed version details unavailable' : operator.installationCount ? 'Installation registered' : 'No version installed'} · {operator.enabled ? 'Enabled for new runs' : 'Not enabled for new runs'}</p></div>
+                  <p class="operator-catalog-state">{catalogInstallation(operator)} · {operator.enabled ? 'Enabled for new runs' : 'Not enabled for new runs'}</p></div>
                 <button class="admin-secondary-button" disabled={busy()} aria-label={`Manage ${name(operator)}`}  onClick={() => navigate(operator.id)}>Manage</button>
               </li>}</For></ul>
             </Show>

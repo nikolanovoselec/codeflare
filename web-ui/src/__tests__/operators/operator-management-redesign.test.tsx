@@ -40,7 +40,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
   it('presents the authored name, category and verified installed version in the catalog instead of an opaque release number', async () => {
     render(() => <OperatorManagement />);
     const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
-    const row = within(catalog).getByRole('button', { name: 'Manage Conductor Review' }).closest('li')!;
+    const row = (await within(catalog).findByRole('button', { name: 'Manage Conductor Review' })).closest('li')!;
     expect(within(row).getByText('Conductor Review', { selector: 'strong' })).toBeInTheDocument();
     expect(within(row).getByText('(Conductor)')).toBeInTheDocument();
     expect(row).toHaveTextContent('v0.1.2');
@@ -49,12 +49,23 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(within(catalog).queryByRole('heading', { name: 'Catalog' })).not.toBeInTheDocument();
   });
 
+  it('shows the selected installed version alongside the count when two configurations have one enabled pin', async () => {
+    serve = url => url.pathname.endsWith('/operator-1') ? json({ operator, releases: [release], installations: [installed, { ...installed, id: 'installation-2', enabled: false }], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+      : json({ items: [{ ...operator, installationCount: 2 }], cursor: null });
+    render(() => <OperatorManagement />);
+    const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
+    const row = (await within(catalog).findByRole('button', { name: 'Manage Conductor Review' })).closest('li')!;
+    expect(row).toHaveTextContent('2 configurations');
+    expect(row).toHaveTextContent('Installed v0.1.2');
+    expect(row).toHaveTextContent(/Published.*2026/);
+  });
+
   it('does not pretend an unverified installed version is a release number', async () => {
     serve = url => url.pathname.endsWith('/operator-1') ? json({ operator, releases: [release], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
       : json({ items: [{ ...operator, installedTagName: undefined, installedPublishedAt: undefined }], cursor: null });
     render(() => <OperatorManagement />);
     const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
-    expect(catalog).toHaveTextContent('Installed version details unavailable');
+    expect(await within(catalog).findByText(/Installed version details unavailable/)).toBeInTheDocument();
     expect(catalog).not.toHaveTextContent('Pinned release #456');
   });
   it('reveals Search beside Register, filters as the person types, and clears on close without a submit', async () => {

@@ -26,7 +26,7 @@
 .operator-management legend,
 .operator-access-content legend { margin-bottom: var(--space-3); font-weight: var(--font-semibold); }
 .operator-management .operator-fields,
-.operator-access-content .operator-fields { margin-block: var(--space-5); }
+.operator-access-content .operator-fields { margin-block: var(--space-4); }
 .operator-management .operator-fields > p,
 .operator-access-content .operator-fields > p { margin: 0 0 var(--space-3); color: var(--color-text-secondary); line-height: 1.5; }
 .operator-management .operator-fields .admin-form-grid,
@@ -60,7 +60,7 @@
 .operator-access-content { padding: var(--space-4); }
 .operator-access-content > p { margin: 0; color: var(--color-text-secondary); line-height: 1.5; }
 .operator-access-content .operator-choice-list { margin-top: var(--space-4); }
-.operator-access-content .operator-scope-details { margin-top: var(--space-5); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
+.operator-access-content .operator-scope-details { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
 .operator-access-content .operator-scope-details > summary { min-height: 44px; color: var(--color-info); font-weight: var(--font-semibold); cursor: pointer; }
 .operator-access-content .operator-scope-details > p { color: var(--color-text-secondary); line-height: 1.5; }
 .operator-access-content .operator-actions { margin-bottom: 0; padding-top: var(--space-4); border-top: 1px solid var(--color-border-subtle); }
