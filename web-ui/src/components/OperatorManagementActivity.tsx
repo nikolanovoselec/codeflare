@@ -109,8 +109,8 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
           <p>This starts a real read-only assessment using your own invocation grant, repository read access and inference route. It will not merge or change the pull request. Nothing runs until you start it.</p>
           <form onSubmit={event => { event.preventDefault(); invoke(); }}><fieldset disabled={busy() || uncertain()}>
             <div class="admin-form-grid">
-              <label class="admin-form-field"><span>Repository</span><input type="text" required maxlength="256" autocomplete="off" placeholder="owner/repository" value={repository()} onInput={event => setRepository(event.currentTarget.value)} /><small>Enter a repository you can read, in owner/repository format.</small></label>
-              <label class="admin-form-field"><span>Pull request number</span><input type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label>
+              <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength="256" autocomplete="off" placeholder="owner/repository" value={repository()} onInput={event => setRepository(event.currentTarget.value)} /><small>Enter a repository you can read, in owner/repository format.</small></label>
+              <label class="admin-form-field"><span>Pull request number</span><input aria-label="Pull request number" type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label>
             </div>
             <div class="operator-actions"><button type="submit" class="admin-primary-button">Start assessment</button><a href="/operators">Back to operators</a></div></fieldset></form>
         </Show>}</Show>

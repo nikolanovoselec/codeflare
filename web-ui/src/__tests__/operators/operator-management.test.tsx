@@ -299,10 +299,10 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
     const form = screen.getByRole('region', { name: 'Register operator' });
-    const invoker = within(form).getByRole('group', { name: /initial invoker grants/i });
+    const invoker = within(form).getByRole('group', { name: /initial invoker/i });
     expect(await within(invoker).findByRole('checkbox', { name: /invoker@example.test/i })).toBeInTheDocument();
     expect(within(form).getAllByRole('checkbox', { name: /review-team/i })).toHaveLength(2);
-    expect(within(form).getAllByText(/cannot be newly assigned here: Display Team/i)).toHaveLength(2);
+    expect(within(form).getByText(/unverified configured groups cannot be assigned: Display Team/i)).toBeInTheDocument();
     expect(within(form).queryByRole('checkbox', { name: /Display Team/i })).not.toBeInTheDocument();
     expect(within(form).getByRole('checkbox', { name: /inference/i })).toBeInTheDocument();
     expect(within(form).getByRole('combobox', { name: /operator resource profile/i })).toBeInTheDocument();
@@ -378,7 +378,8 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const installed = await screen.findByRole('region', { name: 'Installed version' });
     fireEvent.click(within(installed).getByText('Technical details', { selector: 'summary' }));
     expect(within(installed).queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
-    fireEvent.click(await within(installed).findByRole('checkbox', { name: /inference/i }));
+    const restrictions = await within(installed).findByRole('group', { name: 'Installation restrictions' });
+    fireEvent.click(within(restrictions).getByRole('checkbox', { name: /inference/i }));
     fireEvent.click(within(installed).getByRole('button', { name: /save restrictions for runner/i }));
     await waitFor(() => expect(saves).toHaveLength(1));
     expect(saves[0]).toMatchObject({ policy: { capabilities: ['inference'], resourceProfileId: null },

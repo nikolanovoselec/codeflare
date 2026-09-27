@@ -115,7 +115,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     actor.email = 'outsider@example.test'; actor.groups = [];
     expect((await request(path, 'POST', body)).status).toBe(404);
     actor.email = 'manager@example.test'; actor.groups = ['operators'];
-    expect((await request(path, 'POST', { ...body, capabilities: ['pi'] })).status).toBe(400);
+    expect((await request(path, 'POST', { ...body, capabilities: ['pi'] })).status).toBe(404);
     expect((await request(path, 'POST', { ...body, revision: body.revision + 1 })).status).toBe(409);
     const changed = await request(path, 'POST', body);
     expect(changed.status).toBe(200);

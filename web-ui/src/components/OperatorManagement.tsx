@@ -209,7 +209,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
         <section class="admin-panel operator-panel" aria-label="Operator catalog">
           <div class="operator-section-heading"><h2>Catalog</h2><div class="operator-actions">
             <button type="button" class="admin-icon-button" aria-label="Search operators" title="Search operators" aria-controls="operator-search" aria-expanded={searchOpen()} onClick={toggleSearch}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d={mdiLayersSearch} /></svg></button>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d={mdiLayersSearch} /></svg></button>
             <Show when={!denied(catalogError())}><button ref={registerButton} class="admin-primary-button" disabled={busy()} onClick={register}>Register operator</button></Show>
           </div></div>
           <Show when={searchOpen()}><div id="operator-search" class="admin-form-grid">
@@ -251,6 +251,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
                 <label class="admin-form-field"><span>Repository-read PAT</span><input type="password" required maxlength="16384" autocomplete="new-password" value={pat()} onInput={event => setPat(event.currentTarget.value)} /></label>
                 <label class="admin-form-field"><span>Operator profile</span><select value={profile()} onChange={event => { setProfile(event.currentTarget.value as 'conductor' | 'dispatcher'); setRegistrationPolicy(emptyPolicy()); }}><option value="conductor">Conductor</option><option value="dispatcher">Dispatcher</option></select></label>
               </div>
+              <Show when={choices()?.unresolvedGroups.length}><p role="status">Unverified configured groups cannot be assigned: {choices()!.unresolvedGroups.join(', ')}. Saved assignments remain until removed.</p></Show>
               <GrantFields title="Initial manager" value={registrationManagers()} choices={choices()} onChange={setRegistrationManagers} />
               <GrantFields title="Initial invoker" value={registrationInvokers()} choices={choices()} onChange={setRegistrationInvokers} />
               <PolicyFields title="Operator" profile={profile()} value={registrationPolicy()} capabilities={choices()?.ceiling.capabilities ?? []} profiles={profile() === 'dispatcher' ? [] : choices()?.ceiling.resourceProfileIds ?? []} onChange={setRegistrationPolicy} />

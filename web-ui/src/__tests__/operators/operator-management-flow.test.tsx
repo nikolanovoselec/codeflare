@@ -71,7 +71,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
       : url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
-    expect(await screen.findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
+    expect(await within(screen.getByRole('region', { name: 'Installed version' })).findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Enable for new runs' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install operator' }));
     fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
@@ -95,7 +95,8 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
         state = { ...state, enabled: body.enabled, revision: state.revision + 1 };
         return json({ ...installation, ...state });
       }
-      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), installations: [{ ...installation, ...state }] }) : json({ items: [operator], cursor: null });
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: { ...operator, name: 'Conductor Review' },
+        installations: [{ ...installation, ...state }] }) : json({ items: [operator], cursor: null });
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
