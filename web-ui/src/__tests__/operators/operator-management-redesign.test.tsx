@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
-import OperatorManagement from '../../components/OperatorManagement';
+import OperatorManagement, { ManagementAccessPanel } from '../../components/OperatorManagement';
 
 const grant = { users: ['owner@example.test'], groups: [{ issuer: 'example', id: 'saved-group' }] };
 const policy = { capabilities: ['session', 'storage'], resourceProfileId: 'review-profile' };
@@ -47,6 +47,54 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(row).toHaveTextContent(/Published.*2026/);
     expect(row).not.toHaveTextContent('Pinned release #456');
     expect(within(catalog).queryByRole('heading', { name: 'Catalog' })).not.toBeInTheDocument();
+  });
+
+  it('presents first-party display names without replacing verified package identity or collapsing release details into status', async () => {
+    const firstParty = { ...operator, repositoryId: 1380652764, repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-conductor' };
+    serve = url => url.pathname.endsWith('/operator-1')
+      ? json({ operator: firstParty, releases: [release], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+      : json({ items: [firstParty], cursor: null });
+    render(() => <OperatorManagement />);
+    const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
+    const row = (await within(catalog).findByRole('button', { name: 'Manage Pull Request Reviewer' })).closest('li')!;
+    expect(within(row).getByText('Pull Request Reviewer', { selector: 'strong' })).toBeInTheDocument();
+    expect(within(row).getByText('v0.1.2')).toBeInTheDocument();
+    expect(within(row).getByText(/Published.*2026/)).toBeInTheDocument();
+    expect(within(row).getByText('Enabled for new runs')).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Pull Request Reviewer' }));
+    expect(await screen.findByRole('heading', { name: 'Pull Request Reviewer' })).toBeInTheDocument();
+    expect(screen.getByText('Conductor Review', { selector: 'dd' })).toBeInTheDocument();
+    const installedPane = screen.getByRole('region', { name: 'Installed version' });
+    expect(installedPane).not.toHaveTextContent(/Core .*Intent .*Interface/);
+    const technical = screen.getByText('Technical details', { selector: 'summary' }).parentElement!;
+    expect(technical).toHaveTextContent('Interface version');
+  });
+
+  it('presents Renovate Manager only for the verified first-party Dispatcher', async () => {
+    serve = () => json({ items: [{ ...operator, repositoryId: 1380652724,
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+      profile: 'dispatcher', name: 'Renovate Dispatcher' }], cursor: null });
+    render(() => <OperatorManagement />);
+    const row = (await screen.findByRole('button', { name: 'Manage Renovate Manager' })).closest('li')!;
+    expect(within(row).getByText('Renovate Manager', { selector: 'strong' })).toBeInTheDocument();
+    expect(within(row).getByText('(Dispatcher)')).toBeInTheDocument();
+  });
+
+  it('refreshes verified metadata for an older installed pin without changing its enablement', async () => {
+    const old = { ...release, tagName: undefined, publishedAt: undefined };
+    let refreshed = false;
+    serve = url => url.pathname.endsWith('/releases/refresh')
+      ? (refreshed = true, json({ items: [release] }))
+      : url.pathname.endsWith('/operator-1')
+        ? json({ operator, releases: [refreshed ? release : old], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+        : json({ items: [operator], cursor: null });
+    await open();
+    const pane = screen.getByRole('region', { name: 'Installed version' });
+    expect(pane).toHaveTextContent('Publication time unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh release details' }));
+    await waitFor(() => expect(refreshed).toBe(true));
+    await waitFor(() => expect(pane).toHaveTextContent(/v0\.1\.2.*Published.*2026/));
+    expect(pane).toHaveTextContent('Enabled for new runs');
   });
 
   it('shows the selected installed version alongside the count when two configurations have one enabled pin', async () => {
@@ -114,6 +162,16 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(screen.getByText(/Environment.*allow/i)).toBeInTheDocument();
     expect(screen.getByText('Change source', { selector: 'summary' })).toBeInTheDocument();
     expect(screen.getByText('Technical details', { selector: 'summary' })).toBeInTheDocument();
+  });
+
+  it('explains that allowed scope IDs match requests rather than creating profiles', async () => {
+    serve = url => url.pathname.endsWith('/access')
+      ? json({ revision: 1, managers: grant, ceiling: choices.ceiling }) : json({ items: [], cursor: null });
+    render(() => <ManagementAccessPanel />);
+    const advanced = await screen.findByText('Conductor request IDs (advanced)', { selector: 'summary' });
+    fireEvent.click(advanced);
+    expect(advanced.parentElement).toHaveTextContent(/not create a session or configure storage/i);
+    expect(advanced.parentElement).toHaveTextContent(/same allowed ID/i);
   });
 
   it('offers each alternative version once with its description and publication date beside the choice', async () => {
