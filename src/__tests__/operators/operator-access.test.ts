@@ -69,7 +69,7 @@ async function delegate(request: RequestApi) {
   expect(result.status).toBe(200);
   actor.role = 'user';
 }
-async function enabledInstallation(request: RequestApi, operator: { id: string; revision: number }): Promise<string> {
+async function enabledInstallation(request: RequestApi, operator: { id: string; revision: number }, installedPolicy: { capabilities: string[]; resourceProfileId: string | null } = registration.policy): Promise<string> {
   const refreshed = await request(`/api/operator-management/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision });
   expect(refreshed.status).toBe(200);
   const release = (await refreshed.json() as { items: Array<{ id: string }> }).items[0]!;
@@ -77,7 +77,7 @@ async function enabledInstallation(request: RequestApi, operator: { id: string; 
   expect(detail.status).toBe(200);
   const current = await detail.json() as { operator: { revision: number } };
   const created = await request(`/api/operator-management/operators/${operator.id}/installations`, 'POST', {
-    revision: current.operator.revision, name: 'access-fixture', policy: registration.policy,
+    revision: current.operator.revision, name: 'access-fixture', policy: installedPolicy,
   });
   expect(created.status).toBe(201);
   const installation = await created.json() as { id: string; revision: number };
@@ -96,6 +96,40 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
+  it('edits operator capabilities within Environment limits and disables current runs without changing pins or installation restrictions', async () => withApi(async request => {
+    await delegate(request);
+    actor.role = 'admin';
+    expect((await request('/api/operator-management/access', 'POST', { revision: 1, managers: registration.managers,
+      ceiling: { capabilities: ['fetch'], resourceProfileIds: [] } })).status).toBe(200);
+    actor.role = 'user';
+    const policy = { capabilities: ['fetch'], resourceProfileId: null };
+    const registered = await request('/api/operator-management/operators', 'POST', { ...registration, policy });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator, policy);
+    const path = `/api/operator-management/operators/${operator.id}/capabilities`;
+    const current = await request(`/api/operator-management/operators/${operator.id}`);
+    const before = await current.json() as { operator: { revision: number }; installations: Array<{ id: string; releaseId: string; revision: number; policy: typeof policy; enabled: boolean }> };
+    const body = { revision: before.operator.revision, capabilities: [] };
+    expect((await request(path, 'POST', body, false)).status).toBe(403);
+    actor.email = 'outsider@example.test'; actor.groups = [];
+    expect((await request(path, 'POST', body)).status).toBe(404);
+    actor.email = 'manager@example.test'; actor.groups = ['operators'];
+    expect((await request(path, 'POST', { ...body, capabilities: ['pi'] })).status).toBe(400);
+    expect((await request(path, 'POST', { ...body, revision: body.revision + 1 })).status).toBe(409);
+    const changed = await request(path, 'POST', body);
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({ policy: { capabilities: [], resourceProfileId: null }, revision: body.revision + 1 });
+    const detail = await request(`/api/operator-management/operators/${operator.id}`);
+    const after = await detail.json() as { installations: typeof before.installations };
+    expect(after.installations[0]).toMatchObject({ id, releaseId: before.installations[0]!.releaseId,
+      policy, revision: before.installations[0]!.revision + 1, enabled: false });
+    expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
+      revision: after.installations[0]!.revision, enabled: true })).status).toBe(400);
+    expect((await request(path, 'POST', { revision: body.revision + 1, capabilities: ['fetch'] })).status).toBe(200);
+    expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
+      revision: after.installations[0]!.revision, enabled: true })).status).toBe(200);
+  }));
   it('projects only verified configured identity options and authorized limits to eligible managers, not Access credentials', async () => withApi(async request => {
     actor.groups = ['operators', 'review-team'];
     await delegate(request);

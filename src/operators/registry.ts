@@ -1161,7 +1161,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (fence) return fence;
       if (installation.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       if (enabled) {
-        if (!this.withinManagementCeiling(installation.policy)) throw new ValidationError('Installation exceeds management ceiling');
+        if (!this.restrictivePolicy(installation.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
         if (!installation.releaseId || installation.approvedSourceRevision !== state!.sourceRevision) return { ok: false, reason: 'artifact-unapproved' };
         const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId, installation.operatorId).toArray()[0];
         if (!row) return { ok: false, reason: 'artifact-unapproved' };
@@ -1191,6 +1191,25 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson), revision: installation.revision + 1, enabled: false };
       this.saveInstallation(value);
       return { ok: true, value };
+    });
+  }
+
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+    this.managementSchema();
+    return this.ctx.storage.transactionSync(() => {
+      const state = this.managementState(operatorId);
+      const fence = this.managementFence(state, authority);
+      if (fence) return fence;
+      const policy = { ...state!.policy, capabilities };
+      if (!this.withinManagementCeiling(policy)) throw new ValidationError('Operator capabilities exceed management ceiling');
+      if (capabilities.length === state!.policy.capabilities.length
+        && capabilities.every(value => state!.policy.capabilities.includes(value))) return { ok: true, value: this.saveManagement(state!) };
+      const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
+      for (const row of rows) {
+        const installation = this.parseManagementInstallation(row.data);
+        this.saveInstallation({ ...installation, revision: installation.revision + 1, enabled: false });
+      }
+      return { ok: true, value: this.saveManagement({ ...state!, revision: state!.revision + 1, policy }) };
     });
   }
 
@@ -1233,7 +1252,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const state = this.managementState(installation.operatorId);
     if (!state || !installation.enabled) return { ok: false, reason: 'disabled' };
     const row = this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId ?? '', installation.operatorId).toArray()[0];
-    if (!row || installation.approvedSourceRevision !== state.sourceRevision || !this.withinManagementCeiling(installation.policy)) return { ok: false, reason: 'artifact-unapproved' };
+    if (!row || installation.approvedSourceRevision !== state.sourceRevision || !this.restrictivePolicy(installation.policy, state.policy)) return { ok: false, reason: 'artifact-unapproved' };
     const release = JSON.parse(row.data) as ManagementRelease;
     if (!release.approved) return { ok: false, reason: 'artifact-unapproved' };
     return { ok: true, value: { installation, operator: managementProjection(state, true), release, manifestJson: row.manifest, controlsRevision: this.managementControls().revision } };

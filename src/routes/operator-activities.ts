@@ -49,6 +49,19 @@ app.get('/', async c => {
   const items = await c.get('registry').listOwnedActivities(c.get('ownerKey'));
   return c.json({ items: items.slice(0, 100).map(jsonSummary) });
 });
+app.get('/installations/:installationId/preview', async c => {
+  const id = c.req.param('installationId');
+  if (!ID.test(id)) return c.notFound();
+  const selected = await c.get('registry').resolveManagementExecution(id);
+  if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
+  const { operator, release, manifestJson } = selected.value;
+  let name: unknown;
+  try { name = (JSON.parse(manifestJson) as { name?: unknown }).name; } catch { return c.notFound(); }
+  if (typeof name !== 'string' || !name.trim()) return c.notFound();
+  return c.json({ name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
+    guidedAssessment: operator.profile === 'dispatcher' && name === 'Renovate Dispatcher'
+      && operator.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher' });
+});
 app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);
   const prepared = await prepareOperatorActivity(body, c.get('operatorHuman'), c.env);

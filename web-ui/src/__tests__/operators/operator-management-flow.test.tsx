@@ -17,8 +17,7 @@ const choices = { users: ['manager@example.test', 'invoker@example.test', 'deleg
   ceiling: { capabilities: [], resourceProfileIds: [] } };
 async function openSource() {
   await screen.findByRole('region', { name: 'Installed version' });
-  fireEvent.click(screen.getByText('Technical details and advanced restrictions'));
-  fireEvent.click(screen.getByText('Replace source', { selector: 'summary' }));
+  fireEvent.click(screen.getByText('Change source', { selector: 'summary' }));
 }
 let serve: (url: URL, init?: RequestInit) => Response | Promise<Response>;
 beforeEach(() => {
@@ -75,7 +74,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     expect(await screen.findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Enable for new runs' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install operator' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+    fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/stale/i);
     expect(screen.getByRole('button', { name: 'Install selected version' })).toBeDisabled();
@@ -101,7 +100,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+    fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Enable for new runs' })).not.toBeDisabled());
     expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument();
@@ -113,21 +112,23 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
   });
   it('explains why Dispatcher has no resource profile and opens its invocation without a reload or start', async () => {
-    const dispatcher = { ...operator, profile: 'dispatcher', policy: { capabilities: ['inference'], resourceProfileId: null } };
+    const dispatcher = { ...operator, profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+      policy: { capabilities: ['inference'], resourceProfileId: null } };
     serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: dispatcher,
+      releases: [{ ...release, name: 'Renovate Dispatcher' }],
       installations: [{ ...installation, enabled: true, releaseId: release.id }] })
+      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true })
       : url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
     render(() => <OperatorManagement />);
-    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
-    fireEvent.click(await screen.findByText('Technical details and advanced restrictions'));
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${dispatcher.repositoryUrl}` }));
     expect(screen.queryByRole('combobox', { name: 'test resource profile' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Dispatcher.*without a session.*resource profile/i)).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /prepare.*yourself/i });
+    expect(await screen.findByRole('heading', { name: 'Runtime permissions' })).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /assess a pull request/i });
     fireEvent.click(link);
-    expect(await screen.findByRole('heading', { name: 'Invoke as yourself' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Assess a Renovate pull request' })).toBeInTheDocument();
     expect(window.location.search).toContain('invoke=installation-1');
     expect(screen.queryByRole('region', { name: 'Installed version' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start activity' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeInTheDocument();
   });
 
   it('shows save success and failure next to Permissions rather than only at the page header', async () => {
@@ -139,11 +140,11 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
     const pane = screen.getByRole('region', { name: 'Access grants' });
-    fireEvent.click(within(pane).getByRole('button', { name: 'Save grants' }));
+    fireEvent.click(within(pane).getByRole('button', { name: 'Save permissions' }));
     await waitFor(() => expect(within(pane).getByRole('status')).toHaveTextContent(/permissions saved/i));
-    await waitFor(() => expect(within(pane).getByRole('button', { name: 'Save grants' })).toBeEnabled());
+    await waitFor(() => expect(within(pane).getByRole('button', { name: 'Save permissions' })).toBeEnabled());
     fails = true;
-    fireEvent.click(within(pane).getByRole('button', { name: 'Save grants' }));
+    fireEvent.click(within(pane).getByRole('button', { name: 'Save permissions' }));
     expect(await within(pane).findByRole('alert')).toHaveTextContent(/stale.*refresh/i);
   });
 
@@ -153,8 +154,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
       : url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
-    fireEvent.click(await screen.findByText('Technical details and advanced restrictions'));
-    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getByRole('status')).toHaveTextContent(/restrictions saved/i));
     expect(screen.queryByRole('button', { name: 'Disable for new runs' })).not.toBeInTheDocument();
@@ -169,8 +169,8 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     const installed = await screen.findByRole('region', { name: 'Installed version' });
     expect(await within(installed).findByText(/v0\.1\.2.*25.*2026/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Versions & updates' }));
-    expect(screen.getByText('GitHub release #455', { selector: 'strong' })).toBeVisible();
-    expect(within(screen.getByRole('combobox', { name: 'Exact version' })).getByRole('option', { name: 'GitHub release #455' })).toBeInTheDocument();
+    expect(screen.getAllByText('GitHub release #455', { selector: 'strong' })[0]).toBeVisible();
+    expect(screen.getByRole('radio', { name: /GitHub release #455/ })).toBeInTheDocument();
   });
 
   it('reconciles the operator revision after discovery before first installation', async () => {
@@ -190,7 +190,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     const install = await screen.findByRole('button', { name: 'Install operator' });
     await waitFor(() => expect(install).toBeEnabled());
     fireEvent.click(install);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+    fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     await waitFor(() => expect(created).toEqual({ name: 'default', policy, revision: 4 }));
   });
@@ -216,7 +216,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+    fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/operation was not confirmed.*refresh current state/i);
     expect(creates).toBe(1);
@@ -226,7 +226,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     if (outcome === 'promotion failed') {
       await waitFor(() => expect(screen.getByRole('button', { name: 'Install operator' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Install operator' }));
-      fireEvent.change(screen.getByRole('combobox', { name: 'Version to install' }), { target: { value: release.id } });
+      fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
       fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
       await waitFor(() => expect(promotions).toBe(2));
     } else {
@@ -289,9 +289,8 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
-    fireEvent.click(await screen.findByText('Technical details and advanced restrictions'));
     expect(screen.queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     await waitFor(() => expect(saved).toEqual({ revision: 2, policy, configuration: { repositoryId: 123 } }));
   });
   it('allows admin delegation through the Environment-owned global controls contract', async () => {
@@ -329,7 +328,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
     const grants = await screen.findByRole('region', { name: 'Access grants' });
     expect(within(grants).queryByRole('checkbox', { name: 'delegate@example.test' })).not.toBeInTheDocument();
-    const save = within(grants).getByRole('button', { name: 'Save grants' });
+    const save = within(grants).getByRole('button', { name: 'Save permissions' });
     await waitFor(() => expect(save).toBeEnabled());
     fireEvent.click(save);
     await waitFor(() => expect(saves).toBe(1));
@@ -347,9 +346,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     fireEvent.click(await screen.findByRole('button', { name: 'Permissions' }));
-    const invokers = await screen.findByRole('group', { name: 'Who can run this operator grants' });
+    const invokers = await screen.findByRole('group', { name: 'Runners' });
     fireEvent.click(within(invokers).getByRole('checkbox', { name: 'invoker@example.test' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save grants' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save permissions' }));
     await waitFor(() => expect(saved).toEqual({ revision: 3, managers: grant, invokers: { users: ['invoker@example.test'], groups: [] } }));
     expect(await screen.findByText('Permissions saved. Management does not grant execution.')).toBeInTheDocument();
   });

@@ -19,7 +19,13 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
   const [busy, setBusy] = createSignal(false);
   const [uncertain, setUncertain] = createSignal(false);
   const [unresolvedStartId, setUnresolvedStartId] = createSignal('');
-  const [invocation, setInvocation] = createSignal('{}');
+  // A shareable example may fill the two admitted fields; opening it never prepares an Activity.
+  const example = new URL(window.location.href).searchParams;
+  const [repository, setRepository] = createSignal((example.get('repository') ?? '').slice(0, 256));
+  const [pullRequest, setPullRequest] = createSignal((example.get('pullRequest') ?? '').slice(0, 16));
+  const [preview, setPreview] = createSignal<Awaited<ReturnType<typeof api.getInstallationActivityPreview>>>();
+  const [previewLoading, setPreviewLoading] = createSignal(false);
+  const [previewError, setPreviewError] = createSignal(false);
   const [preparedId, setPreparedId] = createSignal('');
   const [selected, setSelected] = createSignal('');
   const [detail, setDetail] = createSignal<Awaited<ReturnType<typeof api.getOwnedActivity>>>();
@@ -27,6 +33,17 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
   let active = true;
   let detailSequence = 0;
   onCleanup(() => { active = false; });
+  createEffect(() => {
+    const id = props.installationId;
+    setPreview(undefined); setPreviewError(false);
+    if (!id) return;
+    let current = true;
+    setPreviewLoading(true);
+    void api.getInstallationActivityPreview(id).then(value => { if (current) setPreview(value); })
+      .catch(() => { if (current) setPreviewError(true); })
+      .finally(() => { if (current) setPreviewLoading(false); });
+    onCleanup(() => { current = false; });
+  });
   async function refresh() {
     setLoading(true); setError('');
     try { const result = await api.getOwnedActivities(); if (active) {
@@ -55,13 +72,18 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
     finally { if (active) setBusy(false); }
   }
   function invoke() {
-    let input: unknown;
+    if (!preview()?.guidedAssessment) return;
+    const target = repository().trim();
+    const number = Number(pullRequest());
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(target) || target.length > 256) {
+      setError('Repository must be an owner/repository name you can read.'); return;
+    }
+    if (!/^[1-9]\d*$/.test(pullRequest()) || !Number.isSafeInteger(number)) {
+      setError('Enter a positive pull request number.'); return;
+    }
     let attemptedStartId = '';
-    try {
-      if (new TextEncoder().encode(invocation()).byteLength > 65536) throw new Error('Too large');
-      input = JSON.parse(invocation());
-    } catch { setError('Invocation must be valid JSON, at most 64 KiB.'); return; }
     void perform(async () => {
+      const input = { repository: target, pullRequest: number };
       const prepared = await api.prepareInstallationActivity(props.installationId!, input);
       if (!active) return;
       attemptedStartId = prepared.activityId;
@@ -79,11 +101,19 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
     <Show when={error()}><div class="operator-message" role="alert"><p>{error()}</p><button class="admin-secondary-button" disabled={busy() || loading()} onClick={() => void refresh()}>Refresh activity state</button></div></Show>
     <Show when={notice()}><p class="operator-message" role="status">{notice()}</p></Show>
     <Show when={props.installationId}>
-      <section class="admin-panel operator-panel"><h2>Invoke as yourself</h2><p>Installation: {props.installationId}</p>
-        <p>Runs with your current human authorization and this installation's pinned release and restrictions. Disabled installations cannot start new work.</p>
-        <form onSubmit={event => { event.preventDefault(); invoke(); }}><fieldset disabled={busy() || uncertain()}>
-          <label class="admin-form-field"><span>Invocation JSON</span><textarea aria-label="Invocation JSON" rows="8" required maxlength="65536" value={invocation()} onInput={event => setInvocation(event.currentTarget.value)} /><small>Use the approved operator's input contract. Never paste source credentials, Access tokens or caller authority.</small></label>
-          <button type="submit" class="admin-primary-button">Start activity</button></fieldset></form>
+      <section class="admin-panel operator-panel" aria-label="Prepare assessment">
+        <Show when={previewLoading()}><p role="status">Checking your invocation access and installed package…</p></Show>
+        <Show when={previewError()}><p role="alert">The installation is unavailable or you cannot invoke it. Return to Operators and review your access.</p></Show>
+        <Show when={preview()}>{value => <Show when={value().guidedAssessment} fallback={<p>No guided assessment is available for {value().name} ({value().version}). This page does not start unsupported packages.</p>}>
+          <h2>Assess a Renovate pull request</h2><p>{value().name} · {value().version}</p>
+          <p>This starts a real read-only assessment using your own invocation grant, repository read access and inference route. It will not merge or change the pull request. Nothing runs until you start it.</p>
+          <form onSubmit={event => { event.preventDefault(); invoke(); }}><fieldset disabled={busy() || uncertain()}>
+            <div class="admin-form-grid">
+              <label class="admin-form-field"><span>Repository</span><input type="text" required maxlength="256" autocomplete="off" placeholder="owner/repository" value={repository()} onInput={event => setRepository(event.currentTarget.value)} /><small>Enter a repository you can read, in owner/repository format.</small></label>
+              <label class="admin-form-field"><span>Pull request number</span><input type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label>
+            </div>
+            <div class="operator-actions"><button type="submit" class="admin-primary-button">Start assessment</button><a href="/operators">Back to operators</a></div></fieldset></form>
+        </Show>}</Show>
         <Show when={preparedId()}><p>Prepared activity: <button class="admin-secondary-button" disabled={busy()} onClick={() => void read(preparedId())}>{preparedId()}</button>. If submission was interrupted, inspect its state before preparing more work.</p></Show>
       </section>
     </Show>
@@ -103,7 +133,7 @@ const OperatorManagementActivity: Component<{ installationId?: string }> = props
       </Show></Show>
     </section>
     <Show when={detailLoading()}><p role="status">Loading activity detail…</p></Show>
-    <Show when={detail()}>{value => <section class="admin-panel operator-panel"><h2>Activity {value().activityId}</h2>
+    <Show when={detail()}>{value => <section class="admin-panel operator-panel"><h2>Activity detail</h2><p>Activity ID: {value().activityId}</p>
       <p>Execution: {value().executionStatus} · Cleanup: {value().cleanupStatus}</p>
       <Show when={value().checkpoint != null}><h3>Progress</h3><pre class="operator-result">{JSON.stringify(value().checkpoint, null, 2)}</pre></Show>
       <Show when={value().result != null} fallback={<p>No result available.</p>}><h3>Result</h3><pre class="operator-result">{JSON.stringify(value().result, null, 2)}</pre></Show>

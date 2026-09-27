@@ -144,11 +144,11 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     fireEvent.change(configurationChoice, { target: { value: 'installation-1' } });
     expect(screen.queryByRole('button', { name: 'Create disabled installation' })).not.toBeInTheDocument();
     expect(within(overview).getByText('Checks repository changes under an approved Review policy.')).toBeInTheDocument();
-    expect(screen.getByText('GitHub release #15', { selector: 'strong' })).not.toBeVisible();
+    expect(screen.getAllByText('GitHub release #15', { selector: 'strong' })[0]).not.toBeVisible();
     fireEvent.click(within(sections).getByRole('button', { name: 'Versions & updates' }));
-    expect(screen.getByText('GitHub release #15', { selector: 'strong' })).toBeVisible();
+    expect(screen.getAllByText('GitHub release #15', { selector: 'strong' })[0]).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Other available versions' })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Exact version' }), { target: { value: 'release-0' } });
+    fireEvent.click(screen.getByRole('radio', { name: /GitHub release #15/ }));
     expect(screen.getByText(/new runs will remain disabled/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
     await waitFor(() => expect(mutations).toContain('/api/operator-management/installations/installation-1/promote'));
@@ -189,7 +189,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const installed = await screen.findByRole('region', { name: 'Installed version' });
     expect(within(installed).getByText('No version installed')).toBeInTheDocument();
     fireEvent.click(within(installed).getByRole('button', { name: 'Install operator' }));
-    fireEvent.change(screen.getByRole('combobox', { name: /version to install/i }), { target: { value: 'release-1' } });
+    fireEvent.click(screen.getByRole('radio', { name: /GitHub release #17/ }));
     fireEvent.click(screen.getByRole('button', { name: /install selected version/i }));
     await waitFor(() => expect(mutations).toEqual([
       '/api/operator-management/operators/operator-1/installations', '/api/operator-management/installations/install-1/promote']));
@@ -332,10 +332,10 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Register operator' }));
     const form = screen.getByRole('region', { name: 'Register operator' });
-    const restrictions = await within(form).findByRole('group', { name: 'Operator restrictions' });
-    const session = await within(restrictions).findByRole('checkbox', { name: /^session\b/i });
+    const restrictions = await within(form).findByRole('group', { name: 'Operator actions and scope' });
+    const session = await within(restrictions).findByRole('checkbox', { name: /session access/i });
     expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
-    expect(within(form).getByText(/select the capabilities and resource profile needed before registration/i)).toBeInTheDocument();
+    expect(within(form).getByText(/initial capabilities and scope within environment limits/i)).toBeInTheDocument();
     fireEvent.click(session);
     expect(within(form).getByRole('button', { name: 'Register source' })).toBeDisabled();
     const resource = within(restrictions).getByRole('combobox', { name: 'Operator resource profile' });
@@ -376,7 +376,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Test operator' }));
     const installed = await screen.findByRole('region', { name: 'Installed version' });
-    fireEvent.click(within(installed).getByText('Technical details and advanced restrictions'));
+    fireEvent.click(within(installed).getByText('Technical details', { selector: 'summary' }));
     expect(within(installed).queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
     fireEvent.click(await within(installed).findByRole('checkbox', { name: /inference/i }));
     fireEvent.click(within(installed).getByRole('button', { name: /save restrictions for runner/i }));
@@ -421,15 +421,15 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     const grants = await screen.findByRole('region', { name: /access grants/i });
     expect(within(grants).getByText(/missing@example.test.*not listed.*retained/i)).toBeInTheDocument();
     expect(within(grants).getByText(/former-team.*not listed.*retained/i)).toBeInTheDocument();
-    const invokers = within(grants).getByRole('group', { name: 'Who can run this operator grants' });
+    const invokers = within(grants).getByRole('group', { name: 'Runners' });
     fireEvent.click(within(invokers).getByRole('checkbox', { name: 'invoker@example.test' }));
-    fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
+    fireEvent.click(within(grants).getByRole('button', { name: 'Save permissions' }));
     await waitFor(() => expect(saves).toHaveLength(1));
     expect(saves[0]).toMatchObject({ managers: { users: ['manager@example.test', 'missing@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] },
       invokers: { users: ['invoker@example.test'], groups: [] } });
-    await waitFor(() => expect(within(grants).getByRole('button', { name: 'Save grants' })).toBeEnabled());
+    await waitFor(() => expect(within(grants).getByRole('button', { name: 'Save permissions' })).toBeEnabled());
     fireEvent.click(within(grants).getByRole('checkbox', { name: /missing@example.test/i }));
-    fireEvent.click(within(grants).getByRole('button', { name: 'Save grants' }));
+    fireEvent.click(within(grants).getByRole('button', { name: 'Save permissions' }));
     await waitFor(() => expect(saves).toHaveLength(2));
     expect(saves[1]).toMatchObject({ managers: { users: ['manager@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'former-team' }] } });
   });

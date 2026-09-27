@@ -38,6 +38,7 @@ const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
+const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities });
 const configureBody = z.strictObject({ policy, configuration, revision });
 const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), managers: grant,
   ceiling: z.strictObject({ capabilities: policy.shape.capabilities, resourceProfileIds: z.array(z.string().regex(ID)).max(128)
@@ -241,6 +242,16 @@ app.post('/operators/:operatorId/installations', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), input.policy);
   return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration)))), 201);
+});
+
+app.post('/operators/:operatorId/capabilities', async c => {
+  const operator = await managed(c, c.req.param('operatorId'));
+  requireMutationCsrf(c);
+  const input = await parseJsonBody(c, capabilitiesBody);
+  withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities });
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision)));
+  logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
+  return c.json(updated);
 });
 
 app.post('/operators/:operatorId/grants', async c => {

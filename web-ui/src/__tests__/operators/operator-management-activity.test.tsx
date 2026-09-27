@@ -5,10 +5,13 @@ const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionS
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 let serve: (url: URL, init?: RequestInit) => Response;
+let preview: { name: string; version: string; guidedAssessment: boolean };
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators?view=activity');
   serve = () => json({ items: [summary] });
-  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => Promise.resolve(serve(new URL(url), init))));
+  preview = { name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true };
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => Promise.resolve(
+    new URL(url).pathname.endsWith('/preview') ? json(preview) : serve(new URL(url), init))));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -21,13 +24,20 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [] });
     };
     render(() => <OperatorManagement />);
-    expect(screen.getByRole('textbox', { name: 'Repository' })).toHaveValue('nikolanovoselec/komodo');
+    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('nikolanovoselec/komodo');
     expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(1253);
     expect(preparations).toBe(0);
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'https://github.com/other/repository' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/repository.*owner\/repository/i);
     expect(preparations).toBe(0);
+  });
+  it('does not offer a Renovate form for an unsupported installed package', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1');
+    preview = { name: 'Another Dispatcher', version: 'v2', guidedAssessment: false };
+    render(() => <OperatorManagement />);
+    expect(await screen.findByText(/No guided assessment is available for Another Dispatcher/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start assessment' })).not.toBeInTheDocument();
   });
   it('shows execution independently of cleanup and reconciles an explicit cancellation', async () => {
     let cancelled = false;
@@ -54,6 +64,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [summary] });
     };
     render(() => <OperatorManagement />);
+    await screen.findByRole('button', { name: 'Start assessment' });
     expect(screen.queryByLabelText('Invocation JSON')).not.toBeInTheDocument();
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
@@ -76,6 +87,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [summary] });
     };
     render(() => <OperatorManagement />);
+    await screen.findByRole('button', { name: 'Start assessment' });
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
@@ -90,7 +102,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     indexed = true;
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
-    expect(await screen.findByRole('heading', { name: 'Activity activity-2' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled();
   });
 
@@ -106,6 +118,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [summary] });
     };
     render(() => <OperatorManagement />);
+    await screen.findByRole('button', { name: 'Start assessment' });
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
@@ -116,7 +129,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
     await waitFor(() => expect(screen.getByRole('button', { name: 'activity-1' })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: 'activity-1' }));
-    expect(await screen.findByRole('heading', { name: 'Activity activity-1' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh activities' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled());

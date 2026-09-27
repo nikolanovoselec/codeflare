@@ -72,6 +72,8 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
+export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number }) =>
+  request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.
 function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
@@ -80,6 +82,8 @@ function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown
     { credentials: 'same-origin', schema });
 }
 export const getOwnedActivities = () => activityRequest('', z.object({ items: z.array(operatorActivitySummarySchema).max(100) }));
+export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
+  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
 export const startInstallationActivity = (activityId: string, capability: string) =>

@@ -32,7 +32,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 async function open() {
   render(() => <OperatorManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: /manage.*pull request review/i }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Conductor Review' }));
   await screen.findByRole('region', { name: 'Installed version' });
 }
 
@@ -51,7 +51,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(window.location.search).toContain('query=Review');
     expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument();
     fireEvent.click(toggle);
-    await waitFor(() => expect(queries.at(-1)).toBe(''));
+    await waitFor(() => expect(queries[queries.length - 1]).toBe(''));
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
   });
 
@@ -73,16 +73,40 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
 
   it('separates verified package identity from the category and keeps source replacement out of restrictions', async () => {
     await open();
-    expect(screen.getByRole('heading', { name: 'Pull Request Review' })).toBeInTheDocument();
-    expect(screen.getByText('Conductor', { selector: '.operator-category' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Conductor Review' })).toBeInTheDocument();
+    expect(screen.getByText('Conductor', { selector: '.admin-status' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Installed version' })).toHaveTextContent('v0.1.2');
     expect(screen.getByText('Conductor Review', { selector: 'dd' })).toBeInTheDocument();
     expect(screen.getByText(/protected pull request boundary/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Runtime permissions' })).toBeInTheDocument();
-    expect(screen.getByText('review-profile')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'default resource profile' })).toHaveValue('review-profile');
     expect(screen.getByText(/Environment.*allow/i)).toBeInTheDocument();
     expect(screen.getByText('Change source', { selector: 'summary' })).toBeInTheDocument();
     expect(screen.getByText('Technical details', { selector: 'summary' })).toBeInTheDocument();
+  });
+
+  it('edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled', async () => {
+    let currentOperator = operator;
+    let currentInstallation = installed;
+    let saved: unknown;
+    serve = (url, init) => {
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        saved = JSON.parse(String(init.body));
+        currentOperator = { ...operator, revision: 4, policy: { ...policy, capabilities: ['session'] } };
+        currentInstallation = { ...installed, enabled: false, revision: 3 };
+        return json(currentOperator);
+      }
+      return url.pathname.endsWith('/operator-1')
+        ? json({ operator: currentOperator, releases: [release], installations: [currentInstallation], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+        : json({ items: [currentOperator], cursor: null });
+    };
+    await open();
+    const capabilities = within(screen.getByRole('region', { name: 'Runtime permissions' })).getByRole('group', { name: 'Operator capabilities' });
+    fireEvent.click(within(capabilities).getByRole('checkbox', { name: /Scoped storage/i }));
+    fireEvent.click(within(capabilities).getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toEqual({ revision: 3, capabilities: ['session'] }));
+    expect(await screen.findByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Installation restrictions' })).toHaveTextContent(/storage.*unavailable/i);
   });
 
   it('keeps saved missing grants, distinguishes unverified choices and shows local save feedback', async () => {
@@ -95,10 +119,10 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     const pane = screen.getByRole('region', { name: 'Access grants' });
     expect(within(pane).getByRole('group', { name: 'Managers' })).toBeInTheDocument();
     expect(within(pane).getByRole('group', { name: 'Runners' })).toBeInTheDocument();
-    expect(within(pane).getByText(/not-verified.*cannot be assigned/i)).toBeInTheDocument();
+    expect(within(pane).getByText(/unverified configured groups cannot be assigned: not-verified/i)).toBeInTheDocument();
     expect(within(pane).getByRole('checkbox', { name: /saved-group.*retained/i })).toBeChecked();
     fireEvent.click(within(pane).getByRole('button', { name: 'Save permissions' }));
     await waitFor(() => expect(saved).toMatchObject({ managers: grant }));
-    expect(await within(pane).findByRole('status')).toHaveTextContent(/permissions saved/i);
+    expect(await within(pane).findByText(/permissions saved/i)).toBeVisible();
   });
 });
