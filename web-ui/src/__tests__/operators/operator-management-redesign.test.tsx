@@ -64,10 +64,10 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Manage Pull Request Reviewer' }));
     expect(await screen.findByRole('heading', { name: 'Pull Request Reviewer' })).toBeInTheDocument();
     expect(screen.getByText('Conductor Review', { selector: 'dd' })).toBeInTheDocument();
-    const installedPane = screen.getByRole('region', { name: 'Installed version' });
-    expect(installedPane).not.toHaveTextContent(/Core .*Intent .*Interface/);
     const technical = screen.getByText('Technical details', { selector: 'summary' }).parentElement!;
+    expect(technical).toHaveTextContent('Core contract version');
     expect(technical).toHaveTextContent('Interface version');
+    expect(technical).toHaveTextContent(/not the installed release version/);
   });
 
   it('presents Renovate Manager only for the verified first-party Dispatcher', async () => {
@@ -78,6 +78,19 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     const row = (await screen.findByRole('button', { name: 'Manage Renovate Manager' })).closest('li')!;
     expect(within(row).getByText('Renovate Manager', { selector: 'strong' })).toBeInTheDocument();
     expect(within(row).getByText('(Dispatcher)')).toBeInTheDocument();
+  });
+
+  it('does not assign the first-party name to a third-party Dispatcher or a mismatched repository identity', async () => {
+    const impersonators = [
+      { ...operator, id: 'third-party', name: 'Renovate Dispatcher', profile: 'dispatcher', repositoryId: 818,
+        repositoryUrl: 'https://github.com/acme/renovate-dispatcher' },
+      { ...operator, id: 'wrong-id', name: 'Renovate Dispatcher', profile: 'dispatcher', repositoryId: 819,
+        repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher' },
+    ];
+    serve = () => json({ items: impersonators, cursor: null });
+    render(() => <OperatorManagement />);
+    expect(await screen.findAllByRole('button', { name: 'Manage Renovate Dispatcher' })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Manage Renovate Manager' })).not.toBeInTheDocument();
   });
 
   it('refreshes verified metadata for an older installed pin without changing its enablement', async () => {

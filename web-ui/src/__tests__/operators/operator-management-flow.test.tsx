@@ -307,10 +307,10 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     expect(within(global).getByRole('checkbox', { name: /Inference/i })).toBeChecked();
     expect(within(global).getByRole('checkbox', { name: /Mediated requests/i })).toBeChecked();
     expect(within(global).queryByText(/^pi —/)).not.toBeInTheDocument();
-    fireEvent.click(within(global).getByText('Session and storage scope IDs (advanced)', { selector: 'summary' }));
-    expect(within(global).getByText(/stable label.*session.*storage/i)).toBeInTheDocument();
-    expect(within(global).getByText(/does not create.*profile/i)).toBeInTheDocument();
-    expect(within(global).getByRole('textbox', { name: /Allowed scope IDs/i })).toHaveValue('review-profile');
+    fireEvent.click(within(global).getByText('Conductor request IDs (advanced)', { selector: 'summary' }));
+    expect(within(global).getByText(/requested session and storage.*same allowed ID/i)).toBeInTheDocument();
+    expect(within(global).getByText(/not profiles you create/i)).toBeInTheDocument();
+    expect(within(global).getByRole('textbox', { name: /Allowed request IDs/i })).toHaveValue('review-profile');
   });
 
   it('allows admin delegation through the Environment-owned global controls contract', async () => {

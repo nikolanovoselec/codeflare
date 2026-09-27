@@ -11,22 +11,28 @@ export interface OperatorManagementProps { userEmail?: string; isAdmin?: boolean
 const emptyGrant = (): api.ManagementGrant => ({ users: [], groups: [] });
 const emptyPolicy = (): api.ManagementPolicy => ({ capabilities: [], resourceProfileId: null });
 const lines = (value: string) => [...new Set(value.split('\n').map(line => line.trim()).filter(Boolean))];
-const name = (operator: api.ManagementSummary) => operator.name ?? operator.repositoryUrl ?? operator.id;
+const name = (operator: api.ManagementSummary) => {
+  if (operator.name === 'Conductor Review' && operator.profile === 'conductor' && operator.repositoryId === 1380652764
+    && operator.repositoryUrl === 'https://github.com/nikolanovoselec/codeflare-operator-conductor') return 'Pull Request Reviewer';
+  if (operator.name === 'Renovate Dispatcher' && operator.profile === 'dispatcher' && operator.repositoryId === 1380652724
+    && operator.repositoryUrl === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher') return 'Renovate Manager';
+  return operator.name ?? operator.repositoryUrl ?? operator.id;
+};
 const category = (operator: api.ManagementSummary) => operator.profile === 'conductor' ? 'Conductor' : 'Dispatcher';
 const releaseLabel = (release: api.ManagementRelease) => release.tagName ?? release.version ?? `GitHub release #${release.githubReleaseId}`;
 const published = (date: string) => new Date(date).toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 const releaseDisplay = (release: api.ManagementRelease) => `${releaseLabel(release)}${release.publishedAt ? ` · Published ${published(release.publishedAt)}` : ''}`;
-const catalogInstallation = (operator: api.ManagementSummary) => {
-  const count = operator.installationCount && operator.installationCount > 1 ? `${operator.installationCount} configurations` : '';
-  const pin = operator.installedGithubReleaseId
-    ? operator.installedTagName ? `Installed ${operator.installedTagName}${operator.installedPublishedAt ? ` · Published ${published(operator.installedPublishedAt)}` : ' · Publication time unavailable'}` : 'Installed version details unavailable'
-    : count ? '' : operator.installationCount ? 'Installation registered' : 'No version installed';
-  return [count, pin].filter(Boolean).join(' · ');
-};
+const catalogInstallation = (operator: api.ManagementSummary) => ({
+  count: operator.installationCount && operator.installationCount > 1 ? `${operator.installationCount} configurations` : '',
+  pin: operator.installedTagName ?? 'version details unavailable',
+  published: operator.installedGithubReleaseId
+    ? operator.installedPublishedAt ? `Published ${published(operator.installedPublishedAt)}` : 'Publication time unavailable'
+    : '',
+});
 const ReleaseChoices: Component<{ label: string; releases: api.ManagementRelease[]; selected: string; onSelect: (id: string) => void }> = props =>
   <fieldset class="admin-area-list-compact"><legend>{props.label}</legend><For each={props.releases}>{item =>
     <label class="admin-toggle-field"><input type="radio" name={props.label} value={item.id} checked={props.selected === item.id} onChange={() => props.onSelect(item.id)} />
-      <span class="admin-form-field"><strong>{releaseLabel(item)}</strong><small>{!item.tagName && !item.version ? 'Version unavailable · ' : ''}{item.publishedAt ? `Published ${published(item.publishedAt)}` : 'Publication time unavailable'} · {item.approved ? 'Approved' : 'Requires approval'}</small><Show when={item.description}><small>{item.description}</small></Show><small>Core {item.coreVersion ?? 'not reported'} · Intent {item.intentVersion ?? 'not reported'}</small></span>
+      <span class="admin-form-field"><strong>{releaseLabel(item)}</strong><small>{!item.tagName && !item.version ? 'Version unavailable · ' : ''}{item.publishedAt ? `Published ${published(item.publishedAt)}` : 'Publication time unavailable'} · {item.approved ? 'Approved' : 'Requires approval'}</small><Show when={item.description}><small>{item.description}</small></Show></span>
     </label>
   }</For></fieldset>;
 const denied = (error: unknown) => error instanceof ApiError && [401, 403, 404].includes(error.status);
@@ -239,7 +245,13 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
             <Show when={items().length} fallback={<p>No operators match this catalog view.</p>}>
               <ul class="operator-list"><For each={items()}>{operator => <li class="admin-area-row">
                 <div><div class="operator-identity"><strong>{name(operator)}</strong><span class="operator-type-pill">({category(operator)})</span></div><p>{operator.description || 'Open this operator to review its verified versions and purpose.'}</p>
-                  <p class="operator-catalog-state">{catalogInstallation(operator)} · {operator.enabled ? 'Enabled for new runs' : 'Not enabled for new runs'}</p></div>
+                  <div class="operator-catalog-meta"><Show when={catalogInstallation(operator).count}><span>{catalogInstallation(operator).count}</span></Show>
+                    <Show when={operator.installedGithubReleaseId} fallback={<span>{operator.installationCount ? 'Configuration registered' : 'No version installed'}</span>}>
+                      <span class="operator-catalog-version">Installed <b>{catalogInstallation(operator).pin}</b></span>
+                    </Show>
+                    <Show when={catalogInstallation(operator).published}><span>{catalogInstallation(operator).published}</span></Show>
+                    <span class={`admin-status ${operator.enabled ? 'admin-status-enabled' : 'admin-status-disabled'}`}>{operator.enabled ? 'Enabled for new runs' : 'Not enabled for new runs'}</span>
+                  </div></div>
                 <button class="admin-secondary-button" disabled={busy()} aria-label={`Manage ${name(operator)}`}  onClick={() => navigate(operator.id)}>Manage</button>
               </li>}</For></ul>
             </Show>
@@ -430,8 +442,10 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <div class="admin-connection-status" data-state={installation()?.enabled ? 'passed' : 'unclear'}>
           <div><strong>{releaseDisplay(release())}</strong><span role="status">{installation()?.enabled ? 'Enabled for new runs' : 'Installed — not enabled'}</span></div>
         </div>
-        <Show when={!release().publishedAt}><p>Publication time unavailable for this release. Refresh releases under Versions &amp; updates to check for verified metadata.</p></Show>
-        <p>Core {release().coreVersion ?? 'not reported'} · Intent {release().intentVersion ?? 'not reported'} · Interface {release().interfaceVersion}</p>
+        <Show when={!release().tagName || !release().publishedAt}><div class="operator-release-recovery"><p>Publication time unavailable for this release. Refresh to check GitHub for verified version and publication details.</p>
+          <button type="button" class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
+            () => api.refreshManagedReleases(operator().id, operator().revision), 'Release details refreshed; the installed version and enablement are unchanged.', 'installed-metadata')}>Refresh release details</button>
+          {props.feedback('installed-metadata')}</div></Show>
         <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={props.locked} onClick={() => void props.perform(
           () => api.enableInstallation(installation()!.id, !installation()!.enabled, installation()!.revision),
           installation()!.enabled ? 'No new runs will start on this version.' : 'This version is enabled for new runs.', 'installed-enable')}>{installation()?.enabled ? 'Disable for new runs' : 'Enable for new runs'}</button>
@@ -473,12 +487,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         </fieldset>{props.feedback('installed-restrictions')}</form>}</Show>
       </section>
       <details class="admin-route-details"><summary>Technical details</summary>
-        <dl class="operator-facts"><dt>Package name</dt><dd>{name(operator())}</dd><dt>Source repository</dt><dd>{operator().repositoryUrl}</dd><dt>Repository ID</dt><dd>{operator().repositoryId}</dd>
+        <p>Core, Intent and Interface are package compatibility contract versions, not the installed release version.</p>
+        <dl class="operator-facts"><dt>Package name</dt><dd>{operator().name ?? operator().repositoryUrl ?? operator().id}</dd><dt>Source repository</dt><dd>{operator().repositoryUrl}</dd><dt>Repository ID</dt><dd>{operator().repositoryId}</dd>
           <dt>Source credential</dt><dd>{operator().source.credentialConfigured ? 'Configured (write-only)' : 'Not configured'}</dd>
           <dt>Approved workflow</dt><dd>{operator().source.approvedWorkflow ? `${operator().source.approvedWorkflow!.id} · ${operator().source.approvedWorkflow!.ref}` : 'Not selected'}</dd>
           <dt>Maximum allowed actions</dt><dd>{operator().policy.capabilities.join(', ') || 'None'}</dd>
           <dt>Scope ID</dt><dd>{operator().policy.resourceProfileId ?? 'None'}</dd>
-          <Show when={currentRelease()}>{item => <><dt>GitHub release ID</dt><dd>{item().githubReleaseId}</dd><dt>Release record</dt><dd>{item().id}</dd><dt>Source commit</dt><dd>{item().sourceCommit}</dd><dt>Bundle SHA-256</dt><dd>{item().bundleDigest}</dd><dt>Manifest SHA-256</dt><dd>{item().manifestDigest}</dd></>}</Show>
+          <Show when={currentRelease()}>{item => <><dt>Core contract version</dt><dd>{item().coreVersion ?? 'Not reported'}</dd><dt>Intent contract version</dt><dd>{item().intentVersion ?? 'Not reported'}</dd><dt>Interface version</dt><dd>{item().interfaceVersion}</dd><dt>GitHub release ID</dt><dd>{item().githubReleaseId}</dd><dt>Release record</dt><dd>{item().id}</dd><dt>Source commit</dt><dd>{item().sourceCommit}</dd><dt>Bundle SHA-256</dt><dd>{item().bundleDigest}</dd><dt>Manifest SHA-256</dt><dd>{item().manifestDigest}</dd></>}</Show>
         </dl>
       </details>
       <details class="admin-route-details"><summary>Change source</summary><p>Replacing the repository invalidates approval and stops new runs. Discover and approve an exact release afterward. Existing activities retain their pinned release.</p>
@@ -570,9 +585,9 @@ export const ManagementAccessPanel: Component = () => {
         <div class="admin-checkbox-list operator-choice-list"><For each={choices()?.capabilities ?? []}>{capability => <label class="admin-toggle-field"><input type="checkbox" checked={capabilities().includes(capability)} onChange={event => setCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} /><span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>}</For>
           <For each={capabilities().filter(value => !choices()?.capabilities.includes(value))}>{item => <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setCapabilities(values => values.filter(value => value !== item))} /><span>{item} · unavailable — deselect to remove</span></label>}</For></div>
       </fieldset>
-      <details class="operator-scope-details"><summary>Session and storage scope IDs (advanced)</summary>
-        <p>A scope ID is a stable label used to require a Conductor’s requested session and storage to name the same approved scope. Different IDs may be used by different integrations, but this list only permits IDs: it does not create a resource profile or configure different storage. The runtime constructs restricted resources using existing authorization. Dispatcher does not use a scope ID.</p>
-        <LineField label="Allowed scope IDs" values={lines(resources())} onChange={values => setResources(values.join('\n'))} hint="One ID per line. Preserve an existing ID unless its integrations no longer need it." />
+      <details class="operator-scope-details"><summary>Conductor request IDs (advanced)</summary>
+        <p>These are allowed names for Conductor requests, not profiles you create. At installation, an administrator selects one allowed ID. On every run, the requested session and storage must both name that same allowed ID or the run is denied. This does not create a session or configure storage; Codeflare builds those resources under its existing permissions. Dispatcher does not use these IDs.</p>
+        <LineField label="Allowed request IDs" values={lines(resources())} onChange={values => setResources(values.join('\n'))} hint="One ID per line. Keep review-profile unless the package contract requires a different name; removing an ID can prevent installed runs." />
       </details>
       <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!choices() || capabilities().some(value => !choices()?.capabilities.includes(value))}>Save management access</button></div>
     </fieldset></form></Show>
