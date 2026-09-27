@@ -115,6 +115,12 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id, installationCount: 2,
       installedGithubReleaseId: release.githubReleaseId, description: verifiedPurpose })] });
+    for (const term of ['Review operator', 'Review fixture']) {
+      const results = await request(`/operators?query=${encodeURIComponent(term)}`);
+      expect(results.status).toBe(200);
+      expect(await results.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id })], cursor: null });
+    }
+    expect(await (await request('/operators?query=Wrong%20version')).json()).toMatchObject({ items: [], cursor: null });
   }));
 
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {
