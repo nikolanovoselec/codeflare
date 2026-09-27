@@ -17,8 +17,6 @@
   outline-offset: 3px;
 }
 .operator-management :is(h1, h2, h3, p, strong, dd, a, button, output) { overflow-wrap: anywhere; }
-.operator-management :is(input, select, textarea) { width: 100%; min-width: 0; max-width: 100%; }
-.operator-management input[type='checkbox'] { width: auto; min-width: 1rem; }
 .operator-management :is(button, a) { min-height: 40px; }
 .operator-management summary { min-height: 44px; padding-block: var(--space-3); cursor: pointer; }
 .operator-management button { white-space: normal; }
