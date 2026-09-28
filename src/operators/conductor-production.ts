@@ -21,7 +21,8 @@ import { isBucketMigrating, isR2SseDisabledForBucket } from '../lib/r2-regime-st
 import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from './owned-session-runtime';
 import { OwnedOperatorSessionService } from './owned-session';
 import { OperatorConductorCapability } from './conductor-capability';
-import { createAuthenticatedHistoryTransport } from './review-history-transport';
+import { createAuthenticatedHistoryTransport, readGithubActionsPublisherIdentity,
+  readPublishedReview } from './review-history-transport';
 import { operatorActivitySessionStore, createOperatorSyncReader,
   type OperatorActivityStub } from './owned-session-production';
 import { verifyOperatorSync } from './sync-verification';
@@ -196,6 +197,71 @@ export async function createConductorProductionCapability(input: { env: Env; pla
       || await activity.getOwnedSession()) throw new Error('Packet preparation after session start denied');
     const token = await getValidGithubToken(env, ownerBucket);
     if (!token) throw new Error('GitHub transport unavailable');
+    const raw = boundaryInput.evidence && typeof boundaryInput.evidence === 'object'
+      && !Array.isArray(boundaryInput.evidence)
+      ? (boundaryInput.evidence as Record<string, unknown>).rejectedFindings : undefined;
+    let rejectedFindings: Array<Record<string, unknown>> | undefined;
+    let verifiedOriginalFindings: Array<{ id: string; lane: string; severity: string;
+      path: string; line: number; message: string; evidence: string }> | undefined;
+    if (raw !== undefined) {
+      if (!Array.isArray(raw) || raw.length < 1 || raw.length > 20) throw new Error('Invalid rejected findings');
+      const fields = ['findingId', 'priorActivityId', 'priorRound', 'priorHead',
+        'originalReportDigest', 'rationale', 'evidence'];
+      const ids = new Set<string>();
+      rejectedFindings = [];
+      for (const value of raw) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)
+          || Object.keys(value).length !== fields.length || fields.some(field => !Object.hasOwn(value, field)))
+          throw new Error('Invalid rejected finding authority');
+        const item = value as Record<string, unknown>;
+        if (typeof item.findingId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(item.findingId)
+          || ids.has(item.findingId) || typeof item.priorActivityId !== 'string'
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(item.priorActivityId)
+          || !Number.isSafeInteger(item.priorRound) || (item.priorRound as number) < 1
+          || typeof item.priorHead !== 'string' || !/^[a-f0-9]{40}$/.test(item.priorHead)
+          || item.priorHead !== acknowledgedHead
+          || typeof item.originalReportDigest !== 'string' || !/^[a-f0-9]{64}$/.test(item.originalReportDigest)
+          || typeof item.rationale !== 'string' || !item.rationale.trim() || item.rationale.length > 2048
+          || typeof item.evidence !== 'string' || !item.evidence.trim() || item.evidence.length > 2048)
+          throw new Error('Invalid rejected finding');
+        ids.add(item.findingId);
+        rejectedFindings.push(Object.fromEntries(fields.map(field => [field, item[field]])));
+      }
+      if (rejectedFindings.length) {
+        await current(true);
+        const publisher = await readGithubActionsPublisherIdentity({ token, fetch: request => fetch(request) });
+        if (!publisher) throw new Error('Review publisher unavailable');
+        const history = createAuthenticatedHistoryTransport({ repository: reference,
+          repositoryId: guard.repositoryId, pullRequest: guard.pullRequest, head: guard.head,
+          base: guard.base, token, fetch: request => fetch(request), current: () => current(true) });
+        const originalFindings: NonNullable<typeof verifiedOriginalFindings> = [];
+        for (const key of new Set(rejectedFindings.map(item => JSON.stringify([item.priorActivityId,
+          item.priorHead, item.priorRound, item.originalReportDigest])))) {
+          const [priorActivityId, priorHead, priorRound, originalReportDigest] = JSON.parse(key) as
+            [string, string, number, string];
+          const published = await readPublishedReview({ repository: reference,
+            repositoryId: guard.repositoryId, pullRequest: guard.pullRequest,
+            activityId: priorActivityId, head: priorHead, currentHead: guard.head,
+            trustedWorkflowId: guard.workflowId, publisher, history });
+          if (published.status !== 'published' || published.activityId !== priorActivityId
+            || published.head !== priorHead || published.round !== priorRound
+            || published.artifactDigest !== originalReportDigest || published.repositoryId !== guard.repositoryId
+            || published.pullRequest !== guard.pullRequest || published.omittedFindings !== 0)
+            throw new Error('Rejected finding publication unavailable');
+          for (const item of rejectedFindings.filter(row => row.priorActivityId === priorActivityId
+            && row.priorHead === priorHead && row.priorRound === priorRound
+            && row.originalReportDigest === originalReportDigest)) {
+            const matches = published.findings.filter(finding => finding.id === item.findingId
+              && !finding.message.includes('[truncated]') && !finding.evidence.includes('[truncated]'));
+            if (matches.length !== 1) throw new Error('Rejected finding publication unavailable');
+            originalFindings.push(matches[0]!);
+          }
+        }
+        if (originalFindings.length !== rejectedFindings.length) throw new Error('Rejected finding unavailable');
+        verifiedOriginalFindings = originalFindings;
+        await current(true);
+      }
+    }
     const deadline = Math.min(plan.deadline, input.driveDeadline, Date.now() + 5 * 60_000);
     const maxPackBytes = 32 * 1024 * 1024, maxOutputBytes = 8 * 1024 * 1024;
     const pack = await fetchApprovedGitPack({ owner: names[0], repository: names[1], head: guard.head,
@@ -217,8 +283,18 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     if (response.status !== 200 || response.headers.get('content-type') !== 'application/octet-stream') {
       throw new Error('Approved Host packet unavailable');
     }
-    const bytes = await readBoundedResponse(response, maxOutputBytes, 'Approved Host packet', driveSignal);
+    let bytes = await readBoundedResponse(response, maxOutputBytes, 'Approved Host packet', driveSignal);
     if (!bytes.byteLength || Date.now() >= deadline) throw new Error('Approved Host packet unavailable');
+    if (rejectedFindings?.length) {
+      const packet = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as Record<string, unknown>;
+      if (!packet || typeof packet !== 'object' || Array.isArray(packet)
+        || !packet.evidence || typeof packet.evidence !== 'object' || Array.isArray(packet.evidence))
+        throw new Error('Approved packet evidence unavailable');
+      bytes = new TextEncoder().encode(JSON.stringify({ ...packet,
+        evidence: { ...packet.evidence as Record<string, unknown>, rejectedFindings,
+          originalFindings: verifiedOriginalFindings } }));
+      if (bytes.length > maxOutputBytes) throw new Error('Approved packet too large');
+    }
     await current(true);
     const file = { name: `packet-${lane}.json`, mediaType: 'application/json', size: bytes.byteLength,
       sha256: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes))))

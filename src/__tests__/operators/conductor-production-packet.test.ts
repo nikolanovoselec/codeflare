@@ -56,6 +56,7 @@ vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: 
 vi.mock('../../operators/approved-git-pack', () => ({ fetchApprovedGitPack: async () => new TextEncoder().encode('PACK-data') }));
 vi.mock('../../operators/review-history-transport', async importOriginal => ({
   ...await importOriginal<typeof import('../../operators/review-history-transport')>(),
+  readGithubActionsPublisherIdentity: async () => ({ commentAuthorId: 777, checkAppId: 888 }),
   readPublishedReview: async () => state.published ? { status: 'published', repositoryId: 138,
     pullRequest: 34, activityId: 'prior-activity', head: 'f'.repeat(40), round: 1,
     artifactDigest: 'd'.repeat(64), omittedFindings: state.omitted,
@@ -139,6 +140,9 @@ describe('REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary 
     const value = await response.json() as { bytes: string };
     const approved = JSON.parse(Buffer.from(value.bytes, 'base64').toString());
     expect(approved.evidence.rejectedFindings).toEqual([rejectedFinding]);
+    expect(approved.evidence.originalFindings).toMatchObject([{ id: 'finding-one',
+      lane: 'code-reviewer', severity: 'HIGH', path: 'src/file.ts', line: 1,
+      message: 'Bypass', evidence: 'Caller missing guard' }]);
     state.files = []; state.objects.clear(); state.published = false;
     const denied = await capability(Date.now() + 25_000, { rejectedFindings: [rejectedFinding] });
     expect((await prepare(denied)).status).toBe(403);

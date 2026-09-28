@@ -5,7 +5,10 @@ import { findGitRoot, recallActiveRepo, shellInvocations, resolveShellInvocation
 import { classifyReviewBoundaryCommand, REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER } from './review-helpers';
 
 const execFile = promisify(execFileCallback);
-type Boundary = { repository: string; repositoryId: number; pullRequest: number; head: string; repo: string };
+type RejectedFinding = { findingId: string; priorActivityId: string; priorRound: number;
+  priorHead: string; originalReportDigest: string; rationale: string; evidence: string };
+type Boundary = { repository: string; repositoryId: number; pullRequest: number; head: string; repo: string;
+  rejectedFindings?: RejectedFinding[] };
 type Selection = { mode: 'remote' | 'unavailable'; activityId?: string };
 type Dependencies = { currentBoundary: (event: unknown, ctx: unknown) => Promise<Boundary | undefined>;
   selectBoundary: (boundary: Boundary, readOnly?: boolean) => Promise<Selection>;
@@ -25,6 +28,18 @@ type Pending = Boundary & { sessionFile?: string; startedAt: number };
 type Round = Pending & { activityId: string };
 const ROUND_ENTRY = 'operator-review-remote-round';
 const PENDING_ENTRY = 'operator-review-remote-pending';
+const REJECTIONS_ENTRY = 'operator-review-remote-rejections';
+function eligibleRejections(ctx: any, boundary: Boundary): RejectedFinding[] | undefined {
+  const sessionFile = ctx.sessionManager.getSessionFile?.();
+  const saved = ctx.sessionManager.getBranch().filter((entry: any) => entry.type === 'custom'
+    && entry.customType === REJECTIONS_ENTRY).at(-1)?.data;
+  if (!saved || !sessionFile || saved.sessionFile !== sessionFile
+    || saved.repository !== boundary.repository || saved.repositoryId !== boundary.repositoryId
+    || saved.pullRequest !== boundary.pullRequest || saved.repo !== boundary.repo
+    || saved.head === boundary.head || !sha.test(saved.head)
+    || !Array.isArray(saved.rejectedFindings) || saved.rejectedFindings.length > 20) return;
+  return saved.rejectedFindings;
+}
 function pendingMarker(ctx: any): Pending | undefined {
   const marker = ctx.sessionManager.getBranch().filter((entry: any) => entry.type === 'custom'
     && entry.customType === PENDING_ENTRY).at(-1)?.data;
@@ -227,7 +242,9 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     const boundary = await dependencies.currentBoundary(event, ctx);
     if (observedEpoch !== epoch || revision !== submissionEpoch || !boundary || !sha.test(boundary.head) || !Number.isSafeInteger(boundary.repositoryId)
       || !Number.isSafeInteger(boundary.pullRequest)) return;
-    const selected = await dependencies.selectBoundary(boundary);
+    const rejectedFindings = eligibleRejections(ctx, boundary);
+    const selected = await dependencies.selectBoundary(rejectedFindings
+      ? { ...boundary, rejectedFindings } : boundary);
     if (observedEpoch !== epoch || revision !== submissionEpoch) return;
     if (selected.mode !== 'remote' || selected.activityId && !id.test(selected.activityId)) {
       pi.sendMessage({ customType: 'pr-boundary-remote-unavailable', display: true,
@@ -290,6 +307,23 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     const ci = ciTerminal(ctx, active);
     if (!ci || ci !== 'success' && !lines.slice(table + 2).some(line =>
       line.startsWith('| Exact-head CI |') && line.includes(`CI_RESULT ${ci}`))) return;
+    const rejectedFindings: RejectedFinding[] = [];
+    for (const finding of findings) {
+      const row = lines.slice(table + 2).map(line => line.split('|').map(cell => cell.trim()))
+        .find(cells => cells.length === 7 && cells[1] === finding.id
+          && /^rejected\b/i.test(cells[5] ?? ''));
+      if (!row) continue;
+      const rationale = row[2]?.replace(/^Rejected:\s*/i, '').trim();
+      const evidence = row[4]?.trim();
+      if (!rationale || rationale.length > 2048 || !evidence || evidence.length > 2048
+        || !id.test(finding.id)) return;
+      rejectedFindings.push({ findingId: finding.id, priorActivityId: active.activityId,
+        priorRound: report.details.round, priorHead: active.head,
+        originalReportDigest: report.details.artifactDigest, rationale, evidence });
+    }
+    if (rejectedFindings.length) pi.appendEntry(REJECTIONS_ENTRY, { repository: active.repository,
+      repositoryId: active.repositoryId, pullRequest: active.pullRequest, repo: active.repo,
+      sessionFile: active.sessionFile, head: active.head, rejectedFindings });
     pi.appendEntry('operator-review-remote-fix', { activityId: active.activityId, head: active.head,
       artifactDigest: report.details.artifactDigest, round: report.details.round });
     pi.sendMessage({ customType: 'pr-boundary-fix-follow-up', display: true,
@@ -349,9 +383,21 @@ function parseSelection(output: string, boundary: Boundary): Selection {
 }
 export async function selectOperatorBoundary(boundary: Boundary,
   readOnly = false, runner: typeof execFile = execFile): Promise<Selection> {
+  const rejected = boundary.rejectedFindings;
+  const valid = Array.isArray(rejected) && rejected.length > 0 && rejected.length <= 20
+    && rejected.every(row => id.test(row.findingId) && id.test(row.priorActivityId)
+      && Number.isSafeInteger(row.priorRound) && row.priorRound > 0 && sha.test(row.priorHead)
+      && row.priorHead !== boundary.head && /^[a-f0-9]{64}$/i.test(row.originalReportDigest)
+      && typeof row.rationale === 'string' && row.rationale.length > 0 && row.rationale.length <= 2048
+      && typeof row.evidence === 'string' && row.evidence.length > 0 && row.evidence.length <= 2048)
+    && rejected.every(row => row.priorHead === rejected[0]!.priorHead);
   const encoded = Buffer.from(JSON.stringify({ repositoryId: boundary.repositoryId,
-    pullRequest: boundary.pullRequest, acknowledgedHead: null, targetHead: boundary.head,
-    payload: { range: null, rejectedFindingsStatus: 'unavailable' } }), 'utf8').toString('base64');
+    pullRequest: boundary.pullRequest, acknowledgedHead: valid ? rejected[0]!.priorHead : null,
+    targetHead: boundary.head, payload: { range: null,
+      ...(valid ? { rejectedFindings: rejected.map(row => ({ findingId: row.findingId,
+        priorActivityId: row.priorActivityId, priorRound: row.priorRound, priorHead: row.priorHead,
+        originalReportDigest: row.originalReportDigest, rationale: row.rationale, evidence: row.evidence })) }
+        : { rejectedFindingsStatus: 'unavailable' }) } }), 'utf8').toString('base64');
   const read = async (mode: '1' | 'check') => {
     const { stdout } = await runner('gh', ['api', '--include',
       '-H', `x-codeflare-operator-boundary-select: ${mode}`,

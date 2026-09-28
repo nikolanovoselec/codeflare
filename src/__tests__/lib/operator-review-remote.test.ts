@@ -9,7 +9,7 @@ const published = { schemaVersion: 1 as const, status: 'published' as const,
     path: 'src/guard.ts', line: 12, message: 'Missing authorization check',
     evidence: 'Write occurs before the guard.' }] };
 function harness(result: unknown = published,
-  selection: (_boundary: unknown, readOnly?: boolean) => Promise<{ mode: 'remote'; activityId?: string }>
+  selection: (_boundary: unknown, readOnly?: boolean) => ReturnType<typeof selectOperatorBoundary>
     = async () => ({ mode: 'remote', activityId: 'activity-1' }),
   inspectBoundary?: (currentHead: string) => Promise<{ repository: string; repositoryId: number;
     pullRequest: number; head: string; repo: string }>) {
