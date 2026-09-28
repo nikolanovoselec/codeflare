@@ -1,9 +1,10 @@
 /** REQ-OPERATOR-022: restricted startup cannot enter whole-home restore/baseline paths. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -43,6 +44,29 @@ test('REQ-OPERATOR-022: ordinary startup retains restore, post-restore and compl
   const result = run(false);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'restore,post,complete,');
+});
+
+test('REQ-OPERATOR-053: generated Pi inventory excludes independently loaded local and remote Review', () => {
+  const home = mkdtempSync(join(tmpdir(), 'operator-review-settings-'));
+  try {
+    const agentDir = join(home, '.pi/agent');
+    mkdirSync(agentDir, { recursive: true });
+    const local = join(agentDir, 'extensions/review-enforcement.ts');
+    const remote = join(agentDir, 'extensions/operator-review-remote.ts');
+    const settingsPath = join(agentDir, 'settings.json');
+    writeFileSync(settingsPath, JSON.stringify({ extensions: [`+${local}`, `+${remote}`] }));
+    const start = source.indexOf('warm_pi_npm_dependencies() {');
+    const end = source.indexOf('\n}\n\nupdate_pi_and_codex_when_fast_start_disabled()', start);
+    const warm = source.slice(start, end + 2);
+    const result = spawnSync('bash', ['-c', `set -euo pipefail\n${warm}\nwarm_pi_npm_dependencies`],
+      { encoding: 'utf8', env: { ...process.env, USER_HOME: home, PI_NPM_PRESEED: join(home, 'missing') } });
+    assert.equal(result.status, 0, result.stderr);
+    const config = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    assert.equal(config.extensions.includes(`-${local}`), true);
+    assert.equal(config.extensions.includes(`-${remote}`), true);
+    assert.equal(config.extensions.includes(`+${local}`), true);
+    assert.equal(config.extensions.includes(`+${remote}`), true);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 function runAttachmentRestore({ portBound, nodeResult = 0 }) {

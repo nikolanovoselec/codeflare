@@ -37,6 +37,9 @@ import { parseBoundedBoundaryInput } from './operators/boundary-input';
 import { getContainerId } from './lib/container-helpers';
 import { createReviewPushObserver } from './operators/review-git-protocol';
 import { readBoundedResponse } from './lib/bounded-stream';
+import { operatorOwnerKey } from './operators/browser-activity';
+import { createAuthenticatedHistoryTransport, readGithubActionsPublisherIdentity,
+  readPublishedReview } from './operators/review-history-transport';
 import { prepareVerifiedBoundary, selectVerifiedBoundaryAction,
   type ReadyBoundary } from './operators/review-boundary-preparation';
 import type { BoundaryInput } from './operators/boundary-input';
@@ -77,7 +80,7 @@ export function interceptedGithubHosts(env: Env): string[] {
 const STRIPPED_REQUEST_HEADERS: readonly string[] = [
   'authorization', 'x-api-key', 'host', 'content-length',
   'cf-access-jwt-assertion', 'x-codeflare-operator-boundary-input',
-  'x-codeflare-operator-boundary-select',
+  'x-codeflare-operator-boundary-select', 'x-codeflare-operator-boundary-result',
 ];
 
 /**
@@ -256,10 +259,11 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const pushPath = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.git\/git-receive-pack$/.exec(url.pathname);
     const prRead = /^\/repos\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pulls\/([1-9][0-9]*)$/.exec(url.pathname);
     const submitted = request.headers.get('x-codeflare-operator-boundary-input');
+    const resultActivity = request.headers.get('x-codeflare-operator-boundary-result');
     const watching = this.env.ENTERPRISE_MODE === 'active' && !props?.operatorPolicy && props?.sessionId
       && ((request.method === 'POST' && url.hostname === gitWebHost(this.env) && pushPath)
         || (request.method === 'POST' && url.hostname === apiHost && url.pathname === '/graphql')
-        || (request.method === 'GET' && url.hostname === apiHost && prRead && submitted));
+        || (request.method === 'GET' && url.hostname === apiHost && prRead && (submitted || resultActivity)));
     const boundarySession = watching
       ? (this.env.CONTAINER.getByName(getContainerId(bucket, props.sessionId!)) as unknown as BoundarySession)
       : null;
@@ -410,9 +414,59 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
         })());
       });
     }
+    if (resultActivity !== null) {
+      const unavailable = () => Response.json({ status: 'unavailable' }, { headers: { 'cache-control': 'no-store' } });
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(resultActivity) || !prRead || !boundaryGeneration
+        || !boundarySession || !props?.sessionId || props.operatorPolicy || request.method !== 'GET'
+        || url.hostname !== apiHost || upstream.status !== 200 || !body) return unavailable();
+      try {
+        const bytes = await readBoundedResponse(upstream, 128 * 1024, 'Published PR context');
+        const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as {
+          number?: number; state?: string; head?: { sha?: string; repo?: { id?: number } };
+          base?: { ref?: string; repo?: { id?: number } };
+        };
+        const pullRequest = Number(prRead[3]);
+        if (metadata.number !== pullRequest || metadata.state !== 'open'
+          || !/^[a-f0-9]{40}$/i.test(metadata.head?.sha ?? '')
+          || !Number.isSafeInteger(metadata.base?.repo?.id)
+          || metadata.base?.repo?.id !== metadata.head?.repo?.id) return unavailable();
+        const session = boundarySession;
+        const ref = { bucket, sessionId: props.sessionId, email: props.user };
+        const sealed = await session.openReviewHuman(ref);
+        const authority = await requireOperatorHumanContext(new Request(url, {
+          headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+        }), this.env, props.user);
+        if (authority.human.subject !== sealed.human.subject) return unavailable();
+        const current = async () => {
+          if (await session.getReviewLifecycleGeneration(ref) !== boundaryGeneration) throw Error('Review session moved');
+          const active = await session.openReviewHuman(ref);
+          if (active.human.subject !== sealed.human.subject || active.accessJwt !== sealed.accessJwt)
+            throw Error('Review human changed');
+        };
+        await current();
+        const repository = `${prRead[1]}/${prRead[2]}`;
+        const repositoryId = metadata.base!.repo!.id!;
+        if (!/^(main|master|develop)$/.test(metadata.base?.ref ?? '') || !this.env.OPERATOR_REGISTRY)
+          return unavailable();
+        const action = await this.env.OPERATOR_REGISTRY.getByName('registry')
+          .getBoundaryAction(repositoryId, `refs/heads/${metadata.base!.ref!}`);
+        if (!action || action.enabled === false || !Number.isSafeInteger(action.workflowId)
+          || action.workflowId <= 0) return unavailable();
+        const publisher = await readGithubActionsPublisherIdentity({ token, fetch: send });
+        if (!publisher) return unavailable();
+        const history = createAuthenticatedHistoryTransport({ repository, repositoryId, pullRequest,
+          head: metadata.head!.sha!, token, current, fetch: send });
+        const published = await readPublishedReview({ repository, repositoryId, pullRequest,
+          currentHead: metadata.head!.sha!, activityId: resultActivity,
+          trustedWorkflowId: action.workflowId, publisher, history });
+        await current();
+        return Response.json(published, { headers: { 'cache-control': 'no-store' } });
+      } catch { return unavailable(); }
+    }
     const selectionMode = request.headers.get('x-codeflare-operator-boundary-select');
     const selectionRequested = selectionMode === '1' || selectionMode === 'check';
     let selection: 'local' | 'remote' | 'unavailable' | null = selectionRequested ? 'unavailable' : null;
+    let selectedActivity: string | null = null;
     let selectionConsumed = false;
     if (selectionRequested && body && upstream.status === 200 && submitted
       && submitted.length <= 16_000 && boundaryGeneration && prRead && props?.sessionId
@@ -452,6 +506,16 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
           if (ready) {
             try { await prepare(ready, session, sessionId, boundaryGeneration); }
             catch { /* Remote remains exclusive even when preparation is uncertain. */ }
+          }
+        }
+        if (selection === 'remote' && this.env.OPERATOR_REGISTRY) {
+          const prepared = await this.env.OPERATOR_REGISTRY.getByName('registry')
+            .getBoundaryPreparation(input.repositoryId, input.pullRequest);
+          if (prepared && ['prepared', 'claimed'].includes(prepared.phase)
+            && prepared.ownerKey === await operatorOwnerKey(authority.human)
+            && prepared.revision.head === input.targetHead && prepared.repositoryId === input.repositoryId
+            && prepared.pullRequest === input.pullRequest && /^[A-Za-z0-9_-]{1,128}$/.test(prepared.activityId)) {
+            selectedActivity = prepared.activityId;
           }
         }
       } catch {
@@ -498,7 +562,9 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
     responseHeaders.delete('x-codeflare-operator-boundary-selection');
+    responseHeaders.delete('x-codeflare-operator-boundary-activity');
     if (selection) responseHeaders.set('x-codeflare-operator-boundary-selection', selection);
+    if (selectedActivity) responseHeaders.set('x-codeflare-operator-boundary-activity', selectedActivity);
     if (selectionConsumed) {
       responseHeaders.delete('content-length');
       responseHeaders.delete('content-encoding');

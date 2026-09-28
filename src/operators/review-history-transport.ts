@@ -135,12 +135,18 @@ export function createAuthenticatedHistoryTransport(input: {
         }
         case 'comments-page': value = await get(`${root}/issues/${input.pullRequest}/comments?per_page=100&page=${request.page}`); break;
         case 'comment': value = await get(`${root}/issues/comments/${request.id}`); break;
-        case 'artifact-list': value = await get(`${root}/actions/artifacts?per_page=100&page=${request.page}${request.name
-          ? `&name=${request.name}` : ''}`); break;
+        case 'artifact-list': {
+          const page = await get(`${root}/actions/artifacts?per_page=100&page=${request.page}${request.name
+            ? `&name=${request.name}` : ''}`) as { total_count?: number; artifacts?: unknown[] };
+          if (!Number.isSafeInteger(page.total_count) || page.total_count! < 0
+            || !Array.isArray(page.artifacts) || page.artifacts.length > 100)
+            throw Error('Incomplete artifact listing');
+          value = page.artifacts; break;
+        }
         case 'checks-page': {
           const head = 'head' in request && typeof request.head === 'string' ? request.head : input.head;
           if (head !== input.head) await associated(head);
-          value = await get(`${root}/commits/${head}/check-runs?per_page=100&page=${request.page}`); break;
+          value = await get(`${root}/commits/${head}/check-runs?filter=all&per_page=100&page=${request.page}`); break;
         }
         case 'check': value = await get(`${root}/check-runs/${request.id}`); break;
         case 'run': value = await run(request.id); break;
@@ -195,4 +201,172 @@ export function createAuthenticatedHistoryTransport(input: {
     } catch { return failure(); }
   };
   return { read };
+}
+
+/** PR-wide published evidence is read under the current user's GitHub access, not
+ * through another user's private Activity. It is advisory until the next round's
+ * Conductor independently authenticates the same artifact. */
+export async function readGithubActionsPublisherIdentity(input: {
+  token: string; fetch(request: Request): Promise<Response>;
+}): Promise<{ commentAuthorId: number; checkAppId: number } | null> {
+  try {
+    const read = async (path: string) => {
+      const request = new Request(`${API}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(5_000),
+        headers: { authorization: `Bearer ${input.token}`, accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28' } });
+      const response = await input.fetch(request);
+      if (!response.ok || response.redirected || response.url && response.url !== request.url)
+        throw Error('Publisher identity unavailable');
+      return JSON.parse(decoder.decode(await readBoundedResponse(response, 8192, 'Publisher identity', request.signal)));
+    };
+    const [bot, app] = await Promise.all([read('/users/github-actions%5Bbot%5D'), read('/apps/github-actions')]);
+    if (bot?.login !== 'github-actions[bot]' || bot.type !== 'Bot'
+      || !Number.isSafeInteger(bot.id) || bot.id <= 0 || app?.slug !== 'github-actions'
+      || !Number.isSafeInteger(app.id) || app.id <= 0) return null;
+    return { commentAuthorId: bot.id, checkAppId: app.id };
+  } catch { return null; }
+}
+
+export async function readPublishedReview(input: {
+  repository?: string; repositoryId: number; pullRequest: number; activityId: string;
+  trustedWorkflowId: number; head?: string; currentHead?: string;
+  publisher: { commentAuthorId: number; checkAppId: number };
+  history: { read(request: HistoryReadRequest): Promise<HistoryReadResult> };
+}): Promise<{ status: 'unavailable' } | { schemaVersion: 1; status: 'published'; repository?: string;
+  repositoryId: number; pullRequest: number; activityId: string; head: string; round: number;
+  artifactDigest: string; findings: Array<{ id: string; lane: string; severity: string;
+    path: string; line: number; message: string; evidence: string }>;
+  omittedFindings: number }> {
+  const unavailable = { status: 'unavailable' } as const;
+  const digestPattern = /^[a-f0-9]{64}$/;
+  const idPattern = /^[A-Za-z0-9_-]{1,128}$/;
+  const positive = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+  if (!positive(input.repositoryId) || !positive(input.pullRequest)
+    || !positive(input.trustedWorkflowId) || !idPattern.test(input.activityId)
+    || input.head !== undefined && !SHA.test(input.head)
+    || input.currentHead !== undefined && !SHA.test(input.currentHead)
+    || !positive(input.publisher.commentAuthorId) || !positive(input.publisher.checkAppId)) return unavailable;
+  const read = async (request: HistoryReadRequest): Promise<any> => {
+    const result = await input.history.read(request);
+    if (!result?.complete || !Object.hasOwn(result, 'value')) throw Error('Published history unavailable');
+    return result.value;
+  };
+  try {
+    const repo = await read({ schemaVersion: 1, operation: 'repository' });
+    const pr = await read({ schemaVersion: 1, operation: 'pr-context', pullRequest: input.pullRequest });
+    if (repo?.id !== input.repositoryId || pr?.number !== input.pullRequest || pr?.state !== 'open'
+      || pr?.head?.repo?.id !== input.repositoryId || pr?.base?.repo?.id !== input.repositoryId
+      || !SHA.test(pr?.head?.sha ?? '') || input.currentHead && pr.head.sha !== input.currentHead
+      || repo.permissions?.pull !== true) throw Error('Published PR unavailable');
+    const prefix = `review-${input.repositoryId}-${input.pullRequest}-${input.activityId}-generation-`;
+    const matches: Array<{ id: number; marker: string; head: string; digest: string; round: number }> = [];
+    for (let page = 1; page <= 20; page++) {
+      const comments = await read({ schemaVersion: 1, operation: 'comments-page', page });
+      if (!Array.isArray(comments) || comments.length > 100) throw Error('Published comments unavailable');
+      for (const item of comments) {
+        if (!positive(item?.id) || typeof item?.body !== 'string'
+          || !item.body.startsWith(`<!-- codeflare-review:${prefix}`)) continue;
+        const marker = item.body.match(/^<!-- codeflare-review:(review-[0-9]+-[0-9]+-[A-Za-z0-9_-]+-generation-([1-9][0-9]*):([a-f0-9]{64})) -->\n/);
+        if (!marker || !marker[1].startsWith(prefix) || !positive(Number(marker[2]))
+          || !digestPattern.test(marker[3])) throw Error('Published marker altered');
+        const trailer = item.body.slice(item.body.lastIndexOf('\n') + 1);
+        const metadata = JSON.parse(trailer) as { head?: unknown; artifactDigest?: unknown };
+        if (!SHA.test(String(metadata.head ?? '')) || metadata.artifactDigest !== marker[3])
+          throw Error('Published comment altered');
+        if (input.head && metadata.head !== input.head) continue;
+        matches.push({ id: item.id, marker: marker[1], head: metadata.head as string,
+          digest: marker[3], round: Number(marker[2]) });
+      }
+      if (comments.length < 100) break;
+      if (page === 20) throw Error('Published comment pagination incomplete');
+    }
+    if (matches.length !== 1) throw Error('Published round ambiguous');
+    const selected = matches[0];
+    if (selected.head !== pr.head.sha) await read({ schemaVersion: 1, operation: 'head-association', head: selected.head });
+    const comment = await read({ schemaVersion: 1, operation: 'comment', id: selected.id });
+    if (comment?.id !== selected.id || comment?.user?.id !== input.publisher.commentAuthorId)
+      throw Error('Published comment identity changed');
+    const artifacts: Array<{ id: number; name: string }> = [];
+    for (let page = 1; page <= 20; page++) {
+      const rows = await read({ schemaVersion: 1, operation: 'artifact-list', page,
+        name: `boundary-review-${selected.digest}` });
+      if (!Array.isArray(rows) || rows.length > 100) throw Error('Published artifact list unavailable');
+      artifacts.push(...rows.filter((row: any) => row?.name === `boundary-review-${selected.digest}`));
+      if (rows.length < 100) break;
+      if (page === 20) throw Error('Published artifact pagination incomplete');
+    }
+    if (artifacts.length !== 1 || !positive(artifacts[0].id)) throw Error('Published artifact ambiguous');
+    const stored = await read({ schemaVersion: 1, operation: 'artifact', id: artifacts[0].id });
+    if (stored?.id !== artifacts[0].id || !positive(stored?.runId)
+      || typeof stored?.bytes !== 'string' || stored.bytes.length > 100_000
+      || !/^[A-Za-z0-9+/]*={0,2}$/.test(stored.bytes)) throw Error('Published artifact unavailable');
+    const bytes = Uint8Array.from(atob(stored.bytes), char => char.charCodeAt(0));
+    if (bytes.length > 72 * 1024) throw Error('Published artifact too large');
+    const artifact = JSON.parse(decoder.decode(bytes)) as Record<string, any>;
+    const { binding, result } = artifact;
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(JSON.stringify({ binding, result })))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const admission = binding?.admission, context = binding?.context;
+    if (artifact.marker !== selected.marker || artifact.digest !== selected.digest || hash !== selected.digest
+      || admission?.repositoryId !== input.repositoryId || admission.pullRequest !== input.pullRequest
+      || admission.activityId !== input.activityId || admission.generation !== selected.round
+      || admission.workflowId !== input.trustedWorkflowId
+      || context?.head !== selected.head || context.repositoryId !== input.repositoryId
+      || context.pullRequest !== input.pullRequest || result?.head !== selected.head
+      || result.activityId !== input.activityId || result.generation !== selected.round
+      || result.repositoryId !== input.repositoryId || result.pullRequest !== input.pullRequest
+      || result.packageDigest !== admission.packageDigest || result.activityGeneration !== binding.activityGeneration
+      || result.status !== 'complete' || result.cleanup !== 'stopped'
+      || result.history?.coverageAdvanced !== true || !Array.isArray(result.originalReports)
+      || result.originalReports.length !== 3 || stored.runId !== admission.runId) {
+      throw Error('Published result altered');
+    }
+    const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+    const originals = result.originalReports.flatMap((report: any, index: number) => {
+      if (report?.lane !== lanes[index] || report.head !== selected.head || report.generation !== selected.round
+        || report.packetDigest !== binding.packetDigest || report.complete !== true
+        || !Array.isArray(report.omissions) || report.omissions.length || !Array.isArray(report.findings)
+        || report.findings.length > 100) throw Error('Published original report altered');
+      return report.findings.map((finding: any) => {
+        if (!idPattern.test(finding?.id ?? '') || !['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(finding.severity)
+          || typeof finding.path !== 'string' || !finding.path || finding.path.length > 1024
+          || !positive(finding.line) || typeof finding.message !== 'string' || !finding.message
+          || typeof finding.evidence !== 'string' || !finding.evidence) throw Error('Published finding altered');
+        const bounded = (text: string) => text.length <= 512 ? text : `${text.slice(0, 498)}… [truncated]`;
+        return { id: finding.id, lane: report.lane, severity: finding.severity,
+          path: finding.path, line: finding.line, message: bounded(finding.message),
+          evidence: bounded(finding.evidence) };
+      });
+    });
+    if (new Set(originals.map((finding: { id: string }) => finding.id)).size !== originals.length)
+      throw Error('Published finding identity collision');
+    const run = await read({ schemaVersion: 1, operation: 'run', id: admission.runId });
+    if (run?.id !== admission.runId || run.run_attempt !== admission.runAttempt
+      || run.workflow_id !== input.trustedWorkflowId || run.repository?.id !== input.repositoryId
+      || run.event !== 'pull_request_target' || !run.pull_requests?.some((pull: any) => pull.number === input.pullRequest)
+      || binding.runId && binding.runId !== admission.runId
+      || binding.runAttempt && binding.runAttempt !== admission.runAttempt) throw Error('Published run altered');
+    const checks = await read({ schemaVersion: 1, operation: 'checks-page', head: selected.head, page: 1 });
+    const matching = checks?.check_runs?.filter((check: any) => check?.external_id === selected.marker);
+    if (!Array.isArray(matching) || matching.length !== 1 || !positive(matching[0].id))
+      throw Error('Published check unavailable');
+    const check = await read({ schemaVersion: 1, operation: 'check', id: matching[0].id });
+    const expected = result.presentation?.check;
+    if (check?.id !== matching[0].id || check.app?.id !== input.publisher.checkAppId
+      || check.external_id !== selected.marker || check.head_sha !== selected.head
+      || check.name !== expected?.name || check.status !== 'completed'
+      || check.conclusion !== expected.conclusion || check.output?.title !== expected.name
+      || check.output?.summary !== expected.summary || !['failure', 'success'].includes(check.conclusion)
+      || check.conclusion === 'success' && (!result.history.clear || originals.length))
+      throw Error('Published check altered');
+    const exactBody = `<!-- codeflare-review:${selected.marker} -->\n${result.presentation.commentBody}\n`
+      + JSON.stringify({ head: selected.head, artifactDigest: selected.digest });
+    if (comment.body !== exactBody) throw Error('Published comment content changed');
+    const findings = originals.slice(0, 20);
+    return { schemaVersion: 1, status: 'published', ...(input.repository ? { repository: input.repository } : {}),
+      repositoryId: input.repositoryId, pullRequest: input.pullRequest, activityId: input.activityId,
+      head: selected.head, round: selected.round, artifactDigest: selected.digest,
+      findings, omittedFindings: originals.length - findings.length };
+  } catch { return unavailable; }
 }

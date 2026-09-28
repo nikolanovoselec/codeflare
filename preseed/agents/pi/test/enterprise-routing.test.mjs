@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
-import { createAgentSession, DefaultResourceLoader, initTheme, ModelRuntime, SessionManager, SettingsManager, ThinkingSelectorComponent } from '@earendil-works/pi-coding-agent';
+import { createAgentSession, DefaultPackageManager, DefaultResourceLoader, initTheme, ModelRuntime, SessionManager, SettingsManager, ThinkingSelectorComponent } from '@earendil-works/pi-coding-agent';
 import { streamSimple } from '@earendil-works/pi-ai/compat';
 import { authorizedRoutes, enterpriseStartup, nativeHandle } from '../../../../host/__fixtures__/enterprise-pi-startup.mjs';
 
@@ -36,6 +38,39 @@ async function providerDefaultSession(t, options = {}) {
 }
 
 describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtime without inference', () => {
+  it('REQ-OPERATOR-053: Pi loads only the selector, not the separately auto-discovered local Review extension', async (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-review-inventory-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const agentDir = join(home, '.pi/agent');
+    const projectDir = join(home, 'workspace');
+    mkdirSync(join(agentDir, 'extensions'), { recursive: true });
+    mkdirSync(join(projectDir, '.pi'), { recursive: true });
+    const local = join(agentDir, 'extensions/review-enforcement.ts');
+    const remote = join(agentDir, 'extensions/operator-review-remote.ts');
+    const selector = join(agentDir, 'extensions/operator-review-selector.ts');
+    const source = new URL('../extensions/', import.meta.url);
+    for (const name of ['review-enforcement.ts', 'operator-review-remote.ts',
+      'operator-review-selector.ts', 'active-repo-memory.ts', 'review-helpers.ts',
+      'review-scope.ts', 'review-completion-state.ts', 'graphify-helpers.ts',
+      'capability-helpers.ts', 'guard-helpers.ts']) {
+      copyFileSync(new URL(name, source), join(agentDir, 'extensions', name));
+    }
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ extensions: [`-${local}`, `-${remote}`] }));
+    // Candidate-owned project settings cannot force either implementation back on.
+    writeFileSync(join(projectDir, '.pi/settings.json'), JSON.stringify({ extensions: [`+${local}`, `+${remote}`] }));
+    const settingsManager = SettingsManager.create(projectDir, agentDir);
+    const packageManager = new DefaultPackageManager({ cwd: projectDir, agentDir, settingsManager });
+    const resolved = await packageManager.resolve();
+    assert.deepEqual(resolved.extensions.filter(item => item.enabled
+      && [local, remote, selector].includes(item.path)).map(item => item.path), [selector]);
+    const runtime = new DefaultResourceLoader({ cwd: projectDir, agentDir, settingsManager,
+      noSkills: true, noPromptTemplates: true, noThemes: true });
+    await runtime.reload();
+    const loaded = runtime.getExtensions();
+    assert.equal(loaded.errors.some(error => error.path === selector), false, JSON.stringify(loaded.errors));
+    assert.deepEqual(loaded.extensions.filter(extension =>
+      [local, remote, selector].includes(extension.resolvedPath)).map(extension => extension.resolvedPath), [selector]);
+  });
   it('REQ-ENTERPRISE-058: provider-default Dynamic routes expose and preserve all seven Pi thinking choices', async (t) => {
     const { session, sessionManager } = await providerDefaultSession(t);
     assert.deepEqual(session.getAvailableThinkingLevels(), providerDefaultThinkingChoices);
