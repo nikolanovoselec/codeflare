@@ -54,7 +54,7 @@ async function fixture(test: (f: {
       head: HEAD, base: BASE, checks: [{ name: 'test', status: 'completed', conclusion: 'success' }],
       reviews: [{ state: 'APPROVED', commit_id: HEAD, user: { login: 'reviewer' } }], requiredChecks: ['test'], mergeable: true,
       permission: 'admin', author: 'renovate[bot]', ambiguity: false, paginated: false, loggedOut: false,
-      advanceBaseOnApproval: false, stopOnApproval: false, rulesetType: 'non_fast_forward' };
+      advanceBaseOnApproval: false, stopOnApproval: false, rulesetType: 'non_fast_forward', prState: 'open' };
     const writes: Array<{ method: string; url: string; body: unknown }> = [];
     const registry = { resolveManagementExecution: async () => state.current ? { ok: true, value: selection } : { ok: false, reason: 'disabled' } };
     Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
@@ -67,13 +67,14 @@ async function fixture(test: (f: {
             if (state.advanceBaseOnApproval) state.base = 'f'.repeat(40);
             if (state.stopOnApproval) state.sessionState = 'stopping';
           }
+          if (url.pathname.endsWith('/merge')) state.prState = 'closed';
           if (state.ambiguity) return Response.json({ message: 'response lost' }, { status: 502 });
           if (url.pathname.endsWith('/merge')) return Response.json({ merged: true, sha: HEAD });
           return Response.json({ id: 9001, body });
         }
         if (url.pathname === '/repos/nikolanovoselec/komodo/') return Response.json({ id: 973175879,
           full_name: 'nikolanovoselec/komodo', default_branch: 'main', permissions: { admin: state.permission === 'admin' } });
-        if (url.pathname.endsWith('/pulls/1299')) return Response.json({ number: 1299, state: 'open', mergeable: state.mergeable,
+        if (url.pathname.endsWith('/pulls/1299')) return Response.json({ number: 1299, state: state.prState, mergeable: state.mergeable,
           mergeable_state: state.mergeable ? 'clean' : 'unknown',
           user: { id: 29139614, login: state.author, type: 'Bot' }, head: { sha: state.head },
           base: { sha: state.base, ref: 'main' } });
@@ -139,7 +140,7 @@ async function fixture(test: (f: {
 describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
   it('publishes only from a completed cited safe Activity and current admin owner/session, using its admitted target and expected head', () => fixture(async f => {
     const result = await f.publish();
-    expect(result).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true, phase: 'completed', effect: 'merge', mergeSha: HEAD });
     expect(f.writes.some(write => write.url.endsWith('/repos/nikolanovoselec/komodo/pulls/1299/merge')
       && (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
     expect(f.writes.every(write => !write.url.includes('another-repo'))).toBe(true);
@@ -149,6 +150,15 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     await f.publish().catch(() => undefined);
     expect(f.writes).toEqual([]);
   }, { repository: 'another/repo', pullRequest: 18 }));
+
+  it('satisfies a required review through its own approval before rechecking merge readiness', () => fixture(async f => {
+    f.change('reviews', []);
+    expect(await f.publish()).toMatchObject({ ok: true, effect: 'merge' });
+    expect(f.writes.map(write => write.url)).toEqual([
+      '/repos/nikolanovoselec/komodo/pulls/1299/reviews',
+      '/repos/nikolanovoselec/komodo/pulls/1299/merge',
+    ]);
+  }));
 
   it('does not collect or publish a waiting assessment, even when its child snapshot looks safe', () => fixture(async f => {
     await f.setAssessment(cited, 'waiting');
@@ -222,6 +232,18 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     f.restart();
     expect(await f.publish()).toMatchObject({ ok: true, phase: 'completed', effect: 'comment' });
     expect(f.writes.map(write => write.url)).toEqual(['/repos/nikolanovoselec/komodo/issues/1299/comments']);
+  }));
+
+  it('retains an unattributed merged readback after a lost merge response without replay', () => fixture(async f => {
+    f.change('ambiguity', true);
+    const first = await f.publish();
+    expect(first).toMatchObject({ ok: false, reason: 'remote-merged-unattributed' });
+    f.restart();
+    expect(await f.publish()).toEqual(first);
+    expect(f.writes.map(write => write.url)).toEqual([
+      '/repos/nikolanovoselec/komodo/pulls/1299/reviews',
+      '/repos/nikolanovoselec/komodo/pulls/1299/merge',
+    ]);
   }));
 
   it('rereads a completed publication without another approval or merge', () => fixture(async f => {

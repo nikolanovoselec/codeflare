@@ -57,7 +57,7 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     }
     return JSON.parse(await readDispatcherBody(response)) as unknown;
   }
-  async function observe(assessment: RenovateAssessment, kind: 'comment' | 'merge'): Promise<void> {
+  async function observe(assessment: RenovateAssessment, kind: 'comment' | 'approval' | 'merge'): Promise<void> {
     // The currently authorized workstream is Komodo. The prospective activation
     // gate will extend the admitted target set; this one-off must not do so.
     if (repository.toLowerCase() !== 'nikolanovoselec/komodo' || pullRequest !== 1299) {
@@ -127,7 +127,7 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
       latest.set(review.user.login.toLowerCase(), review.state);
     }
     if ([...latest.values()].some(value => value === 'CHANGES_REQUESTED')
-      || [...latest.values()].filter(value => value === 'APPROVED').length < requiredApprovals) {
+      || (kind === 'merge' && [...latest.values()].filter(value => value === 'APPROVED').length < requiredApprovals)) {
       throw new Error('Required review unavailable');
     }
     // A last observed exact revision check before any mutation; expected-head

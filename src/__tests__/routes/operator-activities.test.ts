@@ -17,6 +17,10 @@ vi.mock('../../lib/access', async importOriginal => ({
     if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
     return { human: claims, accessJwt: 'private.access.jwt' };
   },
+  authenticateRequest: async (_request: Request, bindings: Env) => {
+    const record = JSON.parse((await bindings.KV.get(`user:${claims.email}`)) ?? '{}') as { role?: string };
+    return { user: { email: claims.email, role: record.role }, bucketName: 'owner-bucket' };
+  },
 }));
 const orchestration = vi.hoisted(() => ({
   prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),

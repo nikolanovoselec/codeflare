@@ -80,7 +80,8 @@ type RenovateEffect = 'comment' | 'approval' | 'merge';
 interface RenovatePublication {
   ownerKey: string; bucket: string; sessionId: string; sessionGeneration: number;
   activityGeneration: number; assessmentDigest: string; operationId: string;
-  effects: Partial<Record<RenovateEffect, { phase: 'reserved' | 'unknown' | 'completed'; receiptId?: number }>>;
+  effects: Partial<Record<RenovateEffect, { phase: 'reserved' | 'unknown' | 'completed'; receiptId?: number;
+    mergeSha?: string; remoteMerged?: boolean }>>;
 }
 const DISPATCHER_LIMIT_MS = 30_000;
 const dispatcherLog = createLogger('dispatcher-settlement');
@@ -1771,7 +1772,7 @@ export class OperatorActivity extends Agent {
   /** Explicit parent-only publication; result collection and child operations never call this method. */
   async publishRenovateAssessment(command: { bucket: string; sessionId: string; sessionGeneration: number;
     operationId: string }, authority: { human: VerifiedHumanAccessClaims; accessJwt: string; platformAdmin: boolean }):
-    Promise<{ ok: true; phase: 'completed'; effect: RenovateEffect } | { ok: false; reason: string }> {
+    Promise<{ ok: true; phase: 'completed'; effect: RenovateEffect; mergeSha?: string } | { ok: false; reason: string }> {
     const validId = /^[A-Za-z0-9_-]{1,128}$/;
     if (!authority.platformAdmin || !validId.test(command.sessionId) || !validId.test(command.operationId)
       || !/^[A-Za-z0-9._-]{1,128}$/.test(command.bucket)
@@ -1832,7 +1833,7 @@ export class OperatorActivity extends Agent {
       if (effect === 'merge') {
         const response = await github.request(`/pulls/${parent.pullRequest}/merge`);
         // A 204 proves merged, not who merged; fence rather than misattribute it.
-        if (response.status === 204) return null;
+        if (response.status === 204) return -1;
         if (response.status === 404) return null;
         throw new Error('Merge readback unavailable');
       }
@@ -1847,11 +1848,15 @@ export class OperatorActivity extends Agent {
         ? matching[0].id as number : null;
     };
     const completed = await this.ctx.storage.get<RenovatePublication>(RENOVATE_PUBLICATION);
+    if (completed && binding(completed) && completed.effects.merge?.remoteMerged) {
+      return { ok: false, reason: 'remote-merged-unattributed' };
+    }
     if (completed && binding(completed) && completed.effects[effectOrder[effectOrder.length - 1]]?.phase === 'completed') {
-      return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1] };
+      return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1],
+        ...(completed.effects.merge?.mergeSha ? { mergeSha: completed.effects.merge.mergeSha } : {}) };
     }
     for (const effect of effectOrder) {
-      try { await current(); await github.observe(assessment, effect === 'comment' ? 'comment' : 'merge'); }
+      try { await current(); await github.observe(assessment, effect); }
       catch { return { ok: false, reason: 'current-evidence-unavailable' }; }
       const claim = await this.ctx.storage.transaction<'reserved' | 'reconcile' | 'completed' | 'conflict'>(async tx => {
         const admission = await tx.get<AdmissionState>('admission');
@@ -1872,6 +1877,7 @@ export class OperatorActivity extends Agent {
       if (claim === 'conflict') return { ok: false, reason: 'stale-publication' };
       if (claim === 'completed') continue;
       let receiptId: number | null = null;
+      let mergeSha: string | null = null;
       if (claim === 'reserved') {
         try {
           // The transport itself checks current authority immediately before the write.
@@ -1883,7 +1889,9 @@ export class OperatorActivity extends Agent {
               : await github.request(`/issues/${parent.pullRequest}/comments`, 'POST', { body: commentBody });
           if (response.ok) {
             const value = JSON.parse(await readDispatcherBody(response)) as { id?: unknown; merged?: unknown; sha?: unknown };
-            if (effect === 'merge' && value.merged === true && /^[0-9a-f]{40}$/.test(String(value.sha))) receiptId = 0;
+            if (effect === 'merge' && value.merged === true && /^[0-9a-f]{40}$/.test(String(value.sha))) {
+              receiptId = 0; mergeSha = value.sha as string;
+            }
             else if (effect !== 'merge' && Number.isSafeInteger(value.id) && (value.id as number) > 0) receiptId = value.id as number;
           }
         } catch { /* A lost response may still have produced an external effect. */ }
@@ -1897,18 +1905,31 @@ export class OperatorActivity extends Agent {
         });
         try { receiptId = await confirm(effect); } catch { /* No blind write retry. */ }
       }
+      if (receiptId === -1 && effect === 'merge') {
+        await this.ctx.storage.transaction(async tx => {
+          const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
+          if (record && binding(record) && record.effects.merge?.phase !== 'completed') {
+            record.effects.merge = { phase: 'unknown', remoteMerged: true };
+            await tx.put(RENOVATE_PUBLICATION, record);
+          }
+        });
+        return { ok: false, reason: 'remote-merged-unattributed' };
+      }
       if (receiptId === null) return { ok: false, reason: 'uncertain-effect' };
       const saved = await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
         if (!record || !binding(record) || !record.effects[effect]) return false;
-        record.effects[effect] = { phase: 'completed', ...(receiptId! > 0 ? { receiptId: receiptId! } : {}) };
+        record.effects[effect] = { phase: 'completed', ...(receiptId! > 0 ? { receiptId: receiptId! } : {}),
+          ...(mergeSha ? { mergeSha } : {}) };
         await tx.put(RENOVATE_PUBLICATION, record);
         return true;
       });
       if (!saved) return { ok: false, reason: 'stale-publication' };
       if (claim === 'reconcile') return { ok: false, reason: 'reconciled-effect' };
     }
-    return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1] };
+    const receipt = await this.ctx.storage.get<RenovatePublication>(RENOVATE_PUBLICATION);
+    return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1],
+      ...(receipt?.effects.merge?.mergeSha ? { mergeSha: receipt.effects.merge.mergeSha } : {}) };
   }
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */
