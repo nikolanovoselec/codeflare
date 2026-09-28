@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { readPublishedReview } from '../../operators/review-history-transport';
 import { registerOperatorReviewRemote } from '../../../preseed/agents/pi/extensions/operator-review-remote';
-import { publishBoundaryResult } from '../../../scripts/operator-boundary-action.mjs';
+import { collectBoundaryResult, publishBoundaryResult } from '../../../scripts/operator-boundary-action.mjs';
 
 const sha = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const head = 'a'.repeat(40), currentHead = 'b'.repeat(40), base = 'c'.repeat(40);
@@ -91,8 +91,24 @@ describe('REQ-OPERATOR-053/056: independently published original Review evidence
     const json = (value: unknown) => new Response(JSON.stringify(value), {
       headers: { 'content-type': 'application/json' },
     });
+    const collected = await collectBoundaryResult({ origin: 'https://enterprise.example.test',
+      activityId: admission.activityId, startCapability: 's'.repeat(43) }, {
+      fetch: async (request: Request) => {
+        const operation = new URL(request.url).pathname.split('/').at(-1);
+        if (operation === 'start') return json({ ok: true, phase: 'queued', readCapability: 'r'.repeat(43) });
+        if (operation === 'status') return json({ ok: true, terminal: true,
+          status: 'completed', generation: 4 });
+        if (operation === 'result') return json({ ok: true, terminal: true,
+          status: 'completed', generation: 4, result });
+        throw new Error('Unexpected protected Activity operation');
+      }, now: () => 0,
+    });
+    expect(collected).toMatchObject({ status: 'collected', activityId: admission.activityId,
+      activityGeneration: 4 });
+    if (collected.status !== 'collected') throw new Error('Protected result was not collected');
+    expect(collected.result.originalReports[0].findings).toEqual([finding]);
     const publication = await publishBoundaryResult(
-      { status: 'collected', activityId: admission.activityId, activityGeneration: 4, result },
+      collected,
       { activityId: admission.activityId, generation: 4, repositoryId: 138, pullRequest: 34,
         head, packageDigest: admission.packageDigest, resultDigest: sha(result) },
       { activityGeneration: 4, binding, runId: 7, runAttempt: 1,

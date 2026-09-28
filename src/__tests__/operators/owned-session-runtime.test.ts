@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OwnedOperatorSessionService, type OwnedOperatorSessionState } from '../../operators/owned-session';
 import { ContainerOwnedSessionRuntime, type OperatorContainerStub,
   type OperatorSessionBootstrap } from '../../operators/owned-session-runtime';
 import type { OperatorContainerProfile } from '../../container/operator-context';
@@ -151,6 +152,57 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
       expect(await runtime.readiness(profile.sessionId)).toBe('unknown');
       expect(await runtime.stop(profile.sessionId, false)).toBe('unknown');
       expect(stub.stopOperatorSession).toHaveBeenCalledWith(profile.activityId, profile.sessionId);
+    }
+  });
+
+  it('keeps Review child cleanup uncertain until the external container destruction is observed', async () => {
+    for (const outcome of ['failed', 'completed'] as const) {
+      // The external container is the only fake: destruction remains pending independently of stop requests.
+      let containerStatus = 'running';
+      let completeDestroy!: () => void;
+      let failDestroy!: (error: Error) => void;
+      const destroyed = new Promise<void>((resolve, reject) => { completeDestroy = resolve; failDestroy = reject; });
+      const stub: OperatorContainerStub = {
+        setBucketName: vi.fn(), configureOperatorContext: vi.fn(), startAndWaitForPorts: vi.fn(),
+        getState: vi.fn(async () => ({ status: containerStatus })), fetch: vi.fn(),
+        stopOperatorSession: vi.fn(async (activityId, sessionId) => {
+          if (activityId !== profile.activityId || sessionId !== profile.sessionId) throw new Error('ownership mismatch');
+          containerStatus = 'stopping';
+          await destroyed;
+          containerStatus = 'stopped';
+          return 'stopped';
+        }),
+      };
+      const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,
+        ownerBucket: profile.ownerBucket, sessionId: profile.sessionId, userEmail, userGroups,
+        routes, bootstrap, resolve: () => stub });
+      let persisted: OwnedOperatorSessionState | null = {
+        schemaVersion: 1, requestId: 'review-child', requestDigest: 'b'.repeat(64),
+        activityId: profile.activityId, ownerBucket: profile.ownerBucket, sessionId: profile.sessionId,
+        profile, status: 'ready',
+      };
+      const service = new OwnedOperatorSessionService({
+        load: async () => persisted ? structuredClone(persisted) : null,
+        save: async state => { persisted = structuredClone(state); },
+      }, runtime);
+      const cleanup = { activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false };
+      const pendingCleanup = service.stop(cleanup);
+      await vi.waitFor(() => expect(containerStatus).toBe('stopping'));
+      expect(persisted?.status).toBe('stopping');
+      containerStatus = 'stopped'; // SDK observation can precede the external destroy completion.
+      expect(await runtime.readiness(profile.sessionId)).toBe('unknown');
+      expect(persisted?.status).toBe('stopping');
+      if (outcome === 'failed') {
+        failDestroy(new Error('external destruction failed'));
+        expect((await pendingCleanup).status).toBe('unknown');
+        expect(persisted?.status).toBe('unknown');
+        expect((await service.stop(cleanup)).status).toBe('unknown');
+        expect(persisted?.status).toBe('unknown');
+      } else {
+        completeDestroy(); // Only the external container's completed destruction acknowledges cleanup.
+        expect((await pendingCleanup).status).toBe('stopped');
+        expect(persisted?.status).toBe('stopped');
+      }
     }
   });
 

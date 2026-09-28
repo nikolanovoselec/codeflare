@@ -153,6 +153,28 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   });
 
+  it('REQ-OPERATOR-053: Review child stop requires the owned container destruction to finish', async () => {
+    const instance = new ContainerClass(mockCtx as any, mockEnv);
+    Object.assign(instance, { _operatorContainerProfile: { activityId: 'review-activity', sessionId: 'review-session' } });
+    let finishDestroy!: () => void;
+    let enteredDestroy = false, settled = false;
+    const destruction = new Promise<void>(resolve => { finishDestroy = resolve; });
+    vi.spyOn(instance, 'superDestroy').mockImplementation(() => {
+      enteredDestroy = true;
+      return destruction;
+    });
+    const stopping = instance.stopOperatorSession('review-activity', 'review-session')
+      .then(status => { settled = true; return status; });
+    expect(enteredDestroy).toBe(true);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finishDestroy();
+    expect(await stopping).toBe('stopped');
+    await expect(instance.stopOperatorSession('foreign-activity', 'review-session')).rejects.toThrow();
+    vi.spyOn(instance, 'superDestroy').mockRejectedValue(new Error('destruction unavailable'));
+    expect(await instance.stopOperatorSession('review-activity', 'review-session')).toBe('unknown');
+  });
+
   describe('REQ-OPERATOR-053: session-owned PR boundary join', () => {
     it('joins push and Pi input in either order, and refuses a delayed previous lifecycle', async () => {
       const records = new Map<string, unknown>([
