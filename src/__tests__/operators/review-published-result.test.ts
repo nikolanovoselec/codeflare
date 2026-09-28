@@ -133,7 +133,8 @@ describe('REQ-OPERATOR-053/056: independently published original Review evidence
     const authenticated = await history.read();
     expect(authenticated).toMatchObject({ status: 'published', artifactDigest: produced.artifact.digest,
       findings: [{ ...finding, lane: 'code-reviewer' }] });
-    const branch: any[] = [], messages: any[] = [];
+    const branch: any[] = [], messages: any[] = [], selected: any[] = [];
+    let observedHead = head;
     const handlers = new Map<string, (event: any, context: any) => Promise<void>>();
     const pi = { on: (name: string, callback: (event: any, context: any) => Promise<void>) => {
       handlers.set(name, callback); return () => handlers.delete(name);
@@ -141,11 +142,14 @@ describe('REQ-OPERATOR-053/056: independently published original Review evidence
     appendEntry: (customType: string, data: unknown) => branch.push({ type: 'custom', customType, data }) };
     registerOperatorReviewRemote(pi as never, {
       currentBoundary: async () => ({ repository: 'owner/repo', repositoryId: 138,
-        pullRequest: 34, head, repo: '/workspace/repo' }),
-      selectBoundary: async () => ({ mode: 'remote', activityId: admission.activityId }),
+        pullRequest: 34, head: observedHead, repo: '/workspace/repo' }),
+      selectBoundary: async (boundary: any) => { selected.push(boundary);
+        return { mode: 'remote', activityId: admission.activityId }; },
       readPublishedResult: async () => history.read(),
     });
-    const piContext = { cwd: '/workspace/repo', sessionManager: { getBranch: () => branch } };
+    const piContext = { cwd: '/workspace/repo', sessionManager: {
+      getBranch: () => branch, getSessionFile: () => '/owned/review-session.jsonl',
+    } };
     await handlers.get('tool_result')?.({ type: 'tool_result', toolName: 'bash',
       input: { command: 'git push origin feature' }, result: { isError: false } }, piContext);
     branch.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall',
@@ -160,6 +164,21 @@ describe('REQ-OPERATOR-053/056: independently published original Review evidence
     await handlers.get('agent_settled')?.({ type: 'agent_settled' }, piContext);
     expect(messages[1]).toMatchObject({ customType: 'pr-boundary-original-findings',
       details: { head, findings: [{ id: finding.id, message: finding.message }] } });
+    branch.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'text',
+      text: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n'
+        + '|---|---|---|---|---|\n'
+        + '| code-reviewer-guard | Rejected: existing guard applies | None | Caller checks authorization before write | Rejected |',
+    }] } });
+    await handlers.get('agent_end')?.({ type: 'agent_end' }, piContext);
+    expect(messages.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
+    observedHead = currentHead;
+    await handlers.get('tool_result')?.({ type: 'tool_result', toolName: 'bash',
+      input: { command: 'git push origin feature' }, result: { isError: false } }, piContext);
+    expect(selected.at(-1)).toMatchObject({ repositoryId: 138, pullRequest: 34, head: currentHead,
+      rejectedFindings: [{ findingId: finding.id, priorActivityId: admission.activityId,
+        priorRound: admission.generation, priorHead: head,
+        originalReportDigest: produced.artifact.digest,
+        rationale: 'existing guard applies', evidence: 'Caller checks authorization before write' }] });
   });
   it('delivers authenticated publisher artifact/comment/check/run findings to the dedicated Pi session, not a synthetic branch entry', async () => {
     const branch: any[] = [];
