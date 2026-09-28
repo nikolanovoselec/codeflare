@@ -1364,9 +1364,14 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const wasWorking = prior ? workingActivity(prior.executionStatus) : false;
       const isWorking = workingActivity(summary.executionStatus);
       if (wasWorking !== isWorking) count += isWorking ? 1 : -1;
-      // Admission order is stable: updates (including older evicted activities) do not
-      // reenter the browsing index. Retain at most 20 visible rows per operator.
-      const candidates = current.includes(summary.activityId) || prior ? current : [summary.activityId, ...current];
+      // Status updates do not change admission order, even after a row leaves the index.
+      if (prior) {
+        await tx.put(summaryKey, structuredClone(summary));
+        await tx.put(countKey, count);
+        return;
+      }
+      // Retain at most 20 visible rows per operator.
+      const candidates = [summary.activityId, ...current];
       const seen = new Map<string, number>();
       const ids: string[] = [];
       for (const id of candidates) {
@@ -1432,12 +1437,13 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   async listOwnedActivityPage(ownerKey: string, after: string | null): Promise<{
     items: OperatorBrowserSummary[]; nextCursor: string | null; workingCount: number;
     unreadCount: number; latestSequence: number }> {
+    // Bound acknowledgment to admissions known before collecting this page.
+    const latestSequence = await this.ctx.storage.get<number>(`owner-admissions:${ownerKey}`) ?? 0;
     const items = await this.listOwnedActivities(ownerKey);
     const position = after === null ? 0 : items.findIndex(item => item.activityId === after) + 1;
     if (after !== null && position === 0) throw new Error('Activity history changed');
     const page = items.slice(position, position + 5);
     const savedCount = await this.ctx.storage.get<number>(`owner-working-count:${ownerKey}`);
-    const latestSequence = await this.ctx.storage.get<number>(`owner-admissions:${ownerKey}`) ?? 0;
     const lastRead = await this.ctx.storage.get<number>(`owner-admissions-read:${ownerKey}`) ?? 0;
     const indexedWorking = items.filter(item => workingActivity(item.executionStatus)).length;
     return { items: page, nextCursor: position + 5 < items.length ? page.at(-1)!.activityId : null,

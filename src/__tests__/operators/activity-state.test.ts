@@ -153,6 +153,22 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect((await registry.listOwnedActivityPage(owner, null)).unreadCount).toBe(1);
   }));
 
+  it('REQ-OPERATOR-059: does not acknowledge an admission arriving during page construction', async () => withActivity(async ({ registry }) => {
+    const owner = '7'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'before' });
+    const originalList = registry.listOwnedActivities.bind(registry);
+    registry.listOwnedActivities = async (key) => {
+      await registry.upsertOwnedActivity(owner, { ...base, activityId: 'during' });
+      return originalList(key);
+    };
+    const page = await registry.listOwnedActivityPage(owner, null);
+    expect(page.items.map(item => item.activityId)).toContain('during');
+    expect(page.latestSequence).toBe(1);
+    expect(await registry.acknowledgeOwnedActivities(owner, page.latestSequence)).toEqual({ unreadCount: 1 });
+  }));
+
   it('REQ-OPERATOR-027: retains only 20 per operator and pages by last seen ID across a new arrival and status update', async () => withActivity(async ({ registry }) => {
     const owner = 'a'.repeat(64);
     const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,

@@ -60,26 +60,45 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
   }
 
   it('REQ-SESSION-013: list and detail use D1 input time for a resumed running session', async () => {
-    mockKV._set('session:test-bucket:resumed-session', {
-      id: 'resumed-session', name: 'Resumed', userId: 'test-bucket', status: 'running',
+    mockKV._set('session:test-bucket:resumedsession1234', {
+      id: 'resumedsession1234', name: 'Resumed', userId: 'test-bucket', status: 'running',
       createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:20:00.000Z',
       lastActiveAt: '2024-01-15T09:20:00.000Z', lastInputAt: '2024-01-15T09:58:00.000Z',
     });
-    mockKV._set('session:test-bucket:stopped-session', {
-      id: 'stopped-session', name: 'Stopped', userId: 'test-bucket', status: 'stopped',
+    mockKV._set('session:test-bucket:stoppedsession1234', {
+      id: 'stoppedsession1234', name: 'Stopped', userId: 'test-bucket', status: 'stopped',
       createdAt: '2024-01-15T08:00:00.000Z', lastAccessedAt: '2024-01-15T09:10:00.000Z',
       lastActiveAt: '2024-01-15T09:10:00.000Z', lastInputAt: '2024-01-15T09:59:00.000Z',
     });
     const app = createCrudApp();
     expect(await (await app.request('/sessions')).json()).toMatchObject({ sessions: [
-      { id: 'resumed-session', lastActiveAt: '2024-01-15T09:58:00.000Z' },
-      { id: 'stopped-session', lastActiveAt: '2024-01-15T09:10:00.000Z' },
+      { id: 'resumedsession1234', lastActiveAt: '2024-01-15T09:58:00.000Z' },
+      { id: 'stoppedsession1234', lastActiveAt: '2024-01-15T09:10:00.000Z' },
     ] });
-    expect(await (await app.request('/sessions/resumed-session')).json()).toMatchObject({ session: {
-      id: 'resumed-session', lastActiveAt: '2024-01-15T09:58:00.000Z',
+    expect(await (await app.request('/sessions/resumedsession1234')).json()).toMatchObject({ session: {
+      id: 'resumedsession1234', lastActiveAt: '2024-01-15T09:58:00.000Z',
     } });
-    expect(await (await app.request('/sessions/stopped-session')).json()).toMatchObject({ session: {
-      id: 'stopped-session', lastActiveAt: '2024-01-15T09:10:00.000Z',
+    expect(await (await app.request('/sessions/stoppedsession1234')).json()).toMatchObject({ session: {
+      id: 'stoppedsession1234', lastActiveAt: '2024-01-15T09:10:00.000Z',
+    } });
+  });
+
+  it('REQ-SESSION-013: a restarted run without new input uses its current start rather than prior input', async () => {
+    mockKV._set('session:test-bucket:restarted12345678', {
+      id: 'restarted12345678', name: 'Restarted', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T08:00:00.000Z', lastAccessedAt: '2024-01-15T09:55:00.000Z',
+      transitionedAt: '2024-01-15T09:55:00.000Z', lastActiveAt: '2024-01-15T09:20:00.000Z',
+      lastInputAt: '2024-01-15T09:30:00.000Z', lifecycleGeneration: 2,
+    });
+    const app = createCrudApp();
+    expect(await (await app.request('/sessions')).json()).toMatchObject({ sessions: [
+      { id: 'restarted12345678', lastActiveAt: '2024-01-15T09:55:00.000Z' },
+    ] });
+    expect(await (await app.request('/sessions/restarted12345678')).json()).toMatchObject({ session: {
+      id: 'restarted12345678', lastActiveAt: '2024-01-15T09:55:00.000Z',
+    } });
+    expect(await (await createBatchStatusApp().request('/sessions/batch-status')).json()).toMatchObject({ statuses: {
+      restarted12345678: { status: 'running', lastActiveAt: '2024-01-15T09:55:00.000Z' },
     } });
   });
 
@@ -795,21 +814,21 @@ describe('GET /sessions/batch-status', () => {
   });
 
   it('REQ-SESSION-013: batch status uses fresh D1 terminal input for the countdown without changing lifecycle', async () => {
-    mockKV._set('session:test-bucket:resumed-session', {
-      id: 'resumed-session', name: 'Resumed', userId: 'test-bucket', status: 'running',
+    mockKV._set('session:test-bucket:resumedsession1234', {
+      id: 'resumedsession1234', name: 'Resumed', userId: 'test-bucket', status: 'running',
       createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:20:00.000Z',
       lastActiveAt: '2024-01-15T09:20:00.000Z', lastInputAt: '2024-01-15T09:58:00.000Z',
     });
-    mockKV._set('session:test-bucket:stopped-session', {
-      id: 'stopped-session', name: 'Stopped', userId: 'test-bucket', status: 'stopped',
+    mockKV._set('session:test-bucket:stoppedsession1234', {
+      id: 'stoppedsession1234', name: 'Stopped', userId: 'test-bucket', status: 'stopped',
       createdAt: '2024-01-15T08:00:00.000Z', lastAccessedAt: '2024-01-15T09:10:00.000Z',
       lastActiveAt: '2024-01-15T09:10:00.000Z', lastInputAt: '2024-01-15T09:59:00.000Z',
     });
     const response = await createBatchStatusApp().request('/sessions/batch-status');
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ statuses: {
-      'resumed-session': { status: 'running', lastActiveAt: '2024-01-15T09:58:00.000Z' },
-      'stopped-session': { status: 'stopped', lastActiveAt: '2024-01-15T09:10:00.000Z' },
+      'resumedsession1234': { status: 'running', lastActiveAt: '2024-01-15T09:58:00.000Z' },
+      'stoppedsession1234': { status: 'stopped', lastActiveAt: '2024-01-15T09:10:00.000Z' },
     } });
   });
 

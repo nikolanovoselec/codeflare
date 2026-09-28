@@ -522,13 +522,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. The countdown uses the critical treatment below 5 minutes remaining. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows critical timer when remaining < 5 min) -->
 5. The countdown is hidden for stopped sessions. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (hides timer for stopped sessions) -->
 6. The countdown is computed from the configured idle timeout minus elapsed idle time. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/lib/sleep-timer.test.ts (getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)) -->
-7. A resumed running session uses its latest D1-projected terminal input time, not an old lifecycle activity timestamp, to reset the warning/critical display. Non-running sessions keep the lifecycle timestamp used for context expiry; stop authority is unchanged. <!-- @impl: src/routes/session/crud.ts --> <!-- @impl: src/routes/session/lifecycle.ts --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: list and detail use D1 input time for a resumed running session) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: batch status uses fresh D1 terminal input for the countdown without changing lifecycle) -->
+7. A running session's warning/critical display uses D1 terminal input from its current run, or that run's start time before new input; it never uses old input from an earlier run. <!-- @impl: src/lib/session-repository.ts::fromRow --> <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: list and detail use D1 input time for a resumed running session) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: batch status uses fresh D1 terminal input for the countdown without changing lifecycle) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: a restarted run without new input uses its current start rather than prior input) -->
 
 **Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 
-**Constraints:**
-
-None.
+**Constraints:** Non-running sessions retain lifecycle `lastActiveAt` for context expiry. Countdown projection cannot change stop authority.
 
 **Priority:** P2
 

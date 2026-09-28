@@ -706,15 +706,16 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 ### REQ-OPERATOR-059: New activity observation
 
-**Intent:** Owners notice new activity summaries since their last open without changing execution or collecting results.
+**Intent:** Owners notice new activity summaries since their last successfully acknowledged open without changing execution or collecting results.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Each new owned admission increases the unread count; status updates do not. <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) -->
-2. Opening the overview acknowledges only observed admissions for the authenticated owner, under CSRF protection; later admissions remain unread. <!-- @impl: src/operators/registry.ts::acknowledgeOwnedActivities --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-059: opening acknowledges only the authenticated owner through the observed sequence and requires CSRF) -->
-3. The icon badge shows unread summaries rather than working count; opening clears acknowledged unread without a button, result collection or replay. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-059: acknowledges the observed summary revision with authenticated CSRF POST) -->
+2. Opening the overview acknowledges only observed admissions for the authenticated owner, under CSRF protection; later admissions remain unread. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: src/operators/registry.ts::acknowledgeOwnedActivities --> <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: does not acknowledge an admission arriving during page construction) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-059: opening acknowledges only the authenticated owner through the observed sequence and requires CSRF) -->
+3. The icon badge shows unread summaries rather than the working count. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) -->
+4. Opening the overview clears successfully acknowledged unread without a button, result collection or replay. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-059: acknowledges the observed summary revision with authenticated CSRF POST) -->
 
 **Constraints:** Activity state and the separate working count remain unchanged by acknowledgment.
 

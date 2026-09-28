@@ -3,18 +3,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
-  listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async () => ({ unreadCount: 0 })) }));
+  listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
 vi.mock('../../api/operator-activities', () => ({
   listOperatorActivities: async (...args: unknown[]) => {
     const value = await listMock(...args);
     return value && { ...value, workingCount: value.workingCount ?? value.items.filter(
       (item: { executionStatus: string }) => ['queued', 'running', 'waiting', 'cancel-requested', 'unknown'].includes(item.executionStatus)).length,
-    unreadCount: value.unreadCount ?? value.workingCount ?? value.items.length,
+    unreadCount: value.unreadCount ?? 0,
     latestSequence: value.latestSequence ?? value.items.length };
   },
   cancelOperatorActivity: (...args: unknown[]) => cancelMock(...args),
   getOperatorActivity: (...args: unknown[]) => detailMock(...args),
-  acknowledgeOperatorActivities: (...args: unknown[]) => readMock(...args),
+  acknowledgeOperatorActivities: (through: number) => readMock(through),
 }));
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
@@ -35,7 +35,7 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     render(() => <OperatorActivityButton enabled />);
     await waitFor(() => expect(screen.getByText('1')).toBeTruthy());
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    expect(screen.getByText('running')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('running')).toBeTruthy());
     expect(screen.getByText('failed')).toBeTruthy();
     expect(screen.getByText('Needs attention')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toContain('session-1');
@@ -87,7 +87,8 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
   it('uses compact sizing for completed history and returns to it when work completes', async () => {
     vi.useFakeTimers();
     const completed = { ...active, executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const };
-    listMock.mockResolvedValueOnce({ items: [active] }).mockResolvedValueOnce({ items: [completed] });
+    listMock.mockResolvedValue({ items: [completed], unreadCount: 0 });
+    listMock.mockResolvedValueOnce({ items: [active], unreadCount: 1 });
     render(() => <OperatorActivityButton enabled />);
     await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText('1')).toBeTruthy();
@@ -232,7 +233,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     render(() => <OperatorActivityButton enabled />);
     await waitFor(() => expect(listMock).toHaveBeenCalled());
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    expect(screen.getAllByRole('article')).toHaveLength(5);
+    await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(5));
     expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-6' })).toBeTruthy());
@@ -275,6 +276,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     render(() => <OperatorActivityButton enabled />);
     await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(15_000);
