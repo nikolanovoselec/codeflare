@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { readPublishedReview } from '../../operators/review-history-transport';
+import { registerOperatorReviewRemote } from '../../../preseed/agents/pi/extensions/operator-review-remote';
 
 const sha = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const head = 'a'.repeat(40), currentHead = 'b'.repeat(40), base = 'c'.repeat(40);
@@ -62,13 +63,39 @@ function fixture(change: { artifact?: (artifact: any) => void; comment?: (commen
     return request.operation in values ? { complete: true, value: values[request.operation] } : { complete: false };
   } };
   const read = (scope: Partial<{ repositoryId: number; pullRequest: number; activityId: string;
-    head: string }> = {}) => readPublishedReview({ repositoryId: 138, pullRequest: 34,
-      activityId: 'review-activity', head, history,
+    head: string; trustedWorkflowId: number }> = {}) => readPublishedReview({ repositoryId: 138, pullRequest: 34,
+      activityId: 'review-activity', trustedWorkflowId: 531, head, history,
       publisher: change.identity ?? { commentAuthorId: 777, checkAppId: 888 }, ...scope });
   return { read, operations, marker, digest };
 }
 
 describe('REQ-OPERATOR-053/056: independently published original Review evidence', () => {
+  it('delivers authenticated publisher artifact/comment/check/run findings to the dedicated Pi session, not a synthetic branch entry', async () => {
+    const branch: any[] = [{ type: 'custom_message', customType: 'subagent-notification',
+      content: `<result>CI_RESULT success\nrepo=owner/repo pr=34 head=${head}</result>` }];
+    const messages: any[] = [];
+    const handlers = new Map<string, (event: any, context: any) => Promise<void>>();
+    const pi = { on: (name: string, callback: (event: any, context: any) => Promise<void>) => {
+      handlers.set(name, callback); return () => handlers.delete(name);
+    }, sendMessage: (message: any) => { messages.push(message); branch.push({ type: 'custom_message', ...message }); },
+    appendEntry: (customType: string, data: unknown) => branch.push({ type: 'custom', customType, data }) };
+    registerOperatorReviewRemote(pi as never, {
+      currentBoundary: async () => ({ repository: 'owner/repo', repositoryId: 138,
+        pullRequest: 34, head, repo: '/workspace/repo' }),
+      selectBoundary: async () => ({ mode: 'remote', activityId: 'review-activity' }),
+      readPublishedResult: async () => fixture().read(),
+    });
+    const context = { cwd: '/workspace/repo', sessionManager: { getBranch: () => branch } };
+    await handlers.get('tool_result')?.({ type: 'tool_result', toolName: 'bash',
+      input: { command: 'git push origin feature' }, result: { isError: false } }, context);
+    await handlers.get('agent_settled')?.({ type: 'agent_settled' }, context);
+    expect(messages.map(message => message.customType)).toEqual([
+      'pr-boundary-remote-plan', 'pr-boundary-original-findings',
+    ]);
+    expect(messages[1]).toMatchObject({ details: { repository: 'owner/repo', pr: 34, head,
+      round: 2, findings: [{ id: 'code-reviewer-guard', message: 'Authorization check missing' }] } });
+    expect(messages[1].content).toContain('Authorization check missing');
+  });
   it('returns bounded original findings from the exact authenticated artifact, comment, check and run for a prior PR head', async () => {
     const { read, operations, digest } = fixture();
     expect(await read()).toMatchObject({ schemaVersion: 1, status: 'published',
@@ -80,6 +107,7 @@ describe('REQ-OPERATOR-053/056: independently published original Review evidence
   it.each([
     ['foreign repository', { repositoryId: 139 }], ['foreign PR', { pullRequest: 35 }],
     ['wrong activity', { activityId: 'other-activity' }], ['wrong prior head', { head: 'f'.repeat(40) }],
+    ['wrong installed workflow', { trustedWorkflowId: 999 }],
   ])('never reveals findings for %s', async (_name, scope) => {
     expect(await fixture().read(scope)).toEqual({ status: 'unavailable' });
   });

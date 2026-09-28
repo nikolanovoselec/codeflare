@@ -26,7 +26,8 @@ vi.mock('../../operators/review-history-transport', async (original) => ({
 afterEach(() => vi.restoreAllMocks());
 
 const currentHead = 'b'.repeat(40), priorHead = 'a'.repeat(40);
-function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean; denied?: boolean } = {}) {
+function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean;
+  denied?: boolean; wrongPublisher?: boolean } = {}) {
   const user = options.user ?? 'alice';
   const email = `${user}@example.test`;
   const session = { getReviewLifecycleGeneration: async () => options.lifecycleChange ? 2 : 1,
@@ -36,7 +37,12 @@ function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean; d
     stageBoundaryInput: async () => { throw Error('Read-only request staged boundary input'); } };
   const env = { ENTERPRISE_MODE: 'active', CONTAINER: { getByName: () => session },
     OPERATOR_ACTIVITY: { getByName: () => { throw Error('Read-only request opened a private Activity'); } },
-    OPERATOR_REGISTRY: { getByName: () => { throw Error('Read-only request reserved a Review'); } },
+    OPERATOR_REGISTRY: { getByName: () => ({
+      getBoundaryAction: async (id: number, ref: string) => id === 138 && ref === 'refs/heads/main'
+        ? { repositoryId: 138, workflowId: 531, protectedRef: ref } : null,
+      getBoundaryPreparation: async () => { throw Error('Read-only request selected private preparation'); },
+      reserveBoundaryPreparation: async () => { throw Error('Read-only request reserved a Review'); },
+    }) },
   } as unknown as Env;
   const client = new GitHubInterceptor({ props: { user: email, bucket: 'review-owner',
     sessionId: 'review1234', lifecycleGeneration: 1 } } as unknown as ExecutionContext, env);
@@ -44,7 +50,8 @@ function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean; d
     const path = new URL((request as Request).url).pathname;
     if (options.denied) return Response.json({ message: 'Forbidden' }, { status: 403 });
     if (path === '/users/github-actions%5Bbot%5D') return Response.json({ login: 'github-actions[bot]', type: 'Bot', id: 777 });
-    if (path === '/apps/github-actions') return Response.json({ slug: 'github-actions', id: 888 });
+    if (path === '/apps/github-actions') return Response.json({
+      slug: options.wrongPublisher ? 'untrusted' : 'github-actions', id: 888 });
     if (path === '/repos/owner/repo') return Response.json({ id: 138, permissions: { pull: true } });
     if (path === '/repos/owner/repo/pulls/34') return Response.json({ number: 34, state: 'open',
       head: { sha: currentHead, repo: { id: 138 } }, base: { sha: 'c'.repeat(40), ref: 'main', repo: { id: 138 } } });
@@ -82,7 +89,7 @@ describe('REQ-OPERATOR-053/056: read-only authenticated Review publication proje
     expect(await response.json()).not.toMatchObject({ status: 'published' });
   });
   it('does not treat expired session generation or denied GitHub repository access as published evidence', async () => {
-    for (const options of [{ lifecycleChange: true }, { denied: true }]) {
+    for (const options of [{ lifecycleChange: true }, { denied: true }, { wrongPublisher: true }]) {
       const response = await fixture(options).read();
       expect(await response.json()).not.toMatchObject({ status: 'published' });
     }

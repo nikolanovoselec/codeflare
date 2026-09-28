@@ -63,6 +63,8 @@ function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: bo
       if (url.pathname === '/repos/owner/repo/check-runs/99') return Response.json({
         id: 99, head_sha: options.foreignCheck ? 'd'.repeat(40) : priorHead, app: { id: 888 },
       });
+      if (url.pathname === '/repos/owner/repo/actions/artifacts') return Response.json({ total_count: 1,
+        artifacts: [{ id: 701, name: 'boundary-review-' + 'a'.repeat(64) }] });
       if (url.pathname === '/repos/owner/repo/actions/artifacts/701') return Response.json({ id: 701,
         expired: false, workflow_run: { id: 7, repository_id: 138, head_sha: 'c'.repeat(40) } });
       if (url.pathname === '/repos/owner/repo/actions/runs/7') return Response.json({ id: 7, run_attempt: 1,
@@ -99,6 +101,12 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
       .toMatchObject({ complete: true, value: { id: 501, body: 'opaque prior comment' } });
     expect(await fixture({ foreignComment: true }).transport.read({ schemaVersion: 1, operation: 'comment', id: 501 }))
       .toMatchObject({ complete: false });
+  });
+
+  it('projects only GitHub-verified artifact-list rows, not an unchecked collection envelope', async () => {
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'artifact-list', page: 1,
+      name: 'boundary-review-' + 'a'.repeat(64) })).toMatchObject({ complete: true,
+      value: [{ id: 701 }] });
   });
 
   it('reads a valid near-limit prior artifact by ID after an authenticated run and a bearer-free signed redirect', async () => {
