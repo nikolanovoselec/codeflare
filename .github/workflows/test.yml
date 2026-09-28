@@ -1011,8 +1011,7 @@ jobs:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap apparmor
+          bash scripts/ci/install-approved-packet-packages.sh
           /usr/bin/bwrap --version
           uname -r
           cat /sys/module/apparmor/parameters/enabled || true

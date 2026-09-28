@@ -150,7 +150,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI
+**Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI. Hosted sandbox package-source tests failed expected RED at `f97bbbd7` / `36499479383`; final exact-head hosted apt installation and bubblewrap/AppArmor probe pending.
 
 **Status:** Implemented
 
