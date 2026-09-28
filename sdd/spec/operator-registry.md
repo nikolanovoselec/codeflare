@@ -192,7 +192,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](#req-operator-046-explicit-release-promotion)
 
-**Verification:** The remaining management criteria have current route and UI test anchors and were present in the earlier CI-proven management surface. The guided-launcher acceptance still pending is owned by REQ-OPERATOR-058; Enterprise Integration responsive visual acceptance remains a separate release gate.
+**Verification:** The remaining management criteria have current route and UI test anchors and were present in the earlier CI-proven management surface. Catalog Enabled/Disabled copy passed exact-head PR Checks `36497242563` at `5eaae7d470a4123fee0e0259bb702cadb61b3464` (frontend shard-3, Typecheck, aggregate). The guided-launcher acceptance still pending is owned by REQ-OPERATOR-058; Enterprise Integration responsive visual acceptance remains a separate release gate.
 
 **Status:** Implemented
 
