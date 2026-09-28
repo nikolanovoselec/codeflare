@@ -8,7 +8,7 @@
 //   - advisor guidance being user-invoked only while preserving user model config.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -35,19 +35,30 @@ function extractAdvisorGuidanceMerge() {
   return extractHeredoc(`node - "$advisor_config" <<'NODE'`, 'advisor guidance merge');
 }
 
-function runHeredoc(body, filename, initialJson) {
+function runHeredoc(body, filename, initialJson, times = 1, reviewAssets = false) {
   const dir = mkdtempSync(join(tmpdir(), 'pi-pkgs-'));
   const scriptPath = join(dir, 'script.cjs'); // .cjs: the program uses require()/argv
   const jsonPath = join(dir, filename);
   writeFileSync(scriptPath, body);
   writeFileSync(jsonPath, initialJson);
-  const result = spawnSync('node', [scriptPath, jsonPath], { encoding: 'utf-8' });
-  if (result.status !== 0) throw new Error(`heredoc exited ${result.status}: ${result.stderr}`);
+  if (reviewAssets) {
+    mkdirSync(join(dir, 'extensions'));
+    for (const name of ['review-enforcement.ts', 'operator-review-remote.ts',
+      'operator-review-selector.ts']) writeFileSync(join(dir, 'extensions', name), 'export default () => {}');
+  }
+  for (let index = 0; index < times; index++) {
+    if (index === 1 && reviewAssets === 'curation-local-only') {
+      rmSync(join(dir, 'extensions', 'operator-review-selector.ts'));
+      rmSync(join(dir, 'extensions', 'operator-review-remote.ts'));
+    }
+    const result = spawnSync('node', [scriptPath, jsonPath], { encoding: 'utf-8' });
+    if (result.status !== 0) throw new Error(`heredoc exited ${result.status}: ${result.stderr}`);
+  }
   return JSON.parse(readFileSync(jsonPath, 'utf-8'));
 }
 
-function runAssembly(initialSettings) {
-  return runHeredoc(extractAssembly(), 'settings.json', initialSettings);
+function runAssembly(initialSettings, times = 1, reviewAssets = false) {
+  return runHeredoc(extractAssembly(), 'settings.json', initialSettings, times, reviewAssets);
 }
 
 function runAdvisorGuidanceMerge(initialConfig) {
@@ -205,11 +216,21 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
   });
 
   it('does not inject context-mode runtime defaults through settings.extensions', () => {
-    const once = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }));
-    const twice = runAssembly(JSON.stringify(once));
+    const once = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 1, true);
+    const twice = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2, true);
 
-    assert.deepEqual(once.extensions, ['user-ext.ts']);
-    assert.deepEqual(twice.extensions, ['user-ext.ts']);
+    assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] })).extensions,
+      ['user-ext.ts'], 'a local-only curation release retains unchanged local Review');
+    assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2,
+      'curation-local-only').extensions, ['user-ext.ts'],
+    'a restored local-only release removes obsolete managed exclusions in the same session home');
+    for (const settings of [once, twice]) {
+      assert.equal(settings.extensions[0], 'user-ext.ts');
+      assert.equal(settings.extensions.length, 3, 'Review exclusions must not accumulate');
+      assert.deepEqual(settings.extensions.slice(1).map(entry => entry.split('/').at(-1)),
+        ['review-enforcement.ts', 'operator-review-remote.ts']);
+      assert.ok(settings.extensions.slice(1).every(entry => entry.startsWith('-/')));
+    }
   });
 
   it('REQ-AGENT-076: overrides advisor guidance as user-invoked only without clearing the selected model', () => {

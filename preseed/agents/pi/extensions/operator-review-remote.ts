@@ -18,8 +18,7 @@ function isBoundary(event: any, ctx: any): boolean {
   const invocations = shellInvocations(event, ctx.cwd);
   return invocations.some(invocation => {
     const classified = classifyReviewBoundaryCommand(invocation.command);
-    return classified.kind === 'push' || classified.kind === 'pr-create'
-      || classified.kind === 'pr-reopen' || classified.kind === 'checkout' || classified.kind === 'switch';
+    return classified.event === 'push' || classified.event === 'pr-create';
   });
 }
 type Pending = Boundary & { sessionFile?: string; startedAt: number };
@@ -91,6 +90,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   let timer: ReturnType<typeof setTimeout> | undefined;
   let checking = false;
   let epoch = 0;
+  let submissionEpoch = 0;
   const stop = () => { epoch += 1; if (timer) clearTimeout(timer); timer = undefined; round = undefined; pending = undefined; };
   const alreadyDelivered = (ctx: any, active: Round) => ctx.sessionManager.getBranch().some((entry: any) =>
     entry.type === 'custom_message' && entry.customType === 'pr-boundary-original-findings'
@@ -109,9 +109,10 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       if (epoch !== observedEpoch || !sameRound(round, active) || !branchHasPlan(ctx, active) || !ciTerminal(ctx, active)
         || alreadyDelivered(ctx, active)) return;
       const current = await dependencies.currentBoundary({ type: 'session_start' }, ctx);
+      if (epoch !== observedEpoch || !sameRound(round, active)) return;
       if (!current || current.repository !== active.repository || current.repositoryId !== active.repositoryId
         || current.pullRequest !== active.pullRequest || current.head !== active.head
-        || epoch !== observedEpoch || !sameRound(round, active) || !branchHasPlan(ctx, active)) {
+        || !branchHasPlan(ctx, active)) {
         stop(); return;
       }
       if (!published || typeof published !== 'object') return;
@@ -146,6 +147,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       ? saved : { ...boundary, activityId,
         sessionFile: ctx.sessionManager.getSessionFile?.(), startedAt: Date.now() };
     if (sameRound(round, next)) return;
+    epoch += 1;
     if (timer) { clearTimeout(timer); timer = undefined; }
     pending = undefined;
     round = next;
@@ -176,8 +178,11 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       try {
         if (pending && samePending(pendingMarker(ctx), pending)) {
           const waiting = pending;
+          const observedEpoch = epoch;
           const selection = await dependencies.selectBoundary(waiting, true);
+          if (observedEpoch !== epoch) return;
           const current = await dependencies.currentBoundary({ type: 'session_start' }, ctx);
+          if (observedEpoch !== epoch) return;
           if (!samePending(pending, waiting) || !samePending(pendingMarker(ctx), waiting)
             || !current || current.repository !== waiting.repository
             || current.pullRequest !== waiting.pullRequest || current.head !== waiting.head) {
@@ -217,22 +222,26 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   pi.on('tool_result', async (event, ctx) => {
     if (!isBoundary(event, ctx) || (event as any).isError === true
       || (event as any).result?.isError === true) return;
+    const observedEpoch = epoch;
+    const revision = ++submissionEpoch;
     const boundary = await dependencies.currentBoundary(event, ctx);
-    if (!boundary || !sha.test(boundary.head) || !Number.isSafeInteger(boundary.repositoryId)
+    if (observedEpoch !== epoch || revision !== submissionEpoch || !boundary || !sha.test(boundary.head) || !Number.isSafeInteger(boundary.repositoryId)
       || !Number.isSafeInteger(boundary.pullRequest)) return;
     const selected = await dependencies.selectBoundary(boundary);
+    if (observedEpoch !== epoch || revision !== submissionEpoch) return;
     if (selected.mode !== 'remote' || selected.activityId && !id.test(selected.activityId)) {
       pi.sendMessage({ customType: 'pr-boundary-remote-unavailable', display: true,
         content: 'Protected Review is unavailable; do not start local reviewers or claim clearance.' });
       return;
     }
     const current = await dependencies.currentBoundary(event, ctx);
-    if (!current || current.repository !== boundary.repository || current.repositoryId !== boundary.repositoryId
+    if (observedEpoch !== epoch || revision !== submissionEpoch || !current || current.repository !== boundary.repository || current.repositoryId !== boundary.repositoryId
       || current.pullRequest !== boundary.pullRequest || current.head !== boundary.head) return;
     if (!selected.activityId) {
       const prior = pendingMarker(ctx);
       if (!prior || prior.repository !== boundary.repository || prior.pullRequest !== boundary.pullRequest
         || prior.head !== boundary.head || prior.sessionFile !== ctx.sessionManager.getSessionFile?.()) {
+        epoch += 1;
         pending = { ...boundary, sessionFile: ctx.sessionManager.getSessionFile?.(), startedAt: Date.now() };
         pi.appendEntry(PENDING_ENTRY, pending);
         pi.sendMessage({ customType: 'pr-boundary-remote-pending', display: true,

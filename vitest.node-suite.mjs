@@ -33,6 +33,11 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/pi-review-scope.test.ts',
   'src/__tests__/lib/pi-sidebar-approval.test.ts',
   'src/__tests__/lib/review-enforcement.test.ts',
+  // The dedicated Pi selector/consumer import the native shell-backed local
+  // Review extension; workerd has no node:child_process module.
+  'src/__tests__/lib/operator-review-selector.test.ts',
+  'src/__tests__/lib/operator-review-remote.test.ts',
+  'src/__tests__/operators/review-published-result.test.ts',
   'src/__tests__/lib/review-completion-state.test.ts',
   'src/__tests__/lib/review-helpers.test.ts',
   // Executes browser-script bytes after an esbuild keepNames bundle; workerd

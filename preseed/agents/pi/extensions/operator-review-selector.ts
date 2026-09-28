@@ -11,10 +11,10 @@ import { classifyReviewBoundaryCommand } from './review-helpers';
 const execFile = promisify(execFileCallback);
 type Mode = 'local' | 'remote' | 'unavailable';
 type Handler = (event: unknown, ctx: unknown) => unknown;
-type ReviewFactory = (pi: ExtensionAPI) => void;
+type ReviewFactory = (pi: any) => void;
 type SelectorPi = Pick<ExtensionAPI, 'on' | 'sendMessage'>;
 type Dependencies = { local: ReviewFactory; remote: ReviewFactory;
-  applicability: (event: unknown, ctx: unknown) => Promise<Mode> };
+  applicability: (event: unknown, ctx: any) => Promise<Mode> };
 
 /** The two Review implementations register with distinct, inactive event tables.
  * Only this selector registers Pi event handlers; the original local implementation is unmodified. */
@@ -22,16 +22,6 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
   const handlers = { local: new Map<string, Handler[]>(), remote: new Map<string, Handler[]>() };
   for (const mode of ['local', 'remote'] as const) {
     const reviewPi = { ...pi,
-      sendMessage: (message: Parameters<SelectorPi['sendMessage']>[0],
-        options?: Parameters<SelectorPi['sendMessage']>[1]) => {
-        if (mode === 'local' && message.customType === 'pr-boundary-remote-plan') {
-          pi.sendMessage({ customType: 'pr-boundary-remote-unavailable', display: true,
-            content: 'Review applicability changed during local selection. No local or remote clearance; '
-              + 'retry the boundary under the current Action configuration.' }, options);
-          return;
-        }
-        pi.sendMessage(message, options);
-      },
       on: (name: string, handler: Handler) => {
         const entries = handlers[mode].get(name) ?? [];
         entries.push(handler);
@@ -41,19 +31,45 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
     dependencies[mode](reviewPi);
   }
   let selected: Mode = 'unavailable';
+  let selectedRepo: string | undefined;
   let unavailableReported = false;
+  let selectionEpoch = 0;
   const dispatch = async (name: string, event: unknown, ctx: unknown) => {
+    if (name === 'session_shutdown') selectionEpoch += 1;
     const isBoundary = (name === 'tool_call' || name === 'tool_result')
       && shellInvocations(event, (ctx as { cwd: string }).cwd).some(invocation =>
         Boolean(classifyReviewBoundaryCommand(invocation.command).kind));
     if (name === 'session_start' || isBoundary) {
+      const revision = ++selectionEpoch;
       const next = await dependencies.applicability(event, ctx).catch(() => 'unavailable' as const);
-      if (next !== selected && next !== 'unavailable' && name !== 'session_start') {
-        for (const handler of handlers[next].get('session_start') ?? []) {
-          await handler({ type: 'session_start', reason: 'reload' }, ctx);
+      if (revision !== selectionEpoch) return;
+      const invocation = isBoundary ? shellInvocations(event, (ctx as { cwd: string }).cwd)
+        .filter(item => Boolean(classifyReviewBoundaryCommand(item.command).kind)).at(-1) : undefined;
+      const repo = invocation ? resolveShellInvocationRepo(invocation)
+        : name === 'session_start' ? findGitRoot((ctx as { cwd: string }).cwd)
+          ?? (recallActiveRepo() ? findGitRoot(recallActiveRepo()!) : undefined)
+          ?? (ctx as any).sessionManager?.getBranch?.().filter((entry: any) => entry?.type === 'custom'
+            && (entry.customType === 'operator-review-remote-round'
+              || entry.customType === 'operator-review-remote-pending')).at(-1)?.data?.repo : undefined;
+      const remoteChanged = selected === 'remote' && (next !== 'remote'
+        || Boolean(repo && selectedRepo && repo !== selectedRepo));
+      if (remoteChanged) {
+        for (const handler of handlers.remote.get('session_shutdown') ?? []) {
+          await handler({ type: 'session_shutdown', reason: 'reload' }, ctx);
+          if (revision !== selectionEpoch) return;
         }
       }
+      const startRemote = next === 'remote' && (selected !== 'remote' || remoteChanged)
+        && name !== 'session_start';
       selected = next;
+      if (repo) selectedRepo = repo;
+      if (startRemote) {
+        for (const handler of handlers.remote.get('session_start') ?? []) {
+          await handler({ type: 'session_start', reason: 'reload' }, ctx);
+          if (revision !== selectionEpoch) return;
+        }
+      }
+      else if (next !== 'remote') selectedRepo = undefined;
       if (next !== 'unavailable') unavailableReported = false;
     }
     if (selected === 'unavailable') {

@@ -3000,33 +3000,7 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
-warm_pi_npm_dependencies() {
-    local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
-    local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
-    if [ -d "$pi_npm_preseed/node_modules" ]; then
-        mkdir -p "$pi_npm_dir"
-        if [ ! -f "$pi_npm_dir/package.json" ] && [ -f "$pi_npm_preseed/package.json" ]; then
-            cp "$pi_npm_preseed/package.json" "$pi_npm_dir/package.json"
-        fi
-        if [ ! -f "$pi_npm_dir/package-lock.json" ] && [ -f "$pi_npm_preseed/package-lock.json" ]; then
-            cp "$pi_npm_preseed/package-lock.json" "$pi_npm_dir/package-lock.json"
-        fi
-        # Symlink node_modules to the image-local preseed cache instead of copying
-        # 433MB on every boot. The symlink is instant; PI_OFFLINE=1 prevents Pi
-        # from writing to it. R2 excludes **/node_modules/** so the symlink is
-        # recreated on each container start.
-        if [ -L "$pi_npm_dir/node_modules" ]; then
-            echo "[entrypoint] Pi extension npm dependencies symlinked (already present)"
-        elif [ -d "$pi_npm_dir/node_modules" ]; then
-            rm -rf "$pi_npm_dir/node_modules"
-            ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
-            echo "[entrypoint] Pi extension npm dependencies symlinked (replaced stale copy)"
-        else
-            ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
-            echo "[entrypoint] Pi extension npm dependencies symlinked"
-        fi
-    fi
-
+configure_pi_packages_and_review_inventory() {
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"
     mkdir -p "$(dirname "$pi_settings")"
     node - "$pi_settings" <<'NODE'
@@ -3080,16 +3054,52 @@ for (const spec of required) {
   if (source) byName.set(identity(source), spec);
 }
 for (const spec of defaultPackages) byName.set(identity(spec.source), spec);
-// Both Review implementations remain intact but register only through the
-// target-aware selector. Exact exclusions prevent their independent autoload.
+// A prior managed curation release may still deliver only the unchanged local
+// Review. Do not exclude it until the selector and remote implementation have
+// been delivered together; partial delivery fails closed instead of dual-loading.
 const reviewDir = require('path').join(require('path').dirname(path), 'extensions');
-const reviewExclusions = ['review-enforcement.ts', 'operator-review-remote.ts']
+const selectorReady = fs.existsSync(require('path').join(reviewDir, 'operator-review-selector.ts'));
+const remoteReady = fs.existsSync(require('path').join(reviewDir, 'operator-review-remote.ts'));
+const reviewExclusions = !selectorReady && !remoteReady ? []
+  : ['review-enforcement.ts', 'operator-review-remote.ts']
+    .map(name => `-${require('path').join(reviewDir, name)}`);
+const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts']
   .map(name => `-${require('path').join(reviewDir, name)}`);
 const extensions = Array.isArray(settings.extensions)
-  ? settings.extensions.filter(item => !reviewExclusions.includes(item)) : [];
+  ? settings.extensions.filter(item => !managedReviewPaths.includes(item)) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
   extensions: [...extensions, ...reviewExclusions] }, null, 2) + '\n');
 NODE
+}
+
+warm_pi_npm_dependencies() {
+    configure_pi_packages_and_review_inventory || return 1
+
+    local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
+    local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
+    if [ -d "$pi_npm_preseed/node_modules" ]; then
+        mkdir -p "$pi_npm_dir"
+        if [ ! -f "$pi_npm_dir/package.json" ] && [ -f "$pi_npm_preseed/package.json" ]; then
+            cp "$pi_npm_preseed/package.json" "$pi_npm_dir/package.json"
+        fi
+        if [ ! -f "$pi_npm_dir/package-lock.json" ] && [ -f "$pi_npm_preseed/package-lock.json" ]; then
+            cp "$pi_npm_preseed/package-lock.json" "$pi_npm_dir/package-lock.json"
+        fi
+        # Symlink node_modules to the image-local preseed cache instead of copying
+        # 433MB on every boot. The symlink is instant; PI_OFFLINE=1 prevents Pi
+        # from writing to it. R2 excludes **/node_modules/** so the symlink is
+        # recreated on each container start.
+        if [ -L "$pi_npm_dir/node_modules" ]; then
+            echo "[entrypoint] Pi extension npm dependencies symlinked (already present)"
+        elif [ -d "$pi_npm_dir/node_modules" ]; then
+            rm -rf "$pi_npm_dir/node_modules"
+            ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
+            echo "[entrypoint] Pi extension npm dependencies symlinked (replaced stale copy)"
+        else
+            ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
+            echo "[entrypoint] Pi extension npm dependencies symlinked"
+        fi
+    fi
 
     # The rpiv-advisor npm package ships proactive prompt guidance by default.
     # Codeflare policy is stricter: only the user may invoke advisor or /advisor.
@@ -3244,7 +3254,7 @@ release_agent_pty_after_fast_start_updates() {
 # keep that established degradation policy.
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
-warm_pi_npm_dependencies || { echo "[entrypoint] ERROR: Pi Review extension inventory unavailable" >&2; exit 1; }
+warm_pi_npm_dependencies || echo "[entrypoint] WARNING: Pi dependency warm-up failed; continuing startup"
 
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
@@ -4520,6 +4530,10 @@ complete_managed_curation_startup() {
     # release and --resync so Pi never loads a missing companion; protected filters keep the image
     # file outside R2. Copy failure logs a warning without aborting PID 1.
     relay_managed_pi_extensions || true
+    # Curation and baked seed delivery can alter the actual Review inventory
+    # after early dependency warm-up; reselect only once delivery is settled.
+    configure_pi_packages_and_review_inventory || \
+        echo "[entrypoint] WARNING: Pi Review settings unavailable; Review is not ready"
 
     # The terminal server has been polling this flag before spawning tab 1. Run
     # requested updates, prune restored transcripts, then release the agent PTY.

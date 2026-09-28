@@ -88,23 +88,91 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
     expect(app.messages).not.toContain('remote-result');
     expect(app.messages).toContain('pr-boundary-remote-unavailable');
   });
-  it('fails closed if a once-local Action becomes active during the unchanged local selection', async () => {
+  it('stops the remote lifecycle before selecting local or unavailable in the same Pi session', async () => {
     const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
     const messages: string[] = [];
     const pi = { on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => {
       handlers.set(event, handler); return () => handlers.delete(event);
     }, sendMessage: (message: { customType: string }) => { messages.push(message.customType); } };
+    let active = false;
     registerOperatorReviewSelector(pi as never, {
-      applicability: async () => 'local',
+      applicability: async (_event, ctx: { target: string }) => ctx.target === '/remote'
+        ? 'remote' : ctx.target === '/local' ? 'local' : 'unavailable',
       local: (reviewPi: typeof pi) => { reviewPi.on('tool_result', () => {
-        reviewPi.sendMessage({ customType: 'pr-boundary-remote-plan' });
+        messages.push('local-boundary');
       }); },
-      remote: () => {},
+      remote: (reviewPi: typeof pi) => {
+        reviewPi.on('session_start', () => { active = true; });
+        reviewPi.on('session_shutdown', () => { active = false; });
+        reviewPi.on('tool_result', () => { if (active) messages.push('remote-boundary'); });
+      },
     });
-    await handlers.get('tool_result')?.({ toolName: 'bash', input: { command: 'git push' } },
-      { cwd: '/workspace/repo' });
-    expect(messages).toEqual(['pr-boundary-remote-unavailable']);
+    const emit = async (target: string) => handlers.get('tool_result')?.(
+      { toolName: 'bash', input: { command: 'git push origin feature' } }, { cwd: target, target });
+    await emit('/remote');
+    await emit('/local');
+    await emit('/remote');
+    await emit('/uncertain');
+    expect(messages).toEqual(['remote-boundary', 'local-boundary', 'remote-boundary',
+      'pr-boundary-remote-unavailable']);
+    expect(active).toBe(false);
   });
+
+  it('discards an older asynchronous applicability answer after a newer boundary selects another path', async () => {
+    let release: (mode: Mode) => void = () => {};
+    const old = new Promise<Mode>(resolve => { release = resolve; });
+    const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+    const messages: string[] = [];
+    const pi = { on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+      handlers.set(name, handler); return () => handlers.delete(name);
+    }, sendMessage: (message: { customType: string }) => { messages.push(message.customType); } };
+    let entered: () => void = () => {};
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    registerOperatorReviewSelector(pi as never, { local: (api: typeof pi) => {
+      api.on('tool_result', () => { messages.push('local-result'); });
+    }, remote: (api: typeof pi) => {
+      api.on('tool_result', () => { messages.push('remote-result'); });
+    }, applicability: async (_event, ctx: { target: string }) => {
+      if (ctx.target === '/old') { entered(); return old; }
+      return 'local';
+    } });
+    const event = { toolName: 'bash', input: { command: 'git push origin feature' } };
+    const first = handlers.get('tool_result')?.(event, { cwd: '/old', target: '/old' });
+    await waiting;
+    await handlers.get('tool_result')?.(event, { cwd: '/new', target: '/new' });
+    release('remote');
+    await first;
+    expect(messages).toEqual(['local-result']);
+  });
+
+  it('does not dispatch an old remote boundary after its startup overlaps a local transition', async () => {
+    let release: () => void = () => {};
+    const startup = new Promise<void>(resolve => { release = resolve; });
+    let entered: () => void = () => {};
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+    const messages: string[] = [];
+    const pi = { on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+      handlers.set(name, handler); return () => handlers.delete(name);
+    }, sendMessage: (message: { customType: string }) => { messages.push(message.customType); } };
+    registerOperatorReviewSelector(pi as never, {
+      applicability: async (_event, ctx: { target: string }) => ctx.target === '/remote' ? 'remote' : 'local',
+      local: (api: typeof pi) => { api.on('tool_result', () => { messages.push('local-result'); }); },
+      remote: (api: typeof pi) => {
+        api.on('session_start', async () => { entered(); await startup; });
+        api.on('session_shutdown', () => { messages.push('remote-cancelled'); });
+        api.on('tool_result', () => { messages.push('remote-result'); });
+      },
+    });
+    const event = { toolName: 'bash', input: { command: 'git push origin feature' } };
+    const first = handlers.get('tool_result')?.(event, { cwd: '/remote', target: '/remote' });
+    await waiting;
+    await handlers.get('tool_result')?.(event, { cwd: '/local', target: '/local' });
+    release();
+    await first;
+    expect(messages).toEqual(['remote-cancelled', 'local-result']);
+  });
+
   it('switches repositories in one Pi session without delivering the switched boundary to the prior path', async () => {
     const app = harness({ '/local': 'local', '/remote': 'remote', '/uncertain': 'unavailable' });
     await app.emit('session_start', '/local');

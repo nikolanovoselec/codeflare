@@ -10,7 +10,9 @@ const published = { schemaVersion: 1 as const, status: 'published' as const,
     evidence: 'Write occurs before the guard.' }] };
 function harness(result: unknown = published,
   selection: (_boundary: unknown, readOnly?: boolean) => Promise<{ mode: 'remote'; activityId?: string }>
-    = async () => ({ mode: 'remote', activityId: 'activity-1' })) {
+    = async () => ({ mode: 'remote', activityId: 'activity-1' }),
+  inspectBoundary?: (currentHead: string) => Promise<{ repository: string; repositoryId: number;
+    pullRequest: number; head: string; repo: string }>) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => Promise<void> | void>>();
   const branch: Record<string, any>[] = [];
   const messages: Array<{ customType: string; content?: string; details?: Record<string, any> }> = [];
@@ -27,10 +29,11 @@ function harness(result: unknown = published,
     appendEntry: (customType: string, data: unknown) => branch.push({ type: 'custom', customType, data }),
   };
   registerOperatorReviewRemote(pi as never, {
-    currentBoundary: async () => ({ repository: 'owner/repo', repositoryId: 138, pullRequest: 42,
-      head: observedHead, repo: '/workspace/repo' }),
+    currentBoundary: async () => inspectBoundary ? inspectBoundary(observedHead) : ({ repository: 'owner/repo',
+      repositoryId: 138, pullRequest: 42, head: observedHead, repo: '/workspace/repo' }),
     selectBoundary: selection,
-    readPublishedResult: async () => typeof result === 'function' ? (result as () => unknown)() : result,
+    readPublishedResult: async (boundary, activityId) => typeof result === 'function'
+      ? (result as (boundary: { head: string }, activityId: string) => unknown)(boundary, activityId) : result,
   });
   const ctx = { cwd: '/workspace/repo', sessionManager: { getBranch: () => branch,
     getSessionFile: () => '/owned/pi-session-1.jsonl' } };
@@ -52,6 +55,17 @@ function harness(result: unknown = published,
 }
 
 describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', () => {
+  it('never stages Operator Review on checkout, switch, pull, clone, or startup exposure', async () => {
+    const app = harness();
+    await app.emit('session_start');
+    for (const command of ['git checkout feature', 'git switch feature', 'git pull',
+      'git clone https://github.com/owner/repo', 'gh pr checkout 42']) {
+      await app.emit('tool_result', { toolName: 'bash', input: { command },
+        result: { isError: false } });
+    }
+    expect(app.messages).toEqual([]);
+  });
+
   it('reconciles pending preparation read-only without replaying an Activity start', async () => {
     const requests: string[] = [];
     let activityVisible = false;
@@ -83,6 +97,21 @@ describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', (
       await vi.advanceTimersByTimeAsync(30_000);
       expect(app.messages.map(message => message.customType))
         .toEqual(['pr-boundary-remote-pending', 'pr-boundary-remote-plan']);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('cancels a pending remote monitor on deselection or session shutdown', async () => {
+    vi.useFakeTimers();
+    try {
+      let available = false;
+      const app = harness(published, async (_boundary, readOnly) => readOnly && available
+        ? { mode: 'remote', activityId: 'activity-1' } : { mode: 'remote' });
+      await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' },
+        result: { isError: false } });
+      await app.emit('session_shutdown', { reason: 'reload' });
+      available = true;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(app.messages.map(message => message.customType)).toEqual(['pr-boundary-remote-pending']);
     } finally { vi.useRealTimers(); }
   });
 
@@ -168,6 +197,69 @@ describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', (
     app.reportCi();
     const pending = app.emit('agent_settled');
     app.moveHead('b'.repeat(40));
+    finish(published);
+    await pending;
+    expect(app.messages.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+  });
+
+  it('cannot cancel a newer round when an older publication check finishes late', async () => {
+    const nextHead = 'b'.repeat(40);
+    let entered: () => void = () => {};
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    let release: (value: any) => void = () => {};
+    const oldBoundary = new Promise(resolve => { release = resolve; });
+    let boundaryReads = 0;
+    const app = harness((boundary: { head: string }, activityId: string) =>
+      ({ ...published, head: boundary.head, activityId }),
+    async boundary => ({ mode: 'remote', activityId: (boundary as { head: string }).head === nextHead
+      ? 'activity-2' : 'activity-1' }),
+    async currentHead => {
+      boundaryReads += 1;
+      if (boundaryReads === 3) { entered(); return oldBoundary as any; }
+      return { repository: 'owner/repo', repositoryId: 138, pullRequest: 42,
+        head: currentHead, repo: '/workspace/repo' };
+    });
+    const push = { toolName: 'bash', input: { command: 'git push origin feature' },
+      result: { isError: false } };
+    await app.emit('tool_result', push);
+    app.reportCi(head);
+    const old = app.emit('agent_settled');
+    await waiting;
+    app.moveHead(nextHead);
+    await app.emit('tool_result', push);
+    app.reportCi(nextHead, 'ci-launch-2');
+    release({ repository: 'owner/repo', repositoryId: 138, pullRequest: 42,
+      head, repo: '/workspace/repo' });
+    await old;
+    await app.emit('agent_settled');
+    expect(app.messages.filter(message => message.customType === 'pr-boundary-original-findings')
+      .map(message => message.details?.head)).toEqual([nextHead]);
+  });
+
+  it('does not emit an in-flight preparation after selecting a different path', async () => {
+    let finish: (value: { mode: 'remote'; activityId: string }) => void = () => {};
+    const selection = new Promise<{ mode: 'remote'; activityId: string }>(resolve => { finish = resolve; });
+    let entered: () => void = () => {};
+    const selecting = new Promise<void>(resolve => { entered = resolve; });
+    const app = harness(published, async () => { entered(); return selection; });
+    const pending = app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' },
+      result: { isError: false } });
+    await selecting;
+    await app.emit('session_shutdown', { reason: 'reload' });
+    finish({ mode: 'remote', activityId: 'activity-1' });
+    await pending;
+    expect(app.messages).toEqual([]);
+  });
+
+  it('does not emit an in-flight publication after remote lifecycle cancellation', async () => {
+    let finish: (value: unknown) => void = () => {};
+    const publication = new Promise(resolve => { finish = resolve; });
+    const app = harness(() => publication);
+    await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' },
+      result: { isError: false } });
+    app.reportCi();
+    const pending = app.emit('agent_settled');
+    await app.emit('session_shutdown', { reason: 'reload' });
     finish(published);
     await pending;
     expect(app.messages.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);

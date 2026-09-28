@@ -421,7 +421,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
         || url.hostname !== apiHost || upstream.status !== 200 || !body) return unavailable();
       try {
         const bytes = await readBoundedResponse(upstream, 128 * 1024, 'Published PR context');
-        const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as {
+        const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)) as {
           number?: number; state?: string; head?: { sha?: string; repo?: { id?: number } };
           base?: { ref?: string; repo?: { id?: number } };
         };

@@ -229,6 +229,7 @@ describe('REQ-OPERATOR-053/056: independently published original Review evidence
   it('bounds the visible projection without misrepresenting omitted findings as cleared', async () => {
     const published = await fixture({ extraFindings: 30 }).read();
     expect(published).toMatchObject({ status: 'published', omittedFindings: expect.any(Number) });
+    if (published.status !== 'published') throw new Error('Expected authenticated published result');
     expect(published.findings.length).toBeLessThanOrEqual(20);
     expect(published.omittedFindings).toBeGreaterThan(0);
   });
