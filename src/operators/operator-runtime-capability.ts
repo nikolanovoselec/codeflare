@@ -13,7 +13,7 @@ import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './reg
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
-  resource: z.enum(['pull-request', 'files', 'checks']) });
+  resource: z.enum(['pull-request', 'files', 'checks', 'release-notes']) });
 const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperationId,
   input: z.strictObject({
     messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
@@ -90,7 +90,7 @@ export async function createDispatcherOperation(input: {
   const inference = operation.path === '/v1/dispatcher/inference';
   if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
-    github: { repositories: [parent.repository.toLowerCase()], methods: ['GET'] },
+    github: { repositories: [parent.repository.toLowerCase(), 'amir20/dozzle'], methods: ['GET'] },
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
@@ -123,9 +123,11 @@ export async function createDispatcherOperation(input: {
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
+  const readDeadline = Date.now() + 8000;
+  const readSignal = () => AbortSignal.timeout(Math.max(1, readDeadline - Date.now()));
   const get = async (path: string) => {
     await current();
-    return transport.fetch(new Request(base + path, { headers: {
+    return transport.fetch(new Request(base + path, { redirect: 'manual', signal: readSignal(), headers: {
       accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
     } }));
   };
@@ -138,6 +140,38 @@ export async function createDispatcherOperation(input: {
     // package. The parent validates only the bounded admitted PR/read scope.
     if (!/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Pull request evidence unavailable');
     if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
+    if (resource === 'release-notes') {
+      const files = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
+      if (!files.ok || /rel="next"/.test(files.headers.get('link') ?? '')) throw new Error('Release diff unavailable');
+      const changes = JSON.parse(await readDispatcherBody(files));
+      if (!Array.isArray(changes) || changes.length > 100) throw new Error('Release diff unavailable');
+      const matches: string[] = [];
+      for (const file of changes) {
+        if (typeof file?.patch !== 'string') continue;
+        const removed = file.patch.match(/^-\s*image:\s*amir20\/dozzle:v11\.1\.1\s*$/gm) ?? [];
+        const added = file.patch.match(/^\+\s*image:\s*amir20\/dozzle:(v11\.1\.2)\s*$/gm) ?? [];
+        if (!/(?:^|\/)compose[^/]*\.ya?ml$/.test(file.filename ?? '')) continue;
+        if (file.patch.includes('amir20/dozzle:')
+          && (removed.length !== 1 || added.length !== 1)) throw new Error('Release diff ambiguous');
+        if (removed.length) matches.push('v11.1.2');
+      }
+      if (!matches.length) throw new Error('Release diff not established');
+      await current();
+      const tag = matches[0];
+      const release = await transport.fetch(new Request(`https://${host}/repos/amir20/dozzle/releases/tags/${tag}`, {
+        redirect: 'manual', signal: readSignal(), headers: {
+          accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
+        },
+      }));
+      if (release.status !== 200) throw new Error('Release notes unavailable');
+      const evidence = JSON.parse(await readDispatcherBody(release));
+      const source = `https://github.com/amir20/dozzle/releases/tag/${tag}`;
+      if (evidence?.tag_name !== tag || evidence?.html_url !== source || typeof evidence?.body !== 'string'
+        || !evidence.body.trim()) throw new Error('Release notes unverified');
+      await current();
+      return Response.json({ repository: 'amir20/dozzle', tag, source, observedHead: observed.head.sha,
+        body: evidence.body });
+    }
     if (resource === 'files') {
       const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
       if (!response.ok) return response;

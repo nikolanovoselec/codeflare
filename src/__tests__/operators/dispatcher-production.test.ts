@@ -185,7 +185,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     ]);
     expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
   }));
-  it('reads one cited upstream release for the twelve agent and one server image changes of Komodo #1299', () => fixture(async f => {
+  it('reads one cited upstream release for thirteen compose image changes of Komodo #1299', () => fixture(async f => {
     await start(f);
     f.files(['ai_llm', 'dns_ntp', 'komodo_core', 'media_servers', 'minecraft', 'nextcloud',
       'openziti-i', 'openziti-ii', 'openziti-iii', 'servarr', 'storage', 'tools']

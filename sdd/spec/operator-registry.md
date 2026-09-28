@@ -269,8 +269,9 @@ This release extends the existing Operator foundation with GitHub package instal
 1. The parent permits reads only for the admitted repository and bounded pull-request, check and diff inputs; package-owned policy determines which bot-authored requests qualify for assessment. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
 2. Recommendations bind exact observed heads and make stale, truncated, rate-limited or insufficient evidence explicit. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
 3. The parent denies repository mutation, session or container creation, and unattended reruns. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/renovate-dispatcher.test.ts (REQ-OPERATOR-051) -->
+4. The parent may return bounded, cited upstream release notes only when the admitted PR diff establishes a fixed source and one tag, including multiple identical image updates. It rejects missing, conflicting, truncated, redirecting, oversized or child-selected sources, without inferring compatibility or conferring merge authority. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (reads one cited upstream release for thirteen compose image changes of Komodo #1299) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (does not fetch upstream for) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (rejects unverified, redirecting or oversized upstream notes) -->
 
-**Notes:** Implementation is present, but exact-head CI evidence is incomplete.
+**Notes:** The read-only assessment groundwork is present; cited compatibility classification, exact-head CI and a live #1299 assessment remain unverified.
 
 **Constraints:** Assessment is read-only and remains bound to the admitted activity.
 
@@ -278,9 +279,9 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Adjacent Renovate assessment tests cover the delivered behavior; exact-head CI remains outstanding.
+**Verification:** Test-only RED `07a8119b` dispatched ordinary Test run `36409071181` for the release evidence read; GREEN, compiled Dispatcher consumption and live #1299 assessment remain unverified.
 
-**Status:** Partial
+**Status:** Planned
 
 ---
 
