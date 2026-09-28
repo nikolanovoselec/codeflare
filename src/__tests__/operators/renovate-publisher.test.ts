@@ -54,7 +54,8 @@ async function fixture(test: (f: {
       head: HEAD, base: BASE, checks: [{ name: 'test', status: 'completed', conclusion: 'success' }],
       reviews: [{ state: 'APPROVED', commit_id: HEAD, user: { login: 'reviewer' } }], requiredChecks: ['test'], mergeable: true,
       permission: 'admin', author: 'renovate[bot]', ambiguity: false, paginated: false, loggedOut: false,
-      advanceBaseOnApproval: false, stopOnApproval: false, rulesetType: 'non_fast_forward', prState: 'open' };
+      advanceBaseOnApproval: false, stopOnApproval: false, rulesetType: 'non_fast_forward', prState: 'open',
+      moveHeadDuringChecks: false, forgedReadback: false, mergeReadbackUnavailable: false };
     const writes: Array<{ method: string; url: string; body: unknown }> = [];
     const registry = { resolveManagementExecution: async () => state.current ? { ok: true, value: selection } : { ok: false, reason: 'disabled' } };
     Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
@@ -72,6 +73,7 @@ async function fixture(test: (f: {
           if (url.pathname.endsWith('/merge')) return Response.json({ merged: true, sha: HEAD });
           return Response.json({ id: 9001, body });
         }
+        if (url.pathname === '/user') return Response.json({ id: 314, login: 'publisher' });
         if (url.pathname === '/repos/nikolanovoselec/komodo/') return Response.json({ id: 973175879,
           full_name: 'nikolanovoselec/komodo', default_branch: 'main', permissions: { admin: state.permission === 'admin' } });
         if (url.pathname.endsWith('/pulls/1299')) return Response.json({ number: 1299, state: state.prState, mergeable: state.mergeable,
@@ -86,16 +88,22 @@ async function fixture(test: (f: {
         if (url.pathname.endsWith('/rulesets/5212225')) return Response.json({ enforcement: 'active',
           rules: [{ type: state.rulesetType }],
           conditions: { ref_name: { include: ['~ALL'], exclude: ['refs/heads/renovate/**'] } } });
-        if (url.pathname.includes('/check-runs')) return Response.json({ total_count: state.paginated ? 101 : (state.checks as unknown[]).length,
-          check_runs: state.checks }, { headers: state.paginated ? { link: '<https://api.github.com/next>; rel="next"' } : {} });
+        if (url.pathname.includes('/check-runs')) {
+          if (state.moveHeadDuringChecks) state.head = 'f'.repeat(40);
+          return Response.json({ total_count: state.paginated ? 101 : (state.checks as unknown[]).length,
+            check_runs: state.checks }, { headers: state.paginated ? { link: '<https://api.github.com/next>; rel="next"' } : {} });
+        }
         if (url.pathname.includes('/commits/') && url.pathname.endsWith('/status')) return Response.json({ statuses: [] });
         if (url.pathname.includes('/reviews')) return Response.json([...(state.reviews as object[]),
           ...writes.filter(w => w.url.endsWith('/reviews')).map(w => ({ id: 9001, body: (w.body as { body: string }).body,
-            state: 'APPROVED', commit_id: HEAD, user: { login: 'owner' } }))]);
+            state: 'APPROVED', commit_id: HEAD, user: state.forgedReadback
+              ? { id: 315, login: 'other-user' } : { id: 314, login: 'publisher' } }))]);
         if (url.pathname.includes('/comments')) return Response.json(writes.filter(w => w.url.includes('/comments'))
-          .map(w => ({ id: 9001, body: (w.body as { body: string }).body })));
-        if (url.pathname.endsWith('/pulls/1299/merge')) return writes.some(w => w.url.endsWith('/merge'))
-          ? new Response(null, { status: 204 }) : new Response(null, { status: 404 });
+          .map(w => ({ id: 9001, body: (w.body as { body: string }).body,
+            user: state.forgedReadback ? { id: 315, login: 'other-user' } : { id: 314, login: 'publisher' } })));
+        if (url.pathname.endsWith('/pulls/1299/merge')) return state.mergeReadbackUnavailable
+          ? new Response(null, { status: 503 }) : writes.some(w => w.url.endsWith('/merge'))
+            ? new Response(null, { status: 204 }) : new Response(null, { status: 404 });
         return Response.json({ message: 'Unexpected GitHub route' }, { status: 404 });
       },
     }) } });
@@ -141,6 +149,8 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
   it('publishes only from a completed cited safe Activity and current admin owner/session, using its admitted target and expected head', () => fixture(async f => {
     const result = await f.publish();
     expect(result).toMatchObject({ ok: true, phase: 'completed', effect: 'merge', mergeSha: HEAD });
+    expect(f.writes.some(write => write.url.endsWith('/repos/nikolanovoselec/komodo/pulls/1299/reviews')
+      && (write.body as { commit_id?: string })?.commit_id === HEAD)).toBe(true);
     expect(f.writes.some(write => write.url.endsWith('/repos/nikolanovoselec/komodo/pulls/1299/merge')
       && (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
     expect(f.writes.every(write => !write.url.includes('another-repo'))).toBe(true);
@@ -171,7 +181,8 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     await f.setAssessment({ ...cited, classification, reasons: ['Cannot verify compatibility'],
       compatibility: 'Cannot establish compatibility', gaps: classification === 'unknown' ? ['Unresolved migration'] : [] });
     await f.publish();
-    expect(f.writes.every(write => write.url.includes('/comments') && JSON.stringify(write.body).length < 4096)).toBe(true);
+    expect(f.writes.some(write => write.url.endsWith('/comments') && JSON.stringify(write.body).length < 4096)).toBe(true);
+    expect(f.writes.some(write => write.url.endsWith('/reviews') || write.url.endsWith('/merge'))).toBe(false);
   }));
 
   it.each(['admin', 'owner', 'session', 'stop', 'revoked', 'logout', 'expiry'])('rejects %s authority loss without writes', reason => fixture(async f => {
@@ -201,6 +212,12 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     expect(f.writes.some(write => write.url.endsWith('/merge'))).toBe(false);
   }));
 
+  it('rereads PR revisions after check and policy observations before approval', () => fixture(async f => {
+    f.change('moveHeadDuringChecks', true);
+    await f.publish().catch(() => undefined);
+    expect(f.writes).toEqual([]);
+  }));
+
   it.each(['base', 'stop'])('rechecks %s after an approved review and before merge', reason => fixture(async f => {
     f.change(reason === 'base' ? 'advanceBaseOnApproval' : 'stopOnApproval', true);
     await f.publish().catch(() => undefined);
@@ -224,6 +241,15 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     expect(f.writes.some(write => write.url.endsWith('/merge'))).toBe(false);
   }));
 
+  it.each(['approval', 'comment'])('does not accept a copied %s marker from a different GitHub actor', effect => fixture(async f => {
+    if (effect === 'comment') await f.setAssessment({ ...cited, classification: 'unknown',
+      reasons: ['Compatibility unresolved'], gaps: ['Migration unverified'] });
+    f.change('ambiguity', true);
+    f.change('forgedReadback', true);
+    expect(await f.publish()).toMatchObject({ ok: false, reason: 'uncertain-effect' });
+    expect(f.writes.some(write => write.url.endsWith('/merge'))).toBe(false);
+  }));
+
   it('reconciles an ambiguous comment by its durable external marker without reposting it', () => fixture(async f => {
     await f.setAssessment({ ...cited, classification: 'unknown', reasons: ['Upstream compatibility unresolved'],
       gaps: ['Migration behavior unverified'] });
@@ -232,6 +258,19 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     f.restart();
     expect(await f.publish()).toMatchObject({ ok: true, phase: 'completed', effect: 'comment' });
     expect(f.writes.map(write => write.url)).toEqual(['/repos/nikolanovoselec/komodo/issues/1299/comments']);
+  }));
+
+  it('reconciles a previously reserved merge even after its accepted write closes the PR', () => fixture(async f => {
+    f.change('ambiguity', true);
+    f.change('mergeReadbackUnavailable', true);
+    expect(await f.publish()).toMatchObject({ ok: false, reason: 'uncertain-effect' });
+    f.change('mergeReadbackUnavailable', false);
+    f.restart();
+    expect(await f.publish()).toMatchObject({ ok: false, reason: 'remote-merged-unattributed' });
+    expect(f.writes.map(write => write.url)).toEqual([
+      '/repos/nikolanovoselec/komodo/pulls/1299/reviews',
+      '/repos/nikolanovoselec/komodo/pulls/1299/merge',
+    ]);
   }));
 
   it('retains an unattributed merged readback after a lost merge response without replay', () => fixture(async f => {

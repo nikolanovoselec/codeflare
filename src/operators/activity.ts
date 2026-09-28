@@ -1837,17 +1837,38 @@ export class OperatorActivity extends Agent {
         if (response.status === 404) return null;
         throw new Error('Merge readback unavailable');
       }
+      const publisher = await github.publisherIdentity();
       const list: unknown = await github.json(effect === 'comment'
         ? `/issues/${parent.pullRequest}/comments?per_page=100` : `/pulls/${parent.pullRequest}/reviews?per_page=100`);
       if (!Array.isArray(list)) throw new Error('Publication readback unavailable');
       const matching = list.filter(item => item && typeof item === 'object'
         && (item as { body?: unknown }).body === (effect === 'comment' ? commentBody : marker)
+        && (item as { user?: { id?: unknown; login?: unknown } }).user?.id === publisher.id
+        && (item as { user?: { id?: unknown; login?: unknown } }).user?.login === publisher.login
         && (effect === 'comment' || ((item as { state?: unknown }).state === 'APPROVED'
           && (item as { commit_id?: unknown }).commit_id === assessment.observedHead))) as Array<{ id?: unknown }>;
       return matching.length === 1 && Number.isSafeInteger(matching[0].id) && (matching[0].id as number) > 0
         ? matching[0].id as number : null;
     };
     const completed = await this.ctx.storage.get<RenovatePublication>(RENOVATE_PUBLICATION);
+    if (completed && binding(completed) && completed.effects.merge
+      && completed.effects.merge.phase !== 'completed' && !completed.effects.merge.remoteMerged) {
+      // A lost accepted merge closes the PR. Reconcile the reserved effect
+      // before the open-PR preflight can reject that exact terminal outcome.
+      try {
+        if (await confirm('merge') === -1) {
+          await this.ctx.storage.transaction(async tx => {
+            const pending = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
+            if (pending && binding(pending) && pending.effects.merge?.phase !== 'completed') {
+              pending.effects.merge = { phase: 'unknown', remoteMerged: true };
+              await tx.put(RENOVATE_PUBLICATION, pending);
+            }
+          });
+          return { ok: false, reason: 'remote-merged-unattributed' };
+        }
+      } catch { /* An unavailable read cannot authorize another merge. */ }
+      return { ok: false, reason: 'uncertain-effect' };
+    }
     if (completed && binding(completed) && completed.effects.merge?.remoteMerged) {
       return { ok: false, reason: 'remote-merged-unattributed' };
     }
@@ -1885,7 +1906,8 @@ export class OperatorActivity extends Agent {
             ? await github.request(`/pulls/${parent.pullRequest}/merge`, 'PUT',
               { sha: assessment.observedHead, merge_method: 'merge' })
             : effect === 'approval'
-              ? await github.request(`/pulls/${parent.pullRequest}/reviews`, 'POST', { event: 'APPROVE', body: marker })
+              ? await github.request(`/pulls/${parent.pullRequest}/reviews`, 'POST',
+                { event: 'APPROVE', body: marker, commit_id: assessment.observedHead })
               : await github.request(`/issues/${parent.pullRequest}/comments`, 'POST', { body: commentBody });
           if (response.ok) {
             const value = JSON.parse(await readDispatcherBody(response)) as { id?: unknown; merged?: unknown; sha?: unknown };

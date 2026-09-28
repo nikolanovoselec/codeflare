@@ -19,10 +19,11 @@ const assessmentSchema = z.object({ classification: z.enum(['safe', 'unsafe', 'u
 export type RenovateAssessment = z.infer<typeof assessmentSchema>;
 export function parsePublishableAssessment(value: unknown): RenovateAssessment {
   const result = assessmentSchema.parse(value);
-  if (result.classification === 'safe' && (result.gaps.length > 0
-    || !result.citations.some(item => item.kind === 'release' && item.source.startsWith('https://github.com/amir20/dozzle/releases/tag/'))
-    || !result.citations.some(item => item.kind === 'guide' && /^https:\/\/github\.com\/amir20\/dozzle\/blob\/[0-9a-f]{40}\/docs\/guide\/agent\.md$/.test(item.source))
-    || result.citations.filter(item => item.kind === 'config').length < 4)) throw new Error('Cited compatibility evidence unavailable');
+  // The compiled Dispatcher owns citation semantics; the parent only rejects
+  // an uncited or explicitly gapped positive result before granting an effect.
+  if (result.classification === 'safe' && (result.gaps.length > 0 || result.citations.length === 0)) {
+    throw new Error('Cited assessment unavailable');
+  }
   return result;
 }
 
@@ -41,6 +42,18 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
       reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   const transport = exports.GitHubInterceptor({ props: { user: input.user, bucket: input.bucket, strict: true, operatorPolicy: policy } });
+  // /user is outside repository policy; only this fixed parent read uses an
+  // unscoped transport, never handed to an agent or used for mutation.
+  const identityTransport = exports.GitHubInterceptor({ props: { user: input.user, bucket: input.bucket, strict: true } });
+  async function publisherIdentity() {
+    await current();
+    const response = await identityTransport.fetch(new Request(`https://${host}/user`, {
+      redirect: 'manual', signal: AbortSignal.timeout(8000), headers: { accept: 'application/vnd.github+json',
+        'user-agent': 'Codeflare-Operator-Renovate' },
+    }));
+    if (response.status !== 200 || response.redirected) throw new Error('Publisher identity unavailable');
+    return z.object({ id, login: z.string().min(1).max(128) }).parse(JSON.parse(await readDispatcherBody(response)));
+  }
   const prefix = `/repos/${repository}`;
   async function request(path: string, method = 'GET', body?: object): Promise<Response> {
     if (!path.startsWith('/') || path.startsWith('//')) throw new Error('GitHub route invalid');
@@ -68,15 +81,19 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     if (repo.id !== 973175879 || repo.full_name.toLowerCase() !== repository.toLowerCase() || repo.default_branch !== 'main') {
       throw new Error('Repository identity changed');
     }
-    const pr = z.object({ number: id, state: z.literal('open'), mergeable: z.boolean().nullable(),
-      mergeable_state: z.string(), user: z.object({ id: id, login: z.string(), type: z.string() }),
-      head: z.object({ sha: commit }), base: z.object({ sha: commit, ref: z.literal('main') }) })
-      .parse(await json(`/pulls/${pullRequest}`));
-    if (pr.number !== pullRequest || pr.user.id !== 29139614 || pr.user.login !== 'renovate[bot]'
-      || pr.user.type !== 'Bot' || pr.head.sha !== assessment.observedHead || pr.base.sha !== assessment.baseSha) {
-      throw new Error('Pull request revision or author changed');
-    }
-    if (kind === 'comment') { await current(); return; }
+    const observePr = async () => {
+      const pr = z.object({ number: id, state: z.literal('open'), mergeable: z.boolean().nullable(),
+        mergeable_state: z.string(), user: z.object({ id, login: z.string(), type: z.string() }),
+        head: z.object({ sha: commit }), base: z.object({ sha: commit, ref: z.literal('main') }) })
+        .parse(await json(`/pulls/${pullRequest}`));
+      if (pr.number !== pullRequest || pr.user.id !== 29139614 || pr.user.login !== 'renovate[bot]'
+        || pr.user.type !== 'Bot' || pr.head.sha !== assessment.observedHead || pr.base.sha !== assessment.baseSha) {
+        throw new Error('Pull request revision or author changed');
+      }
+      return pr;
+    };
+    const pr = await observePr();
+    if (kind === 'comment') { await observePr(); await current(); return; }
     if (pr.mergeable !== true || pr.mergeable_state !== 'clean') throw new Error('Pull request mergeability unavailable');
     const branch = await request('/branches/main/protection');
     let requiredChecks: string[] = [];
@@ -130,9 +147,11 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
       || (kind === 'merge' && [...latest.values()].filter(value => value === 'APPROVED').length < requiredApprovals)) {
       throw new Error('Required review unavailable');
     }
-    // A last observed exact revision check before any mutation; expected-head
-    // merge additionally protects the head. GitHub has no base-sha CAS for merge.
+    // The intervening policy/check/review reads may race the PR. GitHub has
+    // no base-sha CAS; reread both revisions immediately before each effect.
+    const last = await observePr();
+    if (last.mergeable !== true || last.mergeable_state !== 'clean') throw new Error('Pull request mergeability changed');
     await current();
   }
-  return { observe, request, json, pullRequest };
+  return { observe, request, json, publisherIdentity, pullRequest };
 }
