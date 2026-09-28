@@ -2,7 +2,7 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { canInvokeOperator, requireOperatorHumanContext } from '../lib/access';
+import { authenticateRequest, canInvokeOperator, requireOperatorHumanContext } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
@@ -23,6 +23,8 @@ const app = new Hono<ActivityRouteEnv>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
 const readBody = z.strictObject({ through: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
+const publicationBody = z.strictObject({ sessionId: identifier,
+  sessionGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
@@ -148,6 +150,21 @@ async function handleContinue(c: Context<ActivityRouteEnv>) {
   return c.json({ ok: true, phase: 'queued' }, 202);
 }
 app.post('/:activityId/continue', handleContinue);
+/** Explicit parent-side command; result reads and Dispatcher children cannot reach this path. */
+app.post('/:activityId/publish', async c => {
+  const activityId = c.req.param('activityId');
+  if (!ID.test(activityId) || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  const current = await authenticateRequest(c.req.raw, c.env);
+  const human = c.get('operatorHuman');
+  if (current.user.role !== 'admin' || current.user.email.toLowerCase() !== human.human.email.toLowerCase()) {
+    throw new AppError('FORBIDDEN', 403, 'Administrator access required');
+  }
+  const command = await parseJsonBody(c, publicationBody);
+  const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).publishRenovateAssessment({
+    ...command, bucket: current.bucketName, operationId: crypto.randomUUID(),
+  }, { ...human, platformAdmin: true });
+  return c.json(outcome, outcome.ok ? 200 : 409);
+});
 app.post('/:activityId/cancel', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();

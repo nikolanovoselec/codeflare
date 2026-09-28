@@ -17,7 +17,9 @@ import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmi
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
-import { canInvokeOperator, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
+import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
+import { D1SessionRepository } from '../lib/session-repository';
+import { parsePublishableAssessment, renovateGithub } from './renovate-publication';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
 import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
@@ -73,6 +75,13 @@ interface DispatcherOperationRecord {
 }
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
+const RENOVATE_PUBLICATION = 'renovate:publication';
+type RenovateEffect = 'comment' | 'approval' | 'merge';
+interface RenovatePublication {
+  ownerKey: string; bucket: string; sessionId: string; sessionGeneration: number;
+  activityGeneration: number; assessmentDigest: string; operationId: string;
+  effects: Partial<Record<RenovateEffect, { phase: 'reserved' | 'unknown' | 'completed'; receiptId?: number }>>;
+}
 const DISPATCHER_LIMIT_MS = 30_000;
 const dispatcherLog = createLogger('dispatcher-settlement');
 const DISPATCHER_SDK_METHODS = [
@@ -1757,6 +1766,149 @@ export class OperatorActivity extends Agent {
     });
     if (outcome.ok) await this.publishBrowserSummary();
     return outcome;
+  }
+
+  /** Explicit parent-only publication; result collection and child operations never call this method. */
+  async publishRenovateAssessment(command: { bucket: string; sessionId: string; sessionGeneration: number;
+    operationId: string }, authority: { human: VerifiedHumanAccessClaims; accessJwt: string; platformAdmin: boolean }):
+    Promise<{ ok: true; phase: 'completed'; effect: RenovateEffect } | { ok: false; reason: string }> {
+    const validId = /^[A-Za-z0-9_-]{1,128}$/;
+    if (!authority.platformAdmin || !validId.test(command.sessionId) || !validId.test(command.operationId)
+      || !/^[A-Za-z0-9._-]{1,128}$/.test(command.bucket)
+      || !Number.isSafeInteger(command.sessionGeneration) || command.sessionGeneration <= 0) {
+      return { ok: false, reason: 'not-authorized' };
+    }
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    const plan = await this.getRuntimePlan();
+    if (!state?.ownerKey || !plan || state.drive?.status !== 'completed' || !state.drive.result
+      || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher') {
+      return { ok: false, reason: 'not-ready' };
+    }
+    let assessment: ReturnType<typeof parsePublishableAssessment>;
+    try { assessment = parsePublishableAssessment(state.drive.result); }
+    catch { return { ok: false, reason: 'invalid-assessment' }; }
+    const ownerKey = await operatorOwnerKey(authority.human);
+    if (state.ownerKey !== ownerKey || plan.executionContext.owner.subject !== authority.human.subject
+      || plan.executionContext.owner.issuer !== authority.human.issuer
+      || plan.executionContext.owner.email.toLowerCase() !== authority.human.email.toLowerCase()
+      || JSON.stringify([...plan.executionContext.owner.audiences].sort()) !== JSON.stringify([...authority.human.audiences].sort())) {
+      return { ok: false, reason: 'not-authorized' };
+    }
+    const digest = await sha256(JSON.stringify(state.drive.result));
+    const generation = state.drive.generation;
+    const current = async () => {
+      const [latest, session, rawUser] = await Promise.all([
+        this.ctx.storage.get<AdmissionState>('admission'),
+        new D1SessionRepository(this.#appEnv.USAGE_DB).getSession(command.bucket, command.sessionId),
+        this.#appEnv.KV.get(`user:${authority.human.email.toLowerCase()}`),
+      ]);
+      let user: unknown;
+      try { user = rawUser ? JSON.parse(rawUser) : null; } catch { /* no current role */ }
+      if (!authority.platformAdmin || !user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
+        || !latest || latest.ownerKey !== ownerKey || latest.drive?.status !== 'completed'
+        || latest.drive.generation !== generation || await sha256(JSON.stringify(latest.drive.result)) !== digest
+        || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== command.sessionGeneration
+        || authority.human.expiresAt * 1000 <= Date.now()) throw new Error('Renovate publication authority changed');
+      await authorizeDispatcherPlan(plan, this.#appEnv);
+      if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
+        throw new Error('Renovate publication Access session ended');
+      }
+    };
+    try { await current(); } catch { return { ok: false, reason: 'not-authorized' }; }
+    const parent = JSON.parse(plan.invocationJson) as { repository: string; pullRequest: number };
+    const exports = (this.ctx as unknown as { exports?: Record<string, (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
+    if (!exports) return { ok: false, reason: 'unavailable' };
+    let github: ReturnType<typeof renovateGithub>;
+    try { github = renovateGithub({ env: this.#appEnv, exports, user: authority.human.email,
+      bucket: command.bucket, repository: parent.repository, pullRequest: parent.pullRequest, current }); }
+    catch { return { ok: false, reason: 'unavailable' }; }
+    const marker = `<!-- Codeflare Renovate ${plan.activityId}:${generation}:${assessment.observedHead} -->`;
+    const commentBody = `${marker}\n${assessment.classification.toUpperCase()}: ${assessment.compatibility}\n${assessment.reasons.join('; ')}`.slice(0, 3800);
+    const effectOrder: RenovateEffect[] = assessment.classification === 'safe' ? ['approval', 'merge'] : ['comment'];
+    const binding = (record: RenovatePublication) => record.ownerKey === ownerKey && record.bucket === command.bucket
+      && record.sessionId === command.sessionId && record.sessionGeneration === command.sessionGeneration
+      && record.activityGeneration === generation && record.assessmentDigest === digest;
+    const confirm = async (effect: RenovateEffect): Promise<number | null> => {
+      if (effect === 'merge') {
+        const response = await github.request(`/pulls/${parent.pullRequest}/merge`);
+        // A 204 proves merged, not who merged; fence rather than misattribute it.
+        if (response.status === 204) return null;
+        if (response.status === 404) return null;
+        throw new Error('Merge readback unavailable');
+      }
+      const list: unknown = await github.json(effect === 'comment'
+        ? `/issues/${parent.pullRequest}/comments?per_page=100` : `/pulls/${parent.pullRequest}/reviews?per_page=100`);
+      if (!Array.isArray(list)) throw new Error('Publication readback unavailable');
+      const matching = list.filter(item => item && typeof item === 'object'
+        && (item as { body?: unknown }).body === (effect === 'comment' ? commentBody : marker)
+        && (effect === 'comment' || ((item as { state?: unknown }).state === 'APPROVED'
+          && (item as { commit_id?: unknown }).commit_id === assessment.observedHead))) as Array<{ id?: unknown }>;
+      return matching.length === 1 && Number.isSafeInteger(matching[0].id) && (matching[0].id as number) > 0
+        ? matching[0].id as number : null;
+    };
+    const completed = await this.ctx.storage.get<RenovatePublication>(RENOVATE_PUBLICATION);
+    if (completed && binding(completed) && completed.effects[effectOrder[effectOrder.length - 1]]?.phase === 'completed') {
+      return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1] };
+    }
+    for (const effect of effectOrder) {
+      try { await current(); await github.observe(assessment, effect === 'comment' ? 'comment' : 'merge'); }
+      catch { return { ok: false, reason: 'current-evidence-unavailable' }; }
+      const claim = await this.ctx.storage.transaction<'reserved' | 'reconcile' | 'completed' | 'conflict'>(async tx => {
+        const admission = await tx.get<AdmissionState>('admission');
+        if (admission?.drive?.status !== 'completed' || admission.drive.generation !== generation
+          || await sha256(JSON.stringify(admission.drive.result)) !== digest) return 'conflict';
+        const previous = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
+        if (previous && !binding(previous)) return 'conflict';
+        const record = previous ?? { ownerKey, bucket: command.bucket, sessionId: command.sessionId,
+          sessionGeneration: command.sessionGeneration, activityGeneration: generation, assessmentDigest: digest,
+          operationId: command.operationId, effects: {} };
+        const existing = record.effects[effect];
+        if (existing?.phase === 'completed') return 'completed';
+        if (existing) return 'reconcile';
+        record.effects[effect] = { phase: 'reserved' };
+        await tx.put(RENOVATE_PUBLICATION, record);
+        return 'reserved';
+      });
+      if (claim === 'conflict') return { ok: false, reason: 'stale-publication' };
+      if (claim === 'completed') continue;
+      let receiptId: number | null = null;
+      if (claim === 'reserved') {
+        try {
+          // The transport itself checks current authority immediately before the write.
+          const response = effect === 'merge'
+            ? await github.request(`/pulls/${parent.pullRequest}/merge`, 'PUT',
+              { sha: assessment.observedHead, merge_method: 'merge' })
+            : effect === 'approval'
+              ? await github.request(`/pulls/${parent.pullRequest}/reviews`, 'POST', { event: 'APPROVE', body: marker })
+              : await github.request(`/issues/${parent.pullRequest}/comments`, 'POST', { body: commentBody });
+          if (response.ok) {
+            const value = JSON.parse(await readDispatcherBody(response)) as { id?: unknown; merged?: unknown; sha?: unknown };
+            if (effect === 'merge' && value.merged === true && /^[0-9a-f]{40}$/.test(String(value.sha))) receiptId = 0;
+            else if (effect !== 'merge' && Number.isSafeInteger(value.id) && (value.id as number) > 0) receiptId = value.id as number;
+          }
+        } catch { /* A lost response may still have produced an external effect. */ }
+      }
+      if (receiptId === null) {
+        await this.ctx.storage.transaction(async tx => {
+          const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
+          if (record && binding(record) && record.effects[effect]?.phase === 'reserved') {
+            record.effects[effect] = { phase: 'unknown' }; await tx.put(RENOVATE_PUBLICATION, record);
+          }
+        });
+        try { receiptId = await confirm(effect); } catch { /* No blind write retry. */ }
+      }
+      if (receiptId === null) return { ok: false, reason: 'uncertain-effect' };
+      const saved = await this.ctx.storage.transaction(async tx => {
+        const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
+        if (!record || !binding(record) || !record.effects[effect]) return false;
+        record.effects[effect] = { phase: 'completed', ...(receiptId! > 0 ? { receiptId: receiptId! } : {}) };
+        await tx.put(RENOVATE_PUBLICATION, record);
+        return true;
+      });
+      if (!saved) return { ok: false, reason: 'stale-publication' };
+      if (claim === 'reconcile') return { ok: false, reason: 'reconciled-effect' };
+    }
+    return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1] };
   }
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */

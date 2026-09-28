@@ -184,36 +184,44 @@ export async function requireOperatorHumanContext(
  * This is deliberately separate from legacy display-name based enterprise gates.
  * Only the verified issuer receives the credential; redirects are never followed.
  */
-export async function resolveOperatorGroupIdentity(
-  human: VerifiedHumanAccessClaims, accessJwt: string,
-): Promise<VerifiedHumanAccessClaims> {
-  const denied = { ...human, groups: [] as string[] };
+async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)
-    || !accessJwt || human.expiresAt * 1000 <= Date.now()) return denied;
+    || !accessJwt || human.expiresAt * 1000 <= Date.now()) return null;
   try {
     const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
       method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
       redirect: 'manual', signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok || !response.body) return denied;
+    if (!response.ok || !response.body) return null;
     const bytes = await readBoundedResponse(response, 65536, 'Access identity');
     const identity: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return denied;
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return null;
     const record = identity as Record<string, unknown>;
     const subject = record.user_uuid ?? record.id;
     if (subject !== human.subject || (record.id !== undefined && record.id !== human.subject)
       || typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)
-      || !Array.isArray(record.groups) || record.groups.length > 1024) return denied;
+      || !Array.isArray(record.groups) || record.groups.length > 1024) return null;
     const groups: string[] = [];
     for (const value of record.groups) {
       // Names and bare strings are not stable identifiers in this transport.
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return denied;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
       const id = (value as { id?: unknown }).id;
-      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return denied;
+      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return null;
       groups.push(id);
     }
-    return { ...human, groups: [...new Set(groups)] };
-  } catch { return denied; }
+    return [...new Set(groups)];
+  } catch { return null; }
+}
+
+/** Unlike the grant projection, an absent/revoked Access session cannot be treated as empty groups. */
+export async function operatorAccessSessionCurrent(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<boolean> {
+  return await currentOperatorIdentity(human, accessJwt) !== null;
+}
+
+export async function resolveOperatorGroupIdentity(
+  human: VerifiedHumanAccessClaims, accessJwt: string,
+): Promise<VerifiedHumanAccessClaims> {
+  return { ...human, groups: await currentOperatorIdentity(human, accessJwt) ?? [] };
 }
 
 /** A persisted operator ACL. It is data, never an asserted current identity. */
