@@ -50,6 +50,17 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(within(catalog).queryByRole('heading', { name: 'Catalog' })).not.toBeInTheDocument();
   });
 
+  it('REQ-OPERATOR-049: labels catalog enablement concisely for enabled and disabled operators', async () => {
+    serve = () => json({ items: [operator, { ...operator, id: 'disabled', enabled: false, name: 'Disabled operator' }], cursor: null });
+    render(() => <OperatorManagement />);
+    const catalog = await screen.findByRole('region', { name: 'Operator catalog' });
+    const enabledRow = (await within(catalog).findByRole('button', { name: 'Manage Conductor Review' })).closest('li')!;
+    const disabledRow = (await within(catalog).findByRole('button', { name: 'Manage Disabled operator' })).closest('li')!;
+    expect(within(enabledRow).getByText('Enabled')).toBeInTheDocument();
+    expect(within(disabledRow).getByText('Disabled')).toBeInTheDocument();
+    expect(enabledRow).not.toHaveTextContent('Enabled for new runs');
+  });
+
   it('presents first-party display names without replacing verified package identity or collapsing release details into status', async () => {
     const firstParty = { ...operator, repositoryId: 1380652764, repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-conductor' };
     serve = url => url.pathname.endsWith('/operator-1')
@@ -61,7 +72,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(within(row).getByText('Pull Request Reviewer', { selector: 'strong' })).toBeInTheDocument();
     expect(within(row).getByText('v0.1.2')).toBeInTheDocument();
     expect(within(row).getByText(/Published.*2026/)).toBeInTheDocument();
-    expect(within(row).getByText('Enabled for new runs')).toBeInTheDocument();
+    expect(within(row).getByText('Enabled')).toBeInTheDocument();
     fireEvent.click(within(row).getByRole('button', { name: 'Manage Pull Request Reviewer' }));
     expect(await screen.findByRole('heading', { name: 'Pull Request Reviewer' })).toBeInTheDocument();
     expect(screen.getByText('Conductor Review', { selector: 'dd' })).toBeInTheDocument();
