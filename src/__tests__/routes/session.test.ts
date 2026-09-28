@@ -97,9 +97,6 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
     expect(await (await app.request('/sessions/restarted12345678')).json()).toMatchObject({ session: {
       id: 'restarted12345678', lastActiveAt: '2024-01-15T09:55:00.000Z',
     } });
-    expect(await (await createBatchStatusApp().request('/sessions/batch-status')).json()).toMatchObject({ statuses: {
-      restarted12345678: { status: 'running', lastActiveAt: '2024-01-15T09:55:00.000Z' },
-    } });
   });
 
   it.each(['stopped', 'starting', 'running', 'unreachable', 'stopping'] as const)(
@@ -829,6 +826,18 @@ describe('GET /sessions/batch-status', () => {
     expect(await response.json()).toMatchObject({ statuses: {
       'resumedsession1234': { status: 'running', lastActiveAt: '2024-01-15T09:58:00.000Z' },
       'stoppedsession1234': { status: 'stopped', lastActiveAt: '2024-01-15T09:10:00.000Z' },
+    } });
+  });
+
+  it('REQ-SESSION-013: batch status uses the current start when a restarted run has no new input', async () => {
+    mockKV._set('session:test-bucket:restarted12345678', {
+      id: 'restarted12345678', name: 'Restarted', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T08:00:00.000Z', lastAccessedAt: '2024-01-15T09:55:00.000Z',
+      transitionedAt: '2024-01-15T09:55:00.000Z', lastActiveAt: '2024-01-15T09:20:00.000Z',
+      lastInputAt: '2024-01-15T09:30:00.000Z', lifecycleGeneration: 2,
+    });
+    expect(await (await createBatchStatusApp().request('/sessions/batch-status')).json()).toMatchObject({ statuses: {
+      restarted12345678: { status: 'running', lastActiveAt: '2024-01-15T09:55:00.000Z' },
     } });
   });
 

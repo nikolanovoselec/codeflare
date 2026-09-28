@@ -160,11 +160,12 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     await registry.upsertOwnedActivity(owner, { ...base, activityId: 'before' });
     const originalList = registry.listOwnedActivities.bind(registry);
     registry.listOwnedActivities = async (key) => {
+      const items = await originalList(key);
       await registry.upsertOwnedActivity(owner, { ...base, activityId: 'during' });
-      return originalList(key);
+      return items;
     };
     const page = await registry.listOwnedActivityPage(owner, null);
-    expect(page.items.map(item => item.activityId)).toContain('during');
+    expect(page.items.map(item => item.activityId)).toEqual(['before']);
     expect(page.latestSequence).toBe(1);
     expect(await registry.acknowledgeOwnedActivities(owner, page.latestSequence)).toEqual({ unreadCount: 1 });
   }));
