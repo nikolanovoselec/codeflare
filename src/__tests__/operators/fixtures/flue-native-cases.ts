@@ -200,6 +200,29 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
+    it('does not call an omitted Compose patch proof of no upstream change', async () => {
+      const { id } = await prepare();
+      const head = 'b'.repeat(40);
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: {
+          'pull-request': { head: { sha: head }, user: { login: 'renovate[bot]' } },
+          files: { observedHead: head, truncated: false, data: [{ filename: 'addons/compose.yaml',
+            status: 'modified', additions: 8, deletions: 8 }] },
+          checks: { observedHead: head, truncated: false, data: { check_runs: [] } },
+          // No release-notes receipt is granted for an uninspectable diff.
+        },
+      });
+      expect(admission.status).toBe(202);
+      const value = await settle(id, admission.body.submissionId);
+      expect(results(value).at(-1)).toMatchObject({ evidence: { complete: false, releaseUnavailable: true,
+        upstream: null } });
+      expect(value.productionCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: '/v1/dispatcher/github/read', resource: 'release-notes', status: 403 }),
+      ]));
+      expect(value.external).toEqual([]);
+    });
+
     it('keeps a denied parent read attributable without a conflicting model retry', async () => {
       const { id } = await prepare();
       const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
