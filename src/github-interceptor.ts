@@ -302,7 +302,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       body: hasBody ? upload : undefined,
       // Do not transparently follow redirects to an arbitrary Location host;
       // surface the 3xx to the agent's client instead.
-      redirect: 'manual',
+      redirect: 'manual', signal: request.signal,
     });
     if (props?.jwtStamping) {
       try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }

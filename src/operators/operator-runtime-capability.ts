@@ -89,8 +89,10 @@ export async function createDispatcherOperation(input: {
   };
   const inference = operation.path === '/v1/dispatcher/inference';
   if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
+  const resource = inference ? undefined : dispatcherReadSchema.parse(operation.body).resource;
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
-    github: { repositories: [parent.repository.toLowerCase(), 'amir20/dozzle'], methods: ['GET'] },
+    github: { repositories: resource === 'release-notes'
+      ? [parent.repository.toLowerCase(), 'amir20/dozzle'] : [parent.repository.toLowerCase()], methods: ['GET'] },
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
@@ -119,7 +121,6 @@ export async function createDispatcherOperation(input: {
   if (!input.exports.GitHubInterceptor) throw new Error('GitHub interceptor unavailable');
   const bucket = await resolveBucketName(env, authority.human.email);
   const transport = input.exports.GitHubInterceptor({ props: { user: authority.human.email, bucket, strict: true, operatorPolicy: policy } });
-  const { resource } = dispatcherReadSchema.parse(operation.body);
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
@@ -145,19 +146,36 @@ export async function createDispatcherOperation(input: {
       if (!files.ok || /rel="next"/.test(files.headers.get('link') ?? '')) throw new Error('Release diff unavailable');
       const changes = JSON.parse(await readDispatcherBody(files));
       if (!Array.isArray(changes) || changes.length > 100) throw new Error('Release diff unavailable');
-      const matches: string[] = [];
+      const targets: string[] = [];
       for (const file of changes) {
-        if (typeof file?.patch !== 'string') continue;
-        const removed = file.patch.match(/^-\s*image:\s*amir20\/dozzle:v11\.1\.1\s*$/gm) ?? [];
-        const added = file.patch.match(/^\+\s*image:\s*amir20\/dozzle:(v11\.1\.2)\s*$/gm) ?? [];
-        if (!/(?:^|\/)compose[^/]*\.ya?ml$/.test(file.filename ?? '')) continue;
-        if (file.patch.includes('amir20/dozzle:')
-          && (removed.length !== 1 || added.length !== 1)) throw new Error('Release diff ambiguous');
-        if (removed.length) matches.push('v11.1.2');
+        if (!/(?:^|\/)compose[^/]*\.ya?ml$/.test(file?.filename ?? '')) continue;
+        if (file.status !== 'modified' || typeof file.patch !== 'string'
+          || !Number.isSafeInteger(file.additions) || !Number.isSafeInteger(file.deletions)) {
+          throw new Error('Release diff incomplete');
+        }
+        const lines = file.patch.split('\n');
+        if (lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length !== file.additions
+          || lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length !== file.deletions) {
+          throw new Error('Release diff truncated');
+        }
+        const removed = lines.filter((line: string) => /^-\s*image:\s*amir20\/dozzle:/.test(line));
+        const added = lines.filter((line: string) => /^\+\s*image:\s*amir20\/dozzle:/.test(line));
+        if (!removed.length && !added.length) continue;
+        if (removed.length !== 1 || added.length !== 1) throw new Error('Release diff ambiguous');
+        const before = /^-\s*image:\s*amir20\/dozzle:(v[0-9]+\.[0-9]+\.[0-9]+)\s*$/.exec(removed[0]);
+        const after = /^\+\s*image:\s*amir20\/dozzle:(v[0-9]+\.[0-9]+\.[0-9]+)\s*$/.exec(added[0]);
+        if (!before || !after || before[1] === after[1]) throw new Error('Release diff ambiguous');
+        targets.push(`${before[1]}:${after[1]}`);
       }
-      if (!matches.length) throw new Error('Release diff not established');
-      await current();
-      const tag = matches[0];
+      if (!targets.length || targets.some(target => target !== targets[0])) throw new Error('Release diff ambiguous');
+      const tag = targets[0].split(':')[1];
+      const assertHead = async () => {
+        const response = await get(`/pulls/${parent.pullRequest}`);
+        if (!response.ok || JSON.parse(await readDispatcherBody(response))?.head?.sha !== observed.head.sha) {
+          throw new Error('Release PR head changed');
+        }
+      };
+      await assertHead();
       const release = await transport.fetch(new Request(`https://${host}/repos/amir20/dozzle/releases/tags/${tag}`, {
         redirect: 'manual', signal: readSignal(), headers: {
           accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
@@ -168,7 +186,7 @@ export async function createDispatcherOperation(input: {
       const source = `https://github.com/amir20/dozzle/releases/tag/${tag}`;
       if (evidence?.tag_name !== tag || evidence?.html_url !== source || typeof evidence?.body !== 'string'
         || !evidence.body.trim()) throw new Error('Release notes unverified');
-      await current();
+      await assertHead();
       return Response.json({ repository: 'amir20/dozzle', tag, source, observedHead: observed.head.sha,
         body: evidence.body });
     }

@@ -73,6 +73,35 @@ async function connect(token: string, env: Env = makeEnv()): Promise<void> {
 }
 
 describe('REQ-OPERATOR-004: GitHub restrictions before credentials', () => {
+  it('cancels the credentialed upstream request when the authorized caller deadline expires', async () => {
+    await connect('gho_operator');
+    const controller = new AbortController();
+    vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      controller.abort();
+      if (request.signal.aborted) throw new DOMException('Operation aborted', 'AbortError');
+      return new Response('should not be accepted', { status: 200 });
+    });
+    const response = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET,
+      operatorPolicy: operatorPolicy() }).fetch(new Request('https://api.github.com/repos/octo/allowed/releases/tags/v1.0.0',
+      { signal: controller.signal }));
+    expect(response.status).toBe(502);
+  });
+  it('stops an upstream response body when the authorized caller deadline expires', async () => {
+    await connect('gho_operator');
+    const deadline = new AbortController();
+    vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const forwarded = input as Request;
+      return new Response(new ReadableStream({ start(stream) {
+        forwarded.signal.addEventListener('abort', () => stream.error(new DOMException('Aborted', 'AbortError')));
+      } }));
+    });
+    const response = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET,
+      operatorPolicy: operatorPolicy() }).fetch(new Request('https://api.github.com/repos/octo/allowed/releases/tags/v1.0.0',
+      { signal: deadline.signal }));
+    deadline.abort();
+    await expect(response.text()).rejects.toThrow();
+  });
   it('denies an undeclared repository before token lookup or upstream forwarding', async () => {
     const res = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET, operatorPolicy: operatorPolicy() }).fetch(
       new Request('https://api.github.com/repos/octo/denied/issues'),

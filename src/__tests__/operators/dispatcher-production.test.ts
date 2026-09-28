@@ -39,6 +39,7 @@ async function fixture(test: (f: {
   files: (value: unknown[]) => void;
   release: (value: unknown, status?: number) => void;
   moveHeadAfterFiles: () => void;
+  moveHeadAfterRelease: () => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -64,6 +65,7 @@ async function fixture(test: (f: {
     let releaseStatus = 200;
     let headSha = 'b'.repeat(40);
     let moveAfterFiles = false;
+    let moveAfterRelease = false;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -88,7 +90,10 @@ async function fixture(test: (f: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
-          if (request.url.includes('/releases/tags/')) return Response.json(releaseBody, { status: releaseStatus });
+          if (request.url.includes('/releases/tags/')) {
+            if (moveAfterRelease) headSha = 'c'.repeat(40);
+            return Response.json(releaseBody, { status: releaseStatus });
+          }
           if (request.url.includes('/pulls/17/files')) {
             if (moveAfterFiles) headSha = 'c'.repeat(40);
             return Response.json(changedFiles);
@@ -145,6 +150,7 @@ async function fixture(test: (f: {
         messages: value => { messages = value; },
         files: value => { changedFiles = value; }, release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
+        moveHeadAfterRelease: () => { moveAfterRelease = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
@@ -189,7 +195,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(f.sent.map(r => r.url)).toEqual([
       'https://api.github.com/repos/owner/repo/pulls/17',
       'https://api.github.com/repos/owner/repo/pulls/17/files?per_page=100&page=1',
+      'https://api.github.com/repos/owner/repo/pulls/17',
       'https://api.github.com/repos/amir20/dozzle/releases/tags/v11.1.2',
+      'https://api.github.com/repos/owner/repo/pulls/17',
     ]);
     expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
   }));
@@ -217,6 +225,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await start(f); f.files(dozzleFiles()); f.moveHeadAfterFiles();
     expect((await f.capability.fetch(releaseRead())).status).toBe(409);
   }));
+  it('rejects release evidence when the PR head changes during the upstream read', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
   it.each([
     { files: [], name: 'no matching diff' },
     { files: [...dozzleFiles(), { filename: 'agent/compose.yaml', status: 'modified', additions: 1,
@@ -224,8 +236,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     { files: [{ ...dozzleFiles()[0], additions: 2,
       patch: `${dozzleFiles()[0].patch}\n+ image: amir20/dozzle:v11.1.3` }], name: 'mixed edits in one Compose patch' },
     { files: [{ ...dozzleFiles()[0], additions: 2 }], name: 'truncated Compose patch' },
-    { files: [{ filename: 'compose.yaml', patch: '- image: amir20/dozzle:v11.1.1\\n+ image: attacker/dozzle:v11.1.2' }], name: 'foreign image' },
-    { files: [...dozzleFiles(), { filename: 'other/compose.yaml',
+    { files: [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
+      patch: '- image: amir20/dozzle:v11.1.1\n+ image: attacker/dozzle:v11.1.2' }], name: 'foreign image' },
+    { files: [...dozzleFiles(), { filename: 'other/compose.yaml', status: 'modified', additions: 1, deletions: 1,
       patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.3' }], name: 'conflicting image tag' },
   ])('does not fetch upstream for $name', ({ files }) => fixture(async f => {
     await start(f); f.files(files);
