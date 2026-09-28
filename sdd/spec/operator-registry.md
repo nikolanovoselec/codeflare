@@ -302,9 +302,9 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment)
 
-**Verification:** Test-only RED and exact-head GREEN implementation are pending. Live Komodo #1299 assessment and any conditional effect remain separately gated.
+**Verification:** Test-only RED `8c4c6af0` failed the intended publisher and route cases in PR Checks `36432738228`. Final code head `7006520a9b00a8ee9982f287fda886d7ee0458c8` passed PR Checks `36436401592`, including backend publisher and route tests, node-native/Flue, Typecheck and aggregate. Test transports are synthetic; no live Komodo #1299 assessment, comment, approval, merge, activation or deployment occurred. The prospective post-cutoff scheduler remains separate.
 
-**Status:** Planned
+**Status:** Complete
 
 ---
 
