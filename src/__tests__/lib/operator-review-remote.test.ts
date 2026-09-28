@@ -17,6 +17,7 @@ function harness(result: unknown = published,
   const branch: Record<string, any>[] = [];
   const messages: Array<{ customType: string; content?: string; details?: Record<string, any> }> = [];
   let observedHead = head;
+  let sessionFile = '/owned/pi-session-1.jsonl';
   const pi = {
     on: (event: string, handler: (event: any, ctx: any) => Promise<void> | void) => {
       handlers.set(event, [...handlers.get(event) ?? [], handler]);
@@ -36,7 +37,7 @@ function harness(result: unknown = published,
       ? (result as (boundary: { head: string }, activityId: string) => unknown)(boundary, activityId) : result,
   });
   const ctx = { cwd: '/workspace/repo', sessionManager: { getBranch: () => branch,
-    getSessionFile: () => '/owned/pi-session-1.jsonl' } };
+    getSessionFile: () => sessionFile } };
   const reportCi = (reportHead = head, callId = 'ci-launch-1') => {
     branch.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: callId,
       name: 'subagent', arguments: { subagent_type: 'ci-monitor', run_in_background: true,
@@ -49,6 +50,7 @@ function harness(result: unknown = published,
         + `<result>CI_RESULT success\npr=42 head=${reportHead} repo=owner/repo</result>` });
   };
   return { messages, branch, reportCi, moveHead: (next: string) => { observedHead = next; },
+    moveSession: (next: string) => { sessionFile = next; },
     emit: async (type: string, data: Record<string, unknown> = {}) => {
     for (const handler of handlers.get(type) ?? []) await handler({ type, ...data }, ctx);
   } };
@@ -84,6 +86,29 @@ describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', (
       .toEqual({ mode: 'remote', activityId: 'activity-1' });
     expect(requests).toEqual(['1', 'check', 'check']);
   });
+  it('encodes one bounded rejection with its prior publication reference', async () => {
+    const nextHead = 'b'.repeat(40);
+    const rejected = [{ findingId: 'code-reviewer-guard', priorActivityId: 'activity-1',
+      priorRound: 3, priorHead: head, originalReportDigest: 'f'.repeat(64),
+      rationale: 'Existing guard applies', evidence: 'Caller checks authorization before write' }];
+    const submitted: any[] = [];
+    const runner = (async (_command: string, args: string[]) => {
+      const header = args.find(argument => argument.startsWith('x-codeflare-operator-boundary-input: '));
+      submitted.push(JSON.parse(Buffer.from(header!.split(': ')[1], 'base64').toString()));
+      return { stdout: 'HTTP/2 200\nx-codeflare-operator-boundary-selection: remote\n'
+        + 'x-codeflare-operator-boundary-activity: activity-2\n\n'
+        + JSON.stringify({ number: 42, head: { sha: nextHead } }) };
+    }) as never;
+    const boundary = { repository: 'owner/repo', repositoryId: 138, pullRequest: 42,
+      head: nextHead, repo: '/workspace/repo', rejectedFindings: rejected };
+    expect(await selectOperatorBoundary(boundary, false, runner)).toMatchObject({ mode: 'remote' });
+    expect(submitted[0]).toMatchObject({ acknowledgedHead: head, targetHead: nextHead,
+      payload: { rejectedFindings: [{ findingId: 'code-reviewer-guard',
+        priorActivityId: 'activity-1', priorHead: head, priorRound: 3,
+        originalReportDigest: 'f'.repeat(64), rationale: 'Existing guard applies',
+        evidence: 'Caller checks authorization before write' }] } });
+  });
+
   it('keeps accepted asynchronous preparation pending and wakes by read-only reconciliation', async () => {
     vi.useFakeTimers();
     try {
@@ -156,6 +181,51 @@ describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', (
     ]);
     await app.emit('agent_end');
     expect(app.messages).toHaveLength(3);
+  });
+
+  it.each([
+    ['same PR and session', 42, '/owned/pi-session-1.jsonl', true],
+    ['foreign PR', 43, '/owned/pi-session-1.jsonl', false],
+    ['foreign session', 42, '/owned/foreign-session.jsonl', false],
+  ] as const)('transmits only a matching published rejection on %s', async (_scenario, nextPr, nextSession, matches) => {
+    const submitted: any[] = [];
+    let activeHead = head;
+    let activePr = 42;
+    const app = harness(published, async (boundary, readOnly) => selectOperatorBoundary(boundary as never,
+      readOnly, (async (_program: string, args: string[]) => {
+        const header = args.find(argument => argument.startsWith('x-codeflare-operator-boundary-input: '));
+        submitted.push(JSON.parse(Buffer.from(header!.split(': ')[1], 'base64').toString()));
+        return { stdout: 'HTTP/2 200\nx-codeflare-operator-boundary-selection: remote\n'
+          + `x-codeflare-operator-boundary-activity: ${activeHead === head ? 'activity-1' : 'activity-2'}\n\n`
+          + JSON.stringify({ number: activePr, head: { sha: activeHead } }) };
+      }) as never), async currentHead => ({ repository: 'owner/repo', repositoryId: 138,
+      pullRequest: activePr, head: currentHead, repo: '/workspace/repo' }));
+    const push = { toolName: 'bash', input: { command: 'git push origin feature' },
+      result: { isError: false } };
+    await app.emit('tool_result', push);
+    app.reportCi();
+    await app.emit('agent_settled');
+    app.branch.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'text',
+      text: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n'
+        + '|---|---|---|---|---|\n'
+        + '| code-reviewer-guard | Rejected: guard already covers this path | No change | Existing caller check proves the guard runs first | Rejected |',
+    }] } });
+    await app.emit('agent_end');
+    const before = submitted.length;
+    activePr = nextPr;
+    activeHead = 'b'.repeat(40);
+    app.moveHead(activeHead);
+    app.moveSession(nextSession);
+    await app.emit('tool_result', push);
+    expect(submitted.length).toBeGreaterThan(before);
+    const next = submitted.at(-1);
+    expect(next).toMatchObject({ repositoryId: 138, pullRequest: nextPr, targetHead: activeHead });
+    if (matches) expect(next).toMatchObject({ acknowledgedHead: head,
+      payload: { rejectedFindings: [{ findingId: 'code-reviewer-guard',
+        priorActivityId: 'activity-1', priorRound: 3, priorHead: head,
+        originalReportDigest: 'f'.repeat(64), rationale: 'guard already covers this path',
+        evidence: 'Existing caller check proves the guard runs first' }] } });
+    else expect(next.payload?.rejectedFindings).toBeUndefined();
   });
 
   it('does not enter FIX when bounded evidence omits or truncates original findings', async () => {

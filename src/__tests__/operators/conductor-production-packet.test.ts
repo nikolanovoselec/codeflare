@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConductorProductionCapability } from '../../operators/conductor-production';
 
 const state = vi.hoisted(() => ({ current: true, stopAfterHost: false, stopAfterR2: false,
@@ -7,12 +7,15 @@ const state = vi.hoisted(() => ({ current: true, stopAfterHost: false, stopAfter
   hostCancelled: false, hostStarted: null as null | (() => void),
   hostRequests: [] as Array<{ path: string; authorization: string | null; body: Uint8Array }>,
   objects: new Map<string, Uint8Array>(), files: [] as unknown[], checkpoint: null as string | null,
-  resources: null as unknown }));
+  resources: null as unknown, published: true, omitted: 0, truncated: false }));
 const packet = new TextEncoder().encode(JSON.stringify({ scope: 'all', workSet: 'whole-requested-tree',
   lane: 'code-reviewer', files: [], changedInputs: [], patch: '',
   evidence: { lane: 'code-reviewer', callSites: [], anchorsCitingChanged: [] } }));
 const head = 'a'.repeat(40), contextDigest = 'b'.repeat(64);
 const activityId = 'activity-packet';
+const rejectedFinding = { findingId: 'finding-one', priorActivityId: 'prior-activity',
+  priorRound: 1, priorHead: 'f'.repeat(40), originalReportDigest: 'd'.repeat(64),
+  rationale: 'Existing guard', evidence: 'Guard precedes write' };
 const guard = { claimed: true, repositoryId: 138, pullRequest: 34, head, base: 'c'.repeat(40),
   mergeBase: 'd'.repeat(40), contextDigest, runId: 87, runAttempt: 1, generation: 1,
   workflowSha: 'e'.repeat(40),
@@ -51,6 +54,15 @@ vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: 
   r2AccessKeyId: 'scoped-id', r2SecretAccessKey: 'scoped-secret', r2Endpoint: 'https://r2.example.test',
 } }) }));
 vi.mock('../../operators/approved-git-pack', () => ({ fetchApprovedGitPack: async () => new TextEncoder().encode('PACK-data') }));
+vi.mock('../../operators/review-history-transport', async importOriginal => ({
+  ...await importOriginal<typeof import('../../operators/review-history-transport')>(),
+  readPublishedReview: async () => state.published ? { status: 'published', repositoryId: 138,
+    pullRequest: 34, activityId: 'prior-activity', head: 'f'.repeat(40), round: 1,
+    artifactDigest: 'd'.repeat(64), omittedFindings: state.omitted,
+    findings: [{ id: 'finding-one', lane: 'code-reviewer', severity: 'HIGH', path: 'src/file.ts',
+      line: 1, message: 'Bypass', evidence: state.truncated ? 'Caller missing [truncated]' : 'Caller missing guard' }] }
+    : { status: 'unavailable' },
+}));
 vi.mock('../../operators/review-boundary-claim', () => ({
   verifyCurrentClaimedBoundaryPacket: async () => state.current,
 }));
@@ -80,12 +92,13 @@ vi.mock('../../operators/owned-session-production', () => ({
   operatorActivitySessionStore: () => ({}), createOperatorSyncReader: async () => async () => null,
 }));
 
-async function capability(driveDeadline = Date.now() + 25_000) {
+async function capability(driveDeadline = Date.now() + 25_000, evidence?: unknown) {
   const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
     activityId, operatorId: 'review-operator', runId: activityId,
     source: { kind: 'session', reference: 'owner/repo' },
     revision: { reference: head, digest: contextDigest }, inputDigest: 'f'.repeat(64),
-    input: { acknowledgedHead: null }, attachments: [],
+    input: { acknowledgedHead: evidence ? 'f'.repeat(40) : null,
+      ...(evidence ? { evidence } : {}) }, attachments: [],
     resources: { inference: { routeId: 'provider-default', reasoningLevel: null },
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
   const activity = {
@@ -116,6 +129,46 @@ const prepare = (owner: Fetcher) => owner.fetch(new Request('https://operator.in
 }));
 
 describe('REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary Host and sealed storage', () => {
+  beforeEach(() => { state.omitted = 0; state.truncated = false; });
+  it('puts an independently authenticated prior finding in the actor-bound approved packet', async () => {
+    state.current = true; state.ownedSession = false; state.files = []; state.objects.clear();
+    state.published = true;
+    const owner = await capability(Date.now() + 25_000, { rejectedFindings: [rejectedFinding] });
+    const response = await prepare(owner);
+    expect(response.status).toBe(200);
+    const value = await response.json() as { bytes: string };
+    const approved = JSON.parse(Buffer.from(value.bytes, 'base64').toString());
+    expect(approved.evidence.rejectedFindings).toEqual([rejectedFinding]);
+    state.files = []; state.objects.clear(); state.published = false;
+    const denied = await capability(Date.now() + 25_000, { rejectedFindings: [rejectedFinding] });
+    expect((await prepare(denied)).status).toBe(403);
+    expect(state.files).toEqual([]);
+  });
+  it('withholds truncated or omitted original evidence from the next reviewer packet', async () => {
+    for (const flags of [{ omitted: 1, truncated: false }, { omitted: 0, truncated: true }]) {
+      state.current = true; state.ownedSession = false; state.files = []; state.objects.clear();
+      state.published = true; Object.assign(state, flags);
+      const owner = await capability(Date.now() + 25_000, { rejectedFindings: [rejectedFinding] });
+      expect((await prepare(owner)).status).toBe(403);
+      expect(state.files).toEqual([]);
+    }
+    state.omitted = 0; state.truncated = false;
+  });
+  it('rejects mismatched publication references and extraneous authority fields before sealing', async () => {
+    for (const forged of [
+      { findingId: 'foreign' }, { originalReportDigest: 'e'.repeat(64) },
+      { priorActivityId: 'foreign-activity' }, { priorHead: 'e'.repeat(40) },
+      { priorRound: 2 }, { repository: 'other/repo' }, { repositoryId: 139 },
+      { pullRequest: 35 }, { actorSubject: 'someone-else' },
+    ]) {
+      state.current = true; state.ownedSession = false; state.published = true;
+      state.files = []; state.objects.clear();
+      const owner = await capability(Date.now() + 25_000,
+        { rejectedFindings: [{ ...rejectedFinding, ...forged }] });
+      expect((await prepare(owner)).status).toBe(403);
+      expect(state.files).toEqual([]);
+    }
+  });
   it('sends inert pack bytes without GitHub authority, verifies storage and exposes the accepted descriptor', async () => {
     state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false; state.ownedSession = false;
     state.reserveDuringHost = false;
