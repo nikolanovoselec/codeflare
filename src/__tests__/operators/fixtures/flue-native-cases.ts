@@ -176,6 +176,30 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
+    it('carries a cited release receipt through the pinned compiled Dispatcher and parent read bridge', async () => {
+      const { id } = await prepare();
+      const head = 'b'.repeat(40);
+      const evidence = {
+        'pull-request': { head: { sha: head }, user: { login: 'renovate[bot]' } },
+        files: { observedHead: head, truncated: false, data: [{ filename: 'middleware/dozzle/compose.yaml',
+          status: 'modified', additions: 1, deletions: 1,
+          patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2' }] },
+        checks: { observedHead: head, truncated: false, data: { check_runs: [] } },
+        'release-notes': { observedHead: head, repository: 'amir20/dozzle', tag: 'v11.1.2',
+          source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2', body: 'No migration steps for this release.' },
+      };
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id,
+        { action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 }, productionEvidence: evidence });
+      expect(admission.status).toBe(202);
+      const value = await settle(id, admission.body.submissionId);
+      expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
+        readOnly: true, evidence: { upstream: evidence['release-notes'], stale: false, truncated: false } });
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource))
+        .toEqual(['pull-request', 'files', 'checks', 'release-notes']);
+      expect(value.external).toEqual([]);
+      expect(value.activity.sessionId).toBeNull();
+    });
+
     it('keeps a denied parent read attributable without a conflicting model retry', async () => {
       const { id } = await prepare();
       const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
