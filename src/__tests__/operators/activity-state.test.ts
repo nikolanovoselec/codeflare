@@ -65,6 +65,61 @@ function ownedSessionFixture() {
 }
 
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
+  it('REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates', async () => withActivity(async ({ activity, ctx }) => {
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    expect(admission).toBeTruthy();
+    await ctx.storage.put('admission', { ...admission, boundary: { repositoryId: 123, pullRequest: 42,
+      contextDigest: 'd'.repeat(64), session: { bucket: 'owner-bucket', sessionId: 'session-1', generation: 1 } },
+      receipt: { ...admission!.receipt, manifestJson: JSON.stringify({ name: 'Trusted Reviewer' }) },
+      invocationJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+        consumerId: 'boundary-reviews', input: { context: { repositoryId: 123, pullRequest: 42,
+          head: 'a'.repeat(40), base: 'b'.repeat(40), mergeBase: 'c'.repeat(40) } },
+        source: { kind: 'session', reference: 'owner/repo' }, accessToken: 'secret-token', notes: 'private notes' }),
+      drive: { generation: 1, status: 'waiting', checkpoint: { stage: 'checking' }, result: null } });
+    const detail = await activity.getBrowserDetail();
+    expect(detail).toMatchObject({ operatorName: 'Trusted Reviewer', context: 'owner/repo · PR #42',
+      progress: 'checking' });
+    expect(JSON.stringify(detail)).not.toContain('secret-token');
+    expect(JSON.stringify(detail)).not.toContain('private notes');
+  }));
+
+  it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {
+    const owner = 'c'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'older-still-working' });
+    for (let i = 1; i <= 100; i++) await registry.upsertOwnedActivity(owner,
+      { ...base, activityId: `finished-${i}`, executionStatus: 'completed' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(1);
+    await registry.upsertOwnedActivity(owner,
+      { ...base, activityId: 'older-still-working', executionStatus: 'completed' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(0);
+  }));
+
+  it('REQ-OPERATOR-027: retains only 100 owner entries and pages by last seen ID across a new arrival and status update', async () => withActivity(async ({ registry }) => {
+    const owner = 'a'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    for (let i = 1; i <= 103; i++) await registry.upsertOwnedActivity(owner, { ...base, activityId: `run-${i}` });
+    const page = await registry.listOwnedActivityPage(owner, null);
+    expect(page.items.map(item => item.activityId)).toEqual(['run-103', 'run-102', 'run-101', 'run-100', 'run-99']);
+    expect(page.workingCount).toBe(103);
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'run-102', executionStatus: 'completed' });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'run-98', executionStatus: 'completed' });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'run-104' });
+    const older = await registry.listOwnedActivityPage(owner, page.nextCursor);
+    expect(older.items.map(item => item.activityId)).toEqual(['run-98', 'run-97', 'run-96', 'run-95', 'run-94']);
+    expect(older.workingCount).toBe(102);
+    let cursor = older.nextCursor;
+    let last = older;
+    while (cursor) { last = await registry.listOwnedActivityPage(owner, cursor); cursor = last.nextCursor; }
+    expect(last.items.at(-1)?.activityId).toBe('run-5');
+    await registry.upsertOwnedActivity('b'.repeat(64), { ...base, activityId: 'other-owner' });
+    expect((await registry.listOwnedActivityPage('b'.repeat(64), null)).items.map(item => item.activityId)).toEqual(['other-owner']);
+    await expect(registry.listOwnedActivityPage('b'.repeat(64), page.nextCursor)).rejects.toThrow('Activity history changed');
+    await expect(registry.listOwnedActivityPage(owner, 'run-4')).rejects.toThrow('Activity history changed');
+  }));
+
   it('exposes the production activity namespace and reconstructs a safe empty projection', async () => {
     const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace<OperatorActivity> }).OPERATOR_ACTIVITY;
     expect(namespace).toBeDefined();

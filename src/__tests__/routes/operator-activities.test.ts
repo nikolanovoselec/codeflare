@@ -41,6 +41,9 @@ function fixture() {
   };
   const registry = {
     listOwnedActivities: vi.fn(async () => [summary]),
+    listOwnedActivityPage: vi.fn(async (_owner: string, _cursor: string | null): Promise<{
+      items: typeof summary[]; nextCursor: string | null; workingCount: number }> =>
+      ({ items: [summary], nextCursor: null, workingCount: 1 })),
     getOwnedActivity: vi.fn(async (_ownerId: string, activityId: string) => activityId === summary.activityId ? summary : null),
     resolveManagementExecution: vi.fn(async (_id: string): Promise<unknown> => ({ ok: false, reason: 'not-found' })),
   };
@@ -125,6 +128,56 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(orchestration.prepare).not.toHaveBeenCalled();
     expect(orchestration.run).not.toHaveBeenCalled();
     expect(waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID', async () => {
+    const { request, registry, activity } = fixture();
+    registry.getOwnedActivity.mockResolvedValue(null);
+    const denied = await request('/activity-1/result');
+    expect(denied.status).toBe(404);
+    expect(activity.getBrowserDetail).not.toHaveBeenCalled();
+    expect(activity.collectBrowserResult).not.toHaveBeenCalled();
+  });
+
+  it('REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor', async () => {
+    const { request, registry } = fixture();
+    registry.listOwnedActivityPage.mockImplementation(async (_owner: string, cursor: string | null) => ({
+      items: cursor ? [{ ...summary, activityId: 'activity-6' }] : Array.from({ length: 5 }, (_, i) =>
+        ({ ...summary, activityId: `activity-${i + 1}` })), nextCursor: cursor ? null : 'activity-5', workingCount: 92 }));
+    const first = await request('?limit=5');
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ nextCursor: 'activity-5', workingCount: 92,
+      items: [{ activityId: 'activity-1' }, { activityId: 'activity-2' }] });
+    const next = await request('?limit=5&after=activity-5');
+    expect(await next.json()).toMatchObject({ items: [{ activityId: 'activity-6' }], workingCount: 92 });
+    expect(registry.listOwnedActivityPage).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/), 'activity-5');
+    expect((await request('?limit=5&after=invalid%20cursor')).status).toBe(400);
+    registry.listOwnedActivityPage.mockRejectedValueOnce(new Error('Activity history changed'));
+    const stale = await request('?limit=5&after=activity-5');
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: 'HISTORY_CHANGED' });
+    expect((await request('?limit=6')).status).toBe(400);
+  });
+
+  it('REQ-OPERATOR-041: browser GET preserves original Review reports and settled Dispatcher assessment without collection', async () => {
+    const { request, activity } = fixture();
+    const review = { schemaVersion: 1, activityId: 'activity-1', activityGeneration: 1, generation: 1,
+      repositoryId: 138, pullRequest: 34, status: 'incomplete', cleanup: 'stopped',
+      originalReports: [{ lane: 'code-reviewer', findings: [{ id: 'unresolved', message: 'Still open' }] }],
+      history: { clear: false }, presentation: { check: { conclusion: 'failure', summary: 'Review findings' } } };
+    activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'completed',
+      checkpoint: null, result: review });
+    const first = await request('/activity-1/result');
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ result: { originalReports: review.originalReports,
+      presentation: { check: { conclusion: 'failure' } } } });
+    const assessment = { repository: 'owner/repo', pullRequest: 17, readOnly: true,
+      evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' } };
+    activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'completed',
+      checkpoint: null, result: assessment });
+    const second = await request('/activity-1/result');
+    expect(await second.json()).toMatchObject({ result: assessment });
+    expect(activity.collectBrowserResult).not.toHaveBeenCalled();
   });
 
   it('does not expose the retired failed-submission diagnostic', async () => {

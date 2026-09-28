@@ -95,6 +95,45 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(screen.queryByRole('button', { name: 'Manage Renovate Manager' })).not.toBeInTheDocument();
   });
 
+  it('REQ-OPERATOR-049: carries a user-chosen editable repository and PR to the guided Dispatcher form without preparing activity', async () => {
+    const dispatcher = { ...operator, name: 'Renovate Dispatcher', profile: 'dispatcher',
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
+    let preparations = 0;
+    serve = (url, init) => {
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations++;
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true });
+      if (url.pathname.endsWith('/operator-1')) return json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } });
+      return json({ items: [dispatcher], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
+    await screen.findByRole('region', { name: 'Installed version' });
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository to assess' }), { target: { value: 'selected/repository' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request to assess' }), { target: { value: '1299' } });
+    fireEvent.click(screen.getByRole('link', { name: 'Assess a pull request' }));
+    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('selected/repository');
+    expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(1299);
+    expect(preparations).toBe(0);
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'changed/repository' } });
+    expect(screen.getByRole('textbox', { name: 'Repository' })).toHaveValue('changed/repository');
+    expect(preparations).toBe(0);
+  });
+
+  it('REQ-OPERATOR-049: never supplies a universal repository or PR when no target was selected', async () => {
+    const dispatcher = { ...operator, name: 'Renovate Dispatcher', profile: 'dispatcher',
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
+    serve = url => url.pathname.endsWith('/operator-1')
+      ? json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true })
+      : json({ items: [dispatcher], cursor: null });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
+    await screen.findByRole('region', { name: 'Installed version' });
+    fireEvent.click(screen.getByRole('link', { name: 'Assess a pull request' }));
+    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('');
+    expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(null);
+  });
+
   it('refreshes verified metadata for an older installed pin without changing its enablement', async () => {
     const old = { ...release, tagName: undefined, publishedAt: undefined };
     let refreshed = false;
