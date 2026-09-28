@@ -38,6 +38,7 @@ async function fixture(test: (f: {
   messages: (value: unknown[]) => void;
   files: (value: unknown[]) => void;
   release: (value: unknown, status?: number) => void;
+  moveHeadAfterFiles: () => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -61,6 +62,8 @@ async function fixture(test: (f: {
     let changedFiles: unknown[] = [];
     let releaseBody: unknown = { tag_name: 'v11.1.2', body: 'No configuration changes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' };
     let releaseStatus = 200;
+    let headSha = 'b'.repeat(40);
+    let moveAfterFiles = false;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -86,7 +89,10 @@ async function fixture(test: (f: {
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
           if (request.url.includes('/releases/tags/')) return Response.json(releaseBody, { status: releaseStatus });
-          if (request.url.includes('/pulls/17/files')) return Response.json(changedFiles);
+          if (request.url.includes('/pulls/17/files')) {
+            if (moveAfterFiles) headSha = 'c'.repeat(40);
+            return Response.json(changedFiles);
+          }
           const checks = oversizedChecks;
           if (checks && request.url.includes('/check-runs?')) {
             const url = new URL(request.url);
@@ -101,7 +107,7 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
+          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: headSha } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
@@ -138,6 +144,7 @@ async function fixture(test: (f: {
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
         messages: value => { messages = value; },
         files: value => { changedFiles = value; }, release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
+        moveHeadAfterFiles: () => { moveAfterFiles = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
@@ -158,8 +165,9 @@ function releaseRead(operationId = 'release-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'release-notes', ...extra }) });
 }
-function dozzleFiles() {
-  return [{ filename: 'compose.yaml', status: 'modified', patch: '-    image: amir20/dozzle:v11.1.1\n+    image: amir20/dozzle:v11.1.2' }];
+function dozzleFiles(before = 'v11.1.1', after = 'v11.1.2') {
+  return [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
+    patch: `-    image: amir20/dozzle:${before}\n+    image: amir20/dozzle:${after}` }];
 }
 function read(operationId = 'read-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
@@ -196,8 +204,26 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(await response.json()).toMatchObject({ tag: 'v11.1.2', repository: 'amir20/dozzle',
       observedHead: 'b'.repeat(40) });
   }));
+  it('derives a later eligible upstream release from the admitted PR rather than hardcoding #1299', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles('v11.1.2', 'v11.1.3'));
+    f.release({ tag_name: 'v11.1.3', body: 'New migration notes',
+      html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3' });
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ tag: 'v11.1.3', body: 'New migration notes',
+      source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3', observedHead: 'b'.repeat(40) });
+  }));
+  it('rejects release evidence when the PR head changes after the files read', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveHeadAfterFiles();
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
   it.each([
     { files: [], name: 'no matching diff' },
+    { files: [...dozzleFiles(), { filename: 'agent/compose.yaml', status: 'modified', additions: 1,
+      deletions: 1 }], name: 'unavailable Compose patch' },
+    { files: [{ ...dozzleFiles()[0], additions: 2,
+      patch: `${dozzleFiles()[0].patch}\n+ image: amir20/dozzle:v11.1.3` }], name: 'mixed edits in one Compose patch' },
+    { files: [{ ...dozzleFiles()[0], additions: 2 }], name: 'truncated Compose patch' },
     { files: [{ filename: 'compose.yaml', patch: '- image: amir20/dozzle:v11.1.1\\n+ image: attacker/dozzle:v11.1.2' }], name: 'foreign image' },
     { files: [...dozzleFiles(), { filename: 'other/compose.yaml',
       patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.3' }], name: 'conflicting image tag' },
