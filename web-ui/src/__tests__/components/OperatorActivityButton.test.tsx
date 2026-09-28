@@ -16,7 +16,7 @@ vi.mock('../../api/operator-activities', () => ({
   getOperatorActivity: (...args: unknown[]) => detailMock(...args),
   acknowledgeOperatorActivities: (through: number) => readMock(through),
 }));
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); detailMock.mockReset(); });
 
 const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'running' as const,
   cleanupStatus: 'pending' as const, collectionStatus: 'unavailable' as const,
@@ -446,7 +446,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
     await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
-    await waitFor(() => expect(screen.getByText(/Agent configuration change could not be established/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/agent configuration change could not be established/i)).toBeTruthy());
     expect(screen.getByText(/Upstream migration guidance is inconclusive/)).toBeTruthy();
     expect(screen.getByText(/Agent command not verified/)).toBeTruthy();
     expect(screen.getByText(/Start the agent with its agent command/)).toBeTruthy();
@@ -457,6 +457,38 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await waitFor(() => expect(screen.getByText(/documented default configuration remains compatible/)).toBeTruthy());
     expect(screen.getByText(/not merge authorization/i)).toBeTruthy();
     expect(screen.queryByText(/do-not-render/)).toBeNull();
+  });
+
+  it('REQ-OPERATOR-057: distinguishes unsafe assessment and refuses malformed or unreadable evidence', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValueOnce({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { assessment: { classification: 'unsafe', compatibility: 'Agent command requires migration.',
+        reasons: ['Breaking command change'], gaps: ['New configuration not verified'],
+        checks: { state: 'failing' }, citations: [{ kind: 'guide', source: 'source', quote: 'secret\u0000content' }] } } })
+      .mockResolvedValueOnce({ ...active, executionStatus: 'completed', checkpoint: null,
+        result: { assessment: { classification: 'safe', compatibility: 'Unsubstantiated',
+          reasons: ['x'.repeat(1001)], gaps: [], checks: { state: 'passing' },
+          citations: [{ kind: 'release', source: 'source', quote: 'Bad\u0000citation' }] } } })
+      .mockResolvedValueOnce({ ...active, executionStatus: 'completed', checkpoint: null,
+        result: { assessment: { classification: ['safe'], compatibility: 'Not independently safe',
+          reasons: ['No evidence'], gaps: [], checks: { state: 'passing' }, citations: [] } } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText(/Agent command requires migration/)).toBeTruthy());
+    expect(screen.getByText(/Compatibility: unsafe/i)).toBeTruthy();
+    expect(screen.getByText(/Breaking command change/)).toBeTruthy();
+    expect(screen.getByText(/New configuration not verified/)).toBeTruthy();
+    expect(screen.queryByText(/secret.*content/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText(/Result format unavailable/)).toBeTruthy());
+    expect(screen.queryByText(/Unsubstantiated|Bad.*citation/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText(/Result format unavailable/)).toBeTruthy());
+    expect(screen.queryByText(/Not independently safe|Compatibility: SAFE/)).toBeNull();
   });
 
   it('REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes', async () => {

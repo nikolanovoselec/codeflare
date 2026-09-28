@@ -48,6 +48,48 @@ function resultView(result: unknown) {
       <Show when={readable(data.cleanup)}>{text => <p>Reported cleanup: {text()}</p>}</Show>
     </div>;
   }
+  // The compiled Dispatcher keeps its compatibility decision inside assessment;
+  // its older read-only evidence projection is handled separately below.
+  const assessment = record(data.assessment);
+  if (assessment) {
+    const classification = assessment.classification;
+    const compatibility = readable(assessment.compatibility);
+    const reasons = assessment.reasons;
+    const gaps = assessment.gaps;
+    const citations = assessment.citations;
+    if (typeof classification !== 'string' || !['safe', 'unsafe', 'unknown'].includes(classification) || !compatibility
+      || !Array.isArray(reasons) || reasons.length < 1 || reasons.length > 5
+      || reasons.some(reason => !readable(reason)) || !Array.isArray(gaps) || gaps.length > 10
+      || gaps.some(gap => !readable(gap)) || !Array.isArray(citations) || citations.length > 42) {
+      return <p>Result format unavailable. Check the activity status before acting.</p>;
+    }
+    const checks = record(assessment.checks);
+    return <div class="operator-activity-reports">
+      <h5>Dispatcher assessment</h5>
+      <Show when={readable(data.repository) && typeof data.pullRequest === 'number'
+        && Number.isSafeInteger(data.pullRequest) && data.pullRequest > 0}>
+        <p>{readable(data.repository)} · PR #{String(data.pullRequest)}</p>
+      </Show>
+      <p>Compatibility: {String(classification).toUpperCase()}</p>
+      <p>{compatibility}</p>
+      <For each={reasons}>{reason => <p>Reason: {readable(reason) || unavailableEvidence}</p>}</For>
+      <For each={gaps}>{gap => <p>Unresolved: {readable(gap) || unavailableEvidence}</p>}</For>
+      <Show when={checks && ['passing', 'failing', 'pending', 'unconfigured', 'unavailable'].includes(String(checks.state))}>
+        <p>Checks {String(checks?.state)}</p>
+      </Show>
+      <For each={citations}>{citation => {
+        const item = record(citation);
+        if (!item || !['release', 'guide', 'config'].includes(String(item.kind))) {
+          return <p>Evidence: {unavailableEvidence}</p>;
+        }
+        const source = item.kind === 'config' ? readable(item.ref) : readable(item.source);
+        const quote = item.kind === 'config' ? null : readable(item.quote);
+        return <p>Evidence ({String(item.kind)}): {source || unavailableEvidence}
+          <Show when={item.kind !== 'config'}> · {quote || unavailableEvidence}</Show></p>;
+      }}</For>
+      <p>Compatibility assessment only — not merge authorization.</p>
+    </div>;
+  }
   if (record(data.evidence) || readable(data.summary) || readable(data.verdict) || readable(data.decision)) {
     const evidence = record(data.evidence);
     return <div class="operator-activity-reports">
