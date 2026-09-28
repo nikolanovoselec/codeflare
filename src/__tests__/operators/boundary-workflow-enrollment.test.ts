@@ -40,7 +40,7 @@ function githubFixture() {
     branch: false, branchSha: head, pr: false, writeDenied: false, revokeDuringWrite: false,
     runtimeEmpty: false,
     loseBranchResponse: false, loseContentResponse: false, losePrResponse: false,
-    sdd: true, protected: true, permission: 'admin', changedDuringWrite: false };
+    sdd: true, protected: true, permission: 'admin', changedDuringWrite: false, unrelatedBranchFile: false };
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init);
     const url = new URL(req.url);
@@ -76,7 +76,9 @@ function githubFixture() {
         object: { sha: state.branchSha } }) : new Response('', { status: 404 });
     }
     if (path.startsWith(`${root}/compare/${head}...`) && req.method === 'GET') {
-      return Response.json({ merge_base_commit: { sha: head } });
+      return Response.json({ merge_base_commit: { sha: head },
+        files: [{ filename: workflowPath, status: 'added' },
+          ...(state.unrelatedBranchFile ? [{ filename: 'src/unrelated.ts', status: 'modified' }] : [])] });
     }
     if (req.method === 'PUT' && state.writeDenied) return new Response('Workflow write denied', { status: 403 });
     if (path === `${root}/contents/${workflowPath}` && req.method === 'PUT') {
@@ -245,6 +247,19 @@ describe('REQ-OPERATOR-053/054: protected Review enrollment and dormant trust', 
     expect(github.state.pr).toBe(false);
     expect(await registry.getBoundaryAction(repoId, 'refs/heads/main')).toBeNull();
     actor.expired = false;
+  }));
+
+  it('rejects a pinned runtime that has named jobs but cannot execute collection or publication', () => withEnrollment(async ({ request, registry, github }) => {
+    expect((await request('/boundary-actions/propose', 'POST', target)).status).toBe(409);
+    expect(github.state.branch).toBe(false);
+    expect(await registry.getBoundaryAction(repoId, 'refs/heads/main')).toBeNull();
+  }));
+
+  it('refuses to propose an existing branch containing unrelated changes', () => withEnrollment(async ({ request, github }) => {
+    expect((await request('/boundary-actions/propose', 'POST', target)).status).toBe(202);
+    github.state.unrelatedBranchFile = true;
+    expect((await request('/boundary-actions/propose', 'POST', target)).status).toBe(409);
+    expect(github.state.pr).toBe(true);
   }));
 
   it('rejects a pinned but unusable empty reusable workflow before any target write', () => withEnrollment(async ({ request, registry, github }) => {
