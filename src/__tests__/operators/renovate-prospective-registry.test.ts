@@ -4,6 +4,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 
@@ -97,6 +98,10 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
     }
     expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt)))
       .toMatchObject({ ok: true, activityId: 'activity-1' });
+    expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
+      { pullRequest: 1301 }))).ok).toBe(false);
+    expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
+      { pullRequest: 1301, activityId: 'activity-2' }))).toMatchObject({ ok: true, activityId: 'activity-2' });
   }));
 
   it('atomically elects one current administrator across competing reservations, reconstructed readers and lost responses', () => fixture(async ({ registry, restart, state }) => {
@@ -158,6 +163,45 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
     expect(await activity.getRuntimePlan()).toBeNull();
     expect(await activity.start(token)).toMatchObject({ ok: false });
     expect(await activity.getRuntimePlan()).toBeNull();
+  }));
+
+  it('fences Activity-bound read/inference authority of an admitted prospective Dispatcher when its admin session ends', () => fixture(async ({ registry, state, native, environment, selection }) => {
+    const activation = await enroll(registry, 'a');
+    if (!activation.ok) throw Error('Activation unavailable');
+    const reservation = await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt));
+    if (!reservation.ok) throw Error('Admission unavailable');
+    const human = claims('a@example.test');
+    const context = await createOperatorExecutionContext({ activityId: reservation.activityId,
+      operatorId: 'dispatcher', artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64),
+      human, accessJwt: 'a-jwt' }, environment);
+    const selected = selection as { installation: { id: string } };
+    const plan = { activityId: reservation.activityId, prospectiveAdmissionId: reservation.activityId,
+      deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'nikolanovoselec/komodo', pullRequest: 1300 }),
+      receipt: { selection: { ...selection as object }, installationId: selected.installation.id }, executionContext: context };
+    const host = { ...environment, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env;
+    await expect(authorizeDispatcherPlan(plan as never, host)).resolves.toBeDefined();
+    const activity = new OperatorActivity(native, host);
+    const intent = { activityId: reservation.activityId, operatorId: 'dispatcher',
+      installationId: 'dispatcher-install', deadline: plan.deadline, intentDigest: 'd'.repeat(64) };
+    await native.storage.put('admission', { intent, phase: 'queued', receipt: { ...intent, selection },
+      executionContext: context, invocationJson: plan.invocationJson, drive: { generation: 1, status: 'running' } });
+    await native.storage.put('prospective-admission', reservation.activityId);
+    await native.storage.put('dispatcher:lease', { generation: 1, artifactDigest: context.artifactDigest,
+      inputDigest: intent.intentDigest, expiresAt: plan.deadline, submissionId: 'submission-1', status: 'running' });
+    expect(await activity.dispatcherGenerationCurrent(1)).toBe(true);
+    state.sessions.set('asession01', { generation: 3, status: 'stopping' });
+    expect(await activity.dispatcherGenerationCurrent(1)).toBe(false);
+    const read = new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'read-1', resource: 'pull-request' }) });
+    expect((await activity.dispatcherOperation(1, read)).status).toBe(403);
+    state.sessions.set('asession01', { generation: 3, status: 'running' });
+    state.revoked.add('a-jwt');
+    expect(await activity.dispatcherGenerationCurrent(1)).toBe(false);
+    const inference = new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'inference-1', input: { messages: [{ role: 'user', content: 'Hi' }] } }) });
+    expect((await activity.dispatcherOperation(1, inference)).status).toBe(403);
   }));
 
   it('fences stopped, expired, logged-out, revoked, disabled and foreign registrations before new PR admission', () => fixture(async ({ registry, state }) => {

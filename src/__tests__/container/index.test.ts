@@ -86,6 +86,7 @@ vi.mock('@cloudflare/containers', () => ({
       return { taskId: 'mock-schedule', callback: method, payload: '', type: 'delayed' as const,
         time: Math.floor(Date.now() / 1000) + seconds, delayInSeconds: seconds };
     }
+    async listSchedules(_method: string): Promise<unknown[]> { return []; }
     deleteSchedules(_method: string): void {}
     renewActivityTimeout(): void {}
     async stop(_signal: string): Promise<void> {}
@@ -172,15 +173,61 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   });
 
+  it('REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback', async () => {
+    const saved = new Map<string, unknown>();
+    mockStorage.get.mockImplementation(async (key: string) => saved.get(key));
+    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { saved.set(key, value); });
+    mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
+      name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
+    mockEnv.OPERATOR_ACTIVITY = {};
+    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+      currentProspectiveRenovateRegistration: async () => ({ installationId: 'dispatcher-install',
+        registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 }),
+    }) };
+    const instance = new ContainerClass(mockCtx as any, mockEnv);
+    const scheduled: Array<{ callback: string; due: number }> = [];
+    vi.spyOn(instance, 'listSchedules').mockImplementation(async () => scheduled as never);
+    vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, callback) => {
+      scheduled.push({ callback, due: Date.now() + 3_600_000 });
+      throw Error('Scheduler accepted callback but response was lost');
+    });
+    const binding = { registrationId: 'registered-admin', installationId: 'dispatcher-install',
+      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+    await expect(instance.armRenovateScan(binding)).rejects.toThrow();
+    const retries = await Promise.all([instance.armRenovateScan(binding), instance.armRenovateScan(binding)]);
+    expect(retries).toEqual([{ ok: true }, { ok: true }]);
+    expect(scheduled).toEqual([{ callback: 'scanRenovate', due: expect.any(Number) }]);
+    // Overlapping first-time activation requests start with no persisted row.
+    const fresh = new ContainerClass(mockCtx as any, mockEnv);
+    const initiallyEmpty: Array<{ callback: string; due: number }> = [];
+    vi.spyOn(fresh, 'listSchedules').mockImplementation(async () => initiallyEmpty as never);
+    vi.spyOn(fresh, 'schedule').mockImplementation(async (_delay, callback) => {
+      await Promise.resolve();
+      initiallyEmpty.push({ callback, due: Date.now() + 3_600_000 });
+      return { taskId: 'future', callback, payload: '', type: 'delayed',
+        time: Math.floor(Date.now() / 1000) + 3600, delayInSeconds: 3600 };
+    });
+    expect(await Promise.all([fresh.armRenovateScan(binding), fresh.armRenovateScan(binding)]))
+      .toEqual([{ ok: true }, { ok: true }]);
+    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number) }]);
+    // SDK still exposes its due row during the callback and deletes it afterward.
+    await fresh.scanRenovate();
+    initiallyEmpty.shift(); // SDK deletion of the previously due row.
+    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number) }]);
+  });
+
   it('REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages', async () => {
     const stored = new Map<string, unknown>();
     mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
     mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
     const activatedAt = '2026-09-28T00:00:00.000Z';
     const seen: Array<{ pullRequest: number; activityId: string }> = [];
+    let reservedActivityId: string | undefined;
+    const unauthorizedEffects: string[] = [];
     const reserve = async (input: { pullRequest: number; activityId: string; createdAt: string }) => {
       seen.push({ pullRequest: input.pullRequest, activityId: input.activityId });
-      return { ok: input.pullRequest === 1302, activityId: input.activityId,
+      if (input.pullRequest === 1302) reservedActivityId ??= input.activityId;
+      return { ok: input.pullRequest === 1302, activityId: reservedActivityId ?? input.activityId,
         actor: { registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 } };
     };
     mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
@@ -192,10 +239,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           audiences: ['audience'], expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
       reserveProspectiveRenovateActivity: reserve,
     }) };
-    mockEnv.OPERATOR_ACTIVITY = { getByName: () => ({
-      start: async () => ({ ok: false, reason: 'admission-uncertain' }),
-      ownsPrepared: async () => true,
-    }) };
+    mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+      if (id !== reservedActivityId) throw Error('Uncertain admission identity changed');
+      return { bindProspectiveRenovateAdmission: async () => true,
+        getBrowserDetail: async () => ({ executionStatus: 'queued' }),
+        getRuntimePlan: async () => null,
+        publishRenovateAssessment: async () => { unauthorizedEffects.push('publication'); },
+      };
+    } };
     (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
       const url = new URL(request.url), page = Number(url.searchParams.get('page'));
       if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
@@ -210,7 +261,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }]
         : [{ number: 1303, created_at: '2026-09-28T00:00:00.002Z', state: 'open',
           user: { id: 1, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'd'.repeat(40) },
-          base: { ref: 'main', sha: 'b'.repeat(40) } }]);
+          base: { ref: 'main', sha: 'b'.repeat(40) } },
+        { number: 1304, created_at: '2026-09-28T00:00:00.003Z', state: 'open',
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'e'.repeat(40) },
+          base: { ref: 'release', sha: 'b'.repeat(40) } }]);
       throw Error(`Unexpected GitHub read ${url.pathname}`);
     } }) };
     const instance = new ContainerClass(mockCtx as any, mockEnv);
@@ -234,6 +288,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     try { await deliver?.(); }
     finally { clock.mockRestore(); }
     expect(seen).toEqual([{ pullRequest: 1302, activityId: expect.any(String) }]);
+    // An existing uncertain/prepared Activity has no plan. A later callback
+    // must leave it untouched, not manufacture a replacement or publish.
+    const repeatClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
+    try { await deliver?.(); } finally { repeatClock.mockRestore(); }
+    expect(seen.map(row => row.pullRequest)).toEqual([1302, 1302]);
+    expect(reservedActivityId).toBe(seen[0].activityId);
+    expect(unauthorizedEffects).toEqual([]);
     seen.length = 0;
     let continuationUnavailable = false;
     (mockCtx as any).exports.GitHubInterceptor = () => ({ fetch: async (request: Request) => {
@@ -249,7 +310,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
         head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } })));
     } });
-    const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
+    const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
     try { await deliver?.().catch(() => {}); }
     finally { nextClock.mockRestore(); }
     expect(continuationUnavailable).toBe(true);
@@ -349,7 +410,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         const value = Reflect.get(target, key);
         return typeof value === 'function' ? value.bind(target) : value;
       } });
-      mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+      mockEnv.OPERATOR_ACTIVITY = { idFromName: () => native.id, getByName: (id: string) => {
         if (reservedActivityId && id !== reservedActivityId) throw Error('New Activity identity after reservation');
         return activityTransport;
       } };

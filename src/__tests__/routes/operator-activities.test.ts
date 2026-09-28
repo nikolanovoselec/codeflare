@@ -17,6 +17,7 @@ vi.mock('../../lib/access', async importOriginal => ({
     if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
     return { human: claims, accessJwt: 'private.access.jwt' };
   },
+  operatorAccessSessionCurrent: async () => accessState.active,
   authenticateRequest: async (_request: Request, bindings: Env) => {
     const record = JSON.parse((await bindings.KV.get(`user:${claims.email}`)) ?? '{}') as { role?: string };
     return { user: { email: claims.email, role: record.role }, bucketName: 'owner-bucket' };

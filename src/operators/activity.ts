@@ -134,6 +134,7 @@ export interface OperatorRuntimePlan {
   invocationJson: string;
   receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt;
   executionContext: OperatorExecutionContext;
+  prospectiveAdmissionId?: string;
 }
 
 export interface OperatorReviewState {
@@ -475,14 +476,33 @@ export class OperatorActivity extends Agent {
     return context ? projectOperatorExecution(context) : null;
   }
 
+  /** Bind the existing Registry reservation before any prospective preparation. */
+  async bindProspectiveRenovateAdmission(activityId: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
+      || this.#appEnv.OPERATOR_ACTIVITY.idFromName(activityId).toString() !== this.ctx.id.toString()) return false;
+    const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+      .readProspectiveRenovateAdmission(activityId);
+    if (!proof || proof.activityId !== activityId) return false;
+    return this.ctx.storage.transaction(async tx => {
+      const [previous, admission] = await Promise.all([
+        tx.get<string>('prospective-admission'), tx.get<AdmissionState>('admission'),
+      ]);
+      if ((previous && previous !== activityId) || (admission && admission.intent.activityId !== activityId)) return false;
+      await tx.put('prospective-admission', activityId);
+      return true;
+    });
+  }
+
   /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
   async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.executionContext || !state.receipt || state.phase !== 'queued'
       || !await this.boundaryCurrent(state)) return null;
+    const prospectiveAdmissionId = await this.ctx.storage.get<string>('prospective-admission');
     return { activityId: state.intent.activityId, deadline: state.intent.deadline,
       invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
-      executionContext: structuredClone(state.executionContext) };
+      executionContext: structuredClone(state.executionContext),
+      ...(prospectiveAdmissionId ? { prospectiveAdmissionId } : {}) };
   }
 
   /** Persist only the projection derived from the exact admitted bundle digest. */
@@ -1304,7 +1324,20 @@ export class OperatorActivity extends Agent {
     if (!Number.isSafeInteger(generation) || generation < 1) return false;
     const [record, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
-    return this.#leaseMatches(record, lease, generation);
+    if (!this.#leaseMatches(record, lease, generation)) return false;
+    if (await this.ctx.storage.get<string>('prospective-admission')) {
+      try {
+        const plan = await this.getRuntimePlan();
+        if (!plan) return false;
+        await authorizeDispatcherPlan(plan, this.#appEnv);
+      } catch { return false; }
+      // Authorization involves external services; cancellation can race it.
+      const [latest, currentLease] = await Promise.all([
+        this.ctx.storage.get<AdmissionState>('admission'), this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE),
+      ]);
+      return this.#leaseMatches(latest, currentLease, generation);
+    }
+    return true;
   }
 
   async #boundedDispatcher<T>(lease: DispatcherLease, run: () => Promise<T>): Promise<T> {
@@ -1797,6 +1830,24 @@ export class OperatorActivity extends Agent {
     }
     const digest = await sha256(JSON.stringify(state.drive.result));
     const generation = state.drive.generation;
+    const parent = JSON.parse(plan.invocationJson) as { repository: string; pullRequest: number };
+    const prospective = parent.pullRequest !== 1299;
+    const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
+    const proof = prospective ? await registry.readProspectiveRenovateAdmission(plan.activityId) : null;
+    const validProof = !!proof && proof.activityId === plan.activityId
+      && (!plan.prospectiveAdmissionId || plan.prospectiveAdmissionId === proof.activityId)
+      && proof.installationId === plan.receipt.selection.installation.id
+      && proof.repositoryId === 973175879 && proof.pullRequest === parent.pullRequest
+      && proof.ownerKey === ownerKey && proof.head === assessment.observedHead
+      && proof.createdAt > proof.activatedAt
+      && proof.actor.bucket === command.bucket && proof.actor.sessionId === command.sessionId
+      && proof.actor.sessionGeneration === command.sessionGeneration
+      && proof.actor.subject === authority.human.subject && proof.actor.issuer === authority.human.issuer
+      && proof.actor.email.toLowerCase() === authority.human.email.toLowerCase()
+      && JSON.stringify([...proof.actor.audiences].sort()) === JSON.stringify([...authority.human.audiences].sort());
+    if (prospective && (!validProof || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo')) {
+      return { ok: false, reason: 'not-authorized' };
+    }
     const current = async () => {
       const [latest, session, rawUser] = await Promise.all([
         this.ctx.storage.get<AdmissionState>('admission'),
@@ -1811,17 +1862,27 @@ export class OperatorActivity extends Agent {
         || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== command.sessionGeneration
         || authority.human.expiresAt * 1000 <= Date.now()) throw new Error('Renovate publication authority changed');
       await authorizeDispatcherPlan(plan, this.#appEnv);
+      if (prospective) {
+        const live = await registry.currentProspectiveRenovateRegistration(proof!.actor.registrationId);
+        if (!live || live.installationId !== proof!.installationId
+          || live.bucket !== command.bucket || live.sessionId !== command.sessionId
+          || live.sessionGeneration !== command.sessionGeneration
+          || live.human.subject !== authority.human.subject || live.human.issuer !== authority.human.issuer
+          || live.human.email.toLowerCase() !== authority.human.email.toLowerCase()) {
+          throw new Error('Prospective Renovate actor changed');
+        }
+      }
       if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
         throw new Error('Renovate publication Access session ended');
       }
     };
     try { await current(); } catch { return { ok: false, reason: 'not-authorized' }; }
-    const parent = JSON.parse(plan.invocationJson) as { repository: string; pullRequest: number };
     const exports = (this.ctx as unknown as { exports?: Record<string, (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
     if (!exports) return { ok: false, reason: 'unavailable' };
     let github: ReturnType<typeof renovateGithub>;
     try { github = renovateGithub({ env: this.#appEnv, exports, user: authority.human.email,
-      bucket: command.bucket, repository: parent.repository, pullRequest: parent.pullRequest, current }); }
+      bucket: command.bucket, repository: parent.repository, pullRequest: parent.pullRequest, current,
+      prospective, prospectiveCreatedAt: proof?.createdAt }); }
     catch { return { ok: false, reason: 'unavailable' }; }
     const marker = `<!-- Codeflare Renovate ${plan.activityId}:${generation}:${assessment.observedHead} -->`;
     const commentBody = `${marker}\n${assessment.classification.toUpperCase()}: ${assessment.compatibility}\n${assessment.reasons.join('; ')}`.slice(0, 3800);

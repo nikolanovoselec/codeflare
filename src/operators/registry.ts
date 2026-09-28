@@ -14,7 +14,18 @@ import { createLogger } from '../lib/logger';
 import { parseOperatorPolicy } from './policy';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
+import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';
+import { D1SessionRepository } from '../lib/session-repository';
+import type { VerifiedHumanAccessClaims } from '../lib/jwt';
+import { createOperatorExecutionContext, openOperatorExecutionAccess,
+  type OperatorExecutionContext } from './execution-context';
+import { operatorOwnerKey } from './browser-activity';
+import type { Env } from '../types';
 
+const RENOVATE_REPOSITORY_ID = 973175879;
+const scanId = /^[A-Za-z0-9_-]{1,128}$/;
+const sha = /^[0-9a-f]{40}$/;
+const scanSession = /^[a-z0-9]{8,24}$/;
 const workingActivity = (status: OperatorBrowserSummary['executionStatus']): boolean =>
   status === 'queued' || status === 'running' || status === 'waiting'
   || status === 'cancel-requested' || status === 'unknown';
@@ -146,6 +157,23 @@ export interface ManagementExecutionSelection {
 }
 export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
   admittedAt: number; selection: ManagementExecutionSelection;
+}
+
+interface ProspectiveActivation { installationId: string; activatedAt: string; repositoryId: typeof RENOVATE_REPOSITORY_ID }
+interface ProspectiveRegistration {
+  registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
+  sessionGeneration: number; revision: number; context: OperatorExecutionContext;
+  controlsRevision: number; installationRevision: number; operatorRevision: number; bundleDigest: string;
+}
+export interface ProspectiveAdmission {
+  activityId: string; installationId: string; repositoryId: typeof RENOVATE_REPOSITORY_ID;
+  pullRequest: number; head: string; createdAt: string; activatedAt: string; ownerKey: string;
+  actor: { registrationId: string; bucket: string; sessionId: string; sessionGeneration: number;
+    subject: string; issuer: string; email: string; audiences: readonly string[] };
+}
+export interface CurrentProspectiveRegistration {
+  registrationId: string; installationId: string; activatedAt: string; bucket: string;
+  sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string;
 }
 export interface ManagementCatalogQuery {
   email: string; issuer: string; groups: string[]; platformAdmin: boolean; limit: number; cursor: string | null;
@@ -1459,6 +1487,176 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       workingCount: Number.isSafeInteger(savedCount) && savedCount! >= 0
         ? Math.max(savedCount!, indexedWorking) : indexedWorking,
       unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
+  }
+
+  private async prospectiveAuthority(registration: ProspectiveRegistration): Promise<{
+    human: VerifiedHumanAccessClaims; accessJwt: string } | null> {
+    const app = this.env as Env;
+    if (!app.USAGE_DB || !app.KV) return null;
+    try {
+      const authority = await openOperatorExecutionAccess(registration.context, this.env);
+      const [session, rawUser, selected, accessCurrent] = await Promise.all([
+        new D1SessionRepository(app.USAGE_DB).getSession(registration.bucket, registration.sessionId),
+        app.KV.get(`user:${authority.human.email.toLowerCase()}`),
+        this.resolveManagementExecution(registration.installationId),
+        operatorAccessSessionCurrent(authority.human, authority.accessJwt),
+      ]);
+      let user: unknown;
+      try { user = rawUser ? JSON.parse(rawUser) : null; } catch { return null; }
+      if (!user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
+        || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== registration.sessionGeneration
+        || !accessCurrent || !selected.ok || selected.value.operator.profile !== 'dispatcher'
+        || selected.value.controlsRevision !== registration.controlsRevision
+        || selected.value.installation.revision !== registration.installationRevision
+        || selected.value.operator.revision !== registration.operatorRevision
+        || selected.value.release.bundleDigest !== registration.bundleDigest
+        || selected.value.installation.policy.resourceProfileId !== null) return null;
+      const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
+      if (!canInvokeOperator(human, selected.value.operator)) return null;
+      return { human, accessJwt: authority.accessJwt };
+    } catch { return null; }
+  }
+
+  /** Parent-only activation; the route provides a verified human, never a caller cutoff. */
+  async activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
+    sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string }): Promise<
+      { ok: true; activatedAt: string; registrationId: string } | { ok: false; reason: string }> {
+    const app = this.env as Env;
+    if (!scanId.test(input.installationId) || !/^[A-Za-z0-9._-]{1,128}$/.test(input.bucket)
+      || !scanSession.test(input.sessionId) || !Number.isSafeInteger(input.sessionGeneration)
+      || input.sessionGeneration < 1 || !app.USAGE_DB || !app.KV
+      || input.human.expiresAt * 1000 <= Date.now()) return { ok: false, reason: 'not-authorized' };
+    const ownerKey = await operatorOwnerKey(input.human);
+    const rawId = `${ownerKey}:${input.bucket}:${input.sessionId}:${input.sessionGeneration}:${input.installationId}`;
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawId)));
+    const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    const selected = await this.resolveManagementExecution(input.installationId);
+    if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
+      || selected.value.installation.policy.resourceProfileId !== null) return { ok: false, reason: 'installation-unavailable' };
+    const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
+      ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
+      revision: 0, context: await createOperatorExecutionContext({ activityId: registrationId,
+        operatorId: selected.value.operator.operatorId, artifactDigest: selected.value.release.bundleDigest,
+        policyDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(JSON.stringify(selected.value.installation.policy)))))
+          .map(byte => byte.toString(16).padStart(2, '0')).join(''),
+        human: input.human, accessJwt: input.accessJwt }, this.env),
+      controlsRevision: selected.value.controlsRevision,
+      installationRevision: selected.value.installation.revision,
+      operatorRevision: selected.value.operator.revision,
+      bundleDigest: selected.value.release.bundleDigest };
+    if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'not-authorized' };
+    const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
+    const inactive: Array<{ key: string; revision: number }> = [];
+    for (const [key, record] of registrations) {
+      if (record.context.expiresAt * 1000 <= Date.now()) {
+        inactive.push({ key, revision: record.revision });
+        continue;
+      }
+      try {
+        const session = await new D1SessionRepository(app.USAGE_DB).getSession(record.bucket, record.sessionId);
+        if (session && (session.lifecycleGeneration !== record.sessionGeneration
+          || session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping')) {
+          inactive.push({ key, revision: record.revision });
+        }
+      } catch { /* Unavailable lifecycle reads are not evidence of retirement. */ }
+    }
+    return this.ctx.storage.transaction(async tx => {
+      const before = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
+      for (const { key, revision } of inactive) {
+        if (before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
+      }
+      if (before.size >= 32 && !before.has(`renovate-registration:${registrationId}`)) {
+        return { ok: false, reason: 'registration-limit' } as const;
+      }
+      const previous = await tx.get<ProspectiveActivation>('renovate-activation');
+      if (previous && previous.installationId !== input.installationId) {
+        return { ok: false, reason: 'activation-conflict' } as const;
+      }
+      const current = await tx.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`);
+      const activation = previous ?? { installationId: input.installationId,
+        repositoryId: RENOVATE_REPOSITORY_ID, activatedAt: new Date(Date.now()).toISOString() };
+      await tx.put('renovate-activation', activation);
+      await tx.put(`renovate-registration:${registrationId}`, { ...provisional, revision: (current?.revision ?? 0) + 1 });
+      const election = await tx.get<number>('renovate-election-revision') ?? 0;
+      await tx.put('renovate-election-revision', election + 1);
+      return { ok: true, activatedAt: activation.activatedAt, registrationId } as const;
+    });
+  }
+
+  /** Never use the immutable admission readback as renewed actor authority. */
+  async currentProspectiveRenovateRegistration(registrationId: string): Promise<CurrentProspectiveRegistration | null> {
+    if (!scanId.test(registrationId)) return null;
+    const [activation, record] = await Promise.all([
+      this.ctx.storage.get<ProspectiveActivation>('renovate-activation'),
+      this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`),
+    ]);
+    if (!activation || !record || activation.installationId !== record.installationId) return null;
+    const current = await this.prospectiveAuthority(record);
+    return current ? { registrationId, installationId: record.installationId,
+      activatedAt: activation.activatedAt, bucket: record.bucket, sessionId: record.sessionId,
+      sessionGeneration: record.sessionGeneration, ...current } : null;
+  }
+
+  /** Trusted parent passes its authenticated GitHub observation, not route/child data. */
+  async reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
+    pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<
+      { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> {
+    if (!scanId.test(input.registrationId) || !scanId.test(input.activityId)
+      || input.repositoryId !== RENOVATE_REPOSITORY_ID || !Number.isSafeInteger(input.pullRequest)
+      || input.pullRequest < 1 || !sha.test(input.head)) return { ok: false, reason: 'invalid-target' };
+    const activation = await this.ctx.storage.get<ProspectiveActivation>('renovate-activation');
+    let created: string;
+    try { created = new Date(input.createdAt).toISOString(); }
+    catch { return { ok: false, reason: 'invalid-target' }; }
+    if (!activation || created !== input.createdAt || created <= activation.activatedAt) {
+      return { ok: false, reason: 'pre-activation' };
+    }
+    const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
+    const existing = await this.ctx.storage.get<ProspectiveAdmission>(key);
+    if (existing) return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    const election = await this.ctx.storage.get<number>('renovate-election-revision') ?? 0;
+    const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
+    if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
+    const candidates: Array<{ record: ProspectiveRegistration; human: VerifiedHumanAccessClaims }> = [];
+    for (const record of registrations.values()) {
+      if (record.installationId !== activation.installationId) continue;
+      const authority = await this.prospectiveAuthority(record);
+      if (authority) candidates.push({ record, human: authority.human });
+    }
+    candidates.sort((left, right) =>
+      `${left.human.issuer}:${left.human.subject}:${left.record.sessionId}:${left.record.sessionGeneration}`
+        .localeCompare(`${right.human.issuer}:${right.human.subject}:${right.record.sessionId}:${right.record.sessionGeneration}`));
+    const winner = candidates[0];
+    if (!winner) return { ok: false, reason: 'no-current-admin' };
+    const actor: ProspectiveAdmission['actor'] = { registrationId: winner.record.registrationId,
+      bucket: winner.record.bucket, sessionId: winner.record.sessionId,
+      sessionGeneration: winner.record.sessionGeneration, subject: winner.human.subject,
+      issuer: winner.human.issuer, email: winner.human.email, audiences: [...winner.human.audiences] };
+    return this.ctx.storage.transaction(async tx => {
+      const prior = await tx.get<ProspectiveAdmission>(key);
+      if (prior) return { ok: true, activityId: prior.activityId, actor: prior.actor } as const;
+      const [stillActivated, stillRegistered, collision, currentElection] = await Promise.all([
+        tx.get<ProspectiveActivation>('renovate-activation'),
+        tx.get<ProspectiveRegistration>(`renovate-registration:${actor.registrationId}`),
+        tx.get<ProspectiveAdmission>(`renovate-activity:${input.activityId}`),
+        tx.get<number>('renovate-election-revision'),
+      ]);
+      if (collision) return { ok: false, reason: 'activity-conflict' } as const;
+      if (stillActivated?.activatedAt !== activation.activatedAt || currentElection !== election
+        || stillRegistered?.revision !== winner.record.revision) return { ok: false, reason: 'stale-election' } as const;
+      const admission: ProspectiveAdmission = { activityId: input.activityId,
+        installationId: activation.installationId, repositoryId: RENOVATE_REPOSITORY_ID,
+        pullRequest: input.pullRequest, head: input.head, createdAt: created,
+        activatedAt: activation.activatedAt, ownerKey: winner.record.ownerKey, actor };
+      await tx.put(key, admission);
+      await tx.put(`renovate-activity:${input.activityId}`, admission);
+      return { ok: true, activityId: input.activityId, actor } as const;
+    });
+  }
+
+  async readProspectiveRenovateAdmission(activityId: string): Promise<ProspectiveAdmission | null> {
+    return scanId.test(activityId) ? await this.ctx.storage.get<ProspectiveAdmission>(`renovate-activity:${activityId}`) ?? null : null;
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {

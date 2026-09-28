@@ -2,7 +2,11 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { authenticateRequest, canInvokeOperator, requireOperatorHumanContext } from '../lib/access';
+import { authenticateRequest, canInvokeOperator, operatorAccessSessionCurrent,
+  requireOperatorHumanContext } from '../lib/access';
+import { getContainer } from '@cloudflare/containers';
+import { D1SessionRepository } from '../lib/session-repository';
+import { getContainerId } from '../lib/container-helpers';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
@@ -25,6 +29,9 @@ const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{
 const readBody = z.strictObject({ through: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
 const publicationBody = z.strictObject({ sessionId: identifier,
   sessionGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
+const prospectiveBody = z.strictObject({ installationId: identifier,
+  sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
+  sessionGeneration: z.number().int().positive().safe() });
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
@@ -88,6 +95,36 @@ app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);
   const prepared = await prepareOperatorActivity(body, c.get('operatorHuman'), c.env);
   return c.json(prepared, 201);
+});
+
+/** Explicit prospective activation is a user-authorized command, never a scheduler side effect. */
+app.post('/renovate/activation', async c => {
+  const command = await parseJsonBody(c, prospectiveBody);
+  const authenticated = await authenticateRequest(c.req.raw, c.env);
+  const authority = c.get('operatorHuman');
+  if (authenticated.user.role !== 'admin'
+    || authenticated.user.email.toLowerCase() !== authority.human.email.toLowerCase()
+    || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
+    throw new AppError('FORBIDDEN', 403, 'Administrator session unavailable');
+  }
+  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId);
+  if (session?.lifecycleState !== 'running' || session.lifecycleGeneration !== command.sessionGeneration) {
+    throw new AppError('FORBIDDEN', 403, 'Administrator session unavailable');
+  }
+  const selected = await c.get('registry').resolveManagementExecution(command.installationId);
+  if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
+    || !canInvokeOperator(authority.human, selected.value.operator)) {
+    throw new AppError('FORBIDDEN', 403, 'Dispatcher installation unavailable');
+  }
+  const registration = await c.get('registry').activateProspectiveRenovate({ ...command,
+    bucket: authenticated.bucketName, ...authority });
+  if (!registration.ok) throw new AppError('FORBIDDEN', 403, 'Prospective activation unavailable');
+  if (!c.env.CONTAINER) throw new AppError('UNAVAILABLE', 503, 'Admin session container unavailable');
+  const container = getContainer(c.env.CONTAINER, getContainerId(authenticated.bucketName, command.sessionId));
+  const armed = await container.armRenovateScan({ ...command, registrationId: registration.registrationId,
+    bucket: authenticated.bucketName });
+  if (!armed.ok) throw new AppError('UNAVAILABLE', 503, 'Prospective scan schedule unavailable');
+  return c.json({ activatedAt: registration.activatedAt, repositoryId: 973175879 }, 202);
 });
 
 async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: string, activityId: string) {

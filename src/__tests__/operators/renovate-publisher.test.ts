@@ -71,6 +71,10 @@ async function fixture(test: (f: {
         actor: { registrationId: 'registry-selected-admin', bucket: 'owner-bucket',
           sessionId: prospective === 'foreign-session' ? 'other-session' : 'session-1', sessionGeneration: 3,
           subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences },
+      },
+      currentProspectiveRenovateRegistration: async (_registrationId: string) => state.loggedOut ? null : {
+        registrationId: 'registry-selected-admin', installationId: 'installation', activatedAt: '2026-09-28T00:00:00.000Z',
+        bucket: 'owner-bucket', sessionId: 'session-1', sessionGeneration: 3, human, accessJwt: 'private.jwt',
       } };
     Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
       fetch: async (request: Request) => {

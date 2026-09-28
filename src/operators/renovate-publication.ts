@@ -29,7 +29,8 @@ export function parsePublishableAssessment(value: unknown): RenovateAssessment {
 
 /** Parent-only, repository-scoped credentialed GitHub transport; never passed to the child. */
 export function renovateGithub(input: { env: Env; exports: Record<string, (input: { props: Record<string, unknown> }) => Fetcher>;
-  user: string; bucket: string; repository: string; pullRequest: number; current: () => Promise<void> }) {
+  user: string; bucket: string; repository: string; pullRequest: number; current: () => Promise<void>;
+  prospective: boolean; prospectiveCreatedAt?: string }) {
   const { env, exports, repository, pullRequest, current } = input;
   if (!exports.GitHubInterceptor) throw new Error('GitHub transport unavailable');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !id.safeParse(pullRequest).success) {
@@ -71,9 +72,9 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     return JSON.parse(await readDispatcherBody(response)) as unknown;
   }
   async function observe(assessment: RenovateAssessment, kind: 'comment' | 'approval' | 'merge'): Promise<void> {
-    // The currently authorized workstream is Komodo. The prospective activation
-    // gate will extend the admitted target set; this one-off must not do so.
-    if (repository.toLowerCase() !== 'nikolanovoselec/komodo' || pullRequest !== 1299) {
+    // One-off #1299 remains distinct; other targets need current Registry proof.
+    if (repository.toLowerCase() !== 'nikolanovoselec/komodo'
+      || (pullRequest !== 1299 && !input.prospective)) {
       throw new Error('Renovate publication not authorized for this target');
     }
     const repo = z.object({ id: id, full_name: z.string(), default_branch: z.string(),
@@ -82,10 +83,15 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
       throw new Error('Repository identity changed');
     }
     const observePr = async () => {
-      const pr = z.object({ number: id, state: z.literal('open'), mergeable: z.boolean().nullable(),
+      const pr = z.object({ number: id, state: z.literal('open'), created_at: z.string().optional(),
+        mergeable: z.boolean().nullable(),
         mergeable_state: z.string(), user: z.object({ id, login: z.string(), type: z.string() }),
         head: z.object({ sha: commit }), base: z.object({ sha: commit, ref: z.literal('main') }) })
         .parse(await json(`/pulls/${pullRequest}`));
+      if (input.prospective && (!pr.created_at
+        || new Date(pr.created_at).toISOString() !== input.prospectiveCreatedAt)) {
+        throw new Error('Prospective pull request age changed');
+      }
       if (pr.number !== pullRequest || pr.user.id !== 29139614 || pr.user.login !== 'renovate[bot]'
         || pr.user.type !== 'Bot' || pr.head.sha !== assessment.observedHead || pr.base.sha !== assessment.baseSha) {
         throw new Error('Pull request revision or author changed');

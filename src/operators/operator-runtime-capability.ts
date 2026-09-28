@@ -1,11 +1,12 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
-  resolveOperatorGroupIdentity, canInvokeOperator } from '../lib/access';
+  resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { openOperatorExecutionAccess } from './execution-context';
+import { operatorOwnerKey } from './browser-activity';
 import { parseOperatorPolicy } from './policy';
 import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
@@ -74,6 +75,30 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     pullRequest: z.number().safe().int().positive() }).parse(JSON.parse(plan.invocationJson));
   // No resource resolver is introduced: only the direct read/inference profile is supported.
   if (pinned.installation.policy.resourceProfileId !== null) throw new Error('Dispatcher resource profile unavailable');
+  if (plan.prospectiveAdmissionId) {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const proof = await registry.readProspectiveRenovateAdmission(plan.prospectiveAdmissionId);
+    if (!proof || plan.prospectiveAdmissionId !== plan.activityId || proof.activityId !== plan.activityId
+      || proof.repositoryId !== 973175879
+      || proof.pullRequest !== parent.pullRequest || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo'
+      || proof.installationId !== pinned.installation.id || proof.createdAt <= proof.activatedAt
+      || proof.ownerKey !== await operatorOwnerKey(human)
+      || proof.actor.subject !== human.subject || proof.actor.issuer !== human.issuer
+      || proof.actor.email.toLowerCase() !== human.email.toLowerCase()
+      || JSON.stringify([...proof.actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) {
+      throw new Error('Prospective admission changed');
+    }
+    const selectedActor = await registry.currentProspectiveRenovateRegistration(proof.actor.registrationId);
+    if (!selectedActor || selectedActor.installationId !== proof.installationId
+      || selectedActor.bucket !== proof.actor.bucket || selectedActor.sessionId !== proof.actor.sessionId
+      || selectedActor.sessionGeneration !== proof.actor.sessionGeneration
+      || selectedActor.human.subject !== human.subject || selectedActor.human.issuer !== human.issuer
+      || selectedActor.human.email.toLowerCase() !== human.email.toLowerCase()
+      || JSON.stringify([...selectedActor.human.audiences].sort()) !== JSON.stringify([...human.audiences].sort())
+      || !await operatorAccessSessionCurrent(human, authority.accessJwt)) {
+      throw new Error('Prospective actor expired');
+    }
+  }
   return { authority: { ...authority, human }, parent, policy: pinned.installation.policy };
 }
 
