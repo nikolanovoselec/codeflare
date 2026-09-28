@@ -113,7 +113,9 @@ async function withEnrollment(run: (context: {
     const kv = createMockKV();
     const github = githubFixture();
     const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: key });
-    await registry.getManagementControls();
+    expect((await registry.setManagementControls({ revision: 0,
+      managers: { users: [actor.email], groups: [] }, ceiling: { capabilities: [], resourceProfileIds: [] } },
+    { email: actor.email, expiresAt: Date.now() + 60_000 })).ok).toBe(true);
     const policy = { capabilities: [], resourceProfileId: null };
     ctx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'review-operator', 'conductor',
       'internal', 1, 'review-operator', JSON.stringify({ id: 'review-operator', revision: 1,
