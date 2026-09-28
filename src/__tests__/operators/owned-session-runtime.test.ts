@@ -170,7 +170,7 @@ describe('REQ-OPERATOR-005: owned container runtime', () => {
           containerStatus = 'stopping';
           await destroyed;
           containerStatus = 'stopped';
-          return 'stopped';
+          return 'stopped' as const;
         }),
       };
       const runtime = new ContainerOwnedSessionRuntime({ activityId: profile.activityId,

@@ -68,8 +68,10 @@ export const historyRead = z.discriminatedUnion('operation', [
   z.strictObject({ schemaVersion: z.literal(1), operation: z.literal('head-association'), head: sha }),
   z.strictObject({ schemaVersion: z.literal(1), operation: z.literal('merge-base'), head: sha, base: sha }),
   ...(['comments-page', 'artifact-list', 'checks-page'] as const).map(operation =>
-    z.strictObject({ schemaVersion: z.literal(1), operation: z.literal(operation), page,
+    z.strictObject({ schemaVersion: z.literal(1), operation: z.literal(operation),
+      page: operation === 'artifact-list' ? page.optional() : page,
       ...(operation === 'checks-page' ? { head: sha.optional() } : {}),
+      ...(operation === 'comments-page' ? { pullRequest: numberId.optional() } : {}),
       ...(operation === 'artifact-list' ? { name: z.string().regex(/^boundary-review-[a-f0-9]{64}$/).optional() } : {}) })),
   ...(['comment', 'artifact', 'check', 'run'] as const).map(operation =>
     z.strictObject({ schemaVersion: z.literal(1), operation: z.literal(operation), id: numberId })),

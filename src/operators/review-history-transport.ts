@@ -101,10 +101,12 @@ export function createAuthenticatedHistoryTransport(input: {
   };
   const associated = async (head: string) => {
     if (!SHA.test(head)) throw Error('Invalid head');
-    const pulls = await get(`${root}/commits/${head}/pulls`) as Array<{ number?: number }>;
+    const pulls = await get(`${root}/commits/${head}/pulls`) as Array<{ number?: number;
+      state?: string; head?: { sha?: string } }>;
     // This endpoint associates the commit with the PR, but its PR head is mutable after a later push.
     if (!Array.isArray(pulls) || !pulls.some(pr => pr.number === input.pullRequest))
       throw Error('Foreign head');
+    return pulls;
   };
   const run = async (id: number) => {
     const value = await get(`${root}/actions/runs/${id}`) as { id?: number; repository?: { id?: number };
@@ -127,21 +129,40 @@ export function createAuthenticatedHistoryTransport(input: {
           if (request.pullRequest && request.pullRequest !== input.pullRequest || request.head && request.head !== input.head
             || request.base && request.base !== pr.base?.sha) throw Error('PR scope mismatch');
           value = pr; break;
-        case 'head-association': await associated(request.head); value = { head: request.head, pullRequest: input.pullRequest }; break;
+        case 'head-association': value = await associated(request.head); break;
         case 'merge-base': {
           if (request.base !== pr.base?.sha) throw Error('Base changed');
           await associated(request.head);
           value = await get(`${root}/compare/${request.base}...${request.head}`); break;
         }
-        case 'comments-page': value = await get(`${root}/issues/${input.pullRequest}/comments?per_page=100&page=${request.page}`); break;
+        case 'comments-page':
+          if (request.pullRequest !== undefined && request.pullRequest !== input.pullRequest)
+            throw Error('Foreign Review comment scope');
+          value = await get(`${root}/issues/${input.pullRequest}/comments?per_page=100&page=${request.page}`); break;
         case 'comment': value = await get(`${root}/issues/comments/${request.id}`); break;
         case 'artifact-list': {
-          const page = await get(`${root}/actions/artifacts?per_page=100&page=${request.page}${request.name
-            ? `&name=${request.name}` : ''}`) as { total_count?: number; artifacts?: unknown[] };
-          if (!Number.isSafeInteger(page.total_count) || page.total_count! < 0
-            || !Array.isArray(page.artifacts) || page.artifacts.length > 100)
-            throw Error('Incomplete artifact listing');
-          value = page.artifacts; break;
+          const readPage = async (number: number) => {
+            const page = await get(`${root}/actions/artifacts?per_page=100&page=${number}${request.name
+              ? `&name=${request.name}` : ''}`) as { total_count?: number; artifacts?: unknown[] };
+            if (!Number.isSafeInteger(page.total_count) || page.total_count! < 0
+              || !Array.isArray(page.artifacts) || page.artifacts.length > 100)
+              throw Error('Incomplete artifact listing');
+            return page as { total_count: number; artifacts: unknown[] };
+          };
+          if (request.page !== undefined) { value = (await readPage(request.page)).artifacts; break; }
+          if (!request.name) throw Error('Unbounded artifact listing');
+          const artifacts: unknown[] = [];
+          let complete = false;
+          for (let number = 1; number <= 20; number++) {
+            const page = await readPage(number);
+            if (page.total_count > 2000 || page.total_count < artifacts.length + page.artifacts.length)
+              throw Error('Incomplete artifact listing');
+            artifacts.push(...page.artifacts);
+            if (artifacts.length === page.total_count) { complete = true; break; }
+            if (page.artifacts.length !== 100) throw Error('Incomplete artifact listing');
+          }
+          if (!complete) throw Error('Artifact listing exceeds bound');
+          value = artifacts; break;
         }
         case 'checks-page': {
           const head = 'head' in request && typeof request.head === 'string' ? request.head : input.head;

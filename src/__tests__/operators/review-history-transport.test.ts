@@ -33,7 +33,8 @@ function zip(name: string, bytes: Uint8Array, compressed = false) {
   return Buffer.concat([local, filename, payload, descriptor, central, filename, end]);
 }
 function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: boolean; redirect?: string;
-  neverFinish?: boolean; revokeAfter?: boolean; foreignCheck?: boolean; foreignComment?: boolean } = {}) {
+  neverFinish?: boolean; revokeAfter?: boolean; foreignCheck?: boolean; foreignComment?: boolean;
+  foreignAssociation?: boolean; artifactPages?: boolean; missingArtifactPage?: boolean } = {}) {
   let valid = true;
   const signed = options.redirect ?? 'https://pipelines.actions.githubusercontent.com/signed-artifact';
   const fetch = async (request: Request): Promise<Response> => {
@@ -46,7 +47,8 @@ function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: bo
       if (url.pathname === '/repos/owner/repo/pulls/34') return Response.json({ number: 34, state: 'open',
         head: { sha: currentHead, repo: { id: 138 } }, base: { sha: 'c'.repeat(40), repo: { id: 138 } } });
       if (url.pathname === `/repos/owner/repo/commits/${priorHead}/pulls`)
-        return Response.json([{ number: 34, state: 'open', head: { sha: currentHead } }]);
+        return Response.json([{ number: options.foreignAssociation ? 35 : 34,
+          state: 'open', head: { sha: currentHead } }]);
       if (url.pathname === `/repos/owner/repo/commits/${priorHead}/check-runs`)
         return Response.json({ check_runs: [{ id: 99, head_sha: priorHead }] });
       if (url.pathname === `/repos/owner/repo/compare/${'c'.repeat(40)}...${priorHead}`)
@@ -63,8 +65,16 @@ function fixture(options: { missing?: boolean; unsafe?: boolean; compressed?: bo
       if (url.pathname === '/repos/owner/repo/check-runs/99') return Response.json({
         id: 99, head_sha: options.foreignCheck ? 'd'.repeat(40) : priorHead, app: { id: 888 },
       });
-      if (url.pathname === '/repos/owner/repo/actions/artifacts') return Response.json({ total_count: 1,
-        artifacts: [{ id: 701, name: 'boundary-review-' + 'a'.repeat(64) }] });
+      if (url.pathname === '/repos/owner/repo/actions/artifacts') {
+        const page = Number(url.searchParams.get('page'));
+        if (options.missingArtifactPage && page === 2) return Response.json({}, { status: 503 });
+        if (options.artifactPages || options.missingArtifactPage) return Response.json({ total_count: 101,
+          artifacts: page === 1 ? Array.from({ length: 100 }, (_, index) => ({ id: index + 1,
+            name: 'boundary-review-' + 'a'.repeat(64) })) : [{ id: 701,
+            name: 'boundary-review-' + 'a'.repeat(64) }] });
+        return Response.json({ total_count: 1,
+          artifacts: [{ id: 701, name: 'boundary-review-' + 'a'.repeat(64) }] });
+      }
       if (url.pathname === '/repos/owner/repo/actions/artifacts/701') return Response.json({ id: 701,
         expired: false, workflow_run: { id: 7, repository_id: 138, head_sha: 'c'.repeat(40) } });
       if (url.pathname === '/repos/owner/repo/actions/runs/7') return Response.json({ id: 7, run_attempt: 1,
@@ -94,6 +104,10 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
       .toMatchObject({ complete: true, value: [{ id: 1, body: 'opaque prior comment' }] });
     expect(JSON.stringify(await transport.read({ schemaVersion: 1, operation: 'run', id: 7 })))
       .not.toContain(authority.token);
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'comments-page',
+      pullRequest: 34, page: 1 })).toMatchObject({ complete: true, value: [{ id: 1 }] });
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'comments-page',
+      pullRequest: 35, page: 1 })).toMatchObject({ complete: false });
   });
 
   it('reads only a comment whose issue URL belongs to the prepared PR', async () => {
@@ -103,10 +117,21 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
       .toMatchObject({ complete: false });
   });
 
-  it('projects only GitHub-verified artifact-list rows, not an unchecked collection envelope', async () => {
+  it('projects authenticated artifact pages completely for the compiled reader without silently truncating', async () => {
     expect(await fixture().transport.read({ schemaVersion: 1, operation: 'artifact-list', page: 1,
       name: 'boundary-review-' + 'a'.repeat(64) })).toMatchObject({ complete: true,
       value: [{ id: 701 }] });
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'artifact-list',
+      name: 'boundary-review-' + 'a'.repeat(64) })).toMatchObject({ complete: true,
+      value: [{ id: 701 }] });
+    const pages = await fixture({ artifactPages: true }).transport.read({ schemaVersion: 1,
+      operation: 'artifact-list', name: 'boundary-review-' + 'a'.repeat(64) });
+    expect(pages.complete).toBe(true);
+    expect(pages.value).toHaveLength(101);
+    expect(pages.value.at(-1)).toMatchObject({ id: 701 });
+    expect(await fixture({ missingArtifactPage: true }).transport.read({ schemaVersion: 1,
+      operation: 'artifact-list', name: 'boundary-review-' + 'a'.repeat(64) }))
+      .toMatchObject({ complete: false });
   });
 
   it('reads a valid near-limit prior artifact by ID after an authenticated run and a bearer-free signed redirect', async () => {
@@ -130,6 +155,13 @@ describe('REQ-OPERATOR-050/056: parent-only fixed GitHub history reads', () => {
       operation: 'artifact', id: 701 });
     expect(result).toMatchObject({ complete: true, value: { id: 701, runId: 7 } });
     expect(Buffer.from(result.value.bytes, 'base64')).toEqual(Buffer.from(stored));
+  });
+
+  it('returns the authenticated PR association for the compiled Review history reader', async () => {
+    expect(await fixture().transport.read({ schemaVersion: 1, operation: 'head-association', head: priorHead }))
+      .toMatchObject({ complete: true, value: [{ number: 34, state: 'open', head: { sha: currentHead } }] });
+    expect(await fixture({ foreignAssociation: true }).transport.read({ schemaVersion: 1,
+      operation: 'head-association', head: priorHead })).toMatchObject({ complete: false });
   });
 
   it('binds historical checks to a prior commit associated with the PR after its current head changes', async () => {

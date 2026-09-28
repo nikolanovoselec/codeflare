@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { zipSync, strToU8 } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { registerOperatorReviewRemote } from '../../../preseed/agents/pi/extensions/operator-review-remote';
@@ -163,7 +163,8 @@ describe('REQ-OPERATOR-053/056: connected publisher and external history boundar
       if (path === `${root}/pulls/34`) return json({ number: 34, state: 'open',
         head: { sha: liveHead, repo: { id: 138 } }, base: { sha: base, repo: { id: 138 } } });
       if (path === `${root}/commits/${priorHead}/pulls`) return json([{ number: 34 }]);
-      if (path === `${root}/commits/${nextHead}/pulls`) return json([{ number: 34 }]);
+      if (path === `${root}/commits/${nextHead}/pulls`) return json([{ number: 34,
+        state: 'open', head: { sha: nextHead } }]);
       if (path === `${root}/compare/${base}...${nextHead}`) return json({ merge_base_commit: { sha: base } });
       if (path.endsWith('/issues/34/comments')) return json(comments);
       if (path.endsWith('/issues/comments/501')) return json(comments[0]);
@@ -325,8 +326,8 @@ describe('REQ-OPERATOR-053/056: connected publisher and external history boundar
         .toEqual(packets.map(packet => packet.attachment.sha256));
 
       // Materialize the already pinned package; only the external Pi task/results are simulated.
-      const bundle = JSON.parse(await readFile(new URL('./fixtures/conductor-review.generated.json', import.meta.url),
-        'utf8')) as { mainModule: string; modules: Record<string, { js?: string }> };
+      const bundle = JSON.parse(await readFile(fileURLToPath(new URL('./fixtures/conductor-review.generated.json',
+        import.meta.url).href), 'utf8')) as { mainModule: string; modules: Record<string, { js?: string }> };
       const moduleRoot = await mkdtemp(join(tmpdir(), 'connected-review-'));
       try {
         await writeFile(join(moduleRoot, 'package.json'), '{"type":"module"}\n');
@@ -408,7 +409,7 @@ describe('REQ-OPERATOR-053/056: connected publisher and external history boundar
               body: JSON.stringify({ generation, checkpoint, invocation: compiledInvocation }),
             }), parent)).json();
             if (generation < 4) {
-              expect(output.status).toBe('waiting');
+              expect(output.status, JSON.stringify(output)).toBe('waiting');
               checkpoint = output.checkpoint;
             }
           }
