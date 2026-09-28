@@ -22,6 +22,7 @@ type TestContext = {
   sessionManager: {
     getSessionFile(): string;
     getEntries(): Record<string, unknown>[];
+    getBranch(): Record<string, unknown>[];
     getHeader(): { parentSession?: string };
   };
   ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(): void };
@@ -233,6 +234,7 @@ async function harness(
   const prompts: Array<{ title: string; options: string[] }> = [];
   const entries = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry.type !== 'session');
+  let branchEntries: Record<string, unknown>[] | undefined;
   let activeTools = ['read', 'bash'];
   const goalActions: string[] = [];
   const pi = {
@@ -262,6 +264,7 @@ async function harness(
     sessionManager: {
       getSessionFile: () => input.sessionFile,
       getEntries: entries,
+      getBranch: () => branchEntries ?? entries(),
       getHeader: () => optionsHeader(input),
     },
     ui: {
@@ -286,6 +289,7 @@ async function harness(
     prompts,
     goalActions,
     activeTools: () => activeTools,
+    setBranch: (entries: Record<string, unknown>[]) => { branchEntries = entries; },
     emit: async (event: string, payload: any = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -1430,6 +1434,64 @@ describe('REQ-OPERATOR-053: Enterprise PR-boundary remote review selection', () 
       process.env.PATH = previousPath;
       if (previousMode === undefined) delete process.env.ENTERPRISE_MODE;
       else process.env.ENTERPRISE_MODE = previousMode;
+    }
+  });
+
+  it('delivers original findings from the authenticated published-result response into the active Pi branch', async () => {
+    const input = fixture();
+    const mode = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const app = await harness(input, ['Launch review'], { selectBoundary: async () => 'remote' });
+      await app.emit('tool_result', boundary('git push origin feature', 'push-remote-result'));
+      expect(app.sent[0]?.customType).toBe('pr-boundary-remote-plan');
+      const result = { schemaVersion: 1, status: 'published', activityId: 'activity-1',
+        repositoryId: 138, pullRequest: 42, repository: 'owner/repo', head: input.head,
+        round: 3, artifactDigest: 'f'.repeat(64), findings: [{ id: 'code-reviewer-F-1',
+          lane: 'code-reviewer', severity: 'HIGH', path: 'src/review.ts', line: 1,
+          message: 'Missing check', evidence: 'src/review.ts:1' }] };
+      const command = 'gh api -H "x-codeflare-operator-boundary-result: activity-1" repos/owner/repo/pulls/42';
+      await app.emit('tool_result', boundary(command, 'published-result', JSON.stringify(result)));
+      expect(app.sent.map(message => message.customType)).toEqual([
+        'pr-boundary-remote-plan', 'pr-boundary-original-findings',
+      ]);
+      expect(app.sent[1]?.details).toMatchObject({ repository: 'owner/repo', pr: 42,
+        head: input.head, round: 3, activityId: 'activity-1', artifactDigest: 'f'.repeat(64),
+        findings: [{ id: 'code-reviewer-F-1', evidence: 'src/review.ts:1' }] });
+      expect(app.sent[1]?.content).toMatch(/triage|finding/i);
+      expect(JSON.stringify(app.sent)).not.toMatch(/browserJwt|publisherToken|startCapability/i);
+      await app.emit('tool_result', boundary(command, 'published-again', JSON.stringify(result)));
+      expect(app.sent).toHaveLength(2);
+    } finally {
+      if (mode === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = mode;
+    }
+  });
+
+  it('does not manufacture a published finding for unavailable, wrong PR/head or abandoned branch output', async () => {
+    const input = fixture();
+    const mode = process.env.ENTERPRISE_MODE;
+    process.env.ENTERPRISE_MODE = 'active';
+    try {
+      const app = await harness(input, ['Launch review'], { selectBoundary: async () => 'remote' });
+      await app.emit('tool_result', boundary('git push origin feature', 'push-no-result'));
+      const command = 'gh api -H "x-codeflare-operator-boundary-result: activity-1" repos/owner/repo/pulls/42';
+      const payload = { schemaVersion: 1, status: 'published', activityId: 'activity-1',
+        repositoryId: 138, pullRequest: 42, repository: 'owner/repo', head: input.head,
+        round: 1, artifactDigest: 'f'.repeat(64), findings: [{ id: 'F-1', lane: 'code-reviewer',
+          severity: 'HIGH', path: 'src/review.ts', line: 1, message: 'Missing check', evidence: 'proof' }] };
+      for (const response of [{ status: 'unavailable' }, { ...payload, pullRequest: 43 },
+        { ...payload, head: 'a'.repeat(40) }, { ...payload, activityId: 'other-activity' }]) {
+        await app.emit('tool_result', boundary(command, 'bad-result', JSON.stringify(response)));
+      }
+      await app.emit('tool_result', boundary('printf untrusted-result', 'untrusted-result', JSON.stringify(payload)));
+      expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+      app.setBranch([]);
+      await app.emit('tool_result', boundary(command, 'abandoned-result', JSON.stringify(payload)));
+      expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+    } finally {
+      if (mode === undefined) delete process.env.ENTERPRISE_MODE;
+      else process.env.ENTERPRISE_MODE = mode;
     }
   });
 
