@@ -124,8 +124,13 @@ export async function createDispatcherOperation(input: {
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
-  const readDeadline = Date.now() + 8000;
-  const readSignal = () => AbortSignal.timeout(Math.max(1, readDeadline - Date.now()));
+  const readDeadline = resource === 'release-notes' ? Date.now() + 8000 : null;
+  const readSignal = () => {
+    if (readDeadline === null) return undefined;
+    const remaining = readDeadline - Date.now();
+    if (remaining <= 0) throw new Error('Release read deadline exceeded');
+    return AbortSignal.timeout(remaining);
+  };
   const get = async (path: string) => {
     await current();
     return transport.fetch(new Request(base + path, { redirect: 'manual', signal: readSignal(), headers: {
@@ -187,6 +192,7 @@ export async function createDispatcherOperation(input: {
       if (evidence?.tag_name !== tag || evidence?.html_url !== source || typeof evidence?.body !== 'string'
         || !evidence.body.trim()) throw new Error('Release notes unverified');
       await assertHead();
+      if (readDeadline === null || Date.now() >= readDeadline) throw new Error('Release read deadline exceeded');
       return Response.json({ repository: 'amir20/dozzle', tag, source, observedHead: observed.head.sha,
         body: evidence.body });
     }

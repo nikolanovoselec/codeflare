@@ -40,6 +40,7 @@ async function fixture(test: (f: {
   release: (value: unknown, status?: number) => void;
   moveHeadAfterFiles: () => void;
   moveHeadAfterRelease: () => void;
+  exceedReleaseDeadline: () => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -66,6 +67,7 @@ async function fixture(test: (f: {
     let headSha = 'b'.repeat(40);
     let moveAfterFiles = false;
     let moveAfterRelease = false;
+    let exceedDeadline = false;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
@@ -92,6 +94,7 @@ async function fixture(test: (f: {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
           if (request.url.includes('/releases/tags/')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
             return Response.json(releaseBody, { status: releaseStatus });
           }
           if (request.url.includes('/pulls/17/files')) {
@@ -151,6 +154,7 @@ async function fixture(test: (f: {
         files: value => { changedFiles = value; }, release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
+        exceedReleaseDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
@@ -227,6 +231,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   }));
   it('rejects release evidence when the PR head changes during the upstream read', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
+  it('does not return late upstream notes even when a transport ignores abort', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
     expect((await f.capability.fetch(releaseRead())).status).toBe(409);
   }));
   it.each([
