@@ -10,6 +10,7 @@ const record = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const readable = (value: unknown): string | null =>
   typeof value === 'string' && value.length <= 1000 && !/[\p{Cc}]/u.test(value) ? value : null;
+const unavailableEvidence = 'Content unavailable (not safely readable)';
 
 /** Present only understood, bounded report fields; never stringify an opaque result payload. */
 function resultView(result: unknown) {
@@ -29,15 +30,18 @@ function resultView(result: unknown) {
       <Show when={readable(check?.summary)}>{text => <p>Review: {text()}</p>}</Show>
       <Show when={check?.conclusion === 'failure'}><p>Review check failed. Findings require attention.</p></Show>
       <For each={reports}>{report => <section>
-        <h5>{readable(report.lane) || 'Review lane'}</h5>
+        <h5>{typeof report.lane === 'string' ? readable(report.lane) || unavailableEvidence : 'Review lane'}</h5>
         <p>{report.complete === true ? 'Report complete' : report.complete === false ? 'Report incomplete' : 'Original report'} · {Array.isArray(report.findings) ? report.findings.length : 0} findings</p>
         <For each={Array.isArray(report.omissions) ? report.omissions : []}>{omission =>
-          <Show when={readable(omission)}>{text => <p>Missing: {text()}</p>}</Show>}</For>
+          <p>Missing: {readable(omission) || unavailableEvidence}</p>}</For>
         <For each={Array.isArray(report.findings) ? report.findings : []}>{finding => {
           const entry = record(finding);
-          return entry && <article><strong>{readable(entry.title) || readable(entry.message) || 'Finding'}</strong>
-            <Show when={readable(entry.severity)}>{text => <span> · {text()}</span>}</Show>
-            <Show when={readable(entry.summary) || readable(entry.description)}>{text => <p>{text()}</p>}</Show>
+          if (!entry) return <article><strong>{unavailableEvidence}</strong></article>;
+          return <article><strong>{readable(entry.title) || readable(entry.message) || unavailableEvidence}</strong>
+            <Show when={typeof entry.severity === 'string'}><span> · {readable(entry.severity) || unavailableEvidence}</span></Show>
+            <Show when={typeof entry.summary === 'string' || typeof entry.description === 'string'}>
+              <p>{readable(entry.summary) || readable(entry.description) || unavailableEvidence}</p>
+            </Show>
           </article>;
         }}</For>
       </section>}</For>
@@ -114,13 +118,14 @@ const OperatorActivityButton: Component<Props> = (props) => {
     if (!control?.contains(event.target) && !panel?.contains(event.target)) close();
   };
   const toggle = () => {
-    if (!open() && trigger) {
+    if (open()) { close(); return; }
+    if (trigger) {
       const rect = trigger.getBoundingClientRect();
       setPosition({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
     }
-    if (!open()) openedWidth = window.innerWidth;
-    setOpen(value => !value);
-    if (open()) queueMicrotask(() => panel?.focus());
+    openedWidth = window.innerWidth;
+    setOpen(true);
+    queueMicrotask(() => panel?.focus());
   };
   // Coordinates and the layout branch are measured once per open, so the panel cannot outlive the
   // width it was measured at: a crossing while open would otherwise leave desktop offsets on a

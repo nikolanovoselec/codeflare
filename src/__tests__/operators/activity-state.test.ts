@@ -82,7 +82,8 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(JSON.stringify(detail)).not.toContain('secret-token');
     expect(JSON.stringify(detail)).not.toContain('private notes');
     const longRepository = `${'a'.repeat(128)}/${'b'.repeat(127)}`;
-    await ctx.storage.put('admission', { ...await ctx.storage.get('admission'),
+    const currentAdmission = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...currentAdmission!,
       invocationJson: JSON.stringify({ input: { context: { repositoryId: 123, pullRequest: 42 } },
         source: { kind: 'session', reference: longRepository } }) });
     const longDetail = await activity.getBrowserDetail();
@@ -101,6 +102,24 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     await registry.upsertOwnedActivity(owner,
       { ...base, activityId: 'older-still-working', executionStatus: 'completed' });
     expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(0);
+  }));
+
+  it('REQ-OPERATOR-027: recovers persisted working count beyond 1,000 historical summaries', async () => withActivity(async ({ registry, ctx }) => {
+    const owner = 'f'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const,
+      collectionStatus: 'ready' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    for (let start = 0; start <= 1000; start += 100) {
+      const saved = Object.fromEntries(Array.from({ length: Math.min(100, 1001 - start) }, (_, offset) => {
+        const i = start + offset;
+        return [`owner-activity:${owner}:past-${i}`, { ...base, activityId: `past-${i}`,
+          executionStatus: i === 0 || i === 1000 ? 'running' : 'completed' }];
+      }));
+      await ctx.storage.put(saved);
+    }
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-activity', executionStatus: 'running' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(3);
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'past-0' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(2);
   }));
 
   it('REQ-OPERATOR-027: retains only 100 owner entries and pages by last seen ID across a new arrival and status update', async () => withActivity(async ({ registry }) => {

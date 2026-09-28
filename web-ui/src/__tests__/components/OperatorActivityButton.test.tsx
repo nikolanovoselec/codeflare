@@ -221,6 +221,29 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByText('12')).toBeTruthy();
   });
 
+  it('REQ-OPERATOR-027: trigger dismissal resets older history and selected detail on reopen', async () => {
+    const items = Array.from({ length: 6 }, (_, i) => ({ ...active, activityId: `activity-${i + 1}` }));
+    listMock.mockImplementation(async (after: string | null) => ({
+      items: after ? items.slice(5) : items.slice(0, 5), nextCursor: after ? null : 'activity-5', workingCount: 6 }));
+    detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null, result: { verdict: 'reviewed' } });
+    render(() => <OperatorActivityButton enabled />);
+    const trigger = screen.getByRole('button', { name: /operator activity/i });
+    await fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Load next 5' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-6' })).toBeTruthy());
+    await fireEvent.click(trigger);
+    await fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Newer 5' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText('Conclusion: reviewed')).toBeTruthy());
+    await fireEvent.click(trigger);
+    await fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    expect(screen.queryByText('Conclusion: reviewed')).toBeNull();
+  });
+
   it('keeps the older page stable when polling prepends a newer activity', async () => {
     vi.useFakeTimers();
     const initial = Array.from({ length: 8 }, (_, i) => ({ ...active, activityId: `activity-${i + 1}` }));
@@ -323,6 +346,23 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await waitFor(() => expect(screen.getByText('lane-16')).toBeTruthy());
     expect(screen.getByText('Missing: Omission 20')).toBeTruthy();
     expect(screen.getByText('Finding 50')).toBeTruthy();
+  });
+
+  it('REQ-OPERATOR-057: marks unreadable Review evidence explicitly without exposing unsafe text', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { originalReports: [{ lane: 'code-reviewer', omissions: ['x'.repeat(1001)],
+        findings: [{ message: 'y'.repeat(1001) }, { title: 'Known finding', description: 'z'.repeat(1001) }] }] } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText('Missing: Content unavailable (not safely readable)')).toBeTruthy());
+    expect(screen.getAllByText('Content unavailable (not safely readable)')).toHaveLength(2);
+    expect(screen.getByText('Known finding')).toBeTruthy();
+    expect(screen.queryByText('x'.repeat(1001))).toBeNull();
+    expect(screen.queryByText('y'.repeat(1001))).toBeNull();
+    expect(screen.queryByText('z'.repeat(1001))).toBeNull();
   });
 
   it('REQ-OPERATOR-057: reads the compiler-produced native Conductor reports variant', async () => {

@@ -1351,9 +1351,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (count === undefined) {
         // Existing owner summaries may outlive the 100-entry display index. Rebuild once,
         // then maintain the count transactionally across subsequent evictions and updates.
-        const saved = await tx.list<OperatorBrowserSummary>({ prefix: `owner-activity:${ownerKey}:`, limit: 1000 });
-        if (saved.size === 1000) throw new Error('Owned activity count exceeds bounded recovery');
-        count = [...saved.values()].filter(item => workingActivity(item.executionStatus)).length;
+        count = 0;
+        let startAfter: string | undefined;
+        for (;;) {
+          const saved = await tx.list<OperatorBrowserSummary>({ prefix: `owner-activity:${ownerKey}:`, limit: 256,
+            ...(startAfter ? { startAfter } : {}) });
+          for (const item of saved.values()) if (workingActivity(item.executionStatus)) count++;
+          if (saved.size < 256) break;
+          startAfter = [...saved.keys()].at(-1);
+        }
       }
       const wasWorking = prior ? workingActivity(prior.executionStatus) : false;
       const isWorking = workingActivity(summary.executionStatus);

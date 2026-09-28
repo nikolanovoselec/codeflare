@@ -147,9 +147,10 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
         ({ ...summary, activityId: `activity-${i + 1}` })), nextCursor: cursor ? null : 'activity-5', workingCount: 92 }));
     const first = await request('?limit=5');
     expect(first.status).toBe(200);
-    const firstPage = await first.json();
+    const firstPage = await first.json() as { nextCursor: string | null; workingCount: number;
+      items: Array<{ activityId: string }> };
     expect(firstPage).toMatchObject({ nextCursor: 'activity-5', workingCount: 92 });
-    expect(firstPage.items.map((item: { activityId: string }) => item.activityId))
+    expect(firstPage.items.map(item => item.activityId))
       .toEqual(['activity-1', 'activity-2', 'activity-3', 'activity-4', 'activity-5']);
     const next = await request('?limit=5&after=activity-5');
     expect(await next.json()).toMatchObject({ items: [{ activityId: 'activity-6' }], workingCount: 92 });
