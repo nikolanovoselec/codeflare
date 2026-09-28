@@ -286,7 +286,7 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     let bytes = await readBoundedResponse(response, maxOutputBytes, 'Approved Host packet', driveSignal);
     if (!bytes.byteLength || Date.now() >= deadline) throw new Error('Approved Host packet unavailable');
     if (rejectedFindings?.length) {
-      const packet = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as Record<string, unknown>;
+      const packet = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)) as Record<string, unknown>;
       if (!packet || typeof packet !== 'object' || Array.isArray(packet)
         || !packet.evidence || typeof packet.evidence !== 'object' || Array.isArray(packet.evidence))
         throw new Error('Approved packet evidence unavailable');

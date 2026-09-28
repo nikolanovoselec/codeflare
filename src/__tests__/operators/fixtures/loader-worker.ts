@@ -98,7 +98,7 @@ export class ConductorFixtureCapability extends WorkerEntrypoint<FixtureEnv> {
       const files = [];
       for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
         const bytes = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, lane, packetDigest,
-          generation: 1, complete: true, omissions: [], findings: [] }));
+          head: 'b'.repeat(40), generation: 1, complete: true, omissions: [], findings: [] }));
         const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
           .map(byte => byte.toString(16).padStart(2, '0')).join('');
         conductorObjects.set(`Operators/reports/${lane}.json`, bytes);
@@ -234,7 +234,8 @@ export default {
       }
       if (url.pathname === '/conductor-bundle') {
         const loaded = await loadConductorBundle(env, entrypoints.ConductorFixtureCapability({ props }));
-        const invocation = { input: { packet: { reference: 'prepared-review-packet-1', digest: 'a'.repeat(64) } },
+        const invocation = { input: { roundGeneration: 1,
+          packet: { reference: 'prepared-review-packet-1', digest: 'a'.repeat(64) } },
           attachments: [{ name: 'packet.json', mediaType: 'application/json', size: 128,
             sha256: 'a'.repeat(64), locator: 'packet-1' }] };
         return loaded.fetch(new Request('https://operator.internal/drive', { method: 'POST',
