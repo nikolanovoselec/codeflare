@@ -10,9 +10,13 @@ const claims = {
   audiences: ['account-audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
   expiresAt: Math.floor(Date.now() / 1000) + 300,
 };
+const accessState = vi.hoisted(() => ({ active: true }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
-  requireOperatorHumanContext: async () => ({ human: claims, accessJwt: 'private.access.jwt' }),
+  requireOperatorHumanContext: async () => {
+    if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
+    return { human: claims, accessJwt: 'private.access.jwt' };
+  },
 }));
 const orchestration = vi.hoisted(() => ({
   prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
@@ -39,6 +43,7 @@ function fixture() {
     getBrowserDetail: vi.fn(async (): Promise<typeof summary & { checkpoint: unknown; result: unknown }> =>
       ({ ...summary, checkpoint: { step: 1 }, result: null })),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
+    publishRenovateAssessment: vi.fn(async () => ({ ok: true, phase: 'reserved' })),
   };
   const registry = {
     listOwnedActivities: vi.fn(async () => [summary]),
@@ -73,10 +78,10 @@ function fixture() {
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
     { waitUntil, passThroughOnException: vi.fn(), props: {}, exports: { OperatorRuntimeCapability: loopback } },
   );
-  return { activity, registry, env, request, waitUntil, loopback };
+  return { activity, registry, env, kv, request, waitUntil, loopback };
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); accessState.active = true; });
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
   it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
@@ -284,5 +289,26 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const { request, registry, env } = fixture();
     expect((await request('', 'GET', undefined, true, { ...env, ENTERPRISE_MODE: 'inactive' })).status).toBe(404);
     expect(registry.listOwnedActivities).not.toHaveBeenCalled();
+  });
+});
+
+describe('REQ-OPERATOR-060: explicit authenticated publisher admission', () => {
+  const command = { sessionId: 'session-1', sessionGeneration: 3 };
+
+  it('admits only a current admin and exact owned Activity with a CSRF-protected session command', async () => {
+    const f = fixture();
+    expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(403);
+    expect((await f.request('/activity-1/publish', 'POST', command, false)).status).toBe(403);
+    f.kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin', accessTier: 'advanced' }));
+    accessState.active = false;
+    expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(403);
+    accessState.active = true;
+    f.registry.getOwnedActivity.mockResolvedValueOnce(null);
+    expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(404);
+    expect((await f.request('/activity-1/publish', 'POST', { ...command, repository: 'foreign/repo' })).status).toBe(400);
+    const response = await f.request('/activity-1/publish', 'POST', command);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true });
+    expect((await f.request('/activity-1/result')).status).toBe(200);
   });
 });
