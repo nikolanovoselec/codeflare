@@ -221,6 +221,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
     mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
     const activatedAt = '2026-09-28T00:00:00.000Z';
+    mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
     const seen: Array<{ pullRequest: number; activityId: string }> = [];
     let reservedActivityId: string | undefined;
     const unauthorizedEffects: string[] = [];
@@ -234,10 +235,18 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
       name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+      resolveManagementExecution: async () => ({ ok: true, value: {
+        controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher', revision: 1,
+          enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null }, releaseId: 'release' },
+        operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
+          invokers: { users: ['admin@example.test'], groups: [] } },
+        release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: '{}',
+      } }),
       currentProspectiveRenovateRegistration: async () => ({ activatedAt, installationId: 'dispatcher-install',
         registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
-          audiences: ['audience'], expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
+          audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+          expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
       reserveProspectiveRenovateActivity: reserve,
       readProspectiveRenovateAdmission: async (id: string) => id === reservedActivityId ? {
         activityId: id, repositoryId: 973175879, pullRequest: 1302, head: 'c'.repeat(40),
@@ -250,6 +259,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       return { bindProspectiveRenovateAdmission: async () => true,
         getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
         getRuntimePlan: async () => null,
+        prepareAuthorized: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-preparation');
+          return { ok: true }; },
         start: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-start'); },
         publishRenovateAssessment: async () => { unauthorizedEffects.push('publication'); },
       };
@@ -261,6 +272,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       if (url.pathname === '/repos/nikolanovoselec/komodo/pulls') return Response.json(page === 1
         ? [...Array.from({ length: 99 }, (_, index) => ({ number: index + 1,
           state: 'open', created_at: activatedAt, updated_at: '2026-09-29T00:00:00.000Z',
+          body: 'Release notes and update links '.repeat(40),
           user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
           head: { sha: 'a'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } })),
           { number: 1302, created_at: '2026-09-28T00:00:00.001Z', state: 'open',
@@ -322,6 +334,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     try { await deliver?.().catch(() => {}); }
     finally { nextClock.mockRestore(); }
     expect(continuationUnavailable).toBe(true);
+    expect(seen).toEqual([]);
+    // Even a valid candidate on the first page is not admitted when a
+    // subsequent page exceeds the scan-specific byte bound.
+    (mockCtx as any).exports.GitHubInterceptor = () => ({ fetch: async (request: Request) => {
+      const url = new URL(request.url);
+      if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
+        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
+      const rows = Array.from({ length: 100 }, (_, index) => ({ number: 1302 + index,
+        created_at: '2026-09-28T00:00:00.001Z', state: 'open',
+        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
+        head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }));
+      return Response.json(url.searchParams.get('page') === '1' ? rows
+        : [{ ...rows[0], body: 'x'.repeat(2 * 1024 * 1024 + 1) }]);
+    } });
+    const hugeClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 14_400_001);
+    try { await deliver?.().catch(() => {}); } finally { hugeClock.mockRestore(); }
     expect(seen).toEqual([]);
   });
 

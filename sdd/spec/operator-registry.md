@@ -323,9 +323,9 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment), [REQ-OPERATOR-060](#req-operator-060-fenced-renovate-publication)
 
-**Verification:** Not implemented. RED and GREEN tests must exercise authenticated activation, actual Container/Registry admission and the restricted publication boundary. The connected scheduler fixture substitutes the child runtime result; it does not execute a compiled Dispatcher or prove model judgment. Synthetic verification is not live activation or a naturally arriving post-activation Komodo PR; that remains a separate acceptance gate.
+**Verification:** Exact-head PR Checks `36490796134` at `188aee1162326fe817dfa11e745cf32e9dbdb500` passed Typecheck, backend Container, Registry, publisher and route shards, and the aggregate gate after test-only RED run `36485684846` failed on absent behavior. Tests exercise authenticated activation, concurrent durable admission, the scheduled callback contract with simulated SDK delivery, lost scheduling/start responses, an unchanged uncertain Activity, the real Activity collector on a synthetic settled-waiting snapshot, Activity-bound read/inference revocation and restricted publication. The connected fixture substitutes the child settlement and does not run a compiled Dispatcher, prove model judgment, activate scanning or demonstrate a naturally arriving post-activation Komodo PR; those remain separate acceptance boundaries.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

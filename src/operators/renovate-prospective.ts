@@ -1,11 +1,28 @@
 import { z } from 'zod';
 import type { Env } from '../types';
-import { readDispatcherBody } from './operator-runtime-capability';
 import { parseOperatorPolicy } from './policy';
 import type { CurrentProspectiveRegistration } from './registry';
 
 const KOMODO = 'nikolanovoselec/komodo';
 const REPOSITORY_ID = 973175879;
+
+/** GitHub list pages include descriptions and links; the Dispatcher wire's 64 KiB cap is separate. */
+async function readScanPage(response: Response): Promise<string> {
+  if (!response.body) throw Error('Komodo page unavailable');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let size = 0;
+  let text = '';
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return text + decoder.decode();
+      size += chunk.value.byteLength;
+      if (size > 2 * 1024 * 1024) throw Error('Komodo page exceeds byte bound');
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
 const commit = z.string().regex(/^[0-9a-f]{40}$/);
 const pr = z.object({ number: z.number().int().positive().safe(), state: z.literal('open'),
   created_at: z.string().datetime({ offset: true }), user: z.object({ id: z.number().int().safe(),
@@ -38,7 +55,7 @@ export async function listProspectiveRenovatePrs(input: { env: Env;
       },
     }));
     if (response.status !== 200 || response.redirected) throw Error('Incomplete Komodo scan');
-    return JSON.parse(await readDispatcherBody(response)) as unknown;
+    return JSON.parse(await readScanPage(response)) as unknown;
   }
   const repository = z.object({ id: z.literal(REPOSITORY_ID), full_name: z.literal(KOMODO),
     default_branch: z.literal('main') }).parse(await get(''));
