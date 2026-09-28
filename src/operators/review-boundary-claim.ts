@@ -17,8 +17,14 @@ import { verifyOperatorPackageResourceProjection } from './package-resources';
 const SHA = /^[0-9a-f]{40}$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const CLAIM_PATH = '/operator-webhook/v1/activities/claims/boundary';
+const DISCOVERY_PATH = '/operator-webhook/v1/activities/claims/discovery';
 const PUBLICATION_PATH = '/operator-webhook/v1/activities/claims/publication';
 const PREPARATION_PATH = '/operator-webhook/v1/activities/claims/publication-preparation';
+function pinnedRuntime(action: Pick<BoundaryActionBinding, 'verified' | 'runtimeSha'>) {
+  return action.verified && action.runtimeSha ? {
+    jobWorkflowRef: `nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@${action.runtimeSha}`,
+  } : {};
+}
 export interface BoundaryActionClaimRequest {
   repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string;
   runId: number; runAttempt: number;
@@ -31,7 +37,7 @@ function sameClaim(verified: BoundaryActionClaimContext, input: BoundaryActionCl
 }
 
 /** Read untrusted signed-payload hints only to choose expected claims; they grant no I/O or principal. */
-function tokenHints(token: string): { repository: string; workflowSha: string } | null {
+function tokenHints(token: string): { repository: string; workflowSha: string; workflowRef?: string } | null {
   if (typeof token !== 'string' || token.length > 8_192) return null;
   try {
     const parts = token.split('.');
@@ -43,7 +49,9 @@ function tokenHints(token: string): { repository: string; workflowSha: string } 
     const hint = payload as Record<string, unknown>;
     return typeof hint.repository === 'string' && REPOSITORY.test(hint.repository)
       && typeof hint.workflow_sha === 'string' && SHA.test(hint.workflow_sha)
-      ? { repository: hint.repository, workflowSha: hint.workflow_sha } : null;
+      ? { repository: hint.repository, workflowSha: hint.workflow_sha,
+        ...(typeof hint.workflow_ref === 'string' && hint.workflow_ref.length < 512
+          ? { workflowRef: hint.workflow_ref } : {}) } : null;
   } catch { return null; }
 }
 
@@ -163,6 +171,71 @@ async function currentBoundaryActor(env: Env, prepared: BoundaryPreparation): Pr
   } catch { return false; }
 }
 
+/** Non-consuming origin discovery: GitHub authenticates the job; the sealed human and current PR remain authoritative. */
+export async function discoverVerifiedBoundaryAction(env: Env, oidcToken: string,
+  input: BoundaryActionClaimRequest): Promise<{ status: 'match'; contextDigest: string } | {
+    status: 'no-match' | 'unavailable' }> {
+  if (!isEnterpriseMode(env) || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY || !env.CONTAINER || !env.USAGE_DB
+    || !Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0
+    || !Number.isSafeInteger(input.pullRequest) || input.pullRequest <= 0
+    || !Number.isSafeInteger(input.runId) || input.runId <= 0
+    || !Number.isSafeInteger(input.runAttempt) || input.runAttempt <= 0
+    || ![input.head, input.base, input.mergeBase].every(value => SHA.test(value))) return { status: 'unavailable' };
+  const hints = tokenHints(oidcToken);
+  if (!hints) return { status: 'unavailable' };
+  try {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const prepared = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
+    if (!prepared) {
+      const controls = await registry.getManagementControls();
+      const matching = controls.boundaryActions?.filter(action => action.repositoryId === input.repositoryId
+        && action.enabled !== false && action.events.includes('pull_request_target')
+        && hints.workflowRef === `${hints.repository}/${action.workflowPath}@${action.protectedRef}`) ?? [];
+      if (matching.length !== 1) return { status: 'unavailable' };
+      const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
+      if (!domain || !/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i.test(domain)) {
+        return { status: 'unavailable' };
+      }
+      const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${DISCOVERY_PATH}`,
+        repositoryId: input.repositoryId, repository: hints.repository,
+        workflowPath: matching[0].workflowPath, protectedRef: matching[0].protectedRef,
+        workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt,
+        ...pinnedRuntime(matching[0]) });
+      return signed ? { status: 'no-match' } : { status: 'unavailable' };
+    }
+    if (prepared.phase !== 'prepared' || prepared.deadline <= Date.now()
+      || prepared.revision.head !== input.head || prepared.revision.base !== input.base
+      || prepared.revision.mergeBase !== input.mergeBase) return { status: 'unavailable' };
+    const action = await registry.getBoundaryAction(input.repositoryId, prepared.protectedRef);
+    if (!action || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
+      || action.controlsRevision !== prepared.controlsRevision || !action.events.includes('pull_request_target')) {
+      return { status: 'unavailable' };
+    }
+    const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
+    if (!domain || !/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i.test(domain)) {
+      return { status: 'unavailable' };
+    }
+    const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${DISCOVERY_PATH}`,
+      repositoryId: input.repositoryId, repository: hints.repository,
+      workflowPath: action.workflowPath, protectedRef: action.protectedRef,
+      workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt,
+      ...pinnedRuntime(action) });
+    if (!signed || !await currentBoundaryActor(env, prepared)
+      || env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
+      || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unavailable' };
+    const token = await getValidGithubToken(env, prepared.session.bucket);
+    if (!token) return { status: 'unavailable' };
+    const verified = await verifyCurrentBoundaryAction(prepared, action, signed, input, token);
+    if (!verified || !sameClaim(verified, input, action.workflowId)) return { status: 'unavailable' };
+    const session = await new D1SessionRepository(env.USAGE_DB).getSession(prepared.session.bucket,
+      prepared.session.sessionId);
+    return session?.lifecycleState === 'running'
+      && session.lifecycleGeneration === prepared.session.generation
+      && await currentBoundaryActor(env, prepared)
+      ? { status: 'match', contextDigest: prepared.contextDigest } : { status: 'unavailable' };
+  } catch { return { status: 'unavailable' }; }
+}
+
 /** Parent-only claim: GitHub authenticates the job; sealed Access authenticates the human. */
 export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
   input: BoundaryActionClaimRequest): Promise<{ status: string } | (BoundaryActionClaimContext & {
@@ -194,7 +267,8 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `${origin}${CLAIM_PATH}`,
       repositoryId: input.repositoryId, repository: hints.repository,
       workflowPath: action.workflowPath, protectedRef: action.protectedRef,
-      workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt });
+      workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt,
+      ...pinnedRuntime(action) });
     if (!signed) return { status: 'denied' };
     const identity = signed;
     const activity = env.OPERATOR_ACTIVITY.getByName(prepared.activityId);
@@ -328,7 +402,7 @@ export async function prepareBoundaryPublication(env: Env, oidcToken: string,
     const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${PREPARATION_PATH}`,
       repositoryId: input.repositoryId, repository: hints.repository, workflowPath: action.workflowPath,
       protectedRef: action.protectedRef, workflowSha: hints.workflowSha,
-      runId: input.runId, runAttempt: input.runAttempt });
+      runId: input.runId, runAttempt: input.runAttempt, ...pinnedRuntime(action) });
     if (!signed) return { status: 'denied' };
     const activity = env.OPERATOR_ACTIVITY.getByName(input.activityId);
     async function currentOwners(): Promise<boolean> {
@@ -446,7 +520,8 @@ export async function operateBoundaryPublication(env: Env, oidcToken: string,
     const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${PUBLICATION_PATH}`,
       repositoryId: input.repositoryId, repository: hints.repository,
       workflowPath: action.workflowPath, protectedRef: action.protectedRef,
-      workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt });
+      workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt,
+      ...pinnedRuntime(action) });
     if (!signed) return { status: 'denied' };
     const activity = env.OPERATOR_ACTIVITY.getByName(input.activityId);
     async function admissionCurrent(): Promise<boolean> {

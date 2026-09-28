@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { isEnterpriseMode } from '../lib/subscription';
 import { bindOperatorRuntimeCapability, runOperatorActivity } from '../operators/orchestrator';
-import { claimVerifiedBoundaryAction, operateBoundaryPublication, prepareBoundaryPublication,
+import { claimVerifiedBoundaryAction, discoverVerifiedBoundaryAction, operateBoundaryPublication, prepareBoundaryPublication,
   type BoundaryActionClaimRequest, type BoundaryPublicationRequest,
   type BoundaryPublicationPreparationInput } from '../operators/review-boundary-claim';
 import { D1SessionRepository } from '../lib/session-repository';
@@ -71,6 +71,7 @@ function throttle(key: string): boolean {
 }
 
 const CLAIM_PATH = '/operator-webhook/v1/activities/claims/boundary';
+const DISCOVERY_PATH = '/operator-webhook/v1/activities/claims/discovery';
 const PUBLICATION_PATH = '/operator-webhook/v1/activities/claims/publication';
 const PREPARATION_PATH = '/operator-webhook/v1/activities/claims/publication-preparation';
 const CLAIM_FIELDS = ['repositoryId', 'pullRequest', 'head', 'base', 'mergeBase', 'runId', 'runAttempt'];
@@ -160,6 +161,23 @@ async function publicationBody(request: Request, preparation = false): Promise<B
   } catch { return null; }
   finally { clearTimeout(deadline); reader.releaseLock(); }
 }
+
+app.all(DISCOVERY_PATH, async c => {
+  if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+  if (c.req.method !== 'POST') return response({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
+  const header = c.req.header('authorization');
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || token.length > 8192 || !OIDC.test(token)) {
+    return response({ error: 'Action identity required', code: 'ACTION_IDENTITY_REQUIRED' }, 401);
+  }
+  const input = await claimBody(c.req.raw);
+  if (!input) return response({ error: 'Invalid discovery', code: 'BOUNDARY_DISCOVERY_INVALID' }, 400);
+  try {
+    const result = await discoverVerifiedBoundaryAction(c.env, token, input);
+    return result.status === 'unavailable'
+      ? response(result, 503) : response(result, 200);
+  } catch { return response({ status: 'unavailable' }, 503); }
+});
 
 app.all(CLAIM_PATH, async c => {
   if (!isEnterpriseMode(c.env)) return response({ error: 'Not found', code: 'NOT_FOUND' }, 404);

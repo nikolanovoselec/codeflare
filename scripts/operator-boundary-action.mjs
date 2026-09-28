@@ -17,6 +17,49 @@ const origin = value => {
   catch { return false; }
 };
 
+const DISCOVERY_PATH = '/operator-webhook/v1/activities/claims/discovery';
+
+/** Probe every installer-fixed endpoint under one deadline before choosing any consuming claim. */
+export async function selectBoundaryOrigin(origins, input, services, options = {}) {
+  const duration = options.deadlineMs ?? 10_000;
+  const reobserveMs = options.reobserveMs ?? 1000;
+  if (!Array.isArray(origins) || origins.length !== 3 || new Set(origins).size !== 3
+    || !origins.every(origin) || !Number.isSafeInteger(duration) || duration < 1 || duration > 10_000
+    || !Number.isSafeInteger(reobserveMs) || reobserveMs < 1 || reobserveMs > 1000
+    || !positive(input?.repositoryId) || !positive(input?.pullRequest) || !positive(input?.runId)
+    || !positive(input?.runAttempt) || ![input?.head, input?.base, input?.mergeBase].every(value => SHA.test(value))
+    || typeof services?.oidc !== 'function' || typeof services?.fetch !== 'function') return null;
+  const controller = new AbortController();
+  const deadline = Date.now() + duration;
+  let timer;
+  const timeout = new Promise(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, duration); });
+  const probe = async candidate => {
+    const url = `${candidate}${DISCOVERY_PATH}`;
+    try {
+      const token = await services.oidc(url);
+      if (controller.signal.aborted || typeof token !== 'string' || !token || token.length > 8192) return null;
+      const response = await services.fetch(new Request(url, { method: 'POST', redirect: 'error',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(input), signal: controller.signal }));
+      if (controller.signal.aborted || (response.url && response.url !== url)) return null;
+      const body = await boundedJson(response);
+      return body?.status === 'match' && DIGEST.test(body.contextDigest)
+        ? { origin: candidate, contextDigest: body.contextDigest } : null;
+    } catch { return null; }
+  };
+  try {
+    while (!controller.signal.aborted) {
+      const observed = await Promise.all(origins.map(candidate => Promise.race([probe(candidate), timeout])));
+      const matches = observed.filter(Boolean);
+      if (matches.length) return matches.length === 1 ? matches[0] : null;
+      if (controller.signal.aborted || remaining() <= reobserveMs) return null;
+      await Promise.race([new Promise(resolve => setTimeout(resolve, reobserveMs)), timeout]);
+    }
+    return null;
+  } finally { clearTimeout(timer); controller.abort(); }
+  function remaining() { return deadline - Date.now(); }
+}
+
 async function boundedJson(response, limit = 65 * 1024) {
   if (!response?.ok || response.redirected || !response.body
     || Number(response.headers.get('content-length') ?? 0) > limit) throw Error('Trusted response unavailable');
@@ -95,6 +138,23 @@ export async function collectBoundaryResult(handoff, services, options = {}) {
     } catch { return { status: 'unknown' }; }
   }
   return { status: 'pending' };
+}
+
+/** GitHub's current bot/App records are read back on the fixed API origin, never supplied by a target PR or repo variable. */
+export async function resolvePublisherIdentity(token, fetcher = fetch) {
+  if (typeof token !== 'string' || !token || typeof fetcher !== 'function') throw Error('Publisher identity unavailable');
+  const read = async path => {
+    const url = `https://api.github.com${path}`;
+    const response = await fetcher(new Request(url, { redirect: 'error', signal: AbortSignal.timeout(10_000),
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28' } }));
+    if (response.url && response.url !== url) throw Error('Publisher identity origin moved');
+    return boundedJson(response, 8192);
+  };
+  const [bot, app] = await Promise.all([read('/users/github-actions%5Bbot%5D'), read('/apps/github-actions')]);
+  if (bot?.login !== 'github-actions[bot]' || bot.type !== 'Bot' || !positive(bot.id)
+    || app?.slug !== 'github-actions' || !positive(app.id)) throw Error('Publisher identity unavailable');
+  return { commentAuthorId: bot.id, checkAppId: app.id };
 }
 
 function githubClient(config) {
@@ -272,11 +332,14 @@ async function runProtectedJob(phase) {
   const runId = Number(required('GITHUB_RUN_ID'));
   const runAttempt = Number(required('GITHUB_RUN_ATTEMPT'));
   const workflowSha = required('GITHUB_WORKFLOW_SHA');
-  const codeflare = required('CODEFLARE_ORIGIN');
+  const origins = ['CODEFLARE_DEV_ORIGIN', 'CODEFLARE_INTEGRATION_ORIGIN', 'CODEFLARE_PRODUCTION_ORIGIN']
+    .map(required);
+  let codeflare;
   const githubToken = required('GITHUB_TOKEN');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)
     || ![repositoryId, runId, runAttempt].every(positive) || !SHA.test(workflowSha)
-    || !origin(codeflare) || !githubToken || !['collect', 'publish'].includes(phase)) {
+    || origins.length !== 3 || new Set(origins).size !== 3 || !origins.every(origin)
+    || !githubToken || !['collect', 'publish'].includes(phase)) {
     throw Error('Protected Action identity unavailable');
   }
   const root = `${api}/repos/${repository}`;
@@ -343,10 +406,14 @@ async function runProtectedJob(phase) {
       || revision.base !== event.pull_request.base.sha) throw Error('Protected PR revision moved');
     const workflow = await github('/actions/workflows/boundary-reviews.yml');
     if (!positive(workflow?.id) || workflow?.state !== 'active') throw Error('Protected workflow unavailable');
+    const discovered = await selectBoundaryOrigin(origins, { ...revision, runId, runAttempt }, { oidc, fetch });
+    if (!discovered) throw Error('Boundary origin unavailable');
+    codeflare = discovered.origin;
     const claim = await post('/operator-webhook/v1/activities/claims/boundary', {
       ...revision, runId, runAttempt,
     });
-    if (!claim || claim.status || claim.origin !== codeflare || claim.workflowId !== workflow.id
+    if (!claim || claim.status || claim.origin !== codeflare
+      || claim.contextDigest !== discovered.contextDigest || claim.workflowId !== workflow.id
       || !ID.test(claim.activityId) || !CAPABILITY.test(claim.startCapability)
       || !positive(claim.generation) || !DIGEST.test(claim.contextDigest)
       || !['repositoryId', 'pullRequest', 'head', 'base', 'mergeBase', 'runId', 'runAttempt']
@@ -372,6 +439,8 @@ async function runProtectedJob(phase) {
   if (transferBytes.length > 72 * 1024) throw Error('Publisher transfer exceeds bound');
   const transfer = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(transferBytes));
   const claim = transfer?.claim;
+  if (!origin(claim?.origin) || !origins.includes(claim.origin)) throw Error('Foreign collector origin');
+  codeflare = claim.origin;
   if (!claim || claim.repositoryId !== repositoryId || claim.runId !== runId || claim.runAttempt !== runAttempt
     || !positive(transfer.activityGeneration) || !DIGEST.test(claim.contextDigest)
     || !ID.test(claim.activityId) || ![claim.head, claim.base, claim.mergeBase].every(value => SHA.test(value))) {
@@ -476,14 +545,13 @@ async function runProtectedJob(phase) {
       } finally { await rm(dir, { recursive: true, force: true }); }
     },
   };
+  const publisher = await resolvePublisherIdentity(githubToken);
   const published = await publishBoundaryResult({ status: 'collected', activityId: claim.activityId,
     activityGeneration: transfer.activityGeneration, result: transfer.result }, projection,
   { activityGeneration: transfer.activityGeneration, runId, runAttempt, ledger, artifact,
     binding: { admission: { ...admission, generation: admission.roundGeneration },
       context, packetDigest: owner.packetDigest, activityGeneration: transfer.activityGeneration },
-    github: { origin: api, repository, token: githubToken, fetch,
-      commentAuthorId: Number(required('REVIEW_COMMENT_AUTHOR_ID')),
-      checkAppId: Number(required('REVIEW_CHECK_APP_ID')) } });
+    github: { origin: api, repository, token: githubToken, fetch, ...publisher } });
   if (published.status !== 'published') throw Error(`Boundary publication ${published.status}`);
   console.log(`Published shadow receipt: artifact ${published.artifactId}, comment ${published.commentId}, check ${published.checkId}`);
 }

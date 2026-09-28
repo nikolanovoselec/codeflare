@@ -7,6 +7,11 @@ export interface BoundaryActionBinding {
   protectedRef: string;
   workflowDigest: string;
   events: string[];
+  /** Verified enrollment is inert until a separately authorized activation. */
+  enabled?: boolean;
+  /** Set only after exact protected-base bytes are checked by the installer. */
+  verified?: boolean;
+  runtimeSha?: string;
   controlsRevision: number;
 }
 
@@ -32,7 +37,7 @@ export async function resolveBoundaryAction(input: {
     && /^[a-f0-9]{40}$/i.test(input.branch.commit?.sha ?? '')
     ? { selection: 'local' } : { selection: 'unavailable' };
   const { action, repository, workflow, branch, contents, event } = input;
-  if (!repository || !workflow || !branch || !contents
+  if (!repository || !workflow || !branch || !contents || action.enabled === false
     || repository.id !== action.repositoryId || !Number.isSafeInteger(action.repositoryId)
     || action.repositoryId <= 0 || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
     || !action.installationId || !Number.isSafeInteger(action.controlsRevision) || action.controlsRevision < 1
@@ -42,7 +47,8 @@ export async function resolveBoundaryAction(input: {
     || branch.name !== input.baseRef.slice('refs/heads/'.length) || !branch.protected
     || !/^[a-f0-9]{40}$/i.test(branch.commit?.sha) || contents.encoding !== 'base64'
     || event !== 'pull_request_target' || !action.events.includes('pull_request_target')
-    || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)) {
+    || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)
+    || (action.verified && !/^[a-f0-9]{40}$/i.test(action.runtimeSha ?? ''))) {
     return { selection: 'unavailable' };
   }
   try {

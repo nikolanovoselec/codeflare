@@ -14,6 +14,7 @@ import { createLogger } from '../lib/logger';
 import type { OperatorRegistry, ManagementOperatorProjection, ManagementPolicy, ManagementAuthority, ManagementControls,
   ManagementInstallation } from '../operators/registry';
 import { registerGithubOperator, refreshGithubReleases, updateGithubOperatorSource } from '../operators/github-release-management';
+import { proposeBoundaryWorkflow, verifyBoundaryWorkflow } from '../operators/boundary-action-installation';
 
 const logger = createLogger('operator-management');
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -40,6 +41,11 @@ const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
 const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities });
 const configureBody = z.strictObject({ policy, configuration, revision });
+const boundaryEnrollmentBody = z.strictObject({
+  repositoryUrl: z.string().min(1).max(2048),
+  protectedRef: z.enum(['refs/heads/main', 'refs/heads/develop', 'refs/heads/master']),
+  installationId: z.string().regex(ID),
+});
 const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), managers: grant,
   ceiling: z.strictObject({ capabilities: policy.shape.capabilities, resourceProfileIds: z.array(z.string().regex(ID)).max(128)
     .refine(values => new Set(values).size === values.length) }),
@@ -49,7 +55,8 @@ const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().m
     workflowPath: z.string().regex(/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/),
     protectedRef: z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/),
     workflowDigest: z.string().regex(/^[a-f0-9]{64}$/i),
-    events: z.array(z.enum(['pull_request', 'push'])).min(1).max(2),
+    events: z.array(z.enum(['pull_request_target', 'pull_request', 'push'])).min(1).max(3),
+    enabled: z.literal(false),
   })).max(100).optional() });
 
 type HumanContext = Awaited<ReturnType<typeof requireOperatorHumanContext>> & { controls: ManagementControls; platformAdmin: boolean };
@@ -176,6 +183,30 @@ app.get('/options', async c => {
     throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
   }
   return c.json(value);
+});
+
+async function enrollmentContext(c: Context<RouteEnv>) {
+  if (!c.get('operatorHuman').platformAdmin) denied();
+  const initial = c.get('operatorHuman').human;
+  return { env: c.env, registry: c.get('registry'), bucket: c.get('bucketName'), reauthorize: async () => {
+    const current = await managementContext(c, true);
+    if (!current.platformAdmin || current.human.subject !== initial.subject
+      || current.human.issuer !== initial.issuer || current.human.email !== initial.email
+      || current.human.expiresAt * 1000 <= Date.now()) denied();
+    return { email: current.human.email, expiresAt: current.human.expiresAt * 1000 };
+  } };
+}
+
+app.post('/boundary-actions/propose', async c => {
+  const context = await enrollmentContext(c);
+  const input = await parseJsonBody(c, boundaryEnrollmentBody);
+  return c.json(await proposeBoundaryWorkflow(input, context), 202);
+});
+
+app.post('/boundary-actions/verify', async c => {
+  const context = await enrollmentContext(c);
+  const input = await parseJsonBody(c, boundaryEnrollmentBody);
+  return c.json(await verifyBoundaryWorkflow(input, context));
 });
 
 app.get('/access', c => {

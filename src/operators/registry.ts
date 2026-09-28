@@ -532,7 +532,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       || !/^refs\/heads\/(main|master|develop)$/.test(protectedRef)) return null;
     const controls = this.managementControls();
     const matches = controls.boundaryActions?.filter(value => value.repositoryId === repositoryId
-      && value.protectedRef === protectedRef) ?? [];
+      && value.protectedRef === protectedRef && value.enabled !== false) ?? [];
     return matches.length === 1 ? { ...structuredClone(matches[0]), controlsRevision: controls.revision } : null;
   }
 
@@ -570,7 +570,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         'SELECT data FROM operator_boundary_preparations WHERE repository_id=? AND pull_request=?',
         input.repositoryId, input.pullRequest).toArray()[0];
       const previous = row ? JSON.parse(row.data) as BoundaryPreparation : null;
-      const actions = this.managementControls().boundaryActions?.filter(binding => binding.repositoryId === input.repositoryId
+      const actions = this.managementControls().boundaryActions?.filter(binding => binding.enabled !== false
+        && binding.repositoryId === input.repositoryId
         && binding.protectedRef === input.protectedRef) ?? [];
       const action = actions.length === 1 ? actions[0] : null;
       const selected = this.managementExecution(input.installationId);
@@ -630,7 +631,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   private boundarySelectionCurrent(current: BoundaryPreparation): boolean {
     const controls = this.managementControls();
-    const actions = controls.boundaryActions?.filter(binding => binding.repositoryId === current.repositoryId
+    const actions = controls.boundaryActions?.filter(binding => binding.enabled !== false
+      && binding.repositoryId === current.repositoryId
       && binding.protectedRef === current.protectedRef) ?? [];
     const action = actions.length === 1 ? actions[0] : null;
     const selected = this.managementExecution(current.installationId);
@@ -842,7 +844,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const current = row ? JSON.parse(row.data) as BoundaryPreparation : null;
       if (!current || current.activityId !== activityId || current.contextDigest !== contextDigest
         || current.deadline <= Date.now() || startExpiresAt > current.deadline || current.phase !== 'pending') return false;
-      const actions = this.managementControls().boundaryActions?.filter(binding => binding.repositoryId === repositoryId
+      const actions = this.managementControls().boundaryActions?.filter(binding => binding.enabled !== false
+        && binding.repositoryId === repositoryId
         && binding.protectedRef === current.protectedRef) ?? [];
       const action = actions.length === 1 ? actions[0] : null;
       const selected = this.managementExecution(current.installationId);
@@ -867,7 +870,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }
 
   /** Current human platform-admin authorization belongs to the route, never to submitted ACL data. */
-  async setManagementControls(input: ManagementControls, actor: { email: string; expiresAt: number }): Promise<OperatorRegistryResult<ManagementControls>> {
+  async setManagementControls(input: ManagementControls, actor: { email: string; expiresAt: number },
+    trustedInstallation = false): Promise<OperatorRegistryResult<ManagementControls>> {
     this.managementSchema();
     if (input.boundaryActions !== undefined) {
       const seen = new Set<string>();
@@ -879,6 +883,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
           || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(action.workflowPath)
           || !/^refs\/heads\/(main|master|develop)$/.test(action.protectedRef)
           || !/^[a-f0-9]{64}$/i.test(action.workflowDigest)
+          || action.enabled === true || (action.verified === true && !trustedInstallation)
+          || (action.verified === true && !/^[a-f0-9]{40}$/i.test(action.runtimeSha ?? ''))
           || !Array.isArray(action.events) || action.events.length === 0
           || action.events.some(event => event !== 'pull_request_target' && event !== 'pull_request' && event !== 'push')) {
           throw new ValidationError('Invalid boundary Action binding');
@@ -890,6 +896,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (!Number.isFinite(actor.expiresAt) || actor.expiresAt <= Date.now()) return { ok: false, reason: 'authority-expired' };
       const current = this.managementControls();
       if (current.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
+      if (!trustedInstallation && input.boundaryActions !== undefined && current.boundaryActions?.some(a => a.verified)) {
+        return { ok: false, reason: 'revision-conflict' };
+      }
       const value = { ...input,
         ...(input.boundaryActions === undefined && current.boundaryActions
           ? { boundaryActions: current.boundaryActions } : {}),

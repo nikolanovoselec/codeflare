@@ -2,8 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import webhookRoutes from '../../routes/operator-webhook';
 
-const claim = vi.hoisted(() => ({ execute: vi.fn(), publication: vi.fn(), preparation: vi.fn() }));
-vi.mock('../../operators/review-boundary-claim', () => ({ claimVerifiedBoundaryAction: claim.execute,
+const claim = vi.hoisted(() => ({ execute: vi.fn(), discover: vi.fn(), publication: vi.fn(), preparation: vi.fn() }));
+vi.mock('../../operators/review-boundary-claim', () => ({ discoverVerifiedBoundaryAction: claim.discover,
+  claimVerifiedBoundaryAction: claim.execute,
   operateBoundaryPublication: claim.publication, prepareBoundaryPublication: claim.preparation }));
 
 const path = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/boundary';
@@ -19,12 +20,36 @@ function request(body: unknown = bindings, authorization: string | null = `Beare
 
 beforeEach(() => {
   claim.execute.mockReset();
+  claim.discover.mockReset();
+  claim.discover.mockResolvedValue({ status: 'match', contextDigest: 'd'.repeat(64) });
   claim.publication.mockReset();
   claim.publication.mockResolvedValue({ status: 'new' });
   claim.preparation.mockReset();
   claim.preparation.mockResolvedValue({ status: 'ready', projection: { packetDigest: 'f'.repeat(64) } });
   claim.execute.mockResolvedValue({ activityId: 'review-activity', origin: 'https://enterprise.example.test',
     startCapability: 's'.repeat(43), ...bindings, workflowId: 531, generation: 1 });
+});
+
+describe('REQ-OPERATOR-053: non-consuming protected Action discovery route', () => {
+  const discoveryPath = 'https://enterprise.example.test/operator-webhook/v1/activities/claims/discovery';
+  const discovery = (body: unknown = bindings, authorization: string | null = `Bearer ${token}`) => new Request(discoveryPath, {
+    method: 'POST', headers: { 'content-type': 'application/json',
+      ...(authorization === null ? {} : { authorization }) }, body: JSON.stringify(body),
+  });
+  it('exposes only an opaque affirmative match, not start/read authority or actor identity', async () => {
+    const response = await webhookRoutes.fetch(discovery(), env as never);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ status: 'match', contextDigest: 'd'.repeat(64) });
+  });
+  it('rejects unauthenticated, non-enterprise and caller-selected authority without disclosing preparation', async () => {
+    expect((await webhookRoutes.fetch(discovery(bindings, null), env as never)).status).toBe(401);
+    expect((await webhookRoutes.fetch(discovery(), {} as never)).status).toBe(404);
+    for (const body of [{ ...bindings, actor: 'administrator' }, { ...bindings, capability: 's'.repeat(43) },
+      { ...bindings, head: 'wrong' }]) {
+      expect((await webhookRoutes.fetch(discovery(body), env as never)).status).toBe(400);
+    }
+  });
 });
 
 describe('operator boundary claim route (task #30; proposed contract)', () => {

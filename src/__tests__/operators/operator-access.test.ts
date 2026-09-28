@@ -198,7 +198,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
   it('binds target Action trust only through current platform-admin controls and retains it on unrelated edits', async () => withApi(async request => {
     const action = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
       workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-      workflowDigest: 'a'.repeat(64), events: ['pull_request'] };
+      workflowDigest: 'a'.repeat(64), events: ['pull_request'], enabled: false };
     const controls = { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [action] };
     expect((await request('/api/operator-management/access', 'POST', controls)).status).toBe(404);
@@ -231,7 +231,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect((await request('/api/operator-management/access', 'POST', { ...controls,
       boundaryActions: [{ ...controls.boundaryActions[0], events: ['pull_request_target', 'workflow_dispatch'] }],
     })).status).toBe(400);
-    expect((await request('/api/operator-management/access')).json()).resolves.toMatchObject({ revision: 0 });
+    await expect((await request('/api/operator-management/access')).json()).resolves.toMatchObject({ revision: 0 });
     const approved = await request('/api/operator-management/access', 'POST', controls);
     expect(approved.status).toBe(200);
     expect(await approved.json()).toMatchObject({ revision: 1, boundaryActions: controls.boundaryActions });

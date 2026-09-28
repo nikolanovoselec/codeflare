@@ -58,6 +58,16 @@ describe('REQ-OPERATOR-054: trusted Action OIDC run identity', () => {
       publication, fetchKeys)).toBeNull();
   });
 
+  it('REQ-OPERATOR-053: a reusable runtime is bound to its pinned job workflow, not just the caller identity', async () => {
+    const pinned = 'nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@' + 'd'.repeat(40);
+    const reusable = { ...expected, jobWorkflowRef: pinned };
+    expect(await verifyBoundaryActionOidc(await token({ job_workflow_ref: pinned }), reusable, fetchKeys))
+      .toMatchObject({ repositoryId: expected.repositoryId, workflowRef });
+    expect(await verifyBoundaryActionOidc(await token(), reusable, fetchKeys)).toBeNull();
+    expect(await verifyBoundaryActionOidc(await token({ job_workflow_ref: pinned.replace(/d{40}$/, 'e'.repeat(40)) }),
+      reusable, fetchKeys)).toBeNull();
+  });
+
   it('rejects tampered signatures and unknown signing keys', async () => {
     const valid = await token();
     const [header, , signature] = valid.split('.');
