@@ -177,14 +177,13 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
-    const releaseWitness = (protocol: 'compatible' | 'incompatible') => '```dozzle-compatibility\n' + JSON.stringify({
-      schema: 'dozzle.compatibility/v1', releaseTag: 'v11.1.2', serverTag: 'v11.1.2', agentTag: 'v11.1.2',
-      protocol, unchangedOptions: [] }) + '\n```';
-    const compatible = releaseWitness('compatible');
-    const adverse = releaseWitness('incompatible');
-    const canonical = (protocol: 'compatible' | 'incompatible') =>
-      `The authenticated Dozzle v11.1.2 witness declares ${protocol} server-agent protocol support with unchanged options.`;
+    // Counterfactual natural-language release receipts test reasoning; neither is an actual release claim.
+    const compatible = 'Dozzle v11.1.2 keeps the server-to-agent protocol compatible with v11.1.1. No migration is needed for the agent subcommand when upgrading both images to v11.1.2.';
+    const adverse = 'Dozzle v11.1.2 removes the agent subcommand. Containers still launched with command: agent fail to start; migrate them to command: relay before upgrading.';
+    const actual = '  - Point duplicate host warning at the docs site  -  by @amir20 and Claude Opus 5.5 (1M context) in https://github.com/amir20/dozzle/issues/5239';
     const releaseSource = 'https://github.com/amir20/dozzle/releases/tag/v11.1.2';
+    const guideSource = `https://github.com/amir20/dozzle/blob/${'1'.repeat(40)}/docs/guide/agent.md`;
+    const guideQuote = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.';
     const changedPaths = ['middleware/dozzle/compose.yaml', 'ai_llm/dozzle_agent/compose.yaml',
       'dns_ntp/dozzle_agent/compose.yaml', 'komodo_core/dozzle_agent/compose.yaml',
       'media_servers/dozzle_agent/compose.yaml', 'minecraft/dozzle_agent/compose.yaml',
@@ -203,6 +202,8 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         checks: { observedHead: head, truncated: false, data: { check_runs: [] } },
         'release-notes': { observedHead: head, repository: 'amir20/dozzle', tag: 'v11.1.2',
           source: releaseSource, body: note },
+        'upstream-guide': { observedHead: head, repository: 'amir20/dozzle', tag: 'v11.1.2',
+          source: guideSource, commitSha: '1'.repeat(40), body: `${guideQuote}\nDOZZLE_REMOTE_AGENT=agent:7007` },
         'changed-compose': { repository: 'owner/repository', pullRequest: 17, baseSha: base, observedHead: head,
           files: changedPaths.map((path, index) => ({ path,
             before: { sha: 'e'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
@@ -210,55 +211,66 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
               environmentKeys: [], redacted: false, ref: `before-${index}` }] },
             after: { sha: 'd'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
               mode: index === 0 ? 'server' : 'agent', image: 'amir20/dozzle:v11.1.2',
-              environmentKeys: [], redacted: false, ref: `after-${index}` }] } })) },
+              environmentKeys: [], redacted: false, ref: `after-${index}` }] },
+            unchangedConfiguration: true })) },
       };
     }
     function decision(classification: 'safe' | 'unsafe' | 'unknown', quote: string) {
-      const statement = canonical(classification === 'unsafe' ? 'incompatible' : 'compatible');
-      return { classification, reasons: [statement], compatibility: statement,
+      const reason = classification === 'unsafe'
+        ? 'The cited v11.1.2 migration removes the agent command still used by the observed agent; the image-only bump lacks the required command change.'
+        : classification === 'unknown'
+          ? 'The cited upstream note changes a warning, not the agent/server protocol; compatibility is not established.'
+          : 'The cited v11.1.2 passage explicitly preserves server-agent protocol and remote-agent setup; the observed server and agents change only image tags.';
+      return { classification, reasons: [reason], compatibility: reason,
         citations: [{ kind: 'release', source: releaseSource, quote },
-          ...changedPaths.map((_, index) => ({ kind: 'config', ref: `after-${index}` }))], gaps: [] };
+          { kind: 'guide', source: guideSource, quote: guideQuote },
+          ...changedPaths.flatMap((_, index) => [{ kind: 'config', ref: `before-${index}` },
+            { kind: 'config', ref: `after-${index}` }])],
+        gaps: classification === 'unknown' ? ['Agent/server protocol support remains unverified.'] : [] };
     }
     it.each([
       { name: 'safe with zero checks', verdict: 'safe', note: compatible, quote: compatible },
       { name: 'unsafe with migration evidence', verdict: 'unsafe', note: adverse, quote: adverse },
+      { name: 'authentic but inconclusive v11.1.2 notes', verdict: 'unknown', note: actual, quote: actual },
       { name: 'invented citation', verdict: 'unknown', note: compatible, quote: 'Invented protocol guarantee.' },
     ] as const)('binds a two-turn research→submit $name decision to pinned parent receipts', async variant => {
       const { id } = await prepare();
       const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
         action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
         productionEvidence: assessmentEvidence(variant.note),
-        productionDecision: decision(variant.verdict === 'unknown' ? 'safe' : variant.verdict, variant.quote),
+        productionDecision: decision(variant.name === 'invented citation' ? 'safe' : variant.verdict, variant.quote),
       });
       expect(admitted.status).toBe(202);
       const value = await settle(id, admitted.body.submissionId);
       expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
         observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: variant.verdict } });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource).sort())
-        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose'].sort());
+        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose'].sort());
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').map(call => call.modelTurn))
         .toEqual(['initial', 'after-tool']);
       expect(value.external).toEqual([]);
       expect(value.activity.sessionId).toBeNull();
     });
 
-    it.each(['missing-notes', 'missing-config', 'stale-head', 'unsupported-notes', 'malformed-decision'] as const)(
+    it.each(['missing-notes', 'missing-guide', 'missing-config', 'stale-head', 'unsupported-notes', 'malformed-decision'] as const)(
       'records unknown for $name rather than inventing compatibility or mutating', async scenario => {
         const { id } = await prepare();
         const evidence: Record<string, unknown> = assessmentEvidence(scenario === 'unsupported-notes'
-          ? 'Features: new icons and log sorting.' : compatible);
+          ? actual : compatible);
         if (scenario === 'missing-notes') delete evidence['release-notes'];
+        if (scenario === 'missing-guide') delete evidence['upstream-guide'];
         if (scenario === 'missing-config') delete evidence['changed-compose'];
         if (scenario === 'stale-head') evidence.files = { ...(evidence.files as object), observedHead: 'c'.repeat(40) };
         const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
           action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 }, productionEvidence: evidence,
           productionDecision: scenario === 'malformed-decision' ? { classification: 'safe', citations: 'invented' }
-            : decision('safe', scenario === 'unsupported-notes' ? 'Features: new icons and log sorting.' : compatible),
+            : decision(scenario === 'unsupported-notes' ? 'unknown' : 'safe',
+              scenario === 'unsupported-notes' ? actual : compatible),
         });
         expect(admitted.status).toBe(202);
         const value = await settle(id, admitted.body.submissionId);
         expect(results(value).at(-1)).toMatchObject({ readOnly: true, assessment: { classification: 'unknown' },
-          ...(['missing-notes', 'missing-config'].includes(scenario) ? { evidence: { complete: false } } : {}) });
+          ...(['missing-notes', 'missing-guide', 'missing-config'].includes(scenario) ? { evidence: { complete: false } } : {}) });
         expect(value.external).toEqual([]);
         expect(value.activity.sessionId).toBeNull();
       });
@@ -297,7 +309,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
         readOnly: true, evidence: { upstream: evidence['release-notes'], stale: false, truncated: false } });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource).sort())
-        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose'].sort());
+        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose'].sort());
       expect(value.external).toEqual([]);
       expect(value.activity.sessionId).toBeNull();
     });

@@ -39,10 +39,12 @@ async function fixture(test: (f: {
   files: (value: unknown[]) => void;
   compose: (value: Record<string, unknown>) => void;
   release: (value: unknown, status?: number) => void;
+  guide: (value: unknown) => void; tag: (value: unknown) => void;
+  annotatedTag: (value: unknown) => void;
   moveHeadAfterFiles: () => void;
   moveHeadAfterRelease: () => void;
   moveBaseAfterContents: () => void;
-  exceedReleaseDeadline: () => void;
+  exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -68,6 +70,10 @@ async function fixture(test: (f: {
     let composeBodies: Record<string, unknown> = {};
     let releaseBody: unknown = { tag_name: 'v11.1.2', body: 'No configuration changes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' };
     let releaseStatus = 200;
+    let guideBody: unknown = composeBlob('docs/guide/agent.md', '2'.repeat(40),
+      'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007');
+    let tagRef: unknown = { ref: 'refs/tags/v11.1.2', object: { type: 'tag', sha: '3'.repeat(40) } };
+    let annotatedTag: unknown = { tag: 'v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } };
     let headSha = 'b'.repeat(40);
     let baseSha = 'a'.repeat(40);
     let moveAfterContents = false;
@@ -102,6 +108,13 @@ async function fixture(test: (f: {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
             if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
             return Response.json(releaseBody, { status: releaseStatus });
+          }
+          if (request.url.includes('/git/ref/tags/')) return Response.json(tagRef);
+          if (request.url.includes('/git/tags/')) return Response.json(annotatedTag);
+          if (request.url.includes('/contents/docs/guide/agent.md')) {
+            if (moveAfterRelease) headSha = 'c'.repeat(40);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 19_000);
+            return guideBody instanceof Response ? guideBody : Response.json(guideBody);
           }
           if (request.url.includes('/contents/')) {
             const url = new URL(request.url);
@@ -177,10 +190,13 @@ async function fixture(test: (f: {
         messages: value => { messages = value; messagesSet = true; },
         files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
         release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
+        guide: value => { guideBody = value; }, tag: value => { tagRef = value; },
+        annotatedTag: value => { annotatedTag = value; },
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
         exceedReleaseDeadline: () => { exceedDeadline = true; },
+        exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
@@ -204,6 +220,10 @@ function composeRead(operationId = 'compose-1', extra = {}) {
 function releaseRead(operationId = 'release-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'release-notes', ...extra }) });
+}
+function guideRead(operationId = 'guide-1', extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'upstream-guide', ...extra }) });
 }
 function changedCompose(path: string, sha = 'd'.repeat(40)) {
   return { filename: path, status: 'modified', sha, additions: 1, deletions: 1,
@@ -254,6 +274,73 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     ]);
     expect(JSON.stringify(result)).not.toContain('inline-secret');
     expect(JSON.stringify(result)).not.toContain('other-secret');
+  }));
+  it('projects version-relevant default server and agent configuration without disclosing stable private values', () => fixture(async f => {
+    await start(f);
+    const paths = ['middleware/dozzle/compose.yaml', 'ai_llm/dozzle_agent/compose.yaml'];
+    f.files(paths.map(path => changedCompose(path)));
+    const bodies: Record<string, unknown> = {};
+    for (const [index, path] of paths.entries()) {
+      for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+        ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+        bodies[`${ref}:${path}`] = composeBlob(path, sha, index === 0
+          ? `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    environment:\n      DOZZLE_REMOTE_AGENT: agent.internal:7007\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`
+          : `services:\n  dozzle-agent:\n    image: amir20/dozzle:${tag}\n    command: agent\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '7007:7007'\n`);
+      }
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ files: [
+      { path: paths[0], unchangedConfiguration: true,
+        before: { services: [{ mode: 'server', redacted: true, environmentKeys: ['DOZZLE_REMOTE_AGENT'] }] },
+        after: { services: [{ mode: 'server', redacted: true, environmentKeys: ['DOZZLE_REMOTE_AGENT'] }] } },
+      { path: paths[1], unchangedConfiguration: true,
+        before: { services: [{ mode: 'agent', redacted: false }] },
+        after: { services: [{ mode: 'agent', redacted: false }] } },
+    ] });
+    expect(JSON.stringify(result)).not.toContain('agent.internal');
+    expect(JSON.stringify(result)).not.toContain('/private/docker.sock');
+  }));
+  it('does not hide harmless unchanged ports and Docker socket mounts on a default server', () => fixture(async f => {
+    await start(f); const path = 'middleware/dozzle/compose.yaml'; f.files([changedCompose(path)]);
+    const bodies: Record<string, unknown> = {};
+    for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+      ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+      bodies[`${ref}:${path}`] = composeBlob(path, sha,
+        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`);
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const output = await response.json();
+    expect(output).toMatchObject({ files: [{ unchangedConfiguration: true,
+      before: { services: [{ mode: 'server', redacted: false }] },
+      after: { services: [{ mode: 'server', redacted: false }] } }] });
+    expect(JSON.stringify(output)).not.toContain('/private/docker.sock');
+  }));
+  it.each([
+    { name: 'persistent /data', property: "    volumes:\n      - /private/dozzle:/data\n" },
+    { name: 'external env file', property: "    env_file: /private/agent.env\n" },
+    { name: 'interpolated settings', property: "    environment:\n      DOZZLE_REMOTE_AGENT: ${DOZZLE_AGENTS}\n" },
+    { name: 'external override', property: "    extends:\n      file: /private/shared.yml\n      service: dozzle\n" },
+  ])('keeps $name unresolved despite unchanged image-excluded configuration', ({ property }) => fixture(async f => {
+    await start(f); const path = 'middleware/dozzle/compose.yaml'; f.files([changedCompose(path)]);
+    const bodies: Record<string, unknown> = {};
+    for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+      ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+      bodies[`${ref}:${path}`] = composeBlob(path, sha,
+        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n${property}`);
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const output = await response.json();
+    expect(output).toMatchObject({ files: [{ unchangedConfiguration: true,
+      after: { services: [{ redacted: true }] } }] });
+    expect(JSON.stringify(output)).not.toContain('/private/');
+    expect(JSON.stringify(output)).not.toContain('${DOZZLE_AGENTS}');
   }));
   it('projects every admitted server and agent Compose blob at pinned base/head without leaking inline secrets', () => fixture(async f => {
     await start(f);
@@ -350,6 +437,62 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ tag: 'v11.1.3', body: 'New migration notes',
       source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3', observedHead: 'b'.repeat(40) });
+  }));
+  it('reads an immutable version-tagged official agent guide through a fixed parent source', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    const response = await f.capability.fetch(guideRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ repository: 'amir20/dozzle', tag: 'v11.1.2',
+      observedHead: 'b'.repeat(40), commitSha: '1'.repeat(40),
+      source: `https://github.com/amir20/dozzle/blob/${'1'.repeat(40)}/docs/guide/agent.md`,
+      body: expect.stringContaining('run Dozzle with the `agent` subcommand') });
+    expect(f.sent.map(r => r.url)).toContain(
+      `https://api.github.com/repos/amir20/dozzle/contents/docs/guide/agent.md?ref=${'1'.repeat(40)}`);
+    expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
+  }));
+  it('also binds a lightweight tag directly to a pinned guide commit', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    f.tag({ ref: 'refs/tags/v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } });
+    const response = await f.capability.fetch(guideRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ tag: 'v11.1.2', commitSha: '1'.repeat(40) });
+    expect(f.sent.some(r => r.url.includes('/git/tags/'))).toBe(false);
+  }));
+  it.each([
+    { name: 'wrong version tag', replace: (f: { tag: (value: unknown) => void }) =>
+      f.tag({ ref: 'refs/tags/v11.1.1', object: { type: 'tag', sha: '3'.repeat(40) } }) },
+    { name: 'unresolved tag object', replace: (f: { annotatedTag: (value: unknown) => void }) =>
+      f.annotatedTag({ tag: 'v11.1.2', object: { type: 'tag', sha: '1'.repeat(40) } }) },
+    { name: 'mismatched annotated tag', replace: (f: { annotatedTag: (value: unknown) => void }) =>
+      f.annotatedTag({ tag: 'v11.1.1', object: { type: 'commit', sha: '1'.repeat(40) } }) },
+    { name: 'wrong guide path', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(composeBlob('docs/other.md', '2'.repeat(40), 'not an agent guide')) },
+    { name: 'redirected guide', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(Response.json({ message: 'Moved' }, { status: 302 })) },
+    { name: 'missing guide', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(Response.json({ message: 'Missing' }, { status: 404 })) },
+    { name: 'invalid guide encoding', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide({ ...composeBlob('docs/guide/agent.md', '2'.repeat(40), 'agent'), content: '$not-base64' }) },
+    { name: 'oversized guide', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), 'x'.repeat(70_000))) },
+  ])('rejects a $name without exposing a guide to the child', ({ replace }) => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); replace(f);
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('rejects a moved PR while reading the version-tagged guide', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('rejects a late guide even when the upstream transport ignores abort', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.exceedGuideDeadline();
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('denies child-selected guide URL, repository and ref before upstream I/O', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    for (const extra of [{ url: 'https://evil.invalid/' }, { repository: 'other/repo' }, { ref: 'main' }]) {
+      expect((await f.capability.fetch(guideRead('chosen', extra))).status).toBe(403);
+    }
+    expect(f.sent.every(r => !r.url.includes('/git/ref/tags/'))).toBe(true);
   }));
   it('rejects release evidence when the PR head changes after the files read', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.moveHeadAfterFiles();
