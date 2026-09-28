@@ -372,6 +372,24 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByText('Finding 50')).toBeTruthy();
   });
 
+  it('REQ-OPERATOR-057: keeps early and late Review findings and omissions readable together', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { originalReports: [
+        { lane: 'code-reviewer', omissions: ['Missing security check'], findings: [{ message: 'Unsafe redirect' }] },
+        { lane: 'spec-reviewer', omissions: [], findings: [] },
+        { lane: 'doc-updater', omissions: ['Missing migration note'], findings: [{ message: 'Outdated recovery step' }] },
+      ] } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText('Unsafe redirect')).toBeTruthy());
+    expect(screen.getByText('Outdated recovery step')).toBeTruthy();
+    expect(screen.getByText('Missing: Missing security check')).toBeTruthy();
+    expect(screen.getByText('Missing: Missing migration note')).toBeTruthy();
+  });
+
   it('REQ-OPERATOR-057: marks unreadable Review evidence explicitly without exposing unsafe text', async () => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
@@ -404,6 +422,41 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await waitFor(() => expect(screen.getByText('Resolve alert')).toBeTruthy());
     expect(screen.getByText('Reported cleanup: stopped')).toBeTruthy();
     expect(screen.queryByText(/review-generation-1|packetDigest/)).toBeNull();
+  });
+
+  it('REQ-OPERATOR-057: reads the cited Dispatcher compatibility assessment without equating safe with merge readiness', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValueOnce({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { repository: 'nikolanovoselec/komodo', pullRequest: 1299, privateToken: 'do-not-render',
+        assessment: { classification: 'unknown', observedHead: 'b'.repeat(40), baseSha: 'a'.repeat(40),
+          checks: { state: 'unconfigured', observedHead: 'b'.repeat(40) },
+          compatibility: 'The agent configuration change could not be established.',
+          reasons: ['Upstream migration guidance is inconclusive'], gaps: ['Agent command not verified'],
+          citations: [{ kind: 'guide', source: 'https://github.com/amir20/dozzle/guide',
+            quote: 'Start the agent with its agent command.' }] } } })
+      .mockResolvedValueOnce({ ...active, executionStatus: 'completed', checkpoint: null,
+        result: { repository: 'nikolanovoselec/komodo', pullRequest: 1299, privateToken: 'do-not-render',
+          assessment: { classification: 'safe', observedHead: 'b'.repeat(40), baseSha: 'a'.repeat(40),
+            checks: { state: 'passing', observedHead: 'b'.repeat(40) },
+            compatibility: 'The documented default configuration remains compatible.',
+            reasons: ['Release and guide support compatibility'], gaps: [],
+            citations: [{ kind: 'release', source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2',
+              quote: 'No default configuration changes are required.' }] } } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText(/Agent configuration change could not be established/)).toBeTruthy());
+    expect(screen.getByText(/Upstream migration guidance is inconclusive/)).toBeTruthy();
+    expect(screen.getByText(/Agent command not verified/)).toBeTruthy();
+    expect(screen.getByText(/Start the agent with its agent command/)).toBeTruthy();
+    expect(screen.getByText(/Checks? unconfigured/)).toBeTruthy();
+    expect(screen.queryByText(/do-not-render/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText(/documented default configuration remains compatible/)).toBeTruthy());
+    expect(screen.getByText(/not merge authorization/i)).toBeTruthy();
+    expect(screen.queryByText(/do-not-render/)).toBeNull();
   });
 
   it('REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes', async () => {

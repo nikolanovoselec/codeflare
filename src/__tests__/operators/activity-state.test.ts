@@ -92,6 +92,20 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(longDetail?.context).toContain('PR #42');
   }));
 
+  it('REQ-OPERATOR-027: presents a bounded Dispatcher task coordinate nested under input without leaking other invocation data', async () => withActivity(async ({ activity, ctx }) => {
+    const admission = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...admission!,
+      receipt: { ...admission!.receipt as object, selection: { operator: { profile: 'dispatcher' } } },
+      invocationJson: JSON.stringify({
+      input: { repository: 'nikolanovoselec/komodo', pullRequest: 1299, secret: 'do-not-render' },
+      repository: 'untrusted/outer', accessJwt: 'private-jwt',
+    }) });
+    const detail = await activity.getBrowserDetail();
+    expect(detail?.context).toBe('nikolanovoselec/komodo · PR #1299');
+    expect(JSON.stringify(detail)).not.toContain('do-not-render');
+    expect(JSON.stringify(detail)).not.toContain('private-jwt');
+  }));
+
   it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {
     const owner = 'c'.repeat(64);
     const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
