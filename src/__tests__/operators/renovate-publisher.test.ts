@@ -39,7 +39,8 @@ async function fixture(test: (f: {
   activity: OperatorActivity; writes: Array<{ method: string; url: string; body: unknown }>;
   setAssessment: (value: unknown, status?: 'waiting' | 'completed') => Promise<void>; change: (key: string, value: unknown) => void;
   restart: () => void;
-}) => Promise<void>, selected = target) {
+}) => Promise<void>, selected = target, prospective: 'valid' | 'missing' | 'old' | 'foreign-session'
+  | 'foreign-owner' | 'foreign-activity' | 'wrong-installation' | 'wrong-head' = 'missing') {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`renovate-publication-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
@@ -54,10 +55,23 @@ async function fixture(test: (f: {
       head: HEAD, base: BASE, checks: [{ name: 'test', status: 'completed', conclusion: 'success' }],
       reviews: [{ state: 'APPROVED', commit_id: HEAD, user: { login: 'reviewer' } }], requiredChecks: ['test'], mergeable: true,
       permission: 'admin', author: 'renovate[bot]', ambiguity: false, paginated: false, loggedOut: false,
-      advanceBaseOnApproval: false, stopOnApproval: false, rulesetType: 'non_fast_forward', prState: 'open',
+      advanceBaseOnApproval: false, stopOnApproval: false, revokeOnApproval: false,
+      rulesetType: 'non_fast_forward', prState: 'open',
       moveHeadDuringChecks: false, forgedReadback: false, mergeReadbackUnavailable: false };
     const writes: Array<{ method: string; url: string; body: unknown }> = [];
-    const registry = { resolveManagementExecution: async () => state.current ? { ok: true, value: selection } : { ok: false, reason: 'disabled' } };
+    const registry = { resolveManagementExecution: async () => state.current ? { ok: true, value: selection } : { ok: false, reason: 'disabled' },
+      readProspectiveRenovateAdmission: async (_id: string) => prospective === 'missing' ? null : {
+        activityId: prospective === 'foreign-activity' ? 'unrelated-activity' : activityId,
+        installationId: prospective === 'wrong-installation' ? 'other-installation' : 'installation',
+        repositoryId: 973175879, pullRequest: selected.pullRequest,
+        head: prospective === 'wrong-head' ? 'f'.repeat(40) : HEAD,
+        activatedAt: '2026-09-28T00:00:00.000Z', createdAt: prospective === 'old'
+          ? '2026-09-28T00:00:00.000Z' : '2026-09-28T00:00:00.001Z',
+        ownerKey: prospective === 'foreign-owner' ? 'f'.repeat(64) : await operatorOwnerKey(human),
+        actor: { registrationId: 'registry-selected-admin', bucket: 'owner-bucket',
+          sessionId: prospective === 'foreign-session' ? 'other-session' : 'session-1', sessionGeneration: 3,
+          subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences },
+      } };
     Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
       fetch: async (request: Request) => {
         const url = new URL(request.url);
@@ -67,6 +81,7 @@ async function fixture(test: (f: {
           if (url.pathname.endsWith('/reviews')) {
             if (state.advanceBaseOnApproval) state.base = 'f'.repeat(40);
             if (state.stopOnApproval) state.sessionState = 'stopping';
+            if (state.revokeOnApproval) state.loggedOut = true;
           }
           if (url.pathname.endsWith('/merge')) state.prState = 'closed';
           if (state.ambiguity) return Response.json({ message: 'response lost' }, { status: 502 });
@@ -76,7 +91,8 @@ async function fixture(test: (f: {
         if (url.pathname === '/user') return Response.json({ id: 314, login: 'publisher' });
         if (url.pathname === '/repos/nikolanovoselec/komodo/') return Response.json({ id: 973175879,
           full_name: 'nikolanovoselec/komodo', default_branch: 'main', permissions: { admin: state.permission === 'admin' } });
-        if (url.pathname.endsWith('/pulls/1299')) return Response.json({ number: 1299, state: state.prState, mergeable: state.mergeable,
+        if (url.pathname.endsWith(`/pulls/${selected.pullRequest}`)) return Response.json({ number: selected.pullRequest, state: state.prState, mergeable: state.mergeable,
+          created_at: prospective === 'old' ? '2026-09-28T00:00:00.000Z' : '2026-09-28T00:00:00.001Z',
           mergeable_state: state.mergeable ? 'clean' : 'unknown',
           user: { id: 29139614, login: state.author, type: 'Bot' }, head: { sha: state.head },
           base: { sha: state.base, ref: 'main' } });
@@ -101,7 +117,7 @@ async function fixture(test: (f: {
         if (url.pathname.includes('/comments')) return Response.json(writes.filter(w => w.url.includes('/comments'))
           .map(w => ({ id: 9001, body: (w.body as { body: string }).body,
             user: state.forgedReadback ? { id: 315, login: 'other-user' } : { id: 314, login: 'publisher' } })));
-        if (url.pathname.endsWith('/pulls/1299/merge')) return state.mergeReadbackUnavailable
+        if (url.pathname.endsWith(`/pulls/${selected.pullRequest}/merge`)) return state.mergeReadbackUnavailable
           ? new Response(null, { status: 503 }) : writes.some(w => w.url.endsWith('/merge'))
             ? new Response(null, { status: 204 }) : new Response(null, { status: 404 });
         return Response.json({ message: 'Unexpected GitHub route' }, { status: 404 });
@@ -155,6 +171,30 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
       && (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
     expect(f.writes.every(write => !write.url.includes('another-repo'))).toBe(true);
   }));
+
+  it('REQ-OPERATOR-061: prospective publication is tied to a fresh exact Registry admission and current owner session', async () => {
+    for (const evidence of ['missing', 'old', 'foreign-session', 'foreign-owner', 'foreign-activity',
+      'wrong-installation', 'wrong-head'] as const) {
+      await fixture(async f => {
+        const outcome = await f.publish();
+        expect(outcome).toMatchObject({ ok: false });
+        expect(f.writes).toEqual([]);
+      }, { repository: 'nikolanovoselec/komodo', pullRequest: 1300 }, evidence);
+    }
+    await fixture(async f => {
+      expect(await f.publish()).toMatchObject({ ok: true, phase: 'completed', effect: 'merge', mergeSha: HEAD });
+      expect(f.writes.some(write => write.url.endsWith('/pulls/1300/merge')
+        && (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
+    }, { repository: 'nikolanovoselec/komodo', pullRequest: 1300 }, 'valid');
+    for (const lostAuthority of ['stopOnApproval', 'revokeOnApproval'] as const) {
+      await fixture(async f => {
+        f.change(lostAuthority, true);
+        expect(await f.publish()).toMatchObject({ ok: false });
+        expect(f.writes.some(write => write.url.endsWith('/pulls/1300/reviews'))).toBe(true);
+        expect(f.writes.some(write => write.url.endsWith('/pulls/1300/merge'))).toBe(false);
+      }, { repository: 'nikolanovoselec/komodo', pullRequest: 1300 }, 'valid');
+    }
+  });
 
   it('does not publish an unapproved pre-activation repository or PR', () => fixture(async f => {
     await f.publish().catch(() => undefined);

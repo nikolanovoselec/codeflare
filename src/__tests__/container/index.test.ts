@@ -1,11 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { env, runInDurableObject } from 'cloudflare:test';
+import { OperatorActivity } from '../../operators/activity';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
 // by the REQ-ENTERPRISE-004 pre-start interception-ordering test below.
-const { callOrder } = vi.hoisted(() => ({ callOrder: [] as string[] }));
+const { callOrder, scanRuntime } = vi.hoisted(() => ({ callOrder: [] as string[],
+  scanRuntime: { enabled: false, result: null as unknown } }));
+vi.mock('../../operators/runtime', async importOriginal => ({
+  ...await importOriginal<typeof import('../../operators/runtime')>(),
+  driveDispatcherRuntime: async (input: { activity: {
+    beginDrive: () => Promise<{ ok: boolean; state?: { generation: number } }>;
+    commitDrive: (generation: number, update: unknown) => Promise<unknown> } }) => {
+    if (!scanRuntime.enabled) throw Error('Unexpected Dispatcher runtime');
+    const begun = await input.activity.beginDrive();
+    if (!begun.ok || !begun.state) return { ok: false, reason: 'not-admitted' };
+    await input.activity.commitDrive(begun.state.generation, { schemaVersion: 1,
+      status: 'completed', checkpoint: null, result: scanRuntime.result });
+    return { ok: true };
+  },
+}));
 
 /**
  * Container DO class tests.
@@ -66,7 +82,10 @@ vi.mock('@cloudflare/containers', () => ({
     async getActivityInfo(): Promise<any> {
       return null;
     }
-    async schedule(_seconds: number, _method: string): Promise<void> {}
+    async schedule(seconds: number, method: string) {
+      return { taskId: 'mock-schedule', callback: method, payload: '', type: 'delayed' as const,
+        time: Math.floor(Date.now() / 1000) + seconds, delayInSeconds: seconds };
+    }
     deleteSchedules(_method: string): void {}
     renewActivityTimeout(): void {}
     async stop(_signal: string): Promise<void> {}
@@ -151,6 +170,256 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       R2_SECRET_ACCESS_KEY: 'test-secret',
       KV: {},
     };
+  });
+
+  it('REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages', async () => {
+    const stored = new Map<string, unknown>();
+    mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
+    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
+    const activatedAt = '2026-09-28T00:00:00.000Z';
+    const seen: Array<{ pullRequest: number; activityId: string }> = [];
+    const reserve = async (input: { pullRequest: number; activityId: string; createdAt: string }) => {
+      seen.push({ pullRequest: input.pullRequest, activityId: input.activityId });
+      return { ok: input.pullRequest === 1302, activityId: input.activityId,
+        actor: { registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 } };
+    };
+    mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
+      name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
+    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+      currentProspectiveRenovateRegistration: async () => ({ activatedAt, installationId: 'dispatcher-install',
+        registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
+        human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
+          audiences: ['audience'], expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
+      reserveProspectiveRenovateActivity: reserve,
+    }) };
+    mockEnv.OPERATOR_ACTIVITY = { getByName: () => ({
+      start: async () => ({ ok: false, reason: 'admission-uncertain' }),
+      ownsPrepared: async () => true,
+    }) };
+    (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+      const url = new URL(request.url), page = Number(url.searchParams.get('page'));
+      if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
+        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
+      if (url.pathname === '/repos/nikolanovoselec/komodo/pulls') return Response.json(page === 1
+        ? [...Array.from({ length: 99 }, (_, index) => ({ number: index + 1,
+          state: 'open', created_at: activatedAt, updated_at: '2026-09-29T00:00:00.000Z',
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
+          head: { sha: 'a'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } })),
+          { number: 1302, created_at: '2026-09-28T00:00:00.001Z', state: 'open',
+            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
+            head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }]
+        : [{ number: 1303, created_at: '2026-09-28T00:00:00.002Z', state: 'open',
+          user: { id: 1, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'd'.repeat(40) },
+          base: { ref: 'main', sha: 'b'.repeat(40) } }]);
+      throw Error(`Unexpected GitHub read ${url.pathname}`);
+    } }) };
+    const instance = new ContainerClass(mockCtx as any, mockEnv);
+    let deliver: (() => Promise<void>) | undefined;
+    vi.spyOn(instance, 'schedule').mockImplementation(async (delay, method) => {
+      const due = Date.now() + Number(delay) * 1000;
+      deliver = async () => {
+        if (Date.now() < due) throw Error('Scheduled scan not due');
+        await (instance as unknown as Record<string, () => Promise<void>>)[method]();
+      };
+      return { taskId: 'prospective-scan', callback: method, payload: '',
+        type: 'delayed', time: Math.floor(due / 1000), delayInSeconds: Number(delay) };
+    });
+    const arm = (instance as unknown as { armRenovateScan: (input: unknown) => Promise<{ ok: boolean }> }).armRenovateScan;
+    expect(await arm.call(instance, { registrationId: 'active-admin', installationId: 'dispatcher-install',
+      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 })).toMatchObject({ ok: true });
+    expect(deliver).toBeDefined();
+    const activatedClock = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    clock.mockReturnValue(activatedClock + 3_600_001);
+    try { await deliver?.(); }
+    finally { clock.mockRestore(); }
+    expect(seen).toEqual([{ pullRequest: 1302, activityId: expect.any(String) }]);
+    seen.length = 0;
+    let continuationUnavailable = false;
+    (mockCtx as any).exports.GitHubInterceptor = () => ({ fetch: async (request: Request) => {
+      const url = new URL(request.url);
+      if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
+        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
+      if (url.searchParams.get('page') === '2') {
+        continuationUnavailable = true;
+        return new Response('unavailable', { status: 503 });
+      }
+      return Response.json(Array.from({ length: 100 }, (_, index) => ({ number: index + 1,
+        created_at: '2026-09-28T00:00:00.001Z', state: 'open',
+        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
+        head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } })));
+    } });
+    const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
+    try { await deliver?.().catch(() => {}); }
+    finally { nextClock.mockRestore(); }
+    expect(continuationUnavailable).toBe(true);
+    expect(seen).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-061: a winning scan reconciles lost start and publishes a simulated result from one real Activity', async () => {
+    const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+    await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, native) => {
+      const stored = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
+      mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
+      mockEnv.LOADER = {};
+      mockEnv.KV = { get: async (key: string) => key === 'user:admin@example.test'
+        ? JSON.stringify({ role: 'admin' }) : null };
+      mockEnv.USAGE_DB = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () =>
+        args[0] === 'owner-bucket' && args[1] === 'session0001' ? {
+          owner_key: 'owner-bucket', session_id: 'session0001', lifecycle_state: 'running', lifecycle_generation: 3,
+          created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(),
+          workspace: 'default', terminal_mode: 'terminal', name: 'Admin session', response_revision: 0,
+          observation_sequence: 0, editor_ready: 1, editor_ready_error: 0,
+        } : null }) }) };
+      const human = { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
+        audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
+        expiresAt: Math.floor(Date.now() / 1000) + 14_400 };
+      const bundle = { schemaVersion: 1, sourceCommit: 'f'.repeat(40),
+        versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
+        className: 'FlueDispatcherAgent', compatibilityDate: '2026-09-10',
+        compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js',
+        modules: { 'index.js': { js: 'export default class FlueDispatcherAgent {}' } } };
+      const bundleBytes = new TextEncoder().encode(JSON.stringify(bundle));
+      const bundleDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bundleBytes)))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
+        revision: 1, enabled: true, releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+        operator: { id: 'dispatcher', operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
+          invokers: { users: [human.email], groups: [] } },
+        release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: '{}' };
+      let reservedActivityId: string | null = null;
+      const registry = { resolveManagementExecution: async () => ({ ok: true, value: selection }),
+        getManagementBundle: async () => bundleBytes,
+        admitManagement: async (request: object) => ({ ok: true, value: { ...request,
+          admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
+        currentProspectiveRenovateRegistration: async () => ({ registrationId: 'registered-admin',
+          activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket: 'owner-bucket',
+          sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
+        reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
+          reservedActivityId ??= input.activityId;
+          return { ok: true, activityId: reservedActivityId,
+            actor: { registrationId: 'registered-admin', bucket: 'owner-bucket',
+              sessionId: 'session0001', sessionGeneration: 3 } };
+        },
+        readProspectiveRenovateAdmission: async (id: string) => id !== reservedActivityId ? null : ({ activityId: id,
+          installationId: 'dispatcher-install', repositoryId: 973175879, pullRequest: 1302,
+          head: 'c'.repeat(40), ownerKey: await (await import('../../operators/browser-activity')).operatorOwnerKey(human),
+          activatedAt: '2026-09-28T00:00:00.000Z', createdAt: '2026-09-28T00:00:00.001Z',
+          actor: { registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001',
+            sessionGeneration: 3, subject: human.subject, email: human.email, issuer: human.issuer,
+            audiences: human.audiences } }),
+      };
+      mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
+        name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
+      mockEnv.OPERATOR_REGISTRY = { getByName: () => registry };
+      const writes: string[] = [];
+      Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
+        fetch: async (request: Request) => {
+          const url = new URL(request.url);
+          if (request.method === 'POST' && url.pathname.endsWith('/comments')) {
+            writes.push('comment');
+            return Response.json({ id: 801 });
+          }
+          if (url.pathname === '/user') return Response.json({ id: 9, login: 'admin' });
+          if (url.pathname === '/repos/nikolanovoselec/komodo/') return Response.json({
+            id: 973175879, full_name: 'nikolanovoselec/komodo', default_branch: 'main',
+            permissions: { admin: true } });
+          if (url.pathname === '/repos/nikolanovoselec/komodo/pulls/1302') return Response.json({
+            number: 1302, state: 'open', mergeable: true, mergeable_state: 'clean',
+            created_at: '2026-09-28T00:00:00.001Z', user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
+            head: { sha: 'c'.repeat(40) }, base: { sha: 'b'.repeat(40), ref: 'main' } });
+          if (url.pathname.endsWith('/comments')) return Response.json(writes.map(() => ({ id: 801,
+            body: `<!-- Codeflare Renovate ${'activity-id'} -->`, user: { id: 9, login: 'admin' } })));
+          throw Error(`Unexpected publisher GitHub route ${url.pathname}`);
+        },
+      }) } });
+      const activity = new OperatorActivity(native, mockEnv);
+      let loseAcceptedStart = true;
+      const activityTransport = new Proxy(activity, { get(target, key) {
+        if (key === 'start') return async (capability: string) => {
+          const result = await target.start(capability);
+          if (result.ok && loseAcceptedStart) {
+            loseAcceptedStart = false;
+            throw Error('Accepted start response lost');
+          }
+          return result;
+        };
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      } });
+      mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+        if (reservedActivityId && id !== reservedActivityId) throw Error('New Activity identity after reservation');
+        return activityTransport;
+      } };
+      const pending: Promise<unknown>[] = [];
+      (mockCtx as any).waitUntil = (work: Promise<unknown>) => { pending.push(work); };
+      scanRuntime.enabled = true;
+      scanRuntime.result = { classification: 'unknown', observedHead: 'c'.repeat(40), baseSha: 'b'.repeat(40),
+        checks: { state: 'unavailable', observedHead: 'c'.repeat(40) },
+        reasons: ['Upstream compatibility is not established'],
+        compatibility: 'The release and configuration evidence is incomplete.',
+        citations: [], gaps: ['Missing upstream compatibility evidence'] };
+      (mockCtx as any).exports = { OperatorRuntimeCapability: () => ({ fetch: async () => Response.json({}) }),
+        GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+        const url = new URL(request.url);
+        if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
+          full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
+        if (url.pathname === '/repos/nikolanovoselec/komodo/pulls') return Response.json(url.searchParams.get('page') === '1'
+          ? [{ number: 1302, state: 'open', created_at: '2026-09-28T00:00:00.001Z',
+            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
+            head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }] : []);
+        throw Error('Unexpected GitHub route');
+      } }) };
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (_request, init) => {
+        const cookie = new Headers(init?.headers).get('Cookie');
+        return cookie === 'CF_Authorization=sealed-admin'
+          ? Response.json({ id: human.subject, email: human.email, groups: [] })
+          : new Response(null, { status: 401 });
+      };
+      try {
+      const session = new ContainerClass(mockCtx as any, mockEnv);
+      let deliver: (() => Promise<void>) | undefined;
+      vi.spyOn(session, 'schedule').mockImplementation(async (delay, method) => {
+        const due = Date.now() + Number(delay) * 1000;
+        deliver = async () => {
+          if (Date.now() < due) throw Error('Scheduled scan not due');
+          await (session as unknown as Record<string, () => Promise<void>>)[method]();
+        };
+        return { taskId: 'prospective-scan', callback: method, payload: '',
+          type: 'delayed', time: Math.floor(due / 1000), delayInSeconds: Number(delay) };
+      });
+      const armed = await (session as unknown as { armRenovateScan: (input: unknown) => Promise<unknown> })
+        .armRenovateScan({ registrationId: 'registered-admin', installationId: 'dispatcher-install',
+          bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 });
+      expect(armed).toMatchObject({ ok: true });
+      expect(deliver).toBeDefined();
+      const activatedClock = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 3_600_001);
+      try { await deliver?.(); await Promise.all(pending.splice(0)); }
+      finally { clock.mockRestore(); }
+      const detail = await activity.getBrowserDetail();
+      expect(detail).toMatchObject({ operatorId: 'dispatcher', activityId: reservedActivityId });
+      expect(['queued', 'running', 'completed']).toContain(detail?.executionStatus);
+      expect(await activity.getRuntimePlan()).toMatchObject({ invocationJson: JSON.stringify({
+        repository: 'nikolanovoselec/komodo', pullRequest: 1302 }),
+        executionContext: { owner: { subject: human.subject, email: human.email } } });
+      // The same-head reservation is never replaced on the next valid hourly callback.
+      const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
+      try { await deliver?.(); await Promise.all(pending.splice(0)); }
+      finally { nextClock.mockRestore(); }
+      expect((await activity.getBrowserDetail())?.activityId).toBe(detail?.activityId);
+      expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+      expect((await activity.getBrowserDetail())?.result).toMatchObject({ classification: 'unknown' });
+      const publishClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
+      try { await deliver?.(); await Promise.all(pending.splice(0)); }
+      finally { publishClock.mockRestore(); }
+      expect(writes).toEqual(['comment']);
+      expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+      } finally { globalThis.fetch = originalFetch; scanRuntime.enabled = false; scanRuntime.result = null; }
+    });
   });
 
   it('REQ-OPERATOR-053: Review child stop requires the owned container destruction to finish', async () => {

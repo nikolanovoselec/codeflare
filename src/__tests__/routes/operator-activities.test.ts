@@ -135,6 +135,37 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(registry.acknowledgeOwnedActivities).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/), 1);
   });
 
+  it('REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan', async () => {
+    const { request, kv, registry, env } = fixture();
+    const observed = { activatedAt: new Date().toISOString(), repositoryId: 973175879 };
+    (registry as unknown as { activateProspectiveRenovate: (input: unknown) => Promise<unknown> })
+      .activateProspectiveRenovate = async () => ({ ok: true, value: observed });
+    (env as unknown as { USAGE_DB: unknown }).USAGE_DB = { prepare: () => ({ bind: () => ({ first: async () => ({
+      lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
+      created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
+      observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
+    }) }) }) };
+    kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
+    (env as unknown as { CONTAINER: unknown }).CONTAINER = { idFromName: (value: string) => value,
+      get: () => ({ armRenovateScan: async () => ({ ok: true, activatedAt: observed.activatedAt }) }) };
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { installation: { id: 'dispatcher-install',
+      revision: 1, enabled: true }, operator: { profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
+      release: { bundleDigest: 'a'.repeat(64) }, controlsRevision: 1 } });
+    const command = { installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 };
+    const response = await request('/renovate/activation', 'POST', command);
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({ activatedAt: expect.any(String), repositoryId: 973175879 });
+    expect((await request('/renovate/activation', 'POST', { ...command, activatedAt: '2000-01-01T00:00:00Z' })).status)
+      .toBe(400);
+    expect((await request('/renovate/activation', 'POST', command, false)).status).toBe(403);
+    registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+    kv._store.set('user:owner@example.test', JSON.stringify({ role: 'user' }));
+    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+    accessState.active = false;
+    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+  });
+
   it('REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation', async () => {
     const { request, registry, activity, waitUntil } = fixture();
     const detail = await request('/activity-1');

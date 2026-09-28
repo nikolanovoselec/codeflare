@@ -308,6 +308,27 @@ This release extends the existing Operator foundation with GitHub package instal
 
 ---
 
+### REQ-OPERATOR-061: Prospective admin-session Renovate scan
+
+**Intent:** An explicitly activated, session-owned hourly scan admits only new, verified Komodo Renovate PRs; the Dispatcher remains read-only and the separately fenced publisher retains all write authority.
+
+**Applies To:** Administrator
+
+**Acceptance Criteria:**
+
+1. An authenticated, currently authorized admin explicitly activates an enabled Dispatcher installation for Komodo repository ID 973175879 and an active D1 session generation. The server records an immutable activation timestamp, never accepts a caller-supplied cutoff, and seals the authenticated assertion for that exact admin/session. #1299 remains an independent, explicitly selected one-off; activating the prospective scan cannot make older PRs eligible. <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan) --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) -->
+2. An hourly callback multiplexed with the existing session Container scheduling considers all open Komodo PRs created strictly after the cutoff, including PRs created while the admin was offline. It obtains complete bounded GitHub pages and verifies repository identity, Renovate App author identity and GitHub `created_at`; reopening or updating an older PR does not qualify. Incomplete, stale or unavailable observations skip rather than admit work. The callback does not start privileged work based on browser presence or a permanent technical identity. <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: a winning scan reconciles lost start and publishes a simulated result from one real Activity) -->
+3. Before a read-only Dispatcher Activity is admitted, the parent validates the current sealed Access session, current admin/invocation grant, selected installation revision and active D1 session generation. Stop, logout, expiry and revocation fence each privileged transition. Among simultaneously valid admins, Registry deterministically chooses one actor/session/generation for a PR/revision and atomically reserves one stable Activity identity. An uncertain preparation/start reconciles that same identity, never creates replacement work or changes the actor; a changed head requires separate revalidation without admitting a pre-cutoff PR. <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) -->
+4. A non-#1299 publication requires that exact Registry admission proof as well as the publisher's fresh current-session, PR/head/base, Renovate author, check/review/rules and cited-assessment gates. Only an independently supported `safe` result may approve or attempt expected-head merge; uncertain or missing evidence never becomes safe. Neither an alarm nor a child can publish by itself. <!-- @test: src/__tests__/operators/renovate-publisher.test.ts (REQ-OPERATOR-061: prospective publication is tied to a fresh exact Registry admission and current owner session) -->
+
+**Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment), [REQ-OPERATOR-060](#req-operator-060-fenced-renovate-publication)
+
+**Verification:** Not implemented. RED and GREEN tests must exercise authenticated activation, actual Container/Registry admission and the restricted publication boundary. The connected scheduler fixture substitutes the child runtime result; it does not execute a compiled Dispatcher or prove model judgment. Synthetic verification is not live activation or a naturally arriving post-activation Komodo PR; that remains a separate acceptance gate.
+
+**Status:** Planned
+
+---
+
 ### REQ-OPERATOR-052: Opaque package resources
 
 **Intent:** Admitted packages may receive inert resources without gaining storage or path authority.
