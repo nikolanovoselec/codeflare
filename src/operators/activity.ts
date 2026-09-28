@@ -740,7 +740,7 @@ export class OperatorActivity extends Agent {
       }
       await tx.put<AdmissionState>('admission', {
         ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
-        ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 7 * 24 * 60 * 60 * 1000,
+        ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 2 * 60 * 60 * 1000,
           consumed: false } } : {}), updatedAt: Date.now(),
       });
       return readCapability ? { ok: true, phase: 'queued', readCapability } : { ok: true, phase: 'queued' };
@@ -787,7 +787,9 @@ export class OperatorActivity extends Agent {
       // Status and continuation retain their single-use consumed fence.
       if (state?.webhook?.readVerifier !== verifier) return { ok: false, reason: state?.webhook
         ? 'invalid-capability' : 'not-prepared' };
-      if (state.webhook.expiresAt <= Date.now()) return { ok: false, reason: 'capability-expired' };
+      if (Math.min(state.webhook.expiresAt, state.intent.deadline + 2 * 60 * 60 * 1000) <= Date.now()) {
+        return { ok: false, reason: 'capability-expired' };
+      }
       const checked = this.checkWebhookRead(state.webhook.consumed
         ? { ...state, webhook: { ...state.webhook, consumed: false } } : state, verifier);
       if (!checked.ok) return checked;
@@ -808,7 +810,9 @@ export class OperatorActivity extends Agent {
     if (!state?.webhook) return { ok: false, reason: 'not-prepared' };
     if (state.webhook.readVerifier !== verifier) return { ok: false, reason: 'invalid-capability' };
     if (state.webhook.consumed) return { ok: false, reason: 'consumed' };
-    if (state.webhook.expiresAt <= Date.now()) return { ok: false, reason: 'capability-expired' };
+    if (Math.min(state.webhook.expiresAt, state.intent.deadline + 2 * 60 * 60 * 1000) <= Date.now()) {
+      return { ok: false, reason: 'capability-expired' };
+    }
     const driveStatus = state.drive?.status;
     const expired = state.intent.deadline <= Date.now();
     const terminal = expired || driveStatus === 'completed' || driveStatus === 'failed'

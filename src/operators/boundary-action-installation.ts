@@ -71,7 +71,7 @@ function gitHub(token: string) {
     }
     if (response.status === 404 || response.status === 422) return null;
     const bytes = await readBoundedResponse(response, 128 * 1024, 'Review enrollment GitHub response', signal);
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)) as unknown;
   };
 }
 
@@ -125,10 +125,11 @@ async function context(input: EnrollmentTarget, ctx: EnrollmentContext) {
   }
   const branchPath = `${root}/branches/${encodeURIComponent(target.base)}`;
   const branch = await api(branchPath) as { name?: string; protected?: boolean; commit?: { sha?: string } };
-  if (branch?.name !== target.base || !branch.protected || !sha.test(branch.commit?.sha ?? '')) {
+  const head = branch?.commit?.sha;
+  if (branch?.name !== target.base || !branch.protected || !sha.test(head ?? '')) {
     throw new AppError('CONFLICT', 409, 'Protected Review base unavailable');
   }
-  const sdd = await api(`${root}/contents/sdd?ref=${branch.commit.sha}`);
+  const sdd = await api(`${root}/contents/sdd?ref=${head}`);
   if (!Array.isArray(sdd) || sdd.length === 0) throw new AppError('CONFLICT', 409, 'Protected sdd unavailable');
   const available = await api(`/repos/${runtimeRepository}/contents/${runtimeWorkflow}?ref=${config.commit}`) as {
     type?: string; encoding?: string; content?: string;
@@ -138,7 +139,7 @@ async function context(input: EnrollmentTarget, ctx: EnrollmentContext) {
     || !reviewRuntimeAvailable(available.content)) {
     throw new AppError('CONFLICT', 409, 'Pinned Review runtime unavailable');
   }
-  return { ...target, root, branchPath, head: branch.commit.sha!, repositoryId: repository.id!, api, config,
+  return { ...target, installationId: input.installationId, root, branchPath, head: head!, repositoryId: repository.id!, api, config,
     pinned, contents: workflow(config.commit, config.origins) };
 }
 

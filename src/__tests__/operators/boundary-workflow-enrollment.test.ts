@@ -150,7 +150,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('REQ-OPERATOR-053/054: protected Review enrollment and dormant trust', () => {
   it('creates a reviewable protected-workflow proposal without enabling Review or writing the protected base', () => withEnrollment(async ({ request, registry, github }) => {
     const proposed = await request('/boundary-actions/propose', 'POST', target);
-    expect(proposed.status).toBe(202);
+    expect(proposed.status, await proposed.clone().text()).toBe(202);
     expect(await proposed.json()).toMatchObject({ status: 'pending', pullRequest: 42 });
     expect(github.state.proposal).toContain('nikolanovoselec/codeflare');
     expect(github.state.workflow).toBeNull();

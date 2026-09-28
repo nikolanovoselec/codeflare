@@ -16,7 +16,7 @@ import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 // The separate Wrangler fixture remains the authority for cross-DO RPC and eviction.
 async function withActivity(
   test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
-    ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
+    ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1]; deadline: number }) => Promise<void>,
   admitted = true,
   started = true,
 ): Promise<void> {
@@ -31,6 +31,7 @@ async function withActivity(
     } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
+    const deadline = Date.now() + 60_000;
     if (admitted) {
       expect((await registry.create('operator')).ok).toBe(true);
       expect((await registry.approve('operator', 'a'.repeat(64), 1)).ok).toBe(true);
@@ -38,10 +39,10 @@ async function withActivity(
       const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))))
         .map(byte => byte.toString(16).padStart(2, '0')).join('');
       await activity.prepare({ operatorId: 'operator', activityId: 'activity', intentDigest: 'b'.repeat(64),
-        expectedRevision: 3, deadline: Date.now() + 60_000, startExpiresAt: Date.now() + 60_000, startVerifier: verifier });
+        expectedRevision: 3, deadline, startExpiresAt: Date.now() + 60_000, startVerifier: verifier });
       if (started) expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
     }
-    await test({ activity, registry, token, ctx, activityEnv });
+    await test({ activity, registry, token, ctx, activityEnv, deadline });
   });
 }
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
@@ -473,8 +474,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await reconstructed.startWebhook(token)).toMatchObject({ ok: false });
   }, true, false));
 
-  it('REQ-OPERATOR-053: original read authority survives only until activity deadline plus two hours', () => withActivity(async ({ activity, token }) => {
-    const admittedAt = Date.now(); // This fixture admits with a 60-second deadline.
+  it('REQ-OPERATOR-053: original read authority survives only until activity deadline plus two hours', () => withActivity(async ({ activity, token, deadline }) => {
     const started = await activity.startWebhook(token);
     if (!started.ok) throw Error('Expected start');
     expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
@@ -482,17 +482,16 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       result: { output: 'bounded' } })).toMatchObject({ ok: true });
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
-      vi.setSystemTime(admittedAt + 60_000 + 2 * 60 * 60_000 - 5_000);
+      vi.setSystemTime(deadline + 2 * 60 * 60_000 - 1);
       expect(await activity.redeemWebhookResult(started.readCapability))
         .toMatchObject({ ok: true, terminal: true, result: { output: 'bounded' } });
-      vi.setSystemTime(admittedAt + 60_000 + 2 * 60 * 60_000 + 5_000);
+      vi.setSystemTime(deadline + 2 * 60 * 60_000);
       expect(await activity.redeemWebhookResult(started.readCapability))
         .toEqual({ ok: false, reason: 'capability-expired' });
     } finally { vi.useRealTimers(); }
   }, true, false));
 
-  it('caps an already-issued read capability at the deadline plus two hours', () => withActivity(async ({ activity, token, ctx }) => {
-    const admittedAt = Date.now();
+  it('caps an already-issued read capability at the deadline plus two hours', () => withActivity(async ({ activity, token, ctx, deadline }) => {
     const started = await activity.startWebhook(token);
     if (!started.ok) throw Error('Expected start');
     expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
@@ -501,10 +500,10 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     // A previously issued capability may carry the older seven-day persisted expiry.
     const existing = await ctx.storage.get<{ webhook: { expiresAt: number } }>('admission');
     await ctx.storage.put('admission', { ...existing, webhook: { ...existing!.webhook,
-      expiresAt: admittedAt + 7 * 24 * 60 * 60_000 } });
+      expiresAt: deadline + 7 * 24 * 60 * 60_000 } });
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
-      vi.setSystemTime(admittedAt + 60_000 + 2 * 60 * 60_000 + 5_000);
+      vi.setSystemTime(deadline + 2 * 60 * 60_000);
       expect(await activity.redeemWebhookResult(started.readCapability))
         .toEqual({ ok: false, reason: 'capability-expired' });
       expect(await activity.getWebhookStatus(started.readCapability))
