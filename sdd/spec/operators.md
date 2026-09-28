@@ -655,7 +655,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 3. Newly registered managed operators cannot start until separately approved and enabled. <!-- @impl: src/operators/registry.ts::OperatorRegistry.registerManagement --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 4. Conflicts require explicit reconciliation, and management mutations are never replayed automatically. <!-- @impl: web-ui/src/api/operator-management.ts --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-OPERATOR-049) -->
 5. Enterprise admins reach the catalog through Administration; authorized non-admin managers have a separate entry. Detail defaults to the uniquely enabled installed release, with other versions and permissions secondary; multiple enabled configurations require an explicit selection. First installation pins an exact version without enabling it; reconciliation reuses an existing unpinned installation. Verified tag and publication time label available releases when retained, with a numeric ID fallback. Mobile sections remain navigable below the header. <!-- @impl: web-ui/src/App.tsx --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (uses Enterprise Administration navigation for admins while preserving manager access) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (makes the installed version primary and updates the existing installation without creating another) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (offers guided first installation, pins the exact release, and never enables it automatically) -->
-6. Catalog and detail distinguish verified authored name and purpose from category; an unavailable pin cannot borrow another release's purpose. Realm is compatibility metadata, not a visible security choice. Dispatcher has no session profile; Conductor scope selects an Environment-allowlisted ID without provisioning a profile. Blank registration limits are rejected, and restriction edits preserve saved unused configuration. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getManagementReleases --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: src/__tests__/operators/operator-access.test.ts (projects package-authored purpose with discovered releases without exposing a credential) --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (projects the uniquely enabled pinned version rather than an arbitrary other release for multiple installations) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (does not present realm as a registration choice, catalog filter, or permission boundary) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (keeps persisted configuration when saving restrictions, without an unused JSON editor) -->
+6. Catalog and detail distinguish package purpose and category; verified first-party names may differ from the authored name kept in detail's technical disclosure. An unavailable pin cannot borrow another release's purpose. Realm is compatibility metadata, not a visible security choice. Dispatcher has no session profile; Conductor scope selects an Environment-allowlisted ID without provisioning a profile. Blank registration limits are rejected, and restriction edits preserve saved unused configuration. <!-- @impl: src/operators/registry.ts::OperatorRegistry.getManagementReleases --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: src/__tests__/operators/operator-access.test.ts (projects package-authored purpose with discovered releases without exposing a credential) --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (projects the uniquely enabled pinned version rather than an arbitrary other release for multiple installations) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (does not present realm as a registration choice, catalog filter, or permission boundary) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (keeps persisted configuration when saving restrictions, without an unused JSON editor) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (presents first-party display names without replacing verified package identity or collapsing release details into status) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (does not assign the first-party name to a third-party Dispatcher or a mismatched repository identity) -->
 7. Environment → Access & Identity owns global management eligibility and limits; operator permissions select only existing identities. Supported actions and resource limits are explained without implying provisioning. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (edits global eligibility alongside Access and Identity, not inside an operator) -->
 
 **Constraints:**
@@ -682,9 +682,12 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. The operator control remains accessible with zero activity. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-2. The control counts working activities. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-3. Progress, source and session links, result, and execution, cleanup, collection and attention states remain distinct. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-4. Unknown activity values are never displayed as zero. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+2. The control distinguishes unread new summaries from working activity state. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) -->
+3. The overview shows a trusted pinned operator name and allowlisted admitted repository/PR context and progress when available. <!-- @impl: src/operators/activity.ts::browserSummary --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates) -->
+4. Unknown activity values are never displayed as zero or offered replay. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
+5. The overview pages five owner-scoped entries at a time across at most 20 browsable summaries per operator, and navigates retained history without skips on updates. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: retains at most 20 browsable summaries per operator without discarding owned results) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: retains only 20 per operator and pages by last seen ID across a new arrival and status update) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
+6. An expired or foreign cursor is rejected rather than silently omitting history. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor) -->
+7. The paged response counts persisted working owner activities, including those beyond the retained display index; pending boundary preparations without summaries contribute only when in the displayed projection. <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: recovers persisted working count beyond 1,000 historical summaries) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor) -->
 
 **Constraints:**
 
@@ -695,9 +698,60 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Activity content is covered by the adjacent component tests. Exact-head CI 35174509964 at `e03c48ec` is GREEN.
+**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. PR Checks 36389653998 passed before the new history and unread behavior; final exact-head CI and mobile navigation remain pending.
 
-**Status:** Implemented
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-059: New activity observation
+
+**Intent:** Owners notice new activity summaries since their last successfully acknowledged open without changing execution or collecting results.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each new owned admission increases the unread count; status updates do not. <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) -->
+2. Opening the overview acknowledges only observed admissions for the authenticated owner, under CSRF protection; later admissions remain unread. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: src/operators/registry.ts::acknowledgeOwnedActivities --> <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: does not acknowledge an admission arriving during page construction) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-059: opening acknowledges only the authenticated owner through the observed sequence and requires CSRF) -->
+3. The icon badge shows unread summaries rather than the working count. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) -->
+4. Opening the overview clears successfully acknowledged unread without a button, result collection or replay. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-059: acknowledges the observed summary revision with authenticated CSRF POST) -->
+
+**Constraints:** Activity state and the separate working count remain unchanged by acknowledgment.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
+
+**Verification:** New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-057: Readable owned activity results
+
+**Intent:** Owners can inspect complete Review and Dispatcher outcomes in the activity detail without exposing opaque result fields.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Owned in-app detail presents published Review reports and settled Dispatcher evidence as readable fields, without raw API JSON or arbitrary result fields. <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::resultView --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser GET preserves original Review reports and settled Dispatcher assessment without collection) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes) -->
+2. Every published Review report, omission and finding remains represented beyond the former preview limits; fields outside the safe readable limit are explicitly marked unavailable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::resultView --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents every Review report, omission and finding without hiding later evidence) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: marks unreadable Review evidence explicitly without exposing unsafe text) -->
+3. Detail distinguishes execution, cleanup, collection and explicit attention without turning stale observations into alerts. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: labels an old working observation as stale but reserves attention for an explicit signal) -->
+
+**Constraints:**
+
+- Detail remains authenticated and owner-scoped under [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
+
+**Verification:** Exact-head PR Checks 36363151786 failed; final GREEN and mobile result navigation remain pending.
+
+**Status:** Planned
 
 ---
 
@@ -766,7 +820,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
-2. Authenticated result requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+2. Authenticated result requests expose only account-owned activities, including the in-app result read. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (reads owned result through the authenticated non-consuming GET) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting) -->
 3. Activity GET requests are non-effectful. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
 
 **Constraints:**
@@ -778,7 +832,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Owner-scoped detail, result and GET behavior are covered by the adjacent route test.
+**Verification:** Server ownership is covered by the route tests. In-app client/result tests are added for GREEN; RED PR Checks 36362489370 failed before the client existed, so final exact-head verification is pending.
 
 **Status:** Implemented
 
@@ -1092,7 +1146,7 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 1. Non-enterprise mode renders no operator UI. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 2. Non-enterprise mode issues no operator data request. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
 3. Keyboard and focus behavior remains usable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-033 AC3: moves focus into the portalled panel and returns it to the trigger on dismissal) -->
-4. Stale, loading and error states remain distinguishable and recoverable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+4. Stale, loading and error states remain distinguishable and recoverable; in-app detail distinguishes pending, failed, unknown, unavailable, incomplete and already-collected outcomes without consuming result authority. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
 5. Account switching does not expose another owner's activity. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 6. The activity surface remains usable on mobile. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @manual: Verify the opened activity surface, controls and scrolling at a mobile viewport; inline-style assertions are not visual acceptance. -->
 

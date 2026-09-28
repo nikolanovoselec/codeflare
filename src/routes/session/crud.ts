@@ -71,7 +71,10 @@ function toWorkspaceApiSession(session: Session | D1Session) {
     clone: session.clone,
     clones: session.clones,
     lastStartedAt: session.lastStartedAt,
-    lastActiveAt: session.lastActiveAt,
+    lastActiveAt: session.lifecycleState === 'running'
+      ? (session.transitionedAt && (!session.lastInputAt || session.lastInputAt < session.transitionedAt)
+        ? session.transitionedAt : (session.lastInputAt ?? session.lastActiveAt))
+      : session.lastActiveAt,
     editorReady: session.editorReady,
     editorReadyError: session.editorReadyError,
     metrics: { cpu: session.cpu, mem: session.memory, hdd: session.disk, syncStatus: session.syncStatus, updatedAt: session.metricsObservedAt },

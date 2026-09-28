@@ -15,6 +15,10 @@ import { parseOperatorPolicy } from './policy';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 
+const workingActivity = (status: OperatorBrowserSummary['executionStatus']): boolean =>
+  status === 'queued' || status === 'running' || status === 'waiting'
+  || status === 'cancel-requested' || status === 'unknown';
+
 /** RPC carries bounded JSON text rather than recursively serialized schema types. */
 function normalizePolicyJson(json: string): string {
   try {
@@ -163,7 +167,7 @@ interface ManagementOperatorState {
 }
 export interface ManagementOperatorProjection {
   id: string; operatorId: string; revision: number; repositoryUrl: string; repositoryId: number;
-  name?: string; description?: string; installedGithubReleaseId?: number; installationCount?: number;
+  name?: string; description?: string; installedGithubReleaseId?: number; installedTagName?: string; installedPublishedAt?: string; installationCount?: number;
   profile: ManagementOperatorProfile; realm: ManagementOperatorRealm; enabled: boolean;
   managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy;
   source: { kind: 'github-release'; repositoryUrl: string; repositoryId: number;
@@ -957,7 +961,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }
 
   /** Project only an unambiguous pinned version or a sole discovered package description. */
-  private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installationCount'> {
+  private managementCatalogFacts(operatorId: string): Pick<ManagementOperatorProjection, 'name' | 'description' | 'installedGithubReleaseId' | 'installedTagName' | 'installedPublishedAt' | 'installationCount'> {
     const installations = this.ctx.storage.sql.exec<{ data: string }>(
       'SELECT data FROM operator_installations WHERE operator_id=? LIMIT 100', operatorId).toArray()
       .map(row => JSON.parse(row.data) as ManagementInstallation);
@@ -972,8 +976,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const release = releases[0];
     const manifest = JSON.parse(release.manifest) as { name?: unknown; description?: unknown };
     if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
+    const pinned = selectedId ? JSON.parse(release.data) as ManagementRelease : undefined;
     return { name: manifest.name, description: manifest.description, installationCount: installations.length,
-      ...(selectedId ? { installedGithubReleaseId: (JSON.parse(release.data) as ManagementRelease).githubReleaseId } : {}) };
+      ...(pinned ? { installedGithubReleaseId: pinned.githubReleaseId, installedTagName: pinned.tagName,
+        installedPublishedAt: pinned.publishedAt } : {}) };
   }
 
   /** Permission/search/filter indexes are applied before keyset pagination. No global scan or hidden totals. */
@@ -1337,10 +1343,54 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     if (!/^[0-9a-f]{64}$/.test(ownerKey) || !/^[A-Za-z0-9_-]{1,128}$/.test(summary.activityId)) return;
     await this.ctx.storage.transaction(async tx => {
       const indexKey = `owner-activities:${ownerKey}`;
+      const summaryKey = `owner-activity:${ownerKey}:${summary.activityId}`;
+      const countKey = `owner-working-count:${ownerKey}`;
       const current = await tx.get<string[]>(indexKey) ?? [];
-      const ids = [summary.activityId, ...current.filter(id => id !== summary.activityId)].slice(0, 100);
+      const prior = await tx.get<OperatorBrowserSummary>(summaryKey);
+      let count = await tx.get<number>(countKey);
+      if (count === undefined) {
+        // Existing owner summaries may outlive the 100-entry display index. Rebuild once,
+        // then maintain the count transactionally across subsequent evictions and updates.
+        count = 0;
+        let startAfter: string | undefined;
+        for (;;) {
+          const saved = await tx.list<OperatorBrowserSummary>({ prefix: `owner-activity:${ownerKey}:`, limit: 256,
+            ...(startAfter ? { startAfter } : {}) });
+          for (const item of saved.values()) if (workingActivity(item.executionStatus)) count++;
+          if (saved.size < 256) break;
+          startAfter = [...saved.keys()].at(-1);
+        }
+      }
+      const wasWorking = prior ? workingActivity(prior.executionStatus) : false;
+      const isWorking = workingActivity(summary.executionStatus);
+      if (wasWorking !== isWorking) count += isWorking ? 1 : -1;
+      // Status updates do not change admission order, even after a row leaves the index.
+      if (prior) {
+        await tx.put(summaryKey, structuredClone(summary));
+        await tx.put(countKey, count);
+        return;
+      }
+      // Retain at most 20 visible rows per operator.
+      const candidates = [summary.activityId, ...current];
+      const seen = new Map<string, number>();
+      const ids: string[] = [];
+      for (const id of candidates) {
+        const item = id === summary.activityId ? summary
+          : await tx.get<OperatorBrowserSummary>(`owner-activity:${ownerKey}:${id}`);
+        if (!item) continue;
+        const size = seen.get(item.operatorId) ?? 0;
+        if (size >= 20) continue;
+        seen.set(item.operatorId, size + 1);
+        ids.push(id);
+        if (ids.length === 100) break;
+      }
+      if (!prior) {
+        const sequence = (await tx.get<number>(`owner-admissions:${ownerKey}`) ?? 0) + 1;
+        await tx.put(`owner-admissions:${ownerKey}`, sequence);
+      }
       await tx.put(indexKey, ids);
-      await tx.put(`owner-activity:${ownerKey}:${summary.activityId}`, structuredClone(summary));
+      await tx.put(summaryKey, structuredClone(summary));
+      await tx.put(countKey, count);
     });
   }
 
@@ -1361,7 +1411,45 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         executionStatus: 'unknown' as const, cleanupStatus: 'pending' as const,
         collectionStatus: 'unavailable' as const, attention: true, sessionId: null,
         source: 'pr-boundary', updatedAt: Date.now() }));
-    return [...uncertain, ...existing].slice(0, 100);
+    const counts = new Map<string, number>();
+    return [...uncertain, ...existing].filter(item => {
+      const count = counts.get(item.operatorId) ?? 0;
+      if (count >= 20) return false;
+      counts.set(item.operatorId, count + 1);
+      return true;
+    }).slice(0, 100);
+  }
+
+  /** Reading the dropdown acknowledges only the admissions observed by that browser. */
+  async acknowledgeOwnedActivities(ownerKey: string, through: number): Promise<{ unreadCount: number }> {
+    if (!/^[0-9a-f]{64}$/.test(ownerKey) || !Number.isSafeInteger(through) || through < 0) return { unreadCount: 0 };
+    return this.ctx.storage.transaction(async tx => {
+      const latest = await tx.get<number>(`owner-admissions:${ownerKey}`) ?? 0;
+      const key = `owner-admissions-read:${ownerKey}`;
+      const seen = await tx.get<number>(key) ?? 0;
+      const read = Math.max(seen, Math.min(through, latest));
+      await tx.put(key, read);
+      return { unreadCount: Math.max(0, latest - read) };
+    });
+  }
+
+  /** Cursor names the last seen row in this owner's retained browsing index. */
+  async listOwnedActivityPage(ownerKey: string, after: string | null): Promise<{
+    items: OperatorBrowserSummary[]; nextCursor: string | null; workingCount: number;
+    unreadCount: number; latestSequence: number }> {
+    // Bound acknowledgment to admissions known before collecting this page.
+    const latestSequence = await this.ctx.storage.get<number>(`owner-admissions:${ownerKey}`) ?? 0;
+    const items = await this.listOwnedActivities(ownerKey);
+    const position = after === null ? 0 : items.findIndex(item => item.activityId === after) + 1;
+    if (after !== null && position === 0) throw new Error('Activity history changed');
+    const page = items.slice(position, position + 5);
+    const savedCount = await this.ctx.storage.get<number>(`owner-working-count:${ownerKey}`);
+    const lastRead = await this.ctx.storage.get<number>(`owner-admissions-read:${ownerKey}`) ?? 0;
+    const indexedWorking = items.filter(item => workingActivity(item.executionStatus)).length;
+    return { items: page, nextCursor: position + 5 < items.length ? page.at(-1)!.activityId : null,
+      workingCount: Number.isSafeInteger(savedCount) && savedCount! >= 0
+        ? Math.max(savedCount!, indexedWorking) : indexedWorking,
+      unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {

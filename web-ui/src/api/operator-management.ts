@@ -12,7 +12,8 @@ export const policySchema = z.object({ capabilities: z.array(z.string()).max(32)
 export type ManagementGrant = z.infer<typeof grantSchema>;
 export type ManagementPolicy = z.infer<typeof policySchema>;
 const summarySchema = z.object({ id, name: z.string().optional(), description: z.string().optional(),
-  installedGithubReleaseId: z.number().int().positive().optional(), installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(),
+  installedGithubReleaseId: z.number().int().positive().optional(), installedTagName: z.string().optional(), installedPublishedAt: z.string().datetime().optional(),
+  installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(), repositoryId: z.number().int().positive().optional(),
   profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), enabled: z.boolean() });
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
   repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema, policy: policySchema,

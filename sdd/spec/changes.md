@@ -2,6 +2,16 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-28
+
+- **Owned activity results remain readable and history claims stay bounded** ([REQ-OPERATOR-027](operators.md#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-057](operators.md#req-operator-057-readable-owned-activity-results), [REQ-OPERATOR-058](operator-registry.md#req-operator-058-guided-dispatcher-invocation)). The owner-scoped result displays every recognized Review report, omission and finding rather than silently truncating later evidence; admitted task context stays within the client schema. The API separately counts persisted working activities beyond the browse index; the badge now shows only newly admitted summaries since the owner's last successfully acknowledged open. Browsing retains at most 20 summaries per operator without deleting historical owned results. Guided Dispatcher invocation is specified separately from general management. PR Checks 36363151786 failed on this work's prior head; final verification and Enterprise Integration UI acceptance remain pending.
+
+- **Resumed-session idle warning uses D1 terminal input** ([REQ-SESSION-013](session-lifecycle.md#req-session-013-sleep-timer-countdown-ui)). Browser list, detail and batch status project D1 `lastInputAt` from the current run, or the run's start before new input, instead of relying on a stale prior-run timestamp. Idle enforcement, stop authority and session lifecycle writes are unchanged; exact-head CI and live resumed-session verification remain pending.
+
+## 2026-09-27
+
+- **Operators presentation and scope explanations are corrected without changing authorization** ([REQ-OPERATOR-049](operator-registry.md#req-operator-049-operators-management-interface)). The catalog exposes the uniquely selected installed release's verified tag and UTC publication time rather than presenting its GitHub release number as a version. Alternatives are selected from one descriptive list. Verified first-party packages display Renovate Manager and Pull Request Reviewer while detail preserves the authored package name. An older pin can refresh verified version metadata without changing its installation or enablement; compatibility versions move to technical details. Environment Access & Identity uses the Administration form system and explains action limits and request IDs as binding labels, not provisioned profiles. Four Samsung Browser screenshots motivated a cohesive desktop/mobile correction; exact-head CI and Integration-only visual acceptance are still pending.
+
 ## 2026-09-26
 
 - **Legacy Gate 1 backend and fixture deployment are retired** ([REQ-OPERATOR-039](operators.md#req-operator-039-retired-gate-1-fixture)). New fixture admission fails before Registry or Activity I/O, already-prepared fixture receipts receive a denied loopback, and Enterprise deployments no longer dispatch its fixture Worker. The Gate 1-only source, workflow, and current documentation are removed without deleting historical records or changing installed Conductor/Dispatcher behavior. Exact-head CI and Enterprise Integration rollout remain separate release gates.

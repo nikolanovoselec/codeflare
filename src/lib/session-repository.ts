@@ -18,6 +18,7 @@ export interface D1Session extends AuthoritySession {
   observationSequence: number;
   lastStartedAt?: string;
   lastActiveAt?: string;
+  transitionedAt?: string;
   editorReady: boolean;
   editorReadyError: boolean;
   cpu?: string;
@@ -50,6 +51,7 @@ function fromRow(row: SessionRow): D1Session {
     lifecycleState: row.lifecycle_state as SessionLifecycleState,
     lifecycleGeneration: Number(row.lifecycle_generation), responseRevision: Number(row.response_revision), observationSequence: Number(row.observation_sequence),
     lastStartedAt: optional(row.last_started_at as string | null), lastActiveAt: optional(row.last_active_at as string | null),
+    transitionedAt: optional(row.transitioned_at as string | null),
     editorReady: row.editor_ready === 1, editorReadyError: row.editor_ready_error === 1,
     cpu: optional(row.cpu as string | null), memory: optional(row.memory as string | null), disk: optional(row.disk as string | null),
     syncStatus: optional(row.sync_status as string | null), metricsObservedAt: optional(row.metrics_observed_at as string | null), lastInputAt: optional(row.last_input_at as string | null),

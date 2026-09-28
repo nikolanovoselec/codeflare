@@ -25,7 +25,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('link', { name: 'Back to operators' }));
-    expect(await screen.findByRole('heading', { name: 'Catalog', level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Available operators', level: 2 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Assess a Renovate pull request' })).not.toBeInTheDocument();
     expect(window.location.search).toBe('');
     expect(admissions).toBe(0);

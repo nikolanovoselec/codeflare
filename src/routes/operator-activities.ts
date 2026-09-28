@@ -22,6 +22,7 @@ type ActivityRouteEnv = { Bindings: Env; Variables: { ownerKey: string; operator
 const app = new Hono<ActivityRouteEnv>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
+const readBody = z.strictObject({ through: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
@@ -46,8 +47,27 @@ async function requireMutationCsrf(c: Context<ActivityRouteEnv>, next: () => Pro
 app.use('*', requireMutationCsrf);
 
 app.get('/', async c => {
+  const limit = c.req.query('limit');
+  const after = c.req.query('after');
+  if (limit === '5') {
+    if (after !== undefined && !ID.test(after)) return c.json({ error: 'Invalid activity cursor' }, 400);
+    try {
+      const page = await c.get('registry').listOwnedActivityPage(c.get('ownerKey'), after ?? null);
+      return c.json({ ...page, items: page.items.map(jsonSummary) });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Activity history changed') {
+        return c.json({ error: 'Activity history changed', code: 'HISTORY_CHANGED' }, 409);
+      }
+      throw error;
+    }
+  }
+  if (limit !== undefined || after !== undefined) return c.json({ error: 'Invalid activity page' }, 400);
   const items = await c.get('registry').listOwnedActivities(c.get('ownerKey'));
   return c.json({ items: items.slice(0, 100).map(jsonSummary) });
+});
+app.post('/read', async c => {
+  const { through } = await parseJsonBody(c, readBody);
+  return c.json(await c.get('registry').acknowledgeOwnedActivities(c.get('ownerKey'), through));
 });
 app.get('/installations/:installationId/preview', async c => {
   const id = c.req.param('installationId');

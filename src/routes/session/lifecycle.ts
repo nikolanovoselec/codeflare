@@ -66,7 +66,10 @@ app.get('/batch-status', async (c) => {
     lifecycle: session.lifecycleState,
     generation: session.lifecycleGeneration,
     revision: session.responseRevision,
-    lastActiveAt: session.lastActiveAt,
+    lastActiveAt: session.lifecycleState === 'running'
+      ? (session.transitionedAt && (!session.lastInputAt || session.lastInputAt < session.transitionedAt)
+        ? session.transitionedAt : (session.lastInputAt ?? session.lastActiveAt))
+      : session.lastActiveAt,
     lastStartedAt: session.lastStartedAt,
     editorReady: session.editorReady,
     editorReadyError: session.editorReadyError,
