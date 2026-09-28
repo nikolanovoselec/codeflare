@@ -37,9 +37,11 @@ async function fixture(test: (f: {
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
   messages: (value: unknown[]) => void;
   files: (value: unknown[]) => void;
+  compose: (value: Record<string, unknown>) => void;
   release: (value: unknown, status?: number) => void;
   moveHeadAfterFiles: () => void;
   moveHeadAfterRelease: () => void;
+  moveBaseAfterContents: () => void;
   exceedReleaseDeadline: () => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -62,9 +64,12 @@ async function fixture(test: (f: {
     let uncertain = false;
     let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
     let changedFiles: unknown[] = [];
+    let composeBodies: Record<string, unknown> = {};
     let releaseBody: unknown = { tag_name: 'v11.1.2', body: 'No configuration changes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' };
     let releaseStatus = 200;
     let headSha = 'b'.repeat(40);
+    let baseSha = 'a'.repeat(40);
+    let moveAfterContents = false;
     let moveAfterFiles = false;
     let moveAfterRelease = false;
     let exceedDeadline = false;
@@ -97,6 +102,14 @@ async function fixture(test: (f: {
             if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
             return Response.json(releaseBody, { status: releaseStatus });
           }
+          if (request.url.includes('/contents/')) {
+            const url = new URL(request.url);
+            const key = `${url.searchParams.get('ref')}:${decodeURIComponent(url.pathname.split('/contents/')[1])}`;
+            const body = composeBodies[key];
+            if (moveAfterContents) baseSha = 'c'.repeat(40);
+            return body instanceof Response ? body : body ? Response.json(body)
+              : Response.json({ message: 'Missing' }, { status: 404 });
+          }
           if (request.url.includes('/pulls/17/files')) {
             if (moveAfterFiles) headSha = 'c'.repeat(40);
             return Response.json(changedFiles);
@@ -115,7 +128,8 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: headSha } });
+          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 },
+            base: { sha: baseSha }, head: { sha: headSha } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
@@ -151,9 +165,11 @@ async function fixture(test: (f: {
       await test({ activity, capability, environment, artifactDigest, sent,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
         messages: value => { messages = value; },
-        files: value => { changedFiles = value; }, release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
+        files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
+        release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
+        moveBaseAfterContents: () => { moveAfterContents = true; },
         exceedReleaseDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         revoke: () => { revoked = true; },
@@ -171,9 +187,21 @@ async function fixture(test: (f: {
     }
   });
 }
+function composeRead(operationId = 'compose-1', extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'changed-compose', ...extra }) });
+}
 function releaseRead(operationId = 'release-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'release-notes', ...extra }) });
+}
+function changedCompose(path: string, sha = 'd'.repeat(40)) {
+  return { filename: path, status: 'modified', sha, additions: 1, deletions: 1,
+    patch: '-    image: amir20/dozzle:v11.1.1\n+    image: amir20/dozzle:v11.1.2' };
+}
+function composeBlob(path: string, sha: string, content: string) {
+  return { path, sha, type: 'file', size: new TextEncoder().encode(content).byteLength,
+    encoding: 'base64', content: btoa(content) };
 }
 function dozzleFiles(before = 'v11.1.1', after = 'v11.1.2') {
   return [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
@@ -189,6 +217,65 @@ async function start(f: Parameters<Parameters<typeof fixture>[0]>[0]) {
 }
 
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
+  it('projects every admitted server and agent Compose blob at pinned base/head without leaking inline secrets', () => fixture(async f => {
+    await start(f);
+    const paths = ['middleware/dozzle/compose.yaml', 'tools/dozzle_agent/compose.yaml'];
+    f.files(paths.map(path => changedCompose(path)));
+    const bodies: Record<string, unknown> = {};
+    for (const [index, path] of paths.entries()) {
+      const service = index === 0 ? 'dozzle' : 'dozzle-agent';
+      for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+        ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+        bodies[`${ref}:${path}`] = composeBlob(path, sha,
+          `services:\n  ${service}:\n    image: amir20/dozzle:${tag}\n    environment:\n      DOZZLE_AUTH_TOKEN: inline-secret\n`);
+      }
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const result = await response.json() as { files: unknown[] };
+    expect(result).toMatchObject({ repository: 'owner/repo', pullRequest: 17,
+      baseSha: 'a'.repeat(40), observedHead: 'b'.repeat(40), files: paths.map(path => ({ path,
+        before: { sha: 'e'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.1' }] },
+        after: { sha: 'd'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.2' }] } })) });
+    expect(JSON.stringify(result)).not.toContain('inline-secret');
+    expect(JSON.stringify(result)).toContain('DOZZLE_AUTH_TOKEN');
+  }));
+  it('reads pinned Compose blobs despite an omitted diff patch without inferring safety', () => fixture(async f => {
+    await start(f);
+    const path = 'middleware/dozzle/compose.yaml';
+    f.files([{ ...changedCompose(path), patch: undefined }]);
+    f.compose({ [`${'a'.repeat(40)}:${path}`]: composeBlob(path, 'e'.repeat(40),
+      'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n'),
+    [`${'b'.repeat(40)}:${path}`]: composeBlob(path, 'd'.repeat(40),
+      'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n') });
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ files: [{ path,
+      before: { sha: 'e'.repeat(40) }, after: { sha: 'd'.repeat(40) } }] });
+  }));
+  it.each(['missing', 'wrong-sha', 'oversized', 'redirect', 'moved-base', 'moved-head', 'pagination', 'foreign-path'])('rejects $name changed Compose provenance', name => fixture(async f => {
+    await start(f);
+    const path = 'middleware/dozzle/compose.yaml';
+    f.files(name === 'pagination' ? Array.from({ length: 101 }, (_, index) => changedCompose(`group-${index}/compose.yaml`))
+      : [changedCompose(name === 'foreign-path' ? '../secrets/compose.yaml' : path)]);
+    const before = composeBlob(path, 'e'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n');
+    const after = composeBlob(path, name === 'wrong-sha' ? 'f'.repeat(40) : 'd'.repeat(40),
+      name === 'oversized' ? `services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n    labels: ${'x'.repeat(70_000)}`
+        : 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n');
+    f.compose({ [`${'a'.repeat(40)}:${path}`]: before,
+      ...name === 'missing' ? {} : { [`${'b'.repeat(40)}:${path}`]: name === 'redirect'
+        ? new Response(null, { status: 302, headers: { location: 'https://evil.invalid/' } }) : after } });
+    if (name === 'moved-base') f.moveBaseAfterContents();
+    if (name === 'moved-head') f.moveHeadAfterFiles();
+    expect((await f.capability.fetch(composeRead())).status).toBe(409);
+  }));
+  it('rejects child-selected paths, refs and URLs before protected Compose I/O', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(composeRead('chosen', { path: 'other/compose.yaml' }))).status).toBe(403);
+    expect((await f.capability.fetch(composeRead('chosen-ref', { ref: 'a'.repeat(40) }))).status).toBe(403);
+    expect((await f.capability.fetch(composeRead('chosen-url', { url: 'https://evil.invalid/' }))).status).toBe(403);
+  }));
   it('reads only the release identified by the admitted PR diff and returns a pinned receipt', () => fixture(async f => {
     await start(f); f.files(dozzleFiles());
     const response = await f.capability.fetch(releaseRead());

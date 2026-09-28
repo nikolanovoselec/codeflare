@@ -20,12 +20,12 @@ export type NativeDelivery = {
   activityId: string; generation: number; operationId: string; requestDigest: string;
   marker: string; mode: 'read' | 'hold' | 'receipt-window' | 'unknown' | 'probe';
 };
-type ProductionEvidence = Partial<Record<'pull-request' | 'files' | 'checks' | 'release-notes', unknown>>;
+type ProductionEvidence = Partial<Record<'pull-request' | 'files' | 'checks' | 'release-notes' | 'changed-compose', unknown>>;
 type ProductionCall = { path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' };
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
-      productionEvidence?: ProductionEvidence }
+      productionEvidence?: ProductionEvidence; productionDecision?: unknown }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -152,9 +152,12 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       status: generation === undefined || generation === current.generation ? 'current' : 'stale' };
   }
 
-  async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence) {
+  async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence, productionDecision?: unknown) {
     try {
-      if (!('mode' in delivery) && productionEvidence) await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
+      if (!('mode' in delivery) && productionEvidence) {
+        await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
+        await this.ctx.storage.put('fixture:production-decision', productionDecision ?? null);
+      }
       const path = 'mode' in delivery ? '/dispatcher' : '/agents/Dispatcher/dispatcher';
       const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -264,11 +267,19 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         calls.push({ path, status: 200, modelTurn: done ? 'after-tool' : 'initial' });
         await this.ctx.storage.put('fixture:production-calls', calls);
       }
-      // Official Workers-AI adapter consumes OpenAI-compatible SSE. Exactly one
-      // real Flue tool is offered by the deterministic model, no model billing.
-      const chunks = done ? [{ choices: [{ index: 0, delta: { content: 'Assessment complete' }, finish_reason: 'stop' }] }] : [
+      // Deterministic two-turn model: research, then a model-proposed judgment.
+      // The child must validate this untrusted judgment against the parent receipts.
+      const evidence = path === '/v1/dispatcher/inference'
+        ? await this.ctx.storage.get<ProductionEvidence>('fixture:production-evidence') : null;
+      const denied = !evidence || !Object.hasOwn(evidence, 'pull-request');
+      const candidate = path === '/v1/dispatcher/inference' && done
+        ? await this.ctx.storage.get<unknown>('fixture:production-decision') : null;
+      const tool = done ? 'submit_assessment' : 'assess_renovate';
+      const args = done ? JSON.stringify(candidate ?? { classification: 'unknown',
+        reasons: ['No confirmed server-agent compatibility evidence'], citations: [], gaps: ['compatibility-unverified'] }) : '{}';
+      const chunks = done && denied ? [{ choices: [{ index: 0, delta: { content: 'Parent read unavailable' }, finish_reason: 'stop' }] }] : [
         { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `fixture-tool-${crypto.randomUUID()}`, type: 'function',
-          function: { name: 'assess_renovate', arguments: '{}' } }] }, finish_reason: null }] },
+          function: { name: tool, arguments: args } }] }, finish_reason: null }] },
         { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
       ];
       return new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n', {
@@ -464,7 +475,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   const command = await request.json<FlueFixtureCommand>();
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest));
-    case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence));
+    case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence, command.productionDecision));
     case 'snapshot': return Response.json(await root.snapshot());
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());

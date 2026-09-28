@@ -176,6 +176,84 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
+    const compatible = 'Dozzle v11.1.2 server and agent remain compatible with the existing remote-agent protocol.';
+    const adverse = 'Breaking change: the agent requires a different remote-agent protocol than this server.';
+    const releaseSource = 'https://github.com/amir20/dozzle/releases/tag/v11.1.2';
+    const changedPaths = ['middleware/dozzle/compose.yaml', 'ai_llm/dozzle_agent/compose.yaml',
+      'dns_ntp/dozzle_agent/compose.yaml', 'komodo_core/dozzle_agent/compose.yaml',
+      'media_servers/dozzle_agent/compose.yaml', 'minecraft/dozzle_agent/compose.yaml',
+      'nextcloud/dozzle_agent/compose.yaml', 'openziti-i/dozzle_agent/compose.yaml',
+      'openziti-ii/dozzle_agent/compose.yaml', 'openziti-iii/dozzle_agent/compose.yaml',
+      'servarr/dozzle_agent/compose.yaml', 'storage/dozzle_agent/compose.yaml',
+      'tools/dozzle_agent/compose.yaml'];
+    function assessmentEvidence(note = compatible) {
+      const head = 'b'.repeat(40), base = 'a'.repeat(40);
+      return {
+        'pull-request': { number: 17, head: { sha: head }, base: { sha: base },
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' } },
+        files: { observedHead: head, truncated: false, data: changedPaths.map(path => ({ filename: path,
+          status: 'modified', sha: 'd'.repeat(40), additions: 1, deletions: 1,
+          patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2' })) },
+        checks: { observedHead: head, truncated: false, data: { check_runs: [] } },
+        'release-notes': { observedHead: head, repository: 'amir20/dozzle', tag: 'v11.1.2',
+          source: releaseSource, body: note },
+        'changed-compose': { repository: 'owner/repository', pullRequest: 17, baseSha: base, observedHead: head,
+          files: changedPaths.map((path, index) => ({ path,
+            before: { sha: 'e'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
+              image: 'amir20/dozzle:v11.1.1', environmentKeys: [], redacted: false, ref: `before-${index}` }] },
+            after: { sha: 'd'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
+              image: 'amir20/dozzle:v11.1.2', environmentKeys: [], redacted: false, ref: `after-${index}` }] } })) },
+      };
+    }
+    function decision(classification: 'safe' | 'unsafe' | 'unknown', quote: string) {
+      return { classification, reasons: ['Server and agent protocol compatibility was assessed against the cited source.'],
+        compatibility: 'Server and remote-agent protocol behavior is addressed by the cited release.',
+        citations: [{ kind: 'release', source: releaseSource, quote },
+          { kind: 'config', ref: 'after-0' }, { kind: 'config', ref: 'after-1' }], gaps: [] };
+    }
+    it.each([
+      { name: 'safe with zero checks', verdict: 'safe', note: compatible, quote: compatible },
+      { name: 'unsafe with migration evidence', verdict: 'unsafe', note: adverse, quote: adverse },
+      { name: 'invented citation', verdict: 'unknown', note: compatible, quote: 'Invented protocol guarantee.' },
+    ] as const)('binds a two-turn research→submit $name decision to pinned parent receipts', async variant => {
+      const { id } = await prepare();
+      const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: assessmentEvidence(variant.note),
+        productionDecision: decision(variant.verdict === 'unknown' ? 'safe' : variant.verdict, variant.quote),
+      });
+      expect(admitted.status).toBe(202);
+      const value = await settle(id, admitted.body.submissionId);
+      expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
+        observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: variant.verdict } });
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource))
+        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose']);
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').map(call => call.modelTurn))
+        .toEqual(['initial', 'after-tool']);
+      expect(value.external).toEqual([]);
+      expect(value.activity.sessionId).toBeNull();
+    });
+
+    it.each(['missing-notes', 'missing-config', 'stale-head', 'unsupported-notes', 'malformed-decision'] as const)(
+      'records unknown for $name rather than inventing compatibility or mutating', async scenario => {
+        const { id } = await prepare();
+        const evidence: Record<string, unknown> = assessmentEvidence(scenario === 'unsupported-notes'
+          ? 'Features: new icons and log sorting.' : compatible);
+        if (scenario === 'missing-notes') delete evidence['release-notes'];
+        if (scenario === 'missing-config') delete evidence['changed-compose'];
+        if (scenario === 'stale-head') evidence.files = { ...(evidence.files as object), observedHead: 'c'.repeat(40) };
+        const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+          action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 }, productionEvidence: evidence,
+          productionDecision: scenario === 'malformed-decision' ? { classification: 'safe', citations: 'invented' }
+            : decision('safe', compatible),
+        });
+        expect(admitted.status).toBe(202);
+        const value = await settle(id, admitted.body.submissionId);
+        expect(results(value).at(-1)).toMatchObject({ readOnly: true, assessment: { classification: 'unknown' } });
+        expect(value.external).toEqual([]);
+        expect(value.activity.sessionId).toBeNull();
+      });
+
     it('carries a cited release receipt through the pinned compiled Dispatcher and parent read bridge', async () => {
       const { id } = await prepare();
       const head = 'b'.repeat(40);
