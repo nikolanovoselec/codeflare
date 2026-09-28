@@ -20,11 +20,17 @@ export const operatorActivitySummarySchema = z.strictObject({
   updatedAt: z.union([z.string().datetime(), z.number().int().nonnegative()]),
 });
 export type OperatorActivitySummary = z.infer<typeof operatorActivitySummarySchema>;
+const count = z.number().int().nonnegative();
 const listSchema = z.strictObject({ items: z.array(operatorActivitySummarySchema).max(5),
-  nextCursor: operatorActivitySummarySchema.shape.activityId.nullable(), workingCount: z.number().int().nonnegative() });
+  nextCursor: operatorActivitySummarySchema.shape.activityId.nullable(), workingCount: count,
+  unreadCount: count, latestSequence: count });
 export function listOperatorActivities(after: string | null = null): Promise<z.infer<typeof listSchema>> {
   return baseFetch(`/api/operator-activities?limit=5${after ? `&after=${encodeURIComponent(after)}` : ''}`, {},
     { credentials: 'same-origin', schema: listSchema });
+}
+export function acknowledgeOperatorActivities(through: number): Promise<{ unreadCount: number }> {
+  return baseFetch('/api/operator-activities/read', { method: 'POST', body: JSON.stringify({ through }) },
+    { credentials: 'same-origin', schema: z.strictObject({ unreadCount: count }) });
 }
 const detailSchema = operatorActivitySummarySchema.extend({ checkpoint: z.unknown(), result: z.unknown(),
   sdkCleanupReleased: z.boolean().optional() });

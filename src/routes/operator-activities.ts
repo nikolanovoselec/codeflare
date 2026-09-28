@@ -22,6 +22,7 @@ type ActivityRouteEnv = { Bindings: Env; Variables: { ownerKey: string; operator
 const app = new Hono<ActivityRouteEnv>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
+const readBody = z.strictObject({ through: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
@@ -63,6 +64,10 @@ app.get('/', async c => {
   if (limit !== undefined || after !== undefined) return c.json({ error: 'Invalid activity page' }, 400);
   const items = await c.get('registry').listOwnedActivities(c.get('ownerKey'));
   return c.json({ items: items.slice(0, 100).map(jsonSummary) });
+});
+app.post('/read', async c => {
+  const { through } = await parseJsonBody(c, readBody);
+  return c.json(await c.get('registry').acknowledgeOwnedActivities(c.get('ownerKey'), through));
 });
 app.get('/installations/:installationId/preview', async c => {
   const id = c.req.param('installationId');

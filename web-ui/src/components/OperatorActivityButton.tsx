@@ -2,7 +2,7 @@ import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount
 import { Portal } from 'solid-js/web';
 import { mdiDeveloperBoard } from '@mdi/js';
 import Icon from './Icon';
-import { cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../api/operator-activities';
+import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../api/operator-activities';
 
 interface Props { enabled: boolean }
 const workingStates = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
@@ -77,7 +77,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [previous, setPrevious] = createSignal<Array<string | null>>([]);
   const [activities, { refetch }] = createResource(() => [props.enabled, cursor()] as const, async ([enabled, after]) => {
-    if (!enabled) return { items: [], nextCursor: null, workingCount: 0 };
+    if (!enabled) return { items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 };
     try { const value = await listOperatorActivities(after); setLoadError(false); return value; }
     catch { setLoadError(true); return null; }
   });
@@ -94,6 +94,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
     setPrevious(values.slice(0, -1)); setCursor(values[values.length - 1]);
   };
   const working = createMemo(() => activities()?.workingCount ?? 0);
+  const unread = createMemo(() => activities()?.unreadCount ?? 0);
   const hasActivities = createMemo(() => (activities()?.items.length ?? 0) > 0);
   let control: HTMLDivElement | undefined;
   let trigger: HTMLButtonElement | undefined;
@@ -126,6 +127,12 @@ const OperatorActivityButton: Component<Props> = (props) => {
     openedWidth = window.innerWidth;
     setOpen(true);
     queueMicrotask(() => panel?.focus());
+    void (async () => {
+      const page = await refetch();
+      if (!page?.unreadCount) return;
+      try { await acknowledgeOperatorActivities(page.latestSequence); await refetch(); }
+      catch { /* Keep unread visible if acknowledgment fails. */ }
+    })();
   };
   // Coordinates and the layout branch are measured once per open, so the panel cannot outlive the
   // width it was measured at: a crossing while open would otherwise leave desktop offsets on a
@@ -157,7 +164,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
       <button ref={trigger} type="button" class="header-icon-button operator-activity-trigger" aria-label="Operator activity"
         aria-expanded={open()} onClick={toggle}>
         <Icon path={mdiDeveloperBoard} size={22} />
-        <Show when={working() > 0}><span class="operator-activity-badge">{working()}</span></Show>
+        <Show when={unread() > 0}><span class="operator-activity-badge">{unread()}</span></Show>
       </button>
       {/* Portalled so the panel escapes the dashboard panel's backdrop-filter, which would
           otherwise make that card the containing block for position: fixed and inset the

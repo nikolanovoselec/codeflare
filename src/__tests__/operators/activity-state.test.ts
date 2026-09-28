@@ -122,7 +122,38 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(2);
   }));
 
-  it('REQ-OPERATOR-027: retains only 100 owner entries and pages by last seen ID across a new arrival and status update', async () => withActivity(async ({ registry }) => {
+  it('REQ-OPERATOR-027: retains at most 20 browsable summaries per operator without discarding owned results', async () => withActivity(async ({ registry }) => {
+    const owner = 'e'.repeat(64);
+    const base = { executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const,
+      collectionStatus: 'ready' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    for (let i = 1; i <= 26; i++) await registry.upsertOwnedActivity(owner, { ...base,
+      activityId: `alpha-${i}`, operatorId: 'alpha' });
+    for (let i = 1; i <= 22; i++) await registry.upsertOwnedActivity(owner, { ...base,
+      activityId: `beta-${i}`, operatorId: 'beta' });
+    const browsable = await registry.listOwnedActivities(owner);
+    expect(browsable.filter(item => item.operatorId === 'alpha')).toHaveLength(20);
+    expect(browsable.filter(item => item.operatorId === 'beta')).toHaveLength(20);
+    expect(await registry.getOwnedActivity(owner, 'alpha-1')).toMatchObject({ activityId: 'alpha-1' });
+  }));
+
+  it('REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals', async () => withActivity(async ({ registry }) => {
+    const owner = 'd'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-1' });
+    const first = await registry.listOwnedActivityPage(owner, null);
+    expect(first).toMatchObject({ unreadCount: 1, latestSequence: 1 });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-1', executionStatus: 'completed' });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-2' });
+    expect(await registry.acknowledgeOwnedActivities(owner, first.latestSequence)).toEqual({ unreadCount: 1 });
+    expect(await registry.acknowledgeOwnedActivities(owner, 999)).toEqual({ unreadCount: 0 });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-3' });
+    expect((await registry.listOwnedActivityPage(owner, null)).unreadCount).toBe(1);
+    expect(await registry.acknowledgeOwnedActivities('a'.repeat(64), 999)).toEqual({ unreadCount: 0 });
+    expect((await registry.listOwnedActivityPage(owner, null)).unreadCount).toBe(1);
+  }));
+
+  it('REQ-OPERATOR-027: retains only 20 per operator and pages by last seen ID across a new arrival and status update', async () => withActivity(async ({ registry }) => {
     const owner = 'a'.repeat(64);
     const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
       collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
@@ -139,7 +170,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     let cursor = older.nextCursor;
     let last = older;
     while (cursor) { last = await registry.listOwnedActivityPage(owner, cursor); cursor = last.nextCursor; }
-    expect(last.items.at(-1)?.activityId).toBe('run-5');
+    expect(last.items.at(-1)?.activityId).toBe('run-85');
     await registry.upsertOwnedActivity('b'.repeat(64), { ...base, activityId: 'other-owner' });
     expect((await registry.listOwnedActivityPage('b'.repeat(64), null)).items.map(item => item.activityId)).toEqual(['other-owner']);
     await expect(registry.listOwnedActivityPage('b'.repeat(64), page.nextCursor)).rejects.toThrow('Activity history changed');

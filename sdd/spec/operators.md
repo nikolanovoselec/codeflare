@@ -682,12 +682,12 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 **Acceptance Criteria:**
 
 1. The operator control remains accessible with zero activity. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
-2. The control counts working activities. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: operator activity header control) -->
+2. The control distinguishes unread new summaries from working activity state. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) -->
 3. The overview shows a trusted pinned operator name and allowlisted admitted repository/PR context and progress when available. <!-- @impl: src/operators/activity.ts::browserSummary --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates) -->
 4. Unknown activity values are never displayed as zero or offered replay. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
-5. The overview pages five owner-scoped entries at a time and navigates older and newer retained history without skips on updates. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: retains only 100 owner entries and pages by last seen ID across a new arrival and status update) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
+5. The overview pages five owner-scoped entries at a time across at most 20 browsable summaries per operator, and navigates retained history without skips on updates. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: retains at most 20 browsable summaries per operator without discarding owned results) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: retains only 20 per operator and pages by last seen ID across a new arrival and status update) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
 6. An expired or foreign cursor is rejected rather than silently omitting history. <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor) -->
-7. The badge counts persisted working owner activities, including those beyond the retained display index; pending boundary preparations without summaries contribute only when in the displayed projection. <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: recovers persisted working count beyond 1,000 historical summaries) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor) -->
+7. The paged response counts persisted working owner activities, including those beyond the retained display index; pending boundary preparations without summaries contribute only when in the displayed projection. <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @impl: src/operators/registry.ts::listOwnedActivityPage --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-027: recovers persisted working count beyond 1,000 historical summaries) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor) -->
 
 **Constraints:**
 
@@ -698,7 +698,31 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. Exact-head PR Checks 36363151786 failed; final GREEN and mobile result navigation remain pending.
+**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. PR Checks 36389653998 passed before the new history and unread behavior; final exact-head CI and mobile navigation remain pending.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-059: New activity observation
+
+**Intent:** Owners notice new activity summaries since their last open without changing execution or collecting results.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each new owned admission increases the unread count; status updates do not. <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) -->
+2. Opening the overview acknowledges only observed admissions for the authenticated owner, under CSRF protection; later admissions remain unread. <!-- @impl: src/operators/registry.ts::acknowledgeOwnedActivities --> <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-059: opening acknowledges only the authenticated owner through the observed sequence and requires CSRF) -->
+3. The icon badge shows unread summaries rather than working count; opening clears acknowledged unread without a button, result collection or replay. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-059: acknowledges the observed summary revision with authenticated CSRF POST) -->
+
+**Constraints:** Activity state and the separate working count remain unchanged by acknowledgment.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
+
+**Verification:** New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
 
 **Status:** Planned
 

@@ -59,6 +59,30 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
     });
   }
 
+  it('REQ-SESSION-013: list and detail use D1 input time for a resumed running session', async () => {
+    mockKV._set('session:test-bucket:resumed-session', {
+      id: 'resumed-session', name: 'Resumed', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:20:00.000Z',
+      lastActiveAt: '2024-01-15T09:20:00.000Z', lastInputAt: '2024-01-15T09:58:00.000Z',
+    });
+    mockKV._set('session:test-bucket:stopped-session', {
+      id: 'stopped-session', name: 'Stopped', userId: 'test-bucket', status: 'stopped',
+      createdAt: '2024-01-15T08:00:00.000Z', lastAccessedAt: '2024-01-15T09:10:00.000Z',
+      lastActiveAt: '2024-01-15T09:10:00.000Z', lastInputAt: '2024-01-15T09:59:00.000Z',
+    });
+    const app = createCrudApp();
+    expect(await (await app.request('/sessions')).json()).toMatchObject({ sessions: [
+      { id: 'resumed-session', lastActiveAt: '2024-01-15T09:58:00.000Z' },
+      { id: 'stopped-session', lastActiveAt: '2024-01-15T09:10:00.000Z' },
+    ] });
+    expect(await (await app.request('/sessions/resumed-session')).json()).toMatchObject({ session: {
+      id: 'resumed-session', lastActiveAt: '2024-01-15T09:58:00.000Z',
+    } });
+    expect(await (await app.request('/sessions/stopped-session')).json()).toMatchObject({ session: {
+      id: 'stopped-session', lastActiveAt: '2024-01-15T09:10:00.000Z',
+    } });
+  });
+
   it.each(['stopped', 'starting', 'running', 'unreachable', 'stopping'] as const)(
     'REQ-SESSION-010 AC2/3/5: list and detail project D1 %s with generation and revision', async (lifecycle) => {
       const id = 'lifecycle12345678';
@@ -768,6 +792,25 @@ describe('GET /sessions/batch-status', () => {
     expect(Object.keys(body.statuses)).toHaveLength(2);
     expect(body.statuses['batchsession1234abc']).toMatchObject({ status: 'running', lifecycle: 'running' });
     expect(body.statuses['batchsession5678def']).toMatchObject({ status: 'running', lifecycle: 'running' });
+  });
+
+  it('REQ-SESSION-013: batch status uses fresh D1 terminal input for the countdown without changing lifecycle', async () => {
+    mockKV._set('session:test-bucket:resumed-session', {
+      id: 'resumed-session', name: 'Resumed', userId: 'test-bucket', status: 'running',
+      createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:20:00.000Z',
+      lastActiveAt: '2024-01-15T09:20:00.000Z', lastInputAt: '2024-01-15T09:58:00.000Z',
+    });
+    mockKV._set('session:test-bucket:stopped-session', {
+      id: 'stopped-session', name: 'Stopped', userId: 'test-bucket', status: 'stopped',
+      createdAt: '2024-01-15T08:00:00.000Z', lastAccessedAt: '2024-01-15T09:10:00.000Z',
+      lastActiveAt: '2024-01-15T09:10:00.000Z', lastInputAt: '2024-01-15T09:59:00.000Z',
+    });
+    const response = await createBatchStatusApp().request('/sessions/batch-status');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ statuses: {
+      'resumed-session': { status: 'running', lastActiveAt: '2024-01-15T09:58:00.000Z' },
+      'stopped-session': { status: 'stopped', lastActiveAt: '2024-01-15T09:10:00.000Z' },
+    } });
   });
 
   it('REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence', async () => {

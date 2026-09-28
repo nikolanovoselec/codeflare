@@ -43,8 +43,10 @@ function fixture() {
   const registry = {
     listOwnedActivities: vi.fn(async () => [summary]),
     listOwnedActivityPage: vi.fn(async (_owner: string, _cursor: string | null): Promise<{
-      items: typeof summary[]; nextCursor: string | null; workingCount: number }> =>
-      ({ items: [summary], nextCursor: null, workingCount: 1 })),
+      items: typeof summary[]; nextCursor: string | null; workingCount: number;
+      unreadCount: number; latestSequence: number }> =>
+      ({ items: [summary], nextCursor: null, workingCount: 1, unreadCount: 1, latestSequence: 1 })),
+    acknowledgeOwnedActivities: vi.fn(async () => ({ unreadCount: 0 })),
     getOwnedActivity: vi.fn(async (_ownerId: string, activityId: string) => activityId === summary.activityId ? summary : null),
     resolveManagementExecution: vi.fn(async (_id: string): Promise<unknown> => ({ ok: false, reason: 'not-found' })),
   };
@@ -112,6 +114,18 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(JSON.stringify(await registry.listOwnedActivities.mock.results[0]?.value)).not.toContain('private.access.jwt');
   });
 
+  it('REQ-OPERATOR-059: opening acknowledges only the authenticated owner through the observed sequence and requires CSRF', async () => {
+    const { request, registry } = fixture();
+    const page = await request('?limit=5');
+    expect(await page.json()).toMatchObject({ unreadCount: 1, latestSequence: 1 });
+    expect((await request('/read', 'POST', { through: 1 }, false)).status).toBe(403);
+    expect((await request('/read', 'POST', { through: -1 })).status).toBe(400);
+    const acknowledged = await request('/read', 'POST', { through: 1 });
+    expect(acknowledged.status).toBe(200);
+    expect(await acknowledged.json()).toEqual({ unreadCount: 0 });
+    expect(registry.acknowledgeOwnedActivities).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/), 1);
+  });
+
   it('REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation', async () => {
     const { request, registry, activity, waitUntil } = fixture();
     const detail = await request('/activity-1');
@@ -144,7 +158,8 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const { request, registry } = fixture();
     registry.listOwnedActivityPage.mockImplementation(async (_owner: string, cursor: string | null) => ({
       items: cursor ? [{ ...summary, activityId: 'activity-6' }] : Array.from({ length: 5 }, (_, i) =>
-        ({ ...summary, activityId: `activity-${i + 1}` })), nextCursor: cursor ? null : 'activity-5', workingCount: 92 }));
+        ({ ...summary, activityId: `activity-${i + 1}` })), nextCursor: cursor ? null : 'activity-5', workingCount: 92,
+      unreadCount: 3, latestSequence: 5 }));
     const first = await request('?limit=5');
     expect(first.status).toBe(200);
     const firstPage = await first.json() as { nextCursor: string | null; workingCount: number;

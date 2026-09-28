@@ -2,15 +2,19 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 
-const { listMock, cancelMock, detailMock } = vi.hoisted(() => ({ listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn() }));
+const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
+  listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async () => ({ unreadCount: 0 })) }));
 vi.mock('../../api/operator-activities', () => ({
   listOperatorActivities: async (...args: unknown[]) => {
     const value = await listMock(...args);
     return value && { ...value, workingCount: value.workingCount ?? value.items.filter(
-      (item: { executionStatus: string }) => ['queued', 'running', 'waiting', 'cancel-requested', 'unknown'].includes(item.executionStatus)).length };
+      (item: { executionStatus: string }) => ['queued', 'running', 'waiting', 'cancel-requested', 'unknown'].includes(item.executionStatus)).length,
+    unreadCount: value.unreadCount ?? value.workingCount ?? value.items.length,
+    latestSequence: value.latestSequence ?? value.items.length };
   },
   cancelOperatorActivity: (...args: unknown[]) => cancelMock(...args),
   getOperatorActivity: (...args: unknown[]) => detailMock(...args),
+  acknowledgeOperatorActivities: (...args: unknown[]) => readMock(...args),
 }));
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
@@ -25,8 +29,8 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(listMock).not.toHaveBeenCalled();
   });
 
-  it('shows a working badge and execution states in the overview', async () => {
-    listMock.mockResolvedValue({ items: [active, { ...active, activityId: 'activity-2', executionStatus: 'failed',
+  it('shows an unread badge and execution states in the overview', async () => {
+    listMock.mockResolvedValue({ unreadCount: 1, workingCount: 2, items: [active, { ...active, activityId: 'activity-2', executionStatus: 'failed',
       cleanupStatus: 'stopped', collectionStatus: 'ready', attention: true, sessionId: null }] });
     render(() => <OperatorActivityButton enabled />);
     await waitFor(() => expect(screen.getByText('1')).toBeTruthy());
@@ -38,6 +42,23 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(screen.getByRole('button', { name: 'Cancel activity-1' })).toBeTruthy();
     expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--active');
     expect(screen.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--compact');
+  });
+
+  it('REQ-OPERATOR-059: shows new summaries since last open and opening acknowledges only observed admissions', async () => {
+    let unreadCount = 2;
+    listMock.mockImplementation(async () => ({ items: [active], workingCount: 17,
+      unreadCount, latestSequence: 2 }));
+    readMock.mockImplementationOnce(async (through: number) => { expect(through).toBe(2); unreadCount = 0; return { unreadCount }; });
+    render(() => <OperatorActivityButton enabled />);
+    await waitFor(() => expect(screen.getByText('2')).toBeTruthy());
+    expect(screen.queryByText('17')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(screen.queryByText('2')).toBeNull());
+    expect(readMock).toHaveBeenCalledWith(2);
+    expect(detailMock).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    expect(readMock).toHaveBeenCalledTimes(1);
   });
 
   it('REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls', async () => {
@@ -202,13 +223,14 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByText('Needs attention')).toBeNull();
   });
 
-  it('pages five retained owned entries without changing the count of all working activities', async () => {
+  it('pages five retained owned entries without changing unread status', async () => {
     const items = Array.from({ length: 12 }, (_, i) => ({ ...active, activityId: `activity-${i + 1}` }));
     listMock.mockImplementation(async (after: string | null) => ({
       items: after === 'activity-10' ? items.slice(10) : after === 'activity-5' ? items.slice(5, 10) : items.slice(0, 5),
-      nextCursor: after === 'activity-10' ? null : after === 'activity-5' ? 'activity-10' : 'activity-5', workingCount: 12 }));
+      nextCursor: after === 'activity-10' ? null : after === 'activity-5' ? 'activity-10' : 'activity-5', workingCount: 12,
+      unreadCount: 0, latestSequence: 12 }));
     render(() => <OperatorActivityButton enabled />);
-    await waitFor(() => expect(screen.getByText('12')).toBeTruthy());
+    await waitFor(() => expect(listMock).toHaveBeenCalled());
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     expect(screen.getAllByRole('article')).toHaveLength(5);
     expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy();
@@ -218,7 +240,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByRole('button', { name: 'View activity-1' })).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Newer 5' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
-    expect(screen.getByText('12')).toBeTruthy();
+    expect(screen.queryByText('12')).toBeNull();
   });
 
   it('REQ-OPERATOR-027: trigger dismissal resets older history and selected detail on reopen', async () => {

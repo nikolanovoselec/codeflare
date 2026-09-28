@@ -151,11 +151,12 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     await kv.put('user:invoker@example.test', JSON.stringify({ role: 'user' }));
     await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team,Display Team,unverified-id');
   }));
-  it('projects package-authored purpose with discovered releases without exposing a credential', async () => withApi(async request => {
+  it('REQ-OPERATOR-049 AC2: management registration, detail and catalog never return the stored GitHub credential', async () => withApi(async request => {
     await delegate(request);
     const created = await request('/api/operator-management/operators', 'POST', registration);
     expect(created.status).toBe(201);
     const operator = await created.json() as { id: string; revision: number };
+    expect(JSON.stringify(operator)).not.toContain(registration.githubPat);
     expect((await request(`/api/operator-management/operators/${operator.id}/releases/refresh`, 'POST', { revision: operator.revision })).status).toBe(200);
     const detail = await request(`/api/operator-management/operators/${operator.id}`);
     expect(detail.status).toBe(200);
@@ -163,9 +164,29 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(data.releases[0]?.description).toEqual(expect.any(String));
     expect(data.releases[0]?.description?.length).toBeGreaterThan(8);
     const catalog = await request('/api/operator-management/operators');
-    expect((await catalog.json() as { items: Array<{ description?: string }> }).items[0]?.description).toBe(data.releases[0]?.description);
+    const listing = await catalog.json() as { items: Array<{ description?: string }> };
+    expect(listing.items[0]?.description).toBe(data.releases[0]?.description);
     expect(JSON.stringify(data)).not.toContain(registration.githubPat);
+    expect(JSON.stringify(listing)).not.toContain(registration.githubPat);
   }));
+  it('REQ-OPERATOR-049 AC2: installed release and grant projections do not reveal stored credentials', async () => withApi(async request => {
+    await delegate(request);
+    const registered = await request('/api/operator-management/operators', 'POST', registration);
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { id: string; revision: number };
+    await enabledInstallation(request, operator);
+    const detail = await request(`/api/operator-management/operators/${operator.id}`);
+    expect(detail.status).toBe(200);
+    const value = await detail.json() as { operator: { revision: number }; installations: unknown[] };
+    expect(value.installations.length).toBeGreaterThan(0);
+    expect(JSON.stringify(value)).not.toContain(registration.githubPat);
+    const grants = await request(`/api/operator-management/operators/${operator.id}/grants`, 'POST', {
+      managers: registration.managers, invokers: registration.invokers, revision: value.operator.revision,
+    });
+    expect(grants.status).toBe(200);
+    expect(JSON.stringify(await grants.json())).not.toContain(registration.githubPat);
+  }));
+
   it('registers without a realm choice and keeps the legacy internal storage value', async () => withApi(async request => {
     await delegate(request);
     const input = { repositoryUrl: registration.repositoryUrl, githubPat: registration.githubPat,
@@ -201,7 +222,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect((await request('/api/operator-management/operators')).status).toBe(404);
   }));
 
-  it('does not derive global management eligibility from self-nominated registration ACLs', async () => withApi(async request => {
+  it('REQ-OPERATOR-049 AC1: management route denies self-nominated users outside global eligibility', async () => withApi(async request => {
     const denied = await request('/api/operator-management/operators', 'POST', registration);
     expect(denied.status).toBe(404);
     expect(await denied.text()).not.toContain(registration.githubPat);

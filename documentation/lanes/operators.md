@@ -246,11 +246,11 @@ Implements [REQ-OPERATOR-007](../../sdd/spec/operators.md#req-operator-007-opera
 
 Implements the browser-facing portion of [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-057](../../sdd/spec/operators.md#req-operator-057-readable-owned-activity-results), [REQ-OPERATOR-033](../../sdd/spec/operators.md#req-operator-033-activity-surface-resilience), and [REQ-OPERATOR-040](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation).
 
-Enterprise activity routes derive the signed human owner key; request data cannot select another owner. Mutations require CSRF; projections remain bounded and secret-free. The header control and detail distinguish loading, empty, attention, terminal and unknown outcomes without treating queued work as complete. <!-- @impl: src/routes/operator-activities.ts -->
+Enterprise activity routes derive the signed human owner key; request data cannot select another owner. Mutations require CSRF; projections remain bounded and secret-free. <!-- @impl: src/routes/operator-activities.ts -->
 
-The overview renders at document level so a filtered ancestor cannot contain it. Desktop anchoring uses measured trigger coordinates; width changes close the panel. Focus moves into the panel on open and returns to the trigger when still inside at dismissal. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx -->
+The header control and detail distinguish loading, empty, attention, terminal and unknown outcomes without treating queued work as complete. The overview renders at document level so a filtered ancestor cannot contain it. Desktop anchoring uses measured trigger coordinates; width changes close the panel. Focus moves into the panel on open and returns to the trigger when still inside at dismissal. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx -->
 
-Owner-scoped five-entry history and readable Review reports have behavioral tests. Final exact-head GREEN, desktop/mobile inspection and deployed owner-isolation acceptance remain pending. <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx -->
+Five-at-a-time owner history retains at most 20 browsable summaries per operator without deleting historical Activity results. The icon badge shows new admissions since the owner's last open; opening acknowledges only the observed revision and does not collect a result. Readable Review reports have behavioral tests. Final exact-head GREEN, desktop/mobile inspection and deployed owner-isolation acceptance remain pending. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON) -->
 
 ## Owned session and structured Pi
 

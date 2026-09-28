@@ -1364,9 +1364,25 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       const wasWorking = prior ? workingActivity(prior.executionStatus) : false;
       const isWorking = workingActivity(summary.executionStatus);
       if (wasWorking !== isWorking) count += isWorking ? 1 : -1;
-      // Admission order is stable: a status update must not move a row ahead of an
-      // already-issued history cursor. Only new admissions enter at the head.
-      const ids = current.includes(summary.activityId) ? current : [summary.activityId, ...current].slice(0, 100);
+      // Admission order is stable: updates (including older evicted activities) do not
+      // reenter the browsing index. Retain at most 20 visible rows per operator.
+      const candidates = current.includes(summary.activityId) || prior ? current : [summary.activityId, ...current];
+      const seen = new Map<string, number>();
+      const ids: string[] = [];
+      for (const id of candidates) {
+        const item = id === summary.activityId ? summary
+          : await tx.get<OperatorBrowserSummary>(`owner-activity:${ownerKey}:${id}`);
+        if (!item) continue;
+        const size = seen.get(item.operatorId) ?? 0;
+        if (size >= 20) continue;
+        seen.set(item.operatorId, size + 1);
+        ids.push(id);
+        if (ids.length === 100) break;
+      }
+      if (!prior) {
+        const sequence = (await tx.get<number>(`owner-admissions:${ownerKey}`) ?? 0) + 1;
+        await tx.put(`owner-admissions:${ownerKey}`, sequence);
+      }
       await tx.put(indexKey, ids);
       await tx.put(summaryKey, structuredClone(summary));
       await tx.put(countKey, count);
@@ -1390,21 +1406,44 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         executionStatus: 'unknown' as const, cleanupStatus: 'pending' as const,
         collectionStatus: 'unavailable' as const, attention: true, sessionId: null,
         source: 'pr-boundary', updatedAt: Date.now() }));
-    return [...uncertain, ...existing].slice(0, 100);
+    const counts = new Map<string, number>();
+    return [...uncertain, ...existing].filter(item => {
+      const count = counts.get(item.operatorId) ?? 0;
+      if (count >= 20) return false;
+      counts.set(item.operatorId, count + 1);
+      return true;
+    }).slice(0, 100);
   }
 
-  /** Cursor names the last seen row in this owner's retained (at most 100) index. */
+  /** Reading the dropdown acknowledges only the admissions observed by that browser. */
+  async acknowledgeOwnedActivities(ownerKey: string, through: number): Promise<{ unreadCount: number }> {
+    if (!/^[0-9a-f]{64}$/.test(ownerKey) || !Number.isSafeInteger(through) || through < 0) return { unreadCount: 0 };
+    return this.ctx.storage.transaction(async tx => {
+      const latest = await tx.get<number>(`owner-admissions:${ownerKey}`) ?? 0;
+      const key = `owner-admissions-read:${ownerKey}`;
+      const seen = await tx.get<number>(key) ?? 0;
+      const read = Math.max(seen, Math.min(through, latest));
+      await tx.put(key, read);
+      return { unreadCount: Math.max(0, latest - read) };
+    });
+  }
+
+  /** Cursor names the last seen row in this owner's retained browsing index. */
   async listOwnedActivityPage(ownerKey: string, after: string | null): Promise<{
-    items: OperatorBrowserSummary[]; nextCursor: string | null; workingCount: number }> {
+    items: OperatorBrowserSummary[]; nextCursor: string | null; workingCount: number;
+    unreadCount: number; latestSequence: number }> {
     const items = await this.listOwnedActivities(ownerKey);
     const position = after === null ? 0 : items.findIndex(item => item.activityId === after) + 1;
     if (after !== null && position === 0) throw new Error('Activity history changed');
     const page = items.slice(position, position + 5);
     const savedCount = await this.ctx.storage.get<number>(`owner-working-count:${ownerKey}`);
+    const latestSequence = await this.ctx.storage.get<number>(`owner-admissions:${ownerKey}`) ?? 0;
+    const lastRead = await this.ctx.storage.get<number>(`owner-admissions-read:${ownerKey}`) ?? 0;
     const indexedWorking = items.filter(item => workingActivity(item.executionStatus)).length;
     return { items: page, nextCursor: position + 5 < items.length ? page.at(-1)!.activityId : null,
       workingCount: Number.isSafeInteger(savedCount) && savedCount! >= 0
-        ? Math.max(savedCount!, indexedWorking) : indexedWorking };
+        ? Math.max(savedCount!, indexedWorking) : indexedWorking,
+      unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {
