@@ -216,6 +216,29 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(unrelated.status).toBe(200);
     expect(await unrelated.json()).toMatchObject({ revision: 2, boundaryActions: [action] });
   }));
+  it('REQ-OPERATOR-053: accepts protected pull_request_target registration only for a platform admin with CSRF protection', async () => withApi(async request => {
+    const controls = { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [{
+        repositoryId: 138, installationId: 'review-install', workflowId: 531,
+        workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
+        workflowDigest: 'a'.repeat(64), events: ['pull_request_target'], enabled: false,
+      }] };
+    actor.role = 'admin';
+    expect((await request('/api/operator-management/access', 'POST', controls, false)).status).toBe(403);
+    actor.role = 'user';
+    expect((await request('/api/operator-management/access', 'POST', controls)).status).toBe(404);
+    actor.role = 'admin';
+    expect((await request('/api/operator-management/access', 'POST', { ...controls,
+      boundaryActions: [{ ...controls.boundaryActions[0], events: ['pull_request_target', 'workflow_dispatch'] }],
+    })).status).toBe(400);
+    expect((await request('/api/operator-management/access')).json()).resolves.toMatchObject({ revision: 0 });
+    const approved = await request('/api/operator-management/access', 'POST', controls);
+    expect(approved.status).toBe(200);
+    expect(await approved.json()).toMatchObject({ revision: 1, boundaryActions: controls.boundaryActions });
+    expect((await request('/api/operator-management/access', 'POST', { ...controls, revision: 1,
+      boundaryActions: [{ ...controls.boundaryActions[0], enabled: true }],
+    })).status).toBe(400);
+  }));
   it('rejects a cross-origin simple management mutation before it can self-nominate authority', async () => withApi(async request => {
     const denied = await request('/api/operator-management/operators', 'POST', registration, false);
     expect(denied.status).toBe(403);
