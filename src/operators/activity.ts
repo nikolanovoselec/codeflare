@@ -478,7 +478,7 @@ export class OperatorActivity extends Agent {
 
   /** Bind the existing Registry reservation before any prospective preparation. */
   async bindProspectiveRenovateAdmission(activityId: string): Promise<boolean> {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId) || !this.#appEnv.OPERATOR_ACTIVITY
       || this.#appEnv.OPERATOR_ACTIVITY.idFromName(activityId).toString() !== this.ctx.id.toString()) return false;
     const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
       .readProspectiveRenovateAdmission(activityId);

@@ -5,6 +5,7 @@ import type { Env } from '../types';
 import { authenticateRequest, canInvokeOperator, operatorAccessSessionCurrent,
   requireOperatorHumanContext } from '../lib/access';
 import { getContainer } from '@cloudflare/containers';
+import type { container as SessionContainer } from '../container/index';
 import { D1SessionRepository } from '../lib/session-repository';
 import { getContainerId } from '../lib/container-helpers';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -120,7 +121,8 @@ app.post('/renovate/activation', async c => {
     bucket: authenticated.bucketName, ...authority });
   if (!registration.ok) throw new AppError('FORBIDDEN', 403, 'Prospective activation unavailable');
   if (!c.env.CONTAINER) throw new AppError('UNAVAILABLE', 503, 'Admin session container unavailable');
-  const container = getContainer(c.env.CONTAINER, getContainerId(authenticated.bucketName, command.sessionId));
+  const container = getContainer(c.env.CONTAINER,
+    getContainerId(authenticated.bucketName, command.sessionId)) as unknown as SessionContainer;
   const armed = await container.armRenovateScan({ ...command, registrationId: registration.registrationId,
     bucket: authenticated.bucketName });
   if (!armed.ok) throw new AppError('UNAVAILABLE', 503, 'Prospective scan schedule unavailable');

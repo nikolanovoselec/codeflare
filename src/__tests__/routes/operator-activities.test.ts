@@ -140,7 +140,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const { request, kv, registry, env } = fixture();
     const observed = { activatedAt: new Date().toISOString(), repositoryId: 973175879 };
     (registry as unknown as { activateProspectiveRenovate: (input: unknown) => Promise<unknown> })
-      .activateProspectiveRenovate = async () => ({ ok: true, value: observed });
+      .activateProspectiveRenovate = async () => ({ ok: true, ...observed, registrationId: 'registered-admin' });
     (env as unknown as { USAGE_DB: unknown }).USAGE_DB = { prepare: () => ({ bind: () => ({ first: async () => ({
       lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
       created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,

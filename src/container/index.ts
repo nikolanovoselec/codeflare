@@ -614,11 +614,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           plan = await activity.getRuntimePlan();
         }
         if (!plan || plan.activityId !== reserved.activityId) continue;
-        let detail = await activity.getBrowserDetail();
+        let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         if (detail?.executionStatus === 'waiting'
           && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
           await activity.collectBrowserResult();
-          detail = await activity.getBrowserDetail();
+          detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         }
         if (detail?.executionStatus === 'queued' && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
           this.ctx.waitUntil(runOperatorActivity(reserved.activityId, this.env,
