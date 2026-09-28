@@ -7,7 +7,7 @@ import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { openOperatorExecutionAccess } from './execution-context';
 import { parseOperatorPolicy } from './policy';
-import { projectChangedCompose } from './dispatcher-compose-projection';
+import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
@@ -147,7 +147,10 @@ export async function createDispatcherOperation(input: {
     // Bot identity and assessment semantics belong to the forkable Dispatcher
     // package. The parent validates only the bounded admitted PR/read scope.
     if (!/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Pull request evidence unavailable');
-    if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
+    if (resource === 'pull-request') return Response.json({ number: observed.number,
+      head: { sha: observed.head.sha }, base: { sha: observed?.base?.sha ?? null },
+      user: { id: observed?.user?.id ?? null, login: observed?.user?.login ?? null,
+        type: observed?.user?.type ?? null } });
     if (resource === 'release-notes') {
       const files = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
       if (!files.ok || /rel="next"/.test(files.headers.get('link') ?? '')) throw new Error('Release diff unavailable');
@@ -235,7 +238,7 @@ export async function createDispatcherOperation(input: {
         }
         const bytes = Uint8Array.from(atob(encodedBody), char => char.charCodeAt(0));
         if (bytes.length !== body.size) throw new Error('Compose blob size mismatch');
-        return { sha: body.sha as string, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+        return { sha: body.sha as string, content: new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes) };
       };
       const projected = await Promise.all(changed.map(async file => {
         const [before, after] = await Promise.all([
@@ -262,7 +265,7 @@ export async function createDispatcherOperation(input: {
     if (resource === 'files') {
       const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
       if (!response.ok) return response;
-      const data = JSON.parse(await readDispatcherBody(response));
+      const data = projectDispatcherFiles(JSON.parse(await readDispatcherBody(response)));
       return Response.json({ data, observedHead: observed.head.sha,
         truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
     }

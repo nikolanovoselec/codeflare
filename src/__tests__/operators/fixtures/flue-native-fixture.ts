@@ -188,11 +188,14 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       const path = await this.ctx.storage.get('fixture:production-evidence')
         ? '/agents/Dispatcher/dispatcher' : '/dispatcher';
       const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`));
-      const conversation = await response.json() as { settlements?: Array<{ submissionId?: string; outcome?: string }> };
+      const conversation = await response.json() as { settlements?: Array<{ submissionId?: string; outcome?: string }>;
+        messages?: Array<{ submissionId?: string; parts?: Array<{ type?: string }> }> };
       const settlement = conversation.settlements?.find(item => item.submissionId === active.submissionId);
       if (settlement) {
         const activity = this.env.ACTIVITY.getByName(this.name);
-        if (settlement.outcome === 'completed') {
+        const assessments = conversation.messages?.flatMap(message => message.submissionId === active.submissionId
+          ? (message.parts ?? []).filter(part => part.type === 'data-assessment') : []) ?? [];
+        if (settlement.outcome === 'completed' && assessments.length === 1) {
           const committed = await activity.commitDrive(active.generation, { schemaVersion: 1, status: 'waiting',
             checkpoint: { submissionId: active.submissionId } });
           if (committed.ok) await this.ctx.storage.put('fixture:settled-submission', {

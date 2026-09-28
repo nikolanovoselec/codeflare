@@ -1389,6 +1389,18 @@ export class OperatorActivity extends Agent {
             ].filter(Boolean).join(',') || 'none' });
           await this.interruptDrive(lease.generation); return;
         }
+        stage = 'assessment';
+        const assessmentParts = Array.isArray(value?.messages) ? value.messages.flatMap((message: {
+          submissionId?: unknown; parts?: unknown;
+        }) => message?.submissionId === lease.submissionId && Array.isArray(message.parts)
+          ? message.parts.filter((part: { type?: unknown }) => part?.type === 'data-assessment') : []) : [];
+        if (assessmentParts.length !== 1 || !z.json().safeParse(assessmentParts[0].data).success
+          || !assessmentParts[0].data || typeof assessmentParts[0].data !== 'object'
+          || Array.isArray(assessmentParts[0].data)
+          || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > 64 * 1024) {
+          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
+          await this.interruptDrive(lease.generation); return;
+        }
         stage = 'operations';
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
         const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};

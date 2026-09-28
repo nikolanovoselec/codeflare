@@ -60,6 +60,7 @@ async function fixture(test: (f: {
     let revoked = false;
     let settlements: unknown[] = [];
     let messages: unknown[] = [];
+    let messagesSet = false;
     let aborted: string | undefined;
     let uncertain = false;
     let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
@@ -128,7 +129,8 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 },
+          return Response.json({ number: 17, body: 'inline-secret',
+            user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
             base: { sha: baseSha }, head: { sha: headSha } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
@@ -163,8 +165,16 @@ async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
       await test({ activity, capability, environment, artifactDigest, sent,
-        settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
-        messages: value => { messages = value; },
+        settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
+          settlements = [{ submissionId: id, outcome, error }];
+          if (id === 'submission-1' && outcome === 'completed' && !messagesSet) {
+            messages = [{ submissionId: id, parts: [{ type: 'data-assessment', data: {
+              repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
+              assessment: { classification: 'unknown', reasons: ['No verified compatibility declaration'] },
+            } }] }];
+          }
+        },
+        messages: value => { messages = value; messagesSet = true; },
         files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
         release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
@@ -217,6 +227,34 @@ async function start(f: Parameters<Parameters<typeof fixture>[0]>[0]) {
 }
 
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
+  it('exposes only PR identity, never a secret-bearing description', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(read('project-pr'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) }, base: { sha: 'a'.repeat(40) },
+      user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' } });
+    expect(JSON.stringify(body)).not.toContain('inline-secret');
+  }));
+  it('passes only complete image deltas from PR files, never secret-bearing patch context or other changes', () => fixture(async f => {
+    await start(f);
+    f.files([{ ...changedCompose('middleware/dozzle/compose.yaml'),
+      patch: '@@ -1,3 +1,3 @@\n- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2\n  password: inline-secret' },
+    { ...changedCompose('tools/dozzle_agent/compose.yaml'), additions: 2, deletions: 2,
+      patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2\n- DOZZLE_AUTH_TOKEN=inline-secret\n+ DOZZLE_AUTH_TOKEN=other-secret' },
+    { filename: 'private/inline-secret.txt', status: 'modified', additions: 1, deletions: 1,
+      patch: '-password=inline-secret\n+password=other-secret' }]);
+    const response = await f.capability.fetch(read('safe-files', { resource: 'files' }));
+    expect(response.status).toBe(200);
+    const result = await response.json() as { data: Array<{ patch: string | null; filename: string }> };
+    expect(result.data).toMatchObject([
+      { filename: 'middleware/dozzle/compose.yaml', patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2' },
+      { filename: 'tools/dozzle_agent/compose.yaml', patch: null },
+      { filename: '[other-changed-file]', patch: null },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('inline-secret');
+    expect(JSON.stringify(result)).not.toContain('other-secret');
+  }));
   it('projects every admitted server and agent Compose blob at pinned base/head without leaking inline secrets', () => fixture(async f => {
     await start(f);
     const paths = ['middleware/dozzle/compose.yaml', 'tools/dozzle_agent/compose.yaml'];
@@ -380,6 +418,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await f.activity.alarm();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
   }));
+  it('fences a completed model turn with no submitted assessment instead of advertising waiting', () => fixture(async f => {
+    await start(f);
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'text', text: 'Assessment incomplete' }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }));
   it('fences failed settlement rather than granting a continuation', () => fixture(async f => {
     await start(f); f.settle('submission-1', 'failed'); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
@@ -430,10 +476,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         ? [{ submissionId: 'foreign', parts: [part] }]
         : [{ submissionId: 'submission-1', parts: variant === 'duplicate' ? [part, part]
           : [{ type: 'data-assessment', data: { payload: 'x'.repeat(70 * 1024) } }] }];
-      if (variant !== 'oversized') f.messages(messages);
+      f.messages(messages);
       f.settle(); await f.activity.reconcileDispatcherLease();
-      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
-      if (variant === 'oversized') f.messages(messages);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     }));
