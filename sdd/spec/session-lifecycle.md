@@ -526,7 +526,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 
-**Constraints:** Non-running sessions retain lifecycle `lastActiveAt` for context expiry. Countdown projection cannot change stop authority.
+**Constraints:**
+
+- Non-running sessions retain lifecycle `lastActiveAt` for context expiry.
+- Countdown projection cannot change stop authority.
 
 **Priority:** P2
 
