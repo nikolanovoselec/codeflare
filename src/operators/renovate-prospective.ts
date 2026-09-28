@@ -10,7 +10,7 @@ const REPOSITORY_ID = 973175879;
 async function readScanPage(response: Response): Promise<string> {
   if (!response.body) throw Error('Komodo page unavailable');
   const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let size = 0;
   let text = '';
   try {
