@@ -381,9 +381,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n') });
     const response = await f.capability.fetch(composeRead());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ files: [{ path,
-      before: { sha: 'e'.repeat(40), services: [{ mode: null, redacted: true }] },
-      after: { sha: 'd'.repeat(40), services: [{ mode: null, redacted: true }] } }] });
+    expect(await response.json()).toMatchObject({ files: [{ path, unchangedConfiguration: true,
+      before: { sha: 'e'.repeat(40), services: [{ mode: 'server', redacted: false }] },
+      after: { sha: 'd'.repeat(40), services: [{ mode: 'server', redacted: false }] } }] });
   }));
   it.each(['missing', 'wrong-sha', 'oversized', 'redirect', 'moved-base', 'moved-head', 'pagination', 'foreign-path'])('rejects $name changed Compose provenance', name => fixture(async f => {
     await start(f);

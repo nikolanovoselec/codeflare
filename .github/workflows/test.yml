@@ -495,8 +495,8 @@ jobs:
       - name: Verify exact compiler-produced Dispatcher fixture
         if: matrix.group != 'rest'
         run: |
-          echo '24b39cbda1785ae4733df80c2bca8b17515a303da58c47f250f12c7b1e807cc1  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
-          grep -qF '"sourceCommit":"ae5a050334750526eb1a788b116f5fa7581ddb9e"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
+          echo '59657efc915abc07c707725f00066779a575feb609d3c2d80bdd349ea1a10ac4  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
+          grep -qF '"sourceCommit":"838086026f6a859db822fa04fce5a56ce24ce344"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
 
       - uses: ./.github/actions/install-deps
         with:
