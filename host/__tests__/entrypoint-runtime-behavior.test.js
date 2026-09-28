@@ -468,14 +468,16 @@ describe('entrypoint production helpers', () => {
     writeFileSync(join(preseed, 'node_modules/example-package/package.json'), '{"name":"example-package"}\n');
     const env = { USER_HOME: join(fixture, 'home'), PI_NPM_PRESEED: preseed, PI_NPM_DIR: target };
 
-    const first = runFunction('warm_pi_npm_dependencies', '', 'warm_pi_npm_dependencies', env);
+    const first = runFunction('warm_pi_npm_dependencies',
+      'configure_pi_packages_and_review_inventory() { :; }', 'warm_pi_npm_dependencies', env);
     assert.equal(first.status, 0, first.stderr);
     assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"image-seed"}\n');
     assert.equal(existsSync(join(target, 'node_modules/example-package/package.json')), true);
 
     writeFileSync(join(target, 'package.json'), '{"name":"user-owned"}\n');
     writeFileSync(join(preseed, 'package.json'), '{"name":"new-image-seed"}\n');
-    const second = runFunction('warm_pi_npm_dependencies', '', 'warm_pi_npm_dependencies', env);
+    const second = runFunction('warm_pi_npm_dependencies',
+      'configure_pi_packages_and_review_inventory() { :; }', 'warm_pi_npm_dependencies', env);
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"user-owned"}\n');
   });

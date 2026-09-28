@@ -151,6 +151,7 @@ describe('complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace l
     const script = `
 ${extractFn('complete_managed_curation_startup')}
 relay_managed_pi_extensions() { :; }
+configure_pi_packages_and_review_inventory() { :; }
 release_agent_pty_after_fast_start_updates() { printf 'init\\n'; }
 start_openvscode_supervisor() { printf 'editor\\n'; }
 RCLONE_CONFIG_RESULT=1
@@ -168,6 +169,7 @@ complete_managed_curation_startup
     const script = `
 ${extractFn('complete_managed_curation_startup')}
 relay_managed_pi_extensions() { :; }
+configure_pi_packages_and_review_inventory() { :; }
 release_agent_pty_after_fast_start_updates() { printf 'init\\n'; }
 start_openvscode_supervisor() { printf 'editor\\n'; }
 RCLONE_CONFIG_RESULT=1
@@ -185,6 +187,7 @@ complete_managed_curation_startup
     const script = `
 ${extractFn('complete_managed_curation_startup')}
 relay_managed_pi_extensions() { :; }
+configure_pi_packages_and_review_inventory() { :; }
 release_agent_pty_after_fast_start_updates() { printf 'init\\n'; }
 start_openvscode_supervisor() { printf 'editor\\n'; }
 RCLONE_CONFIG_RESULT=1

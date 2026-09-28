@@ -51,7 +51,7 @@ declare module "@earendil-works/pi-coding-agent" {
       },
     ): void;
     registerTool(tool: ToolDefinition): void;
-    on(event: string, handler: (event: any, ctx: ExtensionContext) => any): () => void;
+    on(event: string, handler: (event: any, ctx: ExtensionContext) => any): void | (() => void);
     sendMessage(message: { customType: string; content: string; display?: boolean; details?: unknown },
       options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" }): void;
     appendEntry<T = unknown>(customType: string, data?: T): void;

@@ -50,7 +50,9 @@ test('REQ-OPERATOR-053: generated Pi inventory excludes independently loaded loc
   const home = mkdtempSync(join(tmpdir(), 'operator-review-settings-'));
   try {
     const agentDir = join(home, '.pi/agent');
-    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(join(agentDir, 'extensions'), { recursive: true });
+    writeFileSync(join(agentDir, 'extensions/operator-review-selector.ts'), 'export default () => {}');
+    writeFileSync(join(agentDir, 'extensions/operator-review-remote.ts'), 'export default () => {}');
     const local = join(agentDir, 'extensions/review-enforcement.ts');
     const remote = join(agentDir, 'extensions/operator-review-remote.ts');
     const settingsPath = join(agentDir, 'settings.json');
@@ -58,7 +60,9 @@ test('REQ-OPERATOR-053: generated Pi inventory excludes independently loaded loc
     const start = source.indexOf('warm_pi_npm_dependencies() {');
     const end = source.indexOf('\n}\n\nupdate_pi_and_codex_when_fast_start_disabled()', start);
     const warm = source.slice(start, end + 2);
-    const result = spawnSync('bash', ['-c', `set -euo pipefail\n${warm}\nwarm_pi_npm_dependencies`],
+    const configStart = source.indexOf('configure_pi_packages_and_review_inventory() {');
+    const configure = source.slice(configStart, start);
+    const result = spawnSync('bash', ['-c', `set -euo pipefail\n${configure}\n${warm}\nwarm_pi_npm_dependencies`],
       { encoding: 'utf8', env: { ...process.env, USER_HOME: home, PI_NPM_PRESEED: join(home, 'missing') } });
     assert.equal(result.status, 0, result.stderr);
     const config = JSON.parse(readFileSync(settingsPath, 'utf8'));
