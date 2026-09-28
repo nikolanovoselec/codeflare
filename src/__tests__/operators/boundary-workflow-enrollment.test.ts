@@ -174,7 +174,7 @@ describe('REQ-OPERATOR-053/054: protected Review enrollment and dormant trust', 
     }] })).status).toBe(400);
     expect(await registry.getManagementControls()).toEqual(controls);
     const update = await request('/boundary-actions/propose', 'POST', target);
-    expect(update.status).toBe(202);
+    expect(update.status, await update.clone().text()).toBe(202);
     expect(await update.json()).toMatchObject({ status: 'pending', pullRequest: 42 });
     expect(github.state.workflow).toBe(github.state.proposal);
     expect(await registry.getBoundaryAction(repoId, 'refs/heads/main')).toBeNull();

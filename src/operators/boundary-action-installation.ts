@@ -58,7 +58,10 @@ async function digest(value: string) {
 function gitHub(token: string) {
   return async function request(path: string, method = 'GET', body?: unknown,
     expected: number | number[] = 200): Promise<unknown> {
-    if (!path.startsWith('/') || path.startsWith('//') || path.includes('..')) throw new ValidationError('Invalid GitHub path');
+    if (!path.startsWith('/') || path.startsWith('//')
+      || (path.includes('..') && !/^\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/compare\/[a-f0-9]{40}\.\.\.[a-f0-9]{40}$/i.test(path))) {
+      throw new ValidationError('Invalid GitHub path');
+    }
     const url = `https://api.github.com${path}`;
     const signal = AbortSignal.timeout(10_000);
     const response = await fetch(new Request(url, { method, redirect: 'manual', signal,
