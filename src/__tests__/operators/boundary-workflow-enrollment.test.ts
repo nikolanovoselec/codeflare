@@ -38,7 +38,7 @@ const origins = { dev: 'https://dev.codeflare.example.test', integration: 'https
 function githubFixture() {
   const state = { head, workflow: null as string | null, proposal: null as string | null,
     branch: false, branchSha: head, pr: false, writeDenied: false, revokeDuringWrite: false,
-    runtimeEmpty: false,
+    runtimeEmpty: false, runtimeNoRun: false,
     loseBranchResponse: false, loseContentResponse: false, losePrResponse: false,
     sdd: true, protected: true, permission: 'admin', changedDuringWrite: false, unrelatedBranchFile: false };
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -50,7 +50,13 @@ function githubFixture() {
     const path = url.pathname;
     if (path === '/repos/nikolanovoselec/codeflare/contents/.github/workflows/boundary-runtime.yml'
       && url.searchParams.get('ref') === 'd'.repeat(40)) return Response.json({ type: 'file', encoding: 'base64',
-      content: btoa(state.runtimeEmpty ? 'on: {workflow_call: {}}\njobs: {}\n' : `name: Review runtime\non:\n  workflow_call:\n    inputs:\n      runtime_sha: {required: true, type: string}\n      dev_origin: {required: true, type: string}\n      integration_origin: {required: true, type: string}\n      production_origin: {required: true, type: string}\njobs:\n  collect:\n    permissions: {id-token: write, contents: read}\n    steps: [{uses: actions/checkout@pinned}]\n  publish:\n    permissions: {id-token: write, issues: write, checks: write}\n    steps: [{uses: actions/checkout@pinned}]\n`) });
+      content: btoa(state.runtimeEmpty ? 'on: {workflow_call: {}}\njobs: {}\n' : `name: Review runtime\non:\n  workflow_call:\n    inputs:\n      runtime_sha: {required: true, type: string}\n      dev_origin: {required: true, type: string}\n      integration_origin: {required: true, type: string}\n      production_origin: {required: true, type: string}\njobs:\n  collect:\n    permissions: {id-token: write, contents: read}\n    steps:\n      - uses: actions/checkout@${'a'.repeat(40)}\n        with: {repository: nikolanovoselec/codeflare, ref: "\${{ inputs.runtime_sha }}", persist-credentials: false}\n      - run: ${state.runtimeNoRun ? 'echo noop' : 'node .review-runtime/scripts/operator-boundary-action.mjs collect'}\n      - uses: actions/upload-artifact@${'b'.repeat(40)}\n  publish:\n    permissions: {id-token: write, issues: write, checks: write}\n    steps:\n      - uses: actions/checkout@${'a'.repeat(40)}\n        with: {repository: nikolanovoselec/codeflare, ref: "\${{ inputs.runtime_sha }}", persist-credentials: false}\n      - run: npm ci --prefix .review-runtime\n      - uses: actions/download-artifact@${'c'.repeat(40)}\n      - run: node .review-runtime/scripts/operator-boundary-action.mjs publish\n`) });
+    if (path === '/repos/nikolanovoselec/codeflare/contents/scripts/operator-boundary-action.mjs'
+      && url.searchParams.get('ref') === 'd'.repeat(40)) return Response.json({ type: 'file', encoding: 'base64',
+      content: btoa('export async function runProtectedJob() {}') });
+    if (path === '/repos/nikolanovoselec/codeflare/contents/package.json'
+      && url.searchParams.get('ref') === 'd'.repeat(40)) return Response.json({ type: 'file', encoding: 'base64',
+      content: btoa(JSON.stringify({ dependencies: { '@actions/artifact': '6.2.1' } })) });
     if (path === '/user') return Response.json({ login: 'admin', id: 3 });
     if (path === `${root}/collaborators/admin/permission`) return Response.json({ permission: state.permission });
     if (path === root) return Response.json({ id: repoId, full_name: 'acme/app', default_branch: 'main', permissions: { push: state.permission === 'admin' } });
@@ -250,6 +256,7 @@ describe('REQ-OPERATOR-053/054: protected Review enrollment and dormant trust', 
   }));
 
   it('rejects a pinned runtime that has named jobs but cannot execute collection or publication', () => withEnrollment(async ({ request, registry, github }) => {
+    github.state.runtimeNoRun = true;
     expect((await request('/boundary-actions/propose', 'POST', target)).status).toBe(409);
     expect(github.state.branch).toBe(false);
     expect(await registry.getBoundaryAction(repoId, 'refs/heads/main')).toBeNull();

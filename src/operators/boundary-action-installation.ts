@@ -93,12 +93,22 @@ function reviewRuntimeAvailable(encoded: string): boolean {
     const publish = jobs.publish;
     const collector = collect?.permissions as Record<string, string> | undefined;
     const publisher = publish?.permissions as Record<string, string> | undefined;
+    type Step = { uses?: string; run?: string; with?: Record<string, unknown> };
+    const collectSteps = collect?.steps as Step[] | undefined;
+    const publishSteps = publish?.steps as Step[] | undefined;
+    const pinnedCheckout = (steps: Step[] | undefined) => Array.isArray(steps) && steps.some(step =>
+      /^actions\/checkout@[a-f0-9]{40}$/i.test(step?.uses ?? '')
+      && step.with?.repository === runtimeRepository && step.with?.ref === '${{ inputs.runtime_sha }}'
+      && step.with?.['persist-credentials'] === false);
     return !!collector && !!publisher && collector['id-token'] === 'write'
-      && collector.issues !== 'write'
-      && publisher['id-token'] === 'write'
-      && publisher.issues === 'write' && publisher.checks === 'write'
-      && Array.isArray(collect?.steps) && collect.steps.length > 0
-      && Array.isArray(publish?.steps) && publish.steps.length > 0;
+      && collector.issues !== 'write' && collector.checks !== 'write'
+      && publisher['id-token'] === 'write' && publisher.issues === 'write' && publisher.checks === 'write'
+      && pinnedCheckout(collectSteps) && pinnedCheckout(publishSteps)
+      && collectSteps!.some(step => step.run === 'node .review-runtime/scripts/operator-boundary-action.mjs collect')
+      && collectSteps!.some(step => /^actions\/upload-artifact@[a-f0-9]{40}$/i.test(step.uses ?? ''))
+      && publishSteps!.some(step => step.run === 'npm ci --prefix .review-runtime')
+      && publishSteps!.some(step => /^actions\/download-artifact@[a-f0-9]{40}$/i.test(step.uses ?? ''))
+      && publishSteps!.some(step => step.run === 'node .review-runtime/scripts/operator-boundary-action.mjs publish');
   } catch { return false; }
 }
 
@@ -142,6 +152,23 @@ async function context(input: EnrollmentTarget, ctx: EnrollmentContext) {
     || !reviewRuntimeAvailable(available.content)) {
     throw new AppError('CONFLICT', 409, 'Pinned Review runtime unavailable');
   }
+  const script = await api(`/repos/${runtimeRepository}/contents/scripts/operator-boundary-action.mjs?ref=${config.commit}`) as {
+    type?: string; encoding?: string; content?: string;
+  };
+  const manifest = await api(`/repos/${runtimeRepository}/contents/package.json?ref=${config.commit}`) as {
+    type?: string; encoding?: string; content?: string;
+  };
+  let dependencies: { dependencies?: Record<string, string> } | undefined;
+  try { dependencies = JSON.parse(atob(manifest.content?.replace(/\s/g, '') ?? '')) as typeof dependencies; }
+  catch { /* The pinned runtime cannot install its publisher dependencies. */ }
+  if (script?.type !== 'file' || script.encoding !== 'base64'
+    || !script.content || script.content.length > 128 * 1024
+    || manifest?.type !== 'file' || manifest.encoding !== 'base64'
+    || !manifest.content || manifest.content.length > 128 * 1024
+    || !/^[A-Za-z0-9+/=\r\n]+$/.test(manifest.content)
+    || !/^\d+\.\d+\.\d+$/.test(dependencies?.dependencies?.['@actions/artifact'] ?? '')) {
+    throw new AppError('CONFLICT', 409, 'Pinned Review runtime unavailable');
+  }
   return { ...target, installationId: input.installationId, root, branchPath, head: head!, repositoryId: repository.id!, api, config,
     pinned, contents: workflow(config.commit, config.origins) };
 }
@@ -158,6 +185,17 @@ async function unchanged(value: Awaited<ReturnType<typeof context>>, ctx: Enroll
   const current = await value.api(value.branchPath) as { name?: string; protected?: boolean; commit?: { sha?: string } };
   if (current.name !== value.base || !current.protected || current.commit?.sha !== value.head) {
     throw new AppError('CONFLICT', 409, 'Protected Review base moved');
+  }
+}
+
+async function onlyWorkflowChanged(value: Awaited<ReturnType<typeof context>>, branchSha: string) {
+  const compared = await value.api(`${value.root}/compare/${value.head}...${branchSha}`) as {
+    merge_base_commit?: { sha?: string }; files?: Array<{ filename?: string; status?: string }>;
+  };
+  if (compared?.merge_base_commit?.sha !== value.head || !Array.isArray(compared.files)
+    || compared.files.length !== 1 || compared.files[0]?.filename !== installedPath
+    || !['added', 'modified'].includes(compared.files[0].status ?? '')) {
+    throw new AppError('CONFLICT', 409, 'Review proposal includes unrelated changes');
   }
 }
 
@@ -189,12 +227,7 @@ export async function proposeBoundaryWorkflow(input: EnrollmentTarget, ctx: Enro
     throw new AppError('CONFLICT', 409, 'Review proposal branch moved');
   }
   if (branchRef.object!.sha !== value.head) {
-    const compared = await value.api(`${value.root}/compare/${value.head}...${branchRef.object!.sha}`) as {
-      merge_base_commit?: { sha?: string };
-    };
-    if (compared.merge_base_commit?.sha !== value.head) {
-      throw new AppError('CONFLICT', 409, 'Review proposal branch diverged');
-    }
+    await onlyWorkflowChanged(value, branchRef.object!.sha!);
   }
   await unchanged(value, ctx);
   await ctx.reauthorize();
@@ -216,6 +249,11 @@ export async function proposeBoundaryWorkflow(input: EnrollmentTarget, ctx: Enro
   if (proposal.encoding !== 'base64' || atob(proposal.content?.replace(/\s/g, '') ?? '') !== value.contents) {
     throw new AppError('CONFLICT', 409, 'Review proposal bytes unavailable');
   }
+  const currentRef = await value.api(`${value.root}/git/ref/heads/${branch}`) as { ref?: string; object?: { sha?: string } };
+  if (currentRef.ref !== `refs/heads/${branch}` || !sha.test(currentRef.object?.sha ?? '')) {
+    throw new AppError('CONFLICT', 409, 'Review proposal branch moved');
+  }
+  await onlyWorkflowChanged(value, currentRef.object!.sha!);
   await unchanged(value, ctx);
   await ctx.reauthorize();
   let pr: { number?: number; state?: string; base?: { ref?: string } } | null;
