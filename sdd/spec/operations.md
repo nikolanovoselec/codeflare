@@ -138,6 +138,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
+- On GitHub-hosted Ubuntu, installing host sandbox packages uses the runner's official Ubuntu package sources, not unrelated third-party apt repositories; unavailable required sources or packages fail the host lane. Custom-runner package-source policy remains unchanged and the real bubblewrap/AppArmor sandbox probe still runs. <!-- @impl: scripts/ci/install-approved-packet-packages.sh --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
 - Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane.
 - Pull requests use Dependency Review; their reviewed tree remains the dependency-security evidence for the squash result on `main`, while registry audits run only on explicit full dispatches.
 - If GitHub cannot generate the diff, the fallback verifies the exact local base/head commits and selects every lane. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
