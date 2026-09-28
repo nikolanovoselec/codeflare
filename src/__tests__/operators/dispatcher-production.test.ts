@@ -23,6 +23,8 @@ const bundle: DispatcherBundle = { schemaVersion: 1, sourceCommit: 'a'.repeat(40
   modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } } };
 const bytes = new TextEncoder().encode(JSON.stringify(bundle));
 const invocation = { repository: 'owner/repo', pullRequest: 17 };
+const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
+const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 async function digest(value: string | Uint8Array) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', typeof value === 'string'
     ? new TextEncoder().encode(value) : value)), b => b.toString(16).padStart(2, '0')).join('');
@@ -43,7 +45,7 @@ async function fixture(test: (f: {
   annotatedTag: (value: unknown) => void;
   moveHeadAfterFiles: () => void;
   moveHeadAfterRelease: () => void;
-  moveBaseAfterContents: () => void;
+  moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
 }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -70,13 +72,13 @@ async function fixture(test: (f: {
     let composeBodies: Record<string, unknown> = {};
     let releaseBody: unknown = { tag_name: 'v11.1.2', body: 'No configuration changes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' };
     let releaseStatus = 200;
-    let guideBody: unknown = composeBlob('docs/guide/agent.md', '2'.repeat(40),
-      'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007');
+    let guideBody: unknown = composeBlob('docs/guide/agent.md', guideBlobSha, guideExcerpt);
     let tagRef: unknown = { ref: 'refs/tags/v11.1.2', object: { type: 'tag', sha: '3'.repeat(40) } };
     let annotatedTag: unknown = { tag: 'v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } };
     let headSha = 'b'.repeat(40);
     let baseSha = 'a'.repeat(40);
     let moveAfterContents = false;
+    let moveBaseAfterGuide = false;
     let moveAfterFiles = false;
     let moveAfterRelease = false;
     let exceedDeadline = false;
@@ -113,6 +115,7 @@ async function fixture(test: (f: {
           if (request.url.includes('/git/tags/')) return Response.json(annotatedTag);
           if (request.url.includes('/contents/docs/guide/agent.md')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
+            if (moveBaseAfterGuide) baseSha = 'c'.repeat(40);
             if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 19_000);
             return guideBody instanceof Response ? guideBody : Response.json(guideBody);
           }
@@ -195,6 +198,7 @@ async function fixture(test: (f: {
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
+        moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
         exceedReleaseDeadline: () => { exceedDeadline = true; },
         exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
@@ -309,7 +313,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
       ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
       bodies[`${ref}:${path}`] = composeBlob(path, sha,
-        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`);
+        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    container_name: private-dozzle\n    restart: unless-stopped\n    network_mode: bridge\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`);
     }
     f.compose(bodies);
     const response = await f.capability.fetch(composeRead());
@@ -319,6 +323,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       before: { services: [{ mode: 'server', redacted: false }] },
       after: { services: [{ mode: 'server', redacted: false }] } }] });
     expect(JSON.stringify(output)).not.toContain('/private/docker.sock');
+    expect(JSON.stringify(output)).not.toContain('private-dozzle');
   }));
   it.each([
     { name: 'persistent /data', property: "    volumes:\n      - /private/dozzle:/data\n" },
@@ -473,6 +478,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       f.guide(Response.json({ message: 'Missing' }, { status: 404 })) },
     { name: 'invalid guide encoding', replace: (f: { guide: (value: unknown) => void }) =>
       f.guide({ ...composeBlob('docs/guide/agent.md', '2'.repeat(40), 'agent'), content: '$not-base64' }) },
+    { name: 'mismatched guide blob SHA', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), guideExcerpt)) },
     { name: 'oversized guide', replace: (f: { guide: (value: unknown) => void }) =>
       f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), 'x'.repeat(70_000))) },
   ])('rejects a $name without exposing a guide to the child', ({ replace }) => fixture(async f => {
@@ -481,6 +488,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   }));
   it('rejects a moved PR while reading the version-tagged guide', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('rejects a moved base while reading the version-tagged guide', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveBaseAfterGuide();
     expect((await f.capability.fetch(guideRead())).status).toBe(409);
   }));
   it('rejects a late guide even when the upstream transport ignores abort', () => fixture(async f => {

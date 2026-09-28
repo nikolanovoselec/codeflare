@@ -14,7 +14,7 @@ import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './reg
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
-  resource: z.enum(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose']) });
+  resource: z.enum(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose']) });
 const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperationId,
   input: z.strictObject({
     messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
@@ -92,7 +92,7 @@ export async function createDispatcherOperation(input: {
   if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
   const resource = inference ? undefined : dispatcherReadSchema.parse(operation.body).resource;
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
-    github: { repositories: resource === 'release-notes'
+    github: { repositories: resource === 'release-notes' || resource === 'upstream-guide'
       ? [parent.repository.toLowerCase(), 'amir20/dozzle'] : [parent.repository.toLowerCase()], methods: ['GET'] },
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
@@ -126,7 +126,7 @@ export async function createDispatcherOperation(input: {
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
   const readDeadline = resource === 'release-notes' ? Date.now() + 8000
-    : resource === 'changed-compose' ? Date.now() + 18_000 : null;
+    : resource === 'upstream-guide' || resource === 'changed-compose' ? Date.now() + 18_000 : null;
   const readSignal = () => {
     if (readDeadline === null) return undefined;
     const remaining = readDeadline - Date.now();
@@ -151,7 +151,7 @@ export async function createDispatcherOperation(input: {
       head: { sha: observed.head.sha }, base: { sha: observed?.base?.sha ?? null },
       user: { id: observed?.user?.id ?? null, login: observed?.user?.login ?? null,
         type: observed?.user?.type ?? null } });
-    if (resource === 'release-notes') {
+    if (resource === 'release-notes' || resource === 'upstream-guide') {
       const files = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
       if (!files.ok || /rel="next"/.test(files.headers.get('link') ?? '')) throw new Error('Release diff unavailable');
       const changes = JSON.parse(await readDispatcherBody(files));
@@ -181,11 +181,69 @@ export async function createDispatcherOperation(input: {
       const tag = targets[0].split(':')[1];
       const assertHead = async () => {
         const response = await get(`/pulls/${parent.pullRequest}`);
-        if (!response.ok || JSON.parse(await readDispatcherBody(response))?.head?.sha !== observed.head.sha) {
-          throw new Error('Release PR head changed');
+        if (!response.ok) throw new Error('Upstream PR revision unavailable');
+        const reread = JSON.parse(await readDispatcherBody(response));
+        if (reread?.head?.sha !== observed.head.sha
+          || (resource === 'upstream-guide' && reread?.base?.sha !== observed?.base?.sha)) {
+          throw new Error('Upstream PR revision changed');
         }
       };
       await assertHead();
+      if (resource === 'upstream-guide') {
+        const upstreamGet = async (path: string) => {
+          await current();
+          return transport.fetch(new Request(`https://${host}/repos/amir20/dozzle${path}`, {
+            redirect: 'manual', signal: readSignal(), headers: {
+              accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
+            },
+          }));
+        };
+        const tagResponse = await upstreamGet(`/git/ref/tags/${tag}`);
+        if (tagResponse.status !== 200) throw new Error('Upstream guide tag unavailable');
+        const tagIdentity = JSON.parse(await readDispatcherBody(tagResponse));
+        const reference = tagIdentity?.object;
+        if (tagIdentity?.ref !== `refs/tags/${tag}` || !/^[0-9a-f]{40}$/.test(reference?.sha ?? '')
+          || !['tag', 'commit'].includes(reference?.type)) throw new Error('Upstream guide tag unverified');
+        let commitSha: string = reference.sha;
+        if (reference.type === 'tag') {
+          const annotated = await upstreamGet(`/git/tags/${reference.sha}`);
+          if (annotated.status !== 200) throw new Error('Upstream guide annotated tag unavailable');
+          const tagged = JSON.parse(await readDispatcherBody(annotated));
+          if (tagged?.tag !== tag || tagged?.object?.type !== 'commit'
+            || !/^[0-9a-f]{40}$/.test(tagged?.object?.sha ?? '')) {
+            throw new Error('Upstream guide commit unverified');
+          }
+          commitSha = tagged.object.sha;
+        }
+        const path = 'docs/guide/agent.md';
+        const guideResponse = await upstreamGet(`/contents/${path}?ref=${commitSha}`);
+        if (guideResponse.status !== 200) throw new Error('Upstream agent guide unavailable');
+        const guide = JSON.parse(await readDispatcherBody(guideResponse));
+        if (guide?.path !== path || guide?.type !== 'file' || guide?.encoding !== 'base64'
+          || !/^[0-9a-f]{40}$/.test(guide?.sha ?? '') || typeof guide?.content !== 'string'
+          || !Number.isSafeInteger(guide?.size) || guide.size < 1 || guide.size > 24 * 1024) {
+          throw new Error('Upstream agent guide unverified');
+        }
+        const encoded = guide.content.replace(/\s/g, '');
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          throw new Error('Upstream agent guide encoding invalid');
+        }
+        const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
+        if (bytes.length !== guide.size) throw new Error('Upstream agent guide size mismatch');
+        const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
+        const blob = new Uint8Array(header.length + bytes.length);
+        blob.set(header); blob.set(bytes, header.length);
+        const blobSha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', blob)),
+          byte => byte.toString(16).padStart(2, '0')).join('');
+        if (blobSha !== guide.sha) throw new Error('Upstream agent guide blob mismatch');
+        const body = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+        if (!body.trim()) throw new Error('Upstream agent guide empty');
+        await assertHead();
+        if (readDeadline === null || Date.now() >= readDeadline) throw new Error('Upstream guide deadline exceeded');
+        return Response.json({ repository: 'amir20/dozzle', tag, commitSha, blobSha: guide.sha,
+          observedHead: observed.head.sha,
+          source: `https://github.com/amir20/dozzle/blob/${commitSha}/${path}`, body });
+      }
       const release = await transport.fetch(new Request(`https://${host}/repos/amir20/dozzle/releases/tags/${tag}`, {
         redirect: 'manual', signal: readSignal(), headers: {
           accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',

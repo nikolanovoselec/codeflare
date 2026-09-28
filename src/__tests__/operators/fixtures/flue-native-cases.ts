@@ -203,7 +203,8 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         'release-notes': { observedHead: head, repository: 'amir20/dozzle', tag: 'v11.1.2',
           source: releaseSource, body: note },
         'upstream-guide': { observedHead: head, repository: 'amir20/dozzle', tag: 'v11.1.2',
-          source: guideSource, commitSha: '1'.repeat(40), body: `${guideQuote}\nDOZZLE_REMOTE_AGENT=agent:7007` },
+          source: guideSource, commitSha: '1'.repeat(40), blobSha: '2'.repeat(40),
+          body: `${guideQuote}\nDOZZLE_REMOTE_AGENT=agent:7007` },
         'changed-compose': { repository: 'owner/repository', pullRequest: 17, baseSha: base, observedHead: head,
           files: changedPaths.map((path, index) => ({ path,
             before: { sha: 'e'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
@@ -243,7 +244,9 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(admitted.status).toBe(202);
       const value = await settle(id, admitted.body.submissionId);
       expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
-        observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: variant.verdict } });
+        observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: variant.verdict,
+          compatibility: expect.any(String), reasons: expect.any(Array), citations: expect.any(Array),
+          gaps: expect.any(Array) } });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource).sort())
         .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose'].sort());
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').map(call => call.modelTurn))
