@@ -4,7 +4,7 @@
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
  * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
@@ -471,6 +471,45 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
     expect(await reconstructed.continueWebhook(started.readCapability, 1)).toEqual({ ok: false, reason: 'consumed' });
     expect(await reconstructed.startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it('REQ-OPERATOR-053: original read authority survives only until activity deadline plus two hours', () => withActivity(async ({ activity, token }) => {
+    const admittedAt = Date.now(); // This fixture admits with a 60-second deadline.
+    const started = await activity.startWebhook(token);
+    if (!started.ok) throw Error('Expected start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(admittedAt + 60_000 + 2 * 60 * 60_000 - 5_000);
+      expect(await activity.redeemWebhookResult(started.readCapability))
+        .toMatchObject({ ok: true, terminal: true, result: { output: 'bounded' } });
+      vi.setSystemTime(admittedAt + 60_000 + 2 * 60 * 60_000 + 5_000);
+      expect(await activity.redeemWebhookResult(started.readCapability))
+        .toEqual({ ok: false, reason: 'capability-expired' });
+    } finally { vi.useRealTimers(); }
+  }, true, false));
+
+  it('caps an already-issued read capability at the deadline plus two hours', () => withActivity(async ({ activity, token, ctx }) => {
+    const admittedAt = Date.now();
+    const started = await activity.startWebhook(token);
+    if (!started.ok) throw Error('Expected start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    // A previously issued capability may carry the older seven-day persisted expiry.
+    const existing = await ctx.storage.get<{ webhook: { expiresAt: number } }>('admission');
+    await ctx.storage.put('admission', { ...existing, webhook: { ...existing!.webhook,
+      expiresAt: admittedAt + 7 * 24 * 60 * 60_000 } });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(admittedAt + 60_000 + 2 * 60 * 60_000 + 5_000);
+      expect(await activity.redeemWebhookResult(started.readCapability))
+        .toEqual({ ok: false, reason: 'capability-expired' });
+      expect(await activity.getWebhookStatus(started.readCapability))
+        .toEqual({ ok: false, reason: 'capability-expired' });
+    } finally { vi.useRealTimers(); }
   }, true, false));
 
   it('rejects terminal reread when its original read authority has expired', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
