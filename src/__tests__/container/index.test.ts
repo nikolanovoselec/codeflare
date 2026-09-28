@@ -224,6 +224,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     const seen: Array<{ pullRequest: number; activityId: string }> = [];
     let reservedActivityId: string | undefined;
     const unauthorizedEffects: string[] = [];
+    let uncertainStatus: 'queued' | 'running' = 'queued';
     const reserve = async (input: { pullRequest: number; activityId: string; createdAt: string }) => {
       seen.push({ pullRequest: input.pullRequest, activityId: input.activityId });
       if (input.pullRequest === 1302) reservedActivityId ??= input.activityId;
@@ -238,12 +239,18 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
           audiences: ['audience'], expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
       reserveProspectiveRenovateActivity: reserve,
+      readProspectiveRenovateAdmission: async (id: string) => id === reservedActivityId ? {
+        activityId: id, repositoryId: 973175879, pullRequest: 1302, head: 'c'.repeat(40),
+        actor: { registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001',
+          sessionGeneration: 3 },
+      } : null,
     }) };
     mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
       if (id !== reservedActivityId) throw Error('Uncertain admission identity changed');
       return { bindProspectiveRenovateAdmission: async () => true,
-        getBrowserDetail: async () => ({ executionStatus: 'queued' }),
+        getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
         getRuntimePlan: async () => null,
+        start: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-start'); },
         publishRenovateAssessment: async () => { unauthorizedEffects.push('publication'); },
       };
     } };
@@ -294,6 +301,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     try { await deliver?.(); } finally { repeatClock.mockRestore(); }
     expect(seen.map(row => row.pullRequest)).toEqual([1302, 1302]);
     expect(reservedActivityId).toBe(seen[0].activityId);
+    expect(uncertainStatus).toBe('queued');
     expect(unauthorizedEffects).toEqual([]);
     seen.length = 0;
     let continuationUnavailable = false;
@@ -464,9 +472,31 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const detail = await activity.getBrowserDetail();
       expect(detail).toMatchObject({ operatorId: 'dispatcher', activityId: reservedActivityId });
       expect(['queued', 'running', 'completed']).toContain(detail?.executionStatus);
-      expect(await activity.getRuntimePlan()).toMatchObject({ invocationJson: JSON.stringify({
+      const pinned = await activity.getRuntimePlan();
+      expect(pinned).toMatchObject({ invocationJson: JSON.stringify({
         repository: 'nikolanovoselec/komodo', pullRequest: 1302 }),
         executionContext: { owner: { subject: human.subject, email: human.email } } });
+      // Supply a settled child snapshot and let the *real* Activity collector
+      // validate it; do not synthesize completed state or intercept collection.
+      const saved = await native.storage.get<{ drive: { generation: number }; receipt: { intentDigest: string } }>('admission');
+      await native.storage.put('admission', { ...saved, drive: { generation: saved!.drive.generation,
+        status: 'waiting', checkpoint: { submissionId: 'submission-1',
+          inputDigest: saved!.receipt.intentDigest, artifactDigest: bundleDigest }, result: null } });
+      await native.storage.put('dispatcher:lease', { generation: saved!.drive.generation,
+        artifactDigest: bundleDigest, inputDigest: saved!.receipt.intentDigest,
+        expiresAt: Date.now() + 15_000_000, submissionId: 'submission-1', settledSubmissionId: 'submission-1',
+        status: 'settled' });
+      Object.defineProperties(native, {
+        facets: { configurable: true, value: { get: () => ({
+          _cf_initAsFacet: async () => {},
+          fetch: async () => Response.json({ settlements: [{ submissionId: 'submission-1', outcome: 'completed' }],
+            messages: [{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: scanRuntime.result }] }] }),
+        }) } },
+        exports: { configurable: true, value: { ...(native as unknown as { exports: object }).exports,
+          OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }) } },
+      });
+      mockEnv.LOADER = { get: () => ({ getDurableObjectClass: () => ({}) }) };
+      expect((await activity.getBrowserDetail())?.executionStatus).toBe('waiting');
       // The same-head reservation is never replaced on the next valid hourly callback.
       const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
@@ -474,6 +504,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((await activity.getBrowserDetail())?.activityId).toBe(detail?.activityId);
       expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
       expect((await activity.getBrowserDetail())?.result).toMatchObject({ classification: 'unknown' });
+      expect(writes).toEqual(['comment']);
       const publishClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
       finally { publishClock.mockRestore(); }
