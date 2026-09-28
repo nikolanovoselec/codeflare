@@ -15,6 +15,10 @@ import { parseOperatorPolicy } from './policy';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 
+const workingActivity = (status: OperatorBrowserSummary['executionStatus']): boolean =>
+  status === 'queued' || status === 'running' || status === 'waiting'
+  || status === 'cancel-requested' || status === 'unknown';
+
 /** RPC carries bounded JSON text rather than recursively serialized schema types. */
 function normalizePolicyJson(json: string): string {
   try {
@@ -1339,10 +1343,27 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     if (!/^[0-9a-f]{64}$/.test(ownerKey) || !/^[A-Za-z0-9_-]{1,128}$/.test(summary.activityId)) return;
     await this.ctx.storage.transaction(async tx => {
       const indexKey = `owner-activities:${ownerKey}`;
+      const summaryKey = `owner-activity:${ownerKey}:${summary.activityId}`;
+      const countKey = `owner-working-count:${ownerKey}`;
       const current = await tx.get<string[]>(indexKey) ?? [];
-      const ids = [summary.activityId, ...current.filter(id => id !== summary.activityId)].slice(0, 100);
+      const prior = await tx.get<OperatorBrowserSummary>(summaryKey);
+      let count = await tx.get<number>(countKey);
+      if (count === undefined) {
+        // Existing owner summaries may outlive the 100-entry display index. Rebuild once,
+        // then maintain the count transactionally across subsequent evictions and updates.
+        const saved = await tx.list<OperatorBrowserSummary>({ prefix: `owner-activity:${ownerKey}:`, limit: 1000 });
+        if (saved.size === 1000) throw new Error('Owned activity count exceeds bounded recovery');
+        count = [...saved.values()].filter(item => workingActivity(item.executionStatus)).length;
+      }
+      const wasWorking = prior ? workingActivity(prior.executionStatus) : false;
+      const isWorking = workingActivity(summary.executionStatus);
+      if (wasWorking !== isWorking) count += isWorking ? 1 : -1;
+      // Admission order is stable: a status update must not move a row ahead of an
+      // already-issued history cursor. Only new admissions enter at the head.
+      const ids = current.includes(summary.activityId) ? current : [summary.activityId, ...current].slice(0, 100);
       await tx.put(indexKey, ids);
-      await tx.put(`owner-activity:${ownerKey}:${summary.activityId}`, structuredClone(summary));
+      await tx.put(summaryKey, structuredClone(summary));
+      await tx.put(countKey, count);
     });
   }
 
@@ -1364,6 +1385,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         collectionStatus: 'unavailable' as const, attention: true, sessionId: null,
         source: 'pr-boundary', updatedAt: Date.now() }));
     return [...uncertain, ...existing].slice(0, 100);
+  }
+
+  /** Cursor names the last seen row in this owner's retained (at most 100) index. */
+  async listOwnedActivityPage(ownerKey: string, after: string | null): Promise<{
+    items: OperatorBrowserSummary[]; nextCursor: string | null; workingCount: number }> {
+    const items = await this.listOwnedActivities(ownerKey);
+    const position = after === null ? 0 : items.findIndex(item => item.activityId === after) + 1;
+    if (after !== null && position === 0) throw new Error('Activity history changed');
+    const page = items.slice(position, position + 5);
+    const savedCount = await this.ctx.storage.get<number>(`owner-working-count:${ownerKey}`);
+    const indexedWorking = items.filter(item => workingActivity(item.executionStatus)).length;
+    return { items: page, nextCursor: position + 5 < items.length ? page.at(-1)!.activityId : null,
+      workingCount: Number.isSafeInteger(savedCount) && savedCount! >= 0
+        ? Math.max(savedCount!, indexedWorking) : indexedWorking };
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {

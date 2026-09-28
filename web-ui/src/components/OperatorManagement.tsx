@@ -191,8 +191,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   const showInvocation = (event: MouseEvent, id: string) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    const url = new URL(window.location.href);
-    url.search = `?invoke=${encodeURIComponent(id)}`;
+    const url = new URL((event.currentTarget as HTMLAnchorElement).href);
     window.history.pushState({}, '', url);
     setInvocationId(id); setActivityView(true); setSelected('');
   };
@@ -371,6 +370,14 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
+  const [assessmentRepository, setAssessmentRepository] = createSignal('');
+  const [assessmentPullRequest, setAssessmentPullRequest] = createSignal('');
+  const assessmentUrl = () => {
+    const params = new URLSearchParams({ invoke: installation()!.id });
+    if (assessmentRepository().trim()) params.set('repository', assessmentRepository().trim());
+    if (assessmentPullRequest().trim()) params.set('pullRequest', assessmentPullRequest().trim());
+    return `/operators?${params}`;
+  };
   createEffect(() => {
     setManagers(props.detail.grants.managers); setInvokers(props.detail.grants.invokers);
     setOperatorCapabilities(props.detail.operator.policy.capabilities);
@@ -450,9 +457,12 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={props.locked} onClick={() => void props.perform(
           () => api.enableInstallation(installation()!.id, !installation()!.enabled, installation()!.revision),
           installation()!.enabled ? 'No new runs will start on this version.' : 'This version is enabled for new runs.', 'installed-enable')}>{installation()?.enabled ? 'Disable for new runs' : 'Enable for new runs'}</button>
-          <Show when={installation()?.enabled && guidedAssessment()}><a href={`/operators?invoke=${encodeURIComponent(installation()!.id)}`} onClick={event => props.onInvoke(event, installation()!.id)}>Assess a pull request</a></Show>
         </div>
-        <Show when={installation()?.enabled && guidedAssessment()}><p>Assessment starts only after you submit its form with your own invocation grant.</p></Show>
+        <Show when={installation()?.enabled && guidedAssessment()}><div class="admin-form-grid">
+          <label class="admin-form-field"><span>Repository to assess</span><input type="text" maxlength="256" autocomplete="off" placeholder="owner/repository" value={assessmentRepository()} onInput={event => setAssessmentRepository(event.currentTarget.value)} /></label>
+          <label class="admin-form-field"><span>Pull request to assess</span><input type="number" min="1" step="1" max="9007199254740991" value={assessmentPullRequest()} onInput={event => setAssessmentPullRequest(event.currentTarget.value)} /></label>
+        </div><p>Choose a repository and pull request you can read, or enter them in the guided form. Opening the form creates no activity; assessment starts only after you submit with your own invocation grant.</p>
+          <div class="operator-actions"><a href={assessmentUrl()} onClick={event => props.onInvoke(event, installation()!.id)}>Assess a pull request</a></div></Show>
         <Show when={operator().profile === 'conductor' && operator().name === 'Conductor Review'}><p>Review preparation requires a protected pull request boundary. This package cannot start an ad hoc Review here; inspect your own work in My activity.</p></Show>
         {props.feedback('installed-enable')}
       </>}</Show>

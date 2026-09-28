@@ -1600,7 +1600,43 @@ export class OperatorActivity extends Agent {
   private browserSummary(state: AdmissionState): OperatorBrowserSummary {
     const executionStatus = state.drive?.status ?? 'queued';
     const terminal = executionStatus === 'completed' || executionStatus === 'failed';
-    return { activityId: state.intent.activityId, operatorId: state.intent.operatorId, executionStatus,
+    const safeText = (value: unknown, max = 128): string | null =>
+      typeof value === 'string' && value.length <= max && /^[\p{L}\p{N} ._/#-]+$/u.test(value) ? value : null;
+    let name: string | null = null;
+    let context: string | null = null;
+    try {
+      const manifest = state.receipt && (isManagementReceipt(state.receipt)
+        ? state.receipt.selection.manifestJson : state.receipt.manifestJson);
+      if (manifest) name = safeText((JSON.parse(manifest) as { name?: unknown }).name);
+    } catch { /* no verified display name */ }
+    if (state.receipt && isManagementReceipt(state.receipt)) {
+      name ??= safeText(state.receipt.selection.operator.name);
+    }
+    try {
+      const input = JSON.parse(state.invocationJson ?? 'null') as unknown;
+      if (input && typeof input === 'object' && !Array.isArray(input)) {
+        const value = input as Record<string, unknown>;
+        const reviewInput = value.input && typeof value.input === 'object' && !Array.isArray(value.input)
+          ? (value.input as Record<string, unknown>).context : null;
+        const reviewContext = reviewInput && typeof reviewInput === 'object' && !Array.isArray(reviewInput)
+          ? reviewInput as Record<string, unknown> : null;
+        const source = value.source && typeof value.source === 'object' && !Array.isArray(value.source)
+          ? value.source as Record<string, unknown> : null;
+        const review = state.boundary && reviewContext?.pullRequest === state.boundary.pullRequest
+          && reviewContext?.repositoryId === state.boundary.repositoryId;
+        const repository = safeText(review && source?.kind === 'session' ? source.reference : value.repository, 256);
+        if (repository && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+          const pr = review ? state.boundary!.pullRequest : value.pullRequest;
+          context = repository + (typeof pr === 'number' && Number.isSafeInteger(pr)
+            && pr > 0 ? ` · PR #${pr}` : '');
+        } else if (review) context = `PR #${state.boundary!.pullRequest}`;
+      }
+    } catch { /* no safe context */ }
+    const checkpoint = state.drive?.checkpoint;
+    const progress = checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
+      ? safeText((checkpoint as Record<string, unknown>).stage) : null;
+    return { activityId: state.intent.activityId, operatorId: state.intent.operatorId,
+      ...(name ? { operatorName: name } : {}), ...(context ? { context } : {}), ...(progress ? { progress } : {}), executionStatus,
       cleanupStatus: executionStatus === 'cancel-requested' ? 'stopping' : terminal ? 'unknown' : 'pending',
       collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
       attention: executionStatus === 'failed' || executionStatus === 'unknown' || (terminal && !state.browserCollectionConsumed),

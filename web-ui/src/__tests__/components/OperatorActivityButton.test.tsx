@@ -25,7 +25,7 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(listMock).not.toHaveBeenCalled();
   });
 
-  it('shows a working badge and separate execution, cleanup and collection states', async () => {
+  it('shows a working badge and execution states in the overview', async () => {
     listMock.mockResolvedValue({ items: [active, { ...active, activityId: 'activity-2', executionStatus: 'failed',
       cleanupStatus: 'stopped', collectionStatus: 'ready', attention: true, sessionId: null }] });
     render(() => <OperatorActivityButton enabled />);
@@ -247,7 +247,9 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
     await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
     await waitFor(() => expect(screen.getByText(/incomplete/)).toBeTruthy());
+    expect(screen.getByText('Execution: completed')).toBeTruthy();
     expect(screen.getByText('Cleanup: unknown')).toBeTruthy();
+    expect(screen.getByText('Collection: consumed')).toBeTruthy();
     expect(screen.getByText('Checkpoint saved. Work may still be in progress.')).toBeTruthy();
     expect(detailMock).toHaveBeenCalledWith('activity-1');
     expect(cancelMock).not.toHaveBeenCalled();

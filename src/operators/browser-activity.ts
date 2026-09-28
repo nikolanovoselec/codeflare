@@ -4,6 +4,9 @@ import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 export interface OperatorBrowserSummary {
   activityId: string;
   operatorId: string;
+  operatorName?: string;
+  context?: string | null;
+  progress?: string | null;
   executionStatus: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';
   cleanupStatus: 'pending' | 'stopping' | 'stopped' | 'unknown';
   collectionStatus: 'unavailable' | 'ready' | 'consumed' | 'unknown';

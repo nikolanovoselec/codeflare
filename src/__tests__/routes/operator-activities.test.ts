@@ -36,7 +36,8 @@ function fixture() {
     getPreparedInstallationId: vi.fn(async () => null),
     start: vi.fn(async () => ({ ok: true, phase: 'queued' })),
     cancelDrive: vi.fn(async () => ({ ok: true, state: { status: 'cancel-requested' } })),
-    getBrowserDetail: vi.fn(async () => ({ ...summary, checkpoint: { step: 1 }, result: null })),
+    getBrowserDetail: vi.fn(async (): Promise<typeof summary & { checkpoint: unknown; result: unknown }> =>
+      ({ ...summary, checkpoint: { step: 1 }, result: null })),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
   };
   const registry = {
