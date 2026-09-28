@@ -287,7 +287,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByText('Collection: consumed')).toBeTruthy();
   });
 
-  it('REQ-OPERATOR-027: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON', async () => {
+  it('REQ-OPERATOR-057: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON', async () => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
       // Published Review contract: host/__tests__/operator-boundary-action.test.js, not the legacy native fixture.
@@ -310,7 +310,22 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByRole('link', { name: 'View result' })).toBeNull();
   });
 
-  it('REQ-OPERATOR-027: reads the compiler-produced native Conductor reports variant', async () => {
+  it('REQ-OPERATOR-057: presents every Review report, omission and finding without hiding later evidence', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { originalReports: Array.from({ length: 17 }, (_, i) => ({ lane: `lane-${i}`,
+        omissions: i === 16 ? Array.from({ length: 21 }, (_, j) => `Omission ${j}`) : [],
+        findings: i === 16 ? Array.from({ length: 51 }, (_, j) => ({ message: `Finding ${j}` })) : [] })) } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await waitFor(() => expect(screen.getByText('lane-16')).toBeTruthy());
+    expect(screen.getByText('Missing: Omission 20')).toBeTruthy();
+    expect(screen.getByText('Finding 50')).toBeTruthy();
+  });
+
+  it('REQ-OPERATOR-057: reads the compiler-produced native Conductor reports variant', async () => {
     listMock.mockResolvedValue({ items: [active] });
     // src/__tests__/operators/loader-runtime.test.ts: compiled /conductor-bundle result.
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
@@ -327,7 +342,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByText(/review-generation-1|packetDigest/)).toBeNull();
   });
 
-  it('REQ-OPERATOR-027: summarizes the actual Dispatcher assessment and rejects opaque result bytes', async () => {
+  it('REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes', async () => {
     listMock.mockResolvedValue({ items: [active] });
     // Settled data-assessment shape persisted by src/operators/activity.ts (dispatcher-production test).
     const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,

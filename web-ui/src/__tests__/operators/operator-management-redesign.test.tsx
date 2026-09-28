@@ -95,7 +95,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(screen.queryByRole('button', { name: 'Manage Renovate Manager' })).not.toBeInTheDocument();
   });
 
-  it('REQ-OPERATOR-049: carries a user-chosen editable repository and PR to the guided Dispatcher form without preparing activity', async () => {
+  it('REQ-OPERATOR-058: carries a user-chosen editable repository and PR to the guided Dispatcher form without preparing activity', async () => {
     const dispatcher = { ...operator, name: 'Renovate Dispatcher', profile: 'dispatcher',
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
     let preparations = 0;
@@ -119,7 +119,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(preparations).toBe(0);
   });
 
-  it('REQ-OPERATOR-049: never supplies a universal repository or PR when no target was selected', async () => {
+  it('REQ-OPERATOR-058: never supplies a universal repository or PR when no target was selected', async () => {
     const dispatcher = { ...operator, name: 'Renovate Dispatcher', profile: 'dispatcher',
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
     serve = url => url.pathname.endsWith('/operator-1')

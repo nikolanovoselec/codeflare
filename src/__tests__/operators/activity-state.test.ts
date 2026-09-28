@@ -81,6 +81,13 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       progress: 'checking' });
     expect(JSON.stringify(detail)).not.toContain('secret-token');
     expect(JSON.stringify(detail)).not.toContain('private notes');
+    const longRepository = `${'a'.repeat(128)}/${'b'.repeat(127)}`;
+    await ctx.storage.put('admission', { ...await ctx.storage.get('admission'),
+      invocationJson: JSON.stringify({ input: { context: { repositoryId: 123, pullRequest: 42 } },
+        source: { kind: 'session', reference: longRepository } }) });
+    const longDetail = await activity.getBrowserDetail();
+    expect(longDetail?.context?.length).toBeLessThanOrEqual(256);
+    expect(longDetail?.context).toContain('PR #42');
   }));
 
   it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {

@@ -9,7 +9,7 @@ const workingStates = new Set(['queued', 'running', 'waiting', 'cancel-requested
 const record = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const readable = (value: unknown): string | null =>
-  typeof value === 'string' && value.length <= 1000 && !/[\x00-\x08\x0e-\x1f\x7f]/.test(value) ? value : null;
+  typeof value === 'string' && value.length <= 1000 && !/[\p{Cc}]/u.test(value) ? value : null;
 
 /** Present only understood, bounded report fields; never stringify an opaque result payload. */
 function resultView(result: unknown) {
@@ -19,7 +19,7 @@ function resultView(result: unknown) {
   // the older native Conductor fixture returns reports directly. Both are terminal bytes.
   const reportBytes = Array.isArray(data.originalReports) ? data.originalReports : data.reports;
   if (Array.isArray(reportBytes)) {
-    const reports = reportBytes.slice(0, 16).map(record).filter((item): item is Record<string, unknown> => item !== null);
+    const reports = reportBytes.map(record).filter((item): item is Record<string, unknown> => item !== null);
     const history = record(data.history);
     const presentation = record(data.presentation);
     const check = record(presentation?.check);
@@ -31,9 +31,9 @@ function resultView(result: unknown) {
       <For each={reports}>{report => <section>
         <h5>{readable(report.lane) || 'Review lane'}</h5>
         <p>{report.complete === true ? 'Report complete' : report.complete === false ? 'Report incomplete' : 'Original report'} · {Array.isArray(report.findings) ? report.findings.length : 0} findings</p>
-        <For each={Array.isArray(report.omissions) ? report.omissions.slice(0, 20) : []}>{omission =>
+        <For each={Array.isArray(report.omissions) ? report.omissions : []}>{omission =>
           <Show when={readable(omission)}>{text => <p>Missing: {text()}</p>}</Show>}</For>
-        <For each={Array.isArray(report.findings) ? report.findings.slice(0, 50) : []}>{finding => {
+        <For each={Array.isArray(report.findings) ? report.findings : []}>{finding => {
           const entry = record(finding);
           return entry && <article><strong>{readable(entry.title) || readable(entry.message) || 'Finding'}</strong>
             <Show when={readable(entry.severity)}>{text => <span> · {text()}</span>}</Show>

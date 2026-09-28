@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-28
+
+- **Owned activity results remain readable and history claims stay bounded** ([REQ-OPERATOR-027](operators.md#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-057](operators.md#req-operator-057-readable-owned-activity-results), [REQ-OPERATOR-058](operator-registry.md#req-operator-058-guided-dispatcher-invocation)). The owner-scoped result displays every recognized Review report, omission and finding rather than silently truncating later evidence; admitted task context stays within the client schema. The badge covers persisted working activities beyond the retained 100-row index, while unindexed pending boundary preparations contribute only when visible. Guided Dispatcher invocation is specified separately from general management. PR Checks 36363151786 failed on this work's prior head; final verification and Enterprise Integration UI acceptance remain pending.
+
 ## 2026-09-27
 
 - **Operators presentation and scope explanations are corrected without changing authorization** ([REQ-OPERATOR-049](operator-registry.md#req-operator-049-operators-management-interface)). The catalog exposes the uniquely selected installed release's verified tag and UTC publication time rather than presenting its GitHub release number as a version. Alternatives are selected from one descriptive list. Verified first-party packages display Renovate Manager and Pull Request Reviewer while detail preserves the authored package name. An older pin can refresh verified version metadata without changing its installation or enablement; compatibility versions move to technical details. Environment Access & Identity uses the Administration form system and explains action limits and request IDs as binding labels, not provisioned profiles. Four Samsung Browser screenshots motivated a cohesive desktop/mobile correction; exact-head CI and Integration-only visual acceptance are still pending.

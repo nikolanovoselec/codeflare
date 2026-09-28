@@ -1627,8 +1627,9 @@ export class OperatorActivity extends Agent {
         const repository = safeText(review && source?.kind === 'session' ? source.reference : value.repository, 256);
         if (repository && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
           const pr = review ? state.boundary!.pullRequest : value.pullRequest;
-          context = repository + (typeof pr === 'number' && Number.isSafeInteger(pr)
-            && pr > 0 ? ` · PR #${pr}` : '');
+          const suffix = typeof pr === 'number' && Number.isSafeInteger(pr) && pr > 0 ? ` · PR #${pr}` : '';
+          context = repository.length + suffix.length <= 256 ? repository + suffix
+            : `${repository.slice(0, 255 - suffix.length)}…${suffix}`;
         } else if (review) context = `PR #${state.boundary!.pullRequest}`;
       }
     } catch { /* no safe context */ }
