@@ -698,9 +698,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. PR Checks 36389653998 passed before the new history and unread behavior; final exact-head CI and mobile navigation remain pending.
+**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. The current five-entry owner history, unread and overview behavior passed exact-head PR Checks `36494117864` at `369e11db3824ee1973a79a67da7463a0df44881d`. Mobile navigation on the current Enterprise Integration deployment remains unverified under separate acceptance tasks.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -749,9 +749,9 @@ Existing authentication, enterprise authorization, session admission/lifecycle, 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** Exact-head PR Checks 36363151786 failed; final GREEN and mobile result navigation remain pending.
+**Verification:** Exact-head PR Checks `36494117864` at `369e11db3824ee1973a79a67da7463a0df44881d` passed current in-app Review and nested Dispatcher-result tests, Typecheck and aggregate. The cited compatibility assessment is not merge authorization. Mobile result navigation on Enterprise Integration remains unverified under separate acceptance tasks.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
