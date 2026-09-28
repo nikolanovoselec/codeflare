@@ -250,7 +250,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
                       <span class="operator-catalog-version">Installed <b>{catalogInstallation(operator).pin}</b></span>
                     </Show>
                     <Show when={catalogInstallation(operator).published}><span>{catalogInstallation(operator).published}</span></Show>
-                    <span class={`admin-status ${operator.enabled ? 'admin-status-enabled' : 'admin-status-disabled'}`}>{operator.enabled ? 'Enabled for new runs' : 'Not enabled for new runs'}</span>
+                    <span class={`admin-status ${operator.enabled ? 'admin-status-enabled' : 'admin-status-disabled'}`}>{operator.enabled ? 'Enabled' : 'Disabled'}</span>
                   </div></div>
                 <button class="admin-secondary-button" disabled={busy()} aria-label={`Manage ${name(operator)}`}  onClick={() => navigate(operator.id)}>Manage</button>
               </li>}</For></ul>
