@@ -153,7 +153,8 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
     ])('executes compiled production Renovate assessment through parent reads ($name)', async variant => {
       const { id } = await prepare();
       const evidence = {
-        'pull-request': { head: { sha: 'b'.repeat(40) }, user: { login: 'renovate[bot]' } },
+        'pull-request': { number: 17, head: { sha: 'b'.repeat(40) }, base: { sha: 'a'.repeat(40) },
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' } },
         files: { observedHead: variant.filesHead, truncated: variant.truncated, data: [{ filename: 'README.md' }] },
         checks: { observedHead: 'b'.repeat(40), truncated: false,
           data: { check_runs: [{ name: 'test', conclusion: variant.conclusion }] } },
@@ -176,8 +177,13 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
-    const compatible = 'Dozzle v11.1.2 server and agent remain compatible with the existing remote-agent protocol.';
-    const adverse = 'Breaking change: the agent requires a different remote-agent protocol than this server.';
+    const releaseWitness = (protocol: 'compatible' | 'incompatible') => '```dozzle-compatibility\n' + JSON.stringify({
+      schema: 'dozzle.compatibility/v1', releaseTag: 'v11.1.2', serverTag: 'v11.1.2', agentTag: 'v11.1.2',
+      protocol, unchangedOptions: [] }) + '\n```';
+    const compatible = releaseWitness('compatible');
+    const adverse = releaseWitness('incompatible');
+    const canonical = (protocol: 'compatible' | 'incompatible') =>
+      `The authenticated Dozzle v11.1.2 witness declares ${protocol} server-agent protocol support with unchanged options.`;
     const releaseSource = 'https://github.com/amir20/dozzle/releases/tag/v11.1.2';
     const changedPaths = ['middleware/dozzle/compose.yaml', 'ai_llm/dozzle_agent/compose.yaml',
       'dns_ntp/dozzle_agent/compose.yaml', 'komodo_core/dozzle_agent/compose.yaml',
@@ -200,16 +206,18 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         'changed-compose': { repository: 'owner/repository', pullRequest: 17, baseSha: base, observedHead: head,
           files: changedPaths.map((path, index) => ({ path,
             before: { sha: 'e'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
-              image: 'amir20/dozzle:v11.1.1', environmentKeys: [], redacted: false, ref: `before-${index}` }] },
+              mode: index === 0 ? 'server' : 'agent', image: 'amir20/dozzle:v11.1.1',
+              environmentKeys: [], redacted: false, ref: `before-${index}` }] },
             after: { sha: 'd'.repeat(40), services: [{ name: index === 0 ? 'dozzle' : 'dozzle-agent',
-              image: 'amir20/dozzle:v11.1.2', environmentKeys: [], redacted: false, ref: `after-${index}` }] } })) },
+              mode: index === 0 ? 'server' : 'agent', image: 'amir20/dozzle:v11.1.2',
+              environmentKeys: [], redacted: false, ref: `after-${index}` }] } })) },
       };
     }
     function decision(classification: 'safe' | 'unsafe' | 'unknown', quote: string) {
-      return { classification, reasons: ['Server and agent protocol compatibility was assessed against the cited source.'],
-        compatibility: 'Server and remote-agent protocol behavior is addressed by the cited release.',
+      const statement = canonical(classification === 'unsafe' ? 'incompatible' : 'compatible');
+      return { classification, reasons: [statement], compatibility: statement,
         citations: [{ kind: 'release', source: releaseSource, quote },
-          { kind: 'config', ref: 'after-0' }, { kind: 'config', ref: 'after-1' }], gaps: [] };
+          ...changedPaths.map((_, index) => ({ kind: 'config', ref: `after-${index}` }))], gaps: [] };
     }
     it.each([
       { name: 'safe with zero checks', verdict: 'safe', note: compatible, quote: compatible },
@@ -226,8 +234,8 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       const value = await settle(id, admitted.body.submissionId);
       expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
         observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: variant.verdict } });
-      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource))
-        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose']);
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource).sort())
+        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose'].sort());
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').map(call => call.modelTurn))
         .toEqual(['initial', 'after-tool']);
       expect(value.external).toEqual([]);
@@ -245,20 +253,36 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
           action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 }, productionEvidence: evidence,
           productionDecision: scenario === 'malformed-decision' ? { classification: 'safe', citations: 'invented' }
-            : decision('safe', compatible),
+            : decision('safe', scenario === 'unsupported-notes' ? 'Features: new icons and log sorting.' : compatible),
         });
         expect(admitted.status).toBe(202);
         const value = await settle(id, admitted.body.submissionId);
-        expect(results(value).at(-1)).toMatchObject({ readOnly: true, assessment: { classification: 'unknown' } });
+        expect(results(value).at(-1)).toMatchObject({ readOnly: true, assessment: { classification: 'unknown' },
+          ...(['missing-notes', 'missing-config'].includes(scenario) ? { evidence: { complete: false } } : {}) });
         expect(value.external).toEqual([]);
         expect(value.activity.sessionId).toBeNull();
+      });
+
+    it.each(['finish-early', 'persistent-malformed'] as const)(
+      'does not publish a safe result when the model %s', async productionBehavior => {
+        const { id } = await prepare();
+        const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+          action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+          productionEvidence: assessmentEvidence(), productionBehavior,
+          productionDecision: { classification: 'safe', citations: 'malformed' },
+        });
+        expect(admitted.status).toBe(202);
+        const value = await observe(id, snapshot => snapshot.activity.executionStatus === 'unknown', 12_000);
+        expect(results(value)).toEqual([]);
+        expect(value.external).toEqual([]);
       });
 
     it('carries a cited release receipt through the pinned compiled Dispatcher and parent read bridge', async () => {
       const { id } = await prepare();
       const head = 'b'.repeat(40);
       const evidence = {
-        'pull-request': { head: { sha: head }, user: { login: 'renovate[bot]' } },
+        'pull-request': { number: 17, head: { sha: head }, base: { sha: 'a'.repeat(40) },
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' } },
         files: { observedHead: head, truncated: false, data: [{ filename: 'middleware/dozzle/compose.yaml',
           status: 'modified', additions: 1, deletions: 1,
           patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2' }] },
@@ -272,8 +296,8 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       const value = await settle(id, admission.body.submissionId);
       expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
         readOnly: true, evidence: { upstream: evidence['release-notes'], stale: false, truncated: false } });
-      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource))
-        .toEqual(['pull-request', 'files', 'checks', 'release-notes']);
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource).sort())
+        .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose'].sort());
       expect(value.external).toEqual([]);
       expect(value.activity.sessionId).toBeNull();
     });
@@ -284,7 +308,8 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
         action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
         productionEvidence: {
-          'pull-request': { head: { sha: head }, user: { login: 'renovate[bot]' } },
+          'pull-request': { number: 17, head: { sha: head }, base: { sha: 'a'.repeat(40) },
+            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' } },
           files: { observedHead: head, truncated: false, data: [{ filename: 'addons/compose.yaml',
             status: 'modified', additions: 8, deletions: 8 }] },
           checks: { observedHead: head, truncated: false, data: { check_runs: [] } },

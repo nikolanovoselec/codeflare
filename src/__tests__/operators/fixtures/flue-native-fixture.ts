@@ -25,7 +25,8 @@ type ProductionCall = { path: string; resource?: string; status?: number; modelT
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
-      productionEvidence?: ProductionEvidence; productionDecision?: unknown }
+      productionEvidence?: ProductionEvidence; productionDecision?: unknown;
+      productionBehavior?: 'finish-early' | 'persistent-malformed' }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -152,11 +153,13 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       status: generation === undefined || generation === current.generation ? 'current' : 'stale' };
   }
 
-  async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence, productionDecision?: unknown) {
+  async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence,
+    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed') {
     try {
       if (!('mode' in delivery) && productionEvidence) {
         await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
         await this.ctx.storage.put('fixture:production-decision', productionDecision ?? null);
+        await this.ctx.storage.put('fixture:production-behavior', productionBehavior ?? null);
       }
       const path = 'mode' in delivery ? '/dispatcher' : '/agents/Dispatcher/dispatcher';
       const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`, {
@@ -248,6 +251,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     if (path === '/fixture/inference' || path === '/v1/dispatcher/inference') {
       const body = await request.clone().json() as { input: { messages?: Array<{ role: string }> } };
       const done = body.input.messages?.at(-1)?.role === 'tool';
+      let priorInferences = 0;
       if (path === '/v1/dispatcher/inference') {
         // The exact pinned model adapter must speak the real parent's restricted wire contract.
         let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
@@ -264,6 +268,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
           await this.ctx.storage.put('fixture:inference-operations', { ...digests, [operation.operationId]: requestDigest });
         }
         const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
+        priorInferences = calls.filter(call => call.path === '/v1/dispatcher/inference').length;
         calls.push({ path, status: 200, modelTurn: done ? 'after-tool' : 'initial' });
         await this.ctx.storage.put('fixture:production-calls', calls);
       }
@@ -272,12 +277,18 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       const evidence = path === '/v1/dispatcher/inference'
         ? await this.ctx.storage.get<ProductionEvidence>('fixture:production-evidence') : null;
       const denied = !evidence || !Object.hasOwn(evidence, 'pull-request');
+      const behavior = path === '/v1/dispatcher/inference'
+        ? await this.ctx.storage.get<string>('fixture:production-behavior') : null;
       const candidate = path === '/v1/dispatcher/inference' && done
+        && (priorInferences < 2 || behavior === 'persistent-malformed')
         ? await this.ctx.storage.get<unknown>('fixture:production-decision') : null;
       const tool = done ? 'submit_assessment' : 'assess_renovate';
       const args = done ? JSON.stringify(candidate ?? { classification: 'unknown',
-        reasons: ['No confirmed server-agent compatibility evidence'], citations: [], gaps: ['compatibility-unverified'] }) : '{}';
-      const chunks = done && denied ? [{ choices: [{ index: 0, delta: { content: 'Parent read unavailable' }, finish_reason: 'stop' }] }] : [
+        reasons: ['No confirmed server-agent compatibility evidence'],
+        compatibility: 'No verified server-agent compatibility statement is available.',
+        citations: [], gaps: ['compatibility-unverified'] }) : '{}';
+      const chunks = done && (denied || behavior === 'finish-early')
+        ? [{ choices: [{ index: 0, delta: { content: 'Assessment incomplete' }, finish_reason: 'stop' }] }] : [
         { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `fixture-tool-${crypto.randomUUID()}`, type: 'function',
           function: { name: tool, arguments: args } }] }, finish_reason: null }] },
         { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
@@ -475,7 +486,8 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   const command = await request.json<FlueFixtureCommand>();
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest));
-    case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence, command.productionDecision));
+    case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,
+      command.productionDecision, command.productionBehavior));
     case 'snapshot': return Response.json(await root.snapshot());
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());

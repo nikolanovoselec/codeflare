@@ -7,13 +7,14 @@ import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { openOperatorExecutionAccess } from './execution-context';
 import { parseOperatorPolicy } from './policy';
+import { projectChangedCompose } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
-  resource: z.enum(['pull-request', 'files', 'checks', 'release-notes']) });
+  resource: z.enum(['pull-request', 'files', 'checks', 'release-notes', 'changed-compose']) });
 const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperationId,
   input: z.strictObject({
     messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
@@ -124,11 +125,12 @@ export async function createDispatcherOperation(input: {
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
-  const readDeadline = resource === 'release-notes' ? Date.now() + 8000 : null;
+  const readDeadline = resource === 'release-notes' ? Date.now() + 8000
+    : resource === 'changed-compose' ? Date.now() + 18_000 : null;
   const readSignal = () => {
     if (readDeadline === null) return undefined;
     const remaining = readDeadline - Date.now();
-    if (remaining <= 0) throw new Error('Release read deadline exceeded');
+    if (remaining <= 0) throw new Error('Dispatcher evidence deadline exceeded');
     return AbortSignal.timeout(remaining);
   };
   const get = async (path: string) => {
@@ -195,6 +197,67 @@ export async function createDispatcherOperation(input: {
       if (readDeadline === null || Date.now() >= readDeadline) throw new Error('Release read deadline exceeded');
       return Response.json({ repository: 'amir20/dozzle', tag, source, observedHead: observed.head.sha,
         body: evidence.body });
+    }
+    if (resource === 'changed-compose') {
+      const baseSha = observed?.base?.sha;
+      if (!/^[0-9a-f]{40}$/.test(baseSha ?? '')) throw new Error('Compose base unavailable');
+      const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
+      if (response.status !== 200 || /rel="next"/.test(response.headers.get('link') ?? '')) {
+        throw new Error('Compose file list incomplete');
+      }
+      const files = JSON.parse(await readDispatcherBody(response));
+      if (!Array.isArray(files) || files.length === 0 || files.length > 100) throw new Error('Compose file list incomplete');
+      const changed = files.filter(file => /(?:^|\/)compose[^/]*\.ya?ml$/.test(file?.filename ?? ''));
+      if (!changed.length || changed.length > 20) throw new Error('Compose scope unavailable');
+      const paths = new Set<string>();
+      for (const file of changed) {
+        const path = file?.filename;
+        if (file?.status !== 'modified' || typeof path !== 'string' || path.length > 256
+          || path.split('/').some(segment => !/^[A-Za-z0-9_.-]+$/.test(segment) || segment === '.' || segment === '..')
+          || !/^[0-9a-f]{40}$/.test(file?.sha ?? '') || paths.has(path)) {
+          throw new Error('Compose path unavailable');
+        }
+        paths.add(path);
+      }
+      const decodeBlob = async (file: { filename: string; sha: string }, ref: string) => {
+        const encoded = file.filename.split('/').map(encodeURIComponent).join('/');
+        const blobResponse = await get(`/contents/${encoded}?ref=${ref}`);
+        if (blobResponse.status !== 200) throw new Error('Compose blob unavailable');
+        const body = JSON.parse(await readDispatcherBody(blobResponse));
+        if (body?.path !== file.filename || body?.type !== 'file' || body?.encoding !== 'base64'
+          || !/^[0-9a-f]{40}$/.test(body?.sha ?? '') || typeof body?.content !== 'string'
+          || !Number.isSafeInteger(body?.size) || body.size < 0 || body.size > 32 * 1024) {
+          throw new Error('Compose blob unverified');
+        }
+        const encodedBody = body.content.replace(/\s/g, '');
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encodedBody)) {
+          throw new Error('Compose blob invalid');
+        }
+        const bytes = Uint8Array.from(atob(encodedBody), char => char.charCodeAt(0));
+        if (bytes.length !== body.size) throw new Error('Compose blob size mismatch');
+        return { sha: body.sha as string, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+      };
+      const projected = await Promise.all(changed.map(async file => {
+        const [before, after] = await Promise.all([
+          decodeBlob(file, baseSha), decodeBlob(file, observed.head.sha),
+        ]);
+        if (after.sha !== file.sha) throw new Error('Compose head blob mismatch');
+        return projectChangedCompose({ repository: parent.repository, pullRequest: parent.pullRequest,
+          baseSha, headSha: observed.head.sha, path: file.filename }, before, after);
+      }));
+      const reread = await get(`/pulls/${parent.pullRequest}`);
+      if (reread.status !== 200) throw new Error('Compose revision unavailable');
+      const currentPull = JSON.parse(await readDispatcherBody(reread));
+      if (currentPull?.head?.sha !== observed.head.sha || currentPull?.base?.sha !== baseSha) {
+        throw new Error('Compose revision moved');
+      }
+      const output = { repository: parent.repository, pullRequest: parent.pullRequest, baseSha,
+        observedHead: observed.head.sha, files: projected };
+      if (readDeadline === null || Date.now() >= readDeadline
+        || new TextEncoder().encode(JSON.stringify(output)).length > 48 * 1024) {
+        throw new Error('Compose projection exceeds bound');
+      }
+      return Response.json(output);
     }
     if (resource === 'files') {
       const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);

@@ -227,7 +227,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
         ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
         bodies[`${ref}:${path}`] = composeBlob(path, sha,
-          `services:\n  ${service}:\n    image: amir20/dozzle:${tag}\n    environment:\n      DOZZLE_AUTH_TOKEN: inline-secret\n`);
+          `services:\n  ${service}:\n    image: amir20/dozzle:${tag}\n    command: ${index === 0 ? 'server' : 'agent'}\n    environment:\n      DOZZLE_AUTH_TOKEN: inline-secret\n`);
       }
     }
     f.compose(bodies);
@@ -236,8 +236,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const result = await response.json() as { files: unknown[] };
     expect(result).toMatchObject({ repository: 'owner/repo', pullRequest: 17,
       baseSha: 'a'.repeat(40), observedHead: 'b'.repeat(40), files: paths.map(path => ({ path,
-        before: { sha: 'e'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.1' }] },
-        after: { sha: 'd'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.2' }] } })) });
+        before: { sha: 'e'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.1', mode: path.includes('agent') ? 'agent' : 'server', redacted: true }] },
+        after: { sha: 'd'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.2', mode: path.includes('agent') ? 'agent' : 'server', redacted: true }] } })) });
     expect(JSON.stringify(result)).not.toContain('inline-secret');
     expect(JSON.stringify(result)).toContain('DOZZLE_AUTH_TOKEN');
   }));
@@ -252,7 +252,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const response = await f.capability.fetch(composeRead());
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ files: [{ path,
-      before: { sha: 'e'.repeat(40) }, after: { sha: 'd'.repeat(40) } }] });
+      before: { sha: 'e'.repeat(40), services: [{ mode: null, redacted: true }] },
+      after: { sha: 'd'.repeat(40), services: [{ mode: null, redacted: true }] } }] });
   }));
   it.each(['missing', 'wrong-sha', 'oversized', 'redirect', 'moved-base', 'moved-head', 'pagination', 'foreign-path'])('rejects $name changed Compose provenance', name => fixture(async f => {
     await start(f);
