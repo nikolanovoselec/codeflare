@@ -368,11 +368,11 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         expect(value.external).toEqual([]);
       });
 
-    it('REQ-OPERATOR-048: failed compiled durable direct submission carries its bounded Flue operation label', async () => {
+    async function assertCompiledHttpRejection(productionBehavior: 'model-error' | 'model-error-empty') {
       const { id } = await prepare();
       const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
         action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
-        productionEvidence: assessmentEvidence(), productionBehavior: 'model-error',
+        productionEvidence: assessmentEvidence(), productionBehavior,
       });
       expect(admitted.status).toBe(202);
       const value = await observe(id, snapshot => snapshot.activity.executionStatus === 'unknown'
@@ -390,7 +390,13 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(results(value)).toEqual([]);
       expect(value.activity.executionStatus).toBe('unknown');
       expect(value.external).toEqual([]);
-    });
+    }
+
+    it('REQ-OPERATOR-048: failed compiled durable direct submission carries its bounded Flue operation label',
+      async () => assertCompiledHttpRejection('model-error'));
+
+    it('REQ-OPERATOR-048: bodyless after-tool HTTP rejection keeps the same strict child Tail diagnostic',
+      async () => assertCompiledHttpRejection('model-error-empty'));
 
     it('captures only sanitized child warnings through an actual Loader Tail Worker', async () => {
       const { id } = await prepare();
