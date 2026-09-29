@@ -26,7 +26,7 @@ export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
       productionEvidence?: ProductionEvidence; productionDecision?: unknown;
-      productionBehavior?: 'finish-early' | 'persistent-malformed' }
+      productionBehavior?: 'finish-early' | 'persistent-malformed'; holdResearch?: boolean }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -58,6 +58,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private readonly instance = crypto.randomUUID();
   private facet?: Promise<Facet>;
   private releaseBarrier?: () => void;
+  private readonly researchBarriers = new Map<string, () => void>();
 
   constructor(ctx: DurableObjectState, env: NativeEnv) {
     super(ctx, env);
@@ -154,12 +155,13 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 
   async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence,
-    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed') {
+    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed', holdResearch?: boolean) {
     try {
       if (!('mode' in delivery) && productionEvidence) {
         await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
         await this.ctx.storage.put('fixture:production-decision', productionDecision ?? null);
         await this.ctx.storage.put('fixture:production-behavior', productionBehavior ?? null);
+        await this.ctx.storage.put('fixture:hold-research', holdResearch ?? false);
       }
       const path = 'mode' in delivery ? '/dispatcher' : '/agents/Dispatcher/dispatcher';
       const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`, {
@@ -240,6 +242,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   async release() {
     await this.ctx.storage.put('fixture:released', true);
     this.releaseBarrier?.();
+    for (const resource of ['release-notes', 'upstream-guide', 'changed-compose']) {
+      this.researchBarriers.get(resource)?.();
+    }
     return { released: true };
   }
   evict() { this.ctx.abort('Native Flue fixture root and facet eviction'); }
@@ -316,6 +321,25 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       calls.push({ path, resource: payload.resource, status: allowed ? 200 : 403 });
       await this.ctx.storage.put('fixture:production-calls', calls);
       if (!allowed) return Response.json({ error: 'Unapproved production read' }, { status: 403 });
+      if (await this.ctx.storage.get('fixture:hold-research')
+        && ['release-notes', 'upstream-guide', 'changed-compose'].includes(payload.resource)) {
+        const resource = payload.resource;
+        let release!: () => void;
+        const waiting = new Promise<void>(resolve => { release = resolve; });
+        this.researchBarriers.set(resource, release);
+        try {
+          await this.ctx.storage.transaction(async storage => {
+            const entered = await storage.get<string[]>('fixture:research-entered') ?? [];
+            const distinct = [...new Set([...entered, resource])];
+            await storage.put('fixture:research-entered', distinct);
+            if (distinct.length === 3) await storage.put('fixture:barrier-reached', true);
+          });
+          if (await this.ctx.storage.get('fixture:released')) release();
+          await waiting;
+        } finally {
+          this.researchBarriers.delete(resource);
+        }
+      }
       return Response.json(evidence[payload.resource as keyof ProductionEvidence]);
     }
     const delivery = payload as NativeDelivery;
@@ -490,7 +514,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest));
     case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,
-      command.productionDecision, command.productionBehavior));
+      command.productionDecision, command.productionBehavior, command.holdResearch));
     case 'snapshot': return Response.json(await root.snapshot());
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());

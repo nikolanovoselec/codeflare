@@ -263,6 +263,28 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
+    it('completes a publishable second-turn assessment only after all parallel research receipts are released', async () => {
+      const { id } = await prepare();
+      const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: assessmentEvidence(), productionDecision: decision('safe', compatible), holdResearch: true,
+      });
+      expect(admitted.status).toBe(202);
+      const held = await observe(id, value => value.barrierReached);
+      expect(held.conversation?.settlements.some(item => item.submissionId === admitted.body.submissionId)).toBe(false);
+      await command(id, { action: 'release' });
+      const value = await settle(id, admitted.body.submissionId);
+      expect(value.conversation?.settlements).toEqual(expect.arrayContaining([
+        expect.objectContaining({ submissionId: admitted.body.submissionId, outcome: 'completed' }),
+      ]));
+      const compiled = results(value).at(-1);
+      expect(compiled).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
+        observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: 'safe' } });
+      expect(parsePublishableAssessment(compiled)).toMatchObject({ classification: 'safe', observedHead: 'b'.repeat(40) });
+      expect(value.external).toEqual([]);
+      expect(value.activity.sessionId).toBeNull();
+    });
+
     it.each(['missing-notes', 'missing-guide', 'missing-config', 'stale-head', 'unsupported-notes', 'malformed-decision'] as const)(
       'records unknown for $name rather than inventing compatibility or mutating', async scenario => {
         const { id } = await prepare();
