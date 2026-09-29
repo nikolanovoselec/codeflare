@@ -38,8 +38,8 @@ export type FlueFixtureCommand =
   | { action: 'tail-probe-awaited' }
   | { action: 'tail-probe-background' }
   | { action: 'tail-probe-silent' }
-  | { action: 'facet-tail-probe'; mode: 'direct' | 'scheduled' | 'fiber' }
-  | { action: 'facet-tail-receipt'; mode: 'direct' | 'scheduled' | 'fiber' }
+  | { action: 'facet-tail-probe'; mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber' }
+  | { action: 'facet-tail-receipt'; mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber' }
   | { action: 'facet-tail-release-fiber' };
 
 type FacetPath = readonly Readonly<{ className: string; name: string }>[];
@@ -48,8 +48,8 @@ type Facet = Fetcher & {
   _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number>;
   _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean>;
   fixtureSnapshot(): Promise<unknown>;
-  fixtureDiagnosticProbeStart?(mode: 'direct' | 'scheduled' | 'fiber'): Promise<void>;
-  fixtureDiagnosticProbeReceipt?(mode: 'direct' | 'scheduled' | 'fiber'): Promise<boolean>;
+  fixtureDiagnosticProbeStart?(mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber'): Promise<void>;
+  fixtureDiagnosticProbeReceipt?(mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber'): Promise<boolean>;
   fixtureDiagnosticProbeReleaseFiber?(): Promise<{ released: boolean }>;
 };
 type NativeEnv = Cloudflare.Env & {
@@ -166,8 +166,15 @@ export class FlueDispatcherAgent extends Pinned {
         this._fixtureFiberRelease = resolve;
         this._fixtureFiberReadyResolve();
       });
+      if (mode === 'rpc-fiber') {
+        const response = await this.env.OPERATOR.fetch(new Request('https://operator.internal/fixture/inference', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ input: { messages: [] } }),
+        }));
+        if (!response.ok) throw new Error('Synthetic inference bridge unavailable');
+      }
       console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
-      await this.ctx.storage.put('fixture:probe:fiber', true);
+      await this.ctx.storage.put('fixture:probe:' + mode, true);
     });
     this.ctx.waitUntil(running);
   }
@@ -355,7 +362,7 @@ export class FlueDispatcherAgent extends Pinned {
     };
   }
 
-  async facetTailProbe(mode: 'direct' | 'scheduled' | 'fiber') {
+  async facetTailProbe(mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber') {
     if (this.facet) throw new Error('Synthetic probe must precede facet creation');
     await this.ctx.storage.put('fixture:facet-tail-probe', true);
     const child = await this.child();
@@ -364,11 +371,12 @@ export class FlueDispatcherAgent extends Pinned {
     return { started: true };
   }
 
-  async facetTailReceipt(mode: 'direct' | 'scheduled' | 'fiber') {
+  async facetTailReceipt(mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber') {
     const child = await this.child();
     if (!child.fixtureDiagnosticProbeReceipt) throw new Error('Synthetic facet receipt unavailable');
     return { completed: await child.fixtureDiagnosticProbeReceipt(mode),
-      ...(mode === 'fiber' ? { callbackReturned: await this.ctx.storage.get<boolean>('fixture:probe:callback-returned') === true } : {}) };
+      ...((mode === 'fiber' || mode === 'rpc-fiber')
+        ? { callbackReturned: await this.ctx.storage.get<boolean>('fixture:probe:callback-returned') === true } : {}) };
   }
 
   async facetTailReleaseFiber() {

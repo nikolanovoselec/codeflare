@@ -439,13 +439,13 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect((await snapshot(id)).activity.executionStatus).toBe('running');
     });
 
-    it.each(['direct', 'scheduled', 'fiber'] as const)(
+    it.each(['direct', 'scheduled', 'fiber', 'rpc-fiber'] as const)(
       'REQ-OPERATOR-048: synthetic Loader facet %s warning reaches Tail after independent completion', async mode => {
         const { id } = await prepare();
         expect(await command(id, { action: 'facet-tail-probe', mode })).toEqual({ started: true });
         const end = Date.now() + 10_000;
         let receipt: { completed: boolean; callbackReturned?: boolean };
-        if (mode === 'fiber') {
+        if (mode === 'fiber' || mode === 'rpc-fiber') {
           do {
             receipt = await command(id, { action: 'facet-tail-receipt', mode });
             if (receipt.callbackReturned) break;
