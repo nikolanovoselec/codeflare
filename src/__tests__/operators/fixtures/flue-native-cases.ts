@@ -22,7 +22,8 @@ type Snapshot = {
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
-    settlements: Array<{ submissionId: string; outcome: string }> } | null;
+    settlements: Array<{ submissionId: string; outcome: string;
+      error?: { type?: string; meta?: { operation?: string; reason?: string } } }> } | null;
 };
 type Harness = {
   fetch(path: string, init?: RequestInit): Promise<Response>;
@@ -349,6 +350,25 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         expect(results(value)).toEqual([]);
         expect(value.external).toEqual([]);
       });
+
+    it('REQ-OPERATOR-048: failed compiled durable direct submission carries its bounded Flue operation label', async () => {
+      const { id } = await prepare();
+      const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: assessmentEvidence(), productionBehavior: 'model-error',
+      });
+      expect(admitted.status).toBe(202);
+      const value = await observe(id, snapshot => snapshot.activity.executionStatus === 'unknown'
+        && (snapshot.conversation?.settlements.some(item =>
+          item.submissionId === admitted.body.submissionId && item.outcome === 'failed') ?? false), 15_000);
+      const settlement = value.conversation!.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      expect(settlement).toMatchObject({ outcome: 'failed', error: { type: 'operation_failed',
+        meta: { operation: `direct(${admitted.body.submissionId})`, reason: 'Parent inference denied: 422' } } });
+      expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').at(-1)?.status).toBe(422);
+      expect(results(value)).toEqual([]);
+      expect(value.activity.executionStatus).toBe('unknown');
+      expect(value.external).toEqual([]);
+    });
 
     it('carries a cited release receipt through the pinned compiled Dispatcher and parent read bridge', async () => {
       const { id } = await prepare();

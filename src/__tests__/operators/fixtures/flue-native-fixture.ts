@@ -26,7 +26,7 @@ export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
       productionEvidence?: ProductionEvidence; productionDecision?: unknown;
-      productionBehavior?: 'finish-early' | 'persistent-malformed'; holdResearch?: boolean; holdInference?: boolean }
+      productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error'; holdResearch?: boolean; holdInference?: boolean }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -156,7 +156,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 
   async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence,
-    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed', holdResearch?: boolean,
+    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error', holdResearch?: boolean,
     holdInference?: boolean) {
     try {
       if (!('mode' in delivery) && productionEvidence) {
@@ -284,7 +284,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         }
         const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
         priorInferences = calls.filter(call => call.path === '/v1/dispatcher/inference').length;
-        calls.push({ path, status: 200, modelTurn: done ? 'after-tool' : 'initial' });
+        const behavior = await this.ctx.storage.get<string>('fixture:production-behavior');
+        calls.push({ path, status: done && behavior === 'model-error' ? 422 : 200,
+          modelTurn: done ? 'after-tool' : 'initial' });
         await this.ctx.storage.put('fixture:production-calls', calls);
         if (done && await this.ctx.storage.get('fixture:hold-inference')) {
           await this.ctx.storage.put('fixture:barrier-reached', true);
@@ -300,6 +302,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       const denied = !evidence || !Object.hasOwn(evidence, 'pull-request');
       const behavior = path === '/v1/dispatcher/inference'
         ? await this.ctx.storage.get<string>('fixture:production-behavior') : null;
+      if (done && behavior === 'model-error') return Response.json({ error: 'fixture model rejected' }, { status: 422 });
       const candidate = path === '/v1/dispatcher/inference' && done
         && (priorInferences < 2 || behavior === 'persistent-malformed')
         ? await this.ctx.storage.get<unknown>('fixture:production-decision') : null;

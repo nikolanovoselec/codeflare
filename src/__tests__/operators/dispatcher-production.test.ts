@@ -652,6 +652,18 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   for (const { name, error, errorType, operation, classification } of [
     { name: 'known model completion failure', error: { type: 'operation_failed', meta: {
       operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption)' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'model-completion' },
+    { name: 'durable direct model completion failure', error: { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1)', reason: 'Stream ended without finish_reason (retryable_interruption)' } },
+      errorType: 'operation_failed', operation: 'direct', classification: 'model-completion' },
+    { name: 'durable direct persistence failure', error: { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1)', reason: 'the input could not be persisted' } },
+      errorType: 'operation_failed', operation: 'direct', classification: 'persistence' },
+    { name: 'untrusted direct label suffix', error: { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1) private.jwt', reason: 'the input could not be persisted' } },
+      errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'other submission direct label', error: { type: 'operation_failed', meta: {
+      operation: 'direct(other-submission)', reason: 'the input could not be persisted' } },
+      errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
     { name: 'known input supersession', error: { type: 'operation_failed', meta: {
       operation: 'prompt', reason: 'the session advanced past this input before it completed' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'superseded' },
     { name: 'known input persistence failure', error: { type: 'operation_failed', meta: {
