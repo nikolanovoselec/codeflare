@@ -35,6 +35,7 @@ async function digest(value: string | Uint8Array) {
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
   artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
+  advanceClock: (milliseconds: number) => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
@@ -49,13 +50,13 @@ async function fixture(test: (f: {
   moveHeadAfterRelease: () => void; expireAfterRead: () => void;
   moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
-}) => Promise<void>) {
+}) => Promise<void>, options: { humanLifetimeSeconds?: number } = {}) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
     const artifactDigest = await digest(bytes);
     const now = Date.now();
-    const expiresAt = Math.floor(now / 1000) + 300;
+    const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
     const policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null };
@@ -155,7 +156,7 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(now + 31_000);
+          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(now + 91_000);
           return Response.json({ number: 17, body: 'inline-secret',
             user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
             base: { sha: baseSha }, head: { sha: headSha } });
@@ -216,6 +217,7 @@ async function fixture(test: (f: {
         exceedReleaseDeadline: () => { exceedDeadline = true; },
         exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
+        advanceClock: milliseconds => { vi.spyOn(Date, 'now').mockReturnValue(now + milliseconds); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; },
@@ -588,6 +590,51 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     vi.spyOn(Date, 'now').mockReturnValue(alarm! + 1_000);
     await f.activity.alarm();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+  }));
+  it('completes two inference turns and the exact assessment near the 90-second lease limit', () => fixture(async f => {
+    await start(f);
+    const inference = (operationId: string) => new Request('https://operator.internal/v1/dispatcher/inference', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId, input: { messages: [{ role: 'user', content: 'assess cited evidence' }] } }),
+    });
+    expect((await f.capability.fetch(inference('first-inference'))).status).toBe(200);
+    f.advanceClock(88_000);
+    expect((await f.capability.fetch(inference('second-inference'))).status).toBe(200);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
+    } });
+  }));
+  it('fences a late assessment after the bounded lease even while human authority remains current', () => fixture(async f => {
+    await start(f);
+    f.advanceClock(91_000);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.capability.fetch(read('late-assessment'))).status).toBe(403);
+  }));
+  it('never outlives a shorter original human-authorization deadline', () => fixture(async f => {
+    await start(f);
+    f.advanceClock(43_000);
+    expect((await f.capability.fetch(read('before-human-expiry'))).status).toBe(200);
+    f.advanceClock(46_000);
+    expect((await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'after-human-expiry', input: { messages: [{ role: 'user', content: 'assess' }] } }),
+    }))).status).toBe(403);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { humanLifetimeSeconds: 45 }));
+  it('denies a revoked invoker after the former cutoff while the extended lease is current', () => fixture(async f => {
+    await start(f);
+    f.advanceClock(31_000);
+    expect((await f.capability.fetch(read('before-revocation'))).status).toBe(200);
+    f.revoke();
+    expect((await f.capability.fetch(read('after-revocation'))).status).toBe(403);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
   }));
   it('fences a completed model turn with no submitted assessment instead of advertising waiting', () => fixture(async f => {
     await start(f);
