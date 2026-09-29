@@ -590,6 +590,43 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     vi.spyOn(Date, 'now').mockReturnValue(alarm! + 1_000);
     await f.activity.alarm();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
+    } });
+  }));
+  it('REQ-OPERATOR-048: repeated SDK alarms retain one pending recheck and the original deadline', () => fixture(async f => {
+    await start(f);
+    const deadline = (await f.activity.listSchedules()).find(row =>
+      row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled');
+    expect(deadline).toBeDefined();
+    await f.activity.reconcileDispatcherLease();
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    for (let i = 0; i < 12; i++) {
+      const next = await f.nextAlarm();
+      expect(next).not.toBeNull();
+      expect(next!).toBeLessThan(now + 10_000);
+      now = Math.max(now + 1_000, next! + 1_000);
+      clock.mockReturnValue(now);
+      await f.activity.alarm();
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      const scheduled = await f.activity.listSchedules();
+      expect(scheduled.filter(row => row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled')
+        .map(row => row.time)).toEqual([deadline?.time]);
+      expect(scheduled.filter(row => row.callback === 'reconcileDispatcherLease' && row.type === 'delayed').length)
+        .toBe(1);
+    }
+  }));
+  it('REQ-OPERATOR-048: the original deadline still fences a pending SDK recheck', () => fixture(async f => {
+    await start(f);
+    const deadline = (await f.activity.listSchedules()).find(row =>
+      row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled');
+    expect(deadline?.type).toBe('scheduled');
+    await f.activity.reconcileDispatcherLease();
+    vi.spyOn(Date, 'now').mockReturnValue(deadline!.time * 1_000 + 1_000);
+    await f.activity.alarm();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
   }));
   it('collects two inference turns and the exact assessment past the former 90-second budget while authority remains current', () => fixture(async f => {
     await start(f);
