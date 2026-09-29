@@ -36,7 +36,8 @@ async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
   artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
-  restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void; nextAlarm: () => Promise<number | null>;
+  restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void;
+  emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
   messages: (value: unknown[]) => void;
   files: (value: unknown[]) => void;
@@ -45,7 +46,7 @@ async function fixture(test: (f: {
   guide: (value: unknown) => void; tag: (value: unknown) => void;
   annotatedTag: (value: unknown) => void;
   moveHeadAfterFiles: () => void;
-  moveHeadAfterRelease: () => void;
+  moveHeadAfterRelease: () => void; expireAfterRead: () => void;
   moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
 }) => Promise<void>) {
@@ -69,6 +70,8 @@ async function fixture(test: (f: {
     let aborted: string | undefined;
     let uncertain = false;
     let transportThrows = false;
+    let emptyResponse = false;
+    let upstreamConflict = false;
     let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
     let changedFiles: unknown[] = [];
     let composeBodies: Record<string, unknown> = {};
@@ -83,6 +86,7 @@ async function fixture(test: (f: {
     let moveBaseAfterGuide = false;
     let moveAfterFiles = false;
     let moveAfterRelease = false;
+    let expireAfterRead = false;
     let exceedDeadline = false;
     const sent: Request[] = [];
     const pending: Promise<unknown>[] = [];
@@ -107,8 +111,11 @@ async function fixture(test: (f: {
       exports: { configurable: true, value: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-          sent.push(request); if (transportThrows) throw new Error('private transport failure');
+          sent.push(request);
+          if (transportThrows) throw new Error('private transport failure');
+          if (emptyResponse) return new Response(null, { status: 200 });
           if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+          if (upstreamConflict) return Response.json({ error: 'upstream-conflict' }, { status: 409 });
           if (request.url.includes('/releases/tags/')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
             if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
@@ -148,6 +155,7 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
+          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(now + 26_000);
           return Response.json({ number: 17, body: 'inline-secret',
             user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
             base: { sha: baseSha }, head: { sha: headSha } });
@@ -202,6 +210,7 @@ async function fixture(test: (f: {
         annotatedTag: value => { annotatedTag = value; },
         moveHeadAfterFiles: () => { moveAfterFiles = true; },
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
+        expireAfterRead: () => { expireAfterRead = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
         moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
         exceedReleaseDeadline: () => { exceedDeadline = true; },
@@ -211,6 +220,8 @@ async function fixture(test: (f: {
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; },
         throwTransport: () => { transportThrows = true; },
+        emptyResponse: () => { emptyResponse = true; },
+        upstreamConflict: enabled => { upstreamConflict = enabled; },
         oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
           oversizedChecks = { count, outputBytes, overlap };
         },
@@ -730,9 +741,13 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         await f.capability.fetch(read('diagnostic-conflict'));
         return f.capability.fetch(read('diagnostic-conflict', { resource: 'files' }));
       } },
-    { name: 'uncertain protected operation', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+    { name: 'rejected transport uncertain operation', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
         f.throwTransport(); return f.capability.fetch(read('diagnostic-uncertain'));
+      } },
+    { name: 'unreadable completed response', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.emptyResponse(); return f.capability.fetch(read('diagnostic-empty'));
       } },
     { name: 'expired authority', stage: 'authority', resource: 'unparsed', deadline: 'expired', status: 403,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
@@ -744,7 +759,15 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
         f.loseResponse(); return f.capability.fetch(read('diagnostic-upstream'));
       } },
-  ])('REQ-OPERATOR-047/048: emits bounded $name diagnostic with its fenced response', ({ stage, resource, deadline, status, exercise }) => fixture(async f => {
+    { name: 'forwarded upstream HTTP 409', stage: 'forwarded-upstream', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.upstreamConflict(true); return f.capability.fetch(read('diagnostic-forwarded'));
+      } },
+    { name: 'expired result commit', stage: 'commit', resource: 'pull-request', deadline: 'expired', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.expireAfterRead(); return f.capability.fetch(read('diagnostic-commit'));
+      } },
+  ])('REQ-OPERATOR-047/048: emits bounded $name diagnostic with its fenced response', ({ name, stage, resource, deadline, status, exercise }) => fixture(async f => {
     await start(f);
     const emitted: string[] = [];
     setLogLevel('warn');
@@ -752,16 +775,25 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
       const response = await exercise(f);
       expect(response.status).toBe(status);
-      expect(await response.json()).toEqual({ code: status === 403 ? 'OPERATOR_CAPABILITY_DENIED'
-        : stage === 'reservation' ? 'OPERATOR_OPERATION_CONFLICT' : 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await response.json()).toEqual(name === 'forwarded upstream HTTP 409'
+        ? { error: 'upstream-conflict' } : { code: status === 403 ? 'OPERATOR_CAPABILITY_DENIED'
+          : stage === 'reservation' ? 'OPERATOR_OPERATION_CONFLICT' : 'OPERATOR_OPERATION_UNKNOWN' });
       const events = emitted.map(value => JSON.parse(value) as { module: string; message: string;
         data?: Record<string, unknown> }).filter(event => event.module === 'dispatcher-settlement'
         && event.message === 'Dispatcher operation rejected');
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ data: { stage, resource, deadline, status } });
       expect(Object.keys(events[0].data ?? {}).sort()).toEqual(['deadline', 'resource', 'stage', 'status']);
-      expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-expired|diagnostic-stale|diagnostic-upstream|private\.jwt|inline-secret/);
-      if (stage === 'effect' || stage === 'upstream') {
+      expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-empty|diagnostic-expired|diagnostic-stale|diagnostic-upstream|diagnostic-forwarded|diagnostic-commit|private\.jwt|inline-secret/);
+      if (name === 'forwarded upstream HTTP 409') {
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+        f.upstreamConflict(false);
+        const replay = await f.capability.fetch(read('diagnostic-forwarded'));
+        expect(replay.status).toBe(409);
+        expect(await replay.json()).toEqual({ error: 'upstream-conflict' });
+        expect(emitted.filter(value => value.includes('Dispatcher operation rejected'))).toHaveLength(1);
+        expect((await f.capability.fetch(read('diagnostic-fresh'))).status).toBe(200);
+      } else if (stage === 'effect' || stage === 'upstream' || stage === 'commit') {
         expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
         expect((await f.capability.fetch(read('diagnostic-followup'))).status).toBe(403);
       } else if (stage === 'reservation' || deadline === 'current') {

@@ -1476,12 +1476,26 @@ export class OperatorActivity extends Agent {
   /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
-    if (!await this.dispatcherGenerationCurrent(generation)) return denied();
+    const deadline = (lease?: DispatcherLease) => !lease ? 'unavailable'
+      : lease.expiresAt <= Date.now() ? 'expired' : 'current';
+    const rejected = (stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'forwarded-upstream' | 'commit',
+      resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose',
+      lease: DispatcherLease | undefined, status: number) => {
+      dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status });
+    };
+    if (!await this.dispatcherGenerationCurrent(generation)) {
+      rejected('authority', 'unparsed', await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined), 403);
+      return denied();
+    }
     let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
     let perform: () => Promise<Response>;
+    let lease: DispatcherLease | undefined;
     try {
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!lease) return denied();
+      lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!lease) {
+        rejected('authority', 'unparsed', undefined, 403);
+        return denied();
+      }
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
@@ -1489,6 +1503,8 @@ export class OperatorActivity extends Agent {
         current: () => this.dispatcherGenerationCurrent(generation),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch { return denied(); }
+    const resource = operation.path === '/v1/dispatcher/inference' ? 'inference'
+      : (operation.body as { resource: 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' }).resource;
     const requestDigest = await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
     const reserved = await this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
@@ -1510,23 +1526,34 @@ export class OperatorActivity extends Agent {
         generation, requestDigest, phase: 'reserved' } satisfies DispatcherOperationRecord });
       return { kind: 'reserved', lease: lease! } as const;
     });
-    if (reserved.kind === 'denied') return denied();
-    if (reserved.kind === 'conflict') return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+    if (reserved.kind === 'denied') {
+      rejected('reservation', resource, lease, 403);
+      return denied();
+    }
+    if (reserved.kind === 'conflict') {
+      rejected('reservation', resource, lease, 409);
+      return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+    }
     const response = (value: NonNullable<DispatcherOperationRecord['response']>) => new Response(value.body, {
       status: value.status, headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
     if (reserved.kind === 'completed') return response(reserved.response);
+    let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
     try {
       if (reserved.kind === 'unknown') throw new Error('Unknown protected operation');
       // Recheck after asynchronous capability construction/reservation, before external I/O.
+      stage = 'authority';
       if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Stale protected operation');
+      stage = 'effect';
       const result = await this.#boundedDispatcher(reserved.lease, async () => {
         const upstream = await perform();
         if (upstream.status >= 500 || upstream.status < 200 || (upstream.status >= 300 && upstream.status < 400)) {
+          stage = 'upstream';
           throw new Error('Protected operation did not complete');
         }
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
           body: await readDispatcherBody(upstream) };
       });
+      stage = 'commit';
       await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
         const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -1538,6 +1565,7 @@ export class OperatorActivity extends Agent {
         await tx.put(DISPATCHER_OPERATIONS, { ...operations,
           [operation.operationId]: { ...prior, phase: 'completed' } });
       });
+      if (result.status >= 400) rejected('forwarded-upstream', resource, lease, result.status);
       return response(result);
     } catch {
       await this.ctx.storage.transaction(async tx => {
@@ -1547,6 +1575,7 @@ export class OperatorActivity extends Agent {
           ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
       });
       await this.interruptDrive(generation);
+      rejected(stage, resource, lease, 409);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     }
   }

@@ -160,7 +160,7 @@ export async function createDispatcherOperation(input: {
   };
   const get = async (path: string) => {
     await current();
-    return transport.fetch(new Request(base + path, { redirect: 'manual', signal: readSignal(), headers: {
+    return await transport.fetch(new Request(base + path, { redirect: 'manual', signal: readSignal(), headers: {
       accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
     } }));
   };
