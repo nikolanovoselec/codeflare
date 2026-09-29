@@ -1717,6 +1717,11 @@ export class OperatorActivity extends Agent {
       && lease.artifactDigest === state.receipt.selection.release.bundleDigest && lease.sdkReleased === true;
   }
 
+  async getBrowserSummary(ownerKey: string): Promise<OperatorBrowserSummary | null> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    return state?.ownerKey && state.ownerKey === ownerKey ? this.browserSummary(state) : null;
+  }
+
   async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
     sdkCleanupReleased?: boolean }) | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');

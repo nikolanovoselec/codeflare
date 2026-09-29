@@ -225,27 +225,31 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(await (await request('?limit=5')).json()).toMatchObject({ items: [{ operatorName: 'Pinned name',
       context: 'existing/repo · PR #7', executionStatus: 'running' }], nextCursor: 'activity-1',
       workingCount: 3, unreadCount: 2, latestSequence: 5 });
+    const firstItem = async () => {
+      const page = await (await request('?limit=5')).json() as { items: Array<Record<string, unknown>> };
+      return page.items[0];
+    };
     registry.listOwnedActivityPage.mockResolvedValue({ items: [summary], nextCursor: null,
       workingCount: 3, unreadCount: 2, latestSequence: 5 });
     activity.getBrowserSummary.mockResolvedValue({ ...summary, activityId: 'another-activity', operatorName: 'Foreign name' });
-    expect((await (await request('?limit=5')).json()).items[0]).not.toHaveProperty('operatorName');
+    expect(await firstItem()).not.toHaveProperty('operatorName');
     activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorId: 'foreign-operator', operatorName: 'Foreign name' });
-    expect((await (await request('?limit=5')).json()).items[0]).not.toHaveProperty('operatorName');
+    expect(await firstItem()).not.toHaveProperty('operatorName');
     activity.getBrowserSummary.mockResolvedValue(null);
-    expect((await (await request('?limit=5')).json()).items[0]).toEqual(summary);
+    expect(await firstItem()).toEqual(summary);
     activity.getBrowserSummary.mockRejectedValueOnce(new Error('Read unavailable'));
-    expect((await (await request('?limit=5')).json()).items[0]).toEqual(summary);
+    expect(await firstItem()).toEqual(summary);
     const nameOnly = { ...summary, operatorName: 'Pinned name' };
     registry.listOwnedActivityPage.mockResolvedValue({ items: [nameOnly], nextCursor: null,
       workingCount: 3, unreadCount: 2, latestSequence: 5 });
     activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Other name',
       context: 'owner/repo · PR #42' });
-    expect((await (await request('?limit=5')).json()).items[0]).toMatchObject({
+    expect(await firstItem()).toMatchObject({
       operatorName: 'Pinned name', context: 'owner/repo · PR #42' });
     const contextOnly = { ...summary, context: 'pinned/repo · PR #7' };
     registry.listOwnedActivityPage.mockResolvedValue({ items: [contextOnly], nextCursor: null,
       workingCount: 3, unreadCount: 2, latestSequence: 5 });
-    expect((await (await request('?limit=5')).json()).items[0]).toMatchObject({
+    expect(await firstItem()).toMatchObject({
       operatorName: 'Other name', context: 'pinned/repo · PR #7' });
   });
 

@@ -63,7 +63,19 @@ app.get('/', async c => {
     if (after !== undefined && !ID.test(after)) return c.json({ error: 'Invalid activity cursor' }, 400);
     try {
       const page = await c.get('registry').listOwnedActivityPage(c.get('ownerKey'), after ?? null);
-      return c.json({ ...page, items: page.items.map(jsonSummary) });
+      const items = await Promise.all(page.items.map(async indexed => {
+        const summary = jsonSummary(indexed);
+        if (summary.operatorName && summary.context) return summary;
+        try {
+          const projection = await c.env.OPERATOR_ACTIVITY!.getByName(summary.activityId)
+            .getBrowserSummary(c.get('ownerKey'));
+          if (projection?.activityId !== summary.activityId || projection.operatorId !== summary.operatorId) return summary;
+          if (!summary.operatorName && projection.operatorName) summary.operatorName = projection.operatorName;
+          if (!summary.context && projection.context) summary.context = projection.context;
+        } catch { /* Historical display metadata is unavailable; keep the owner index unchanged. */ }
+        return summary;
+      }));
+      return c.json({ ...page, items });
     } catch (error) {
       if (error instanceof Error && error.message === 'Activity history changed') {
         return c.json({ error: 'Activity history changed', code: 'HISTORY_CHANGED' }, 409);
