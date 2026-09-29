@@ -4,6 +4,7 @@ import type { Env } from '../../types';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import routes from '../../routes/operator-activities';
+import { operatorOwnerKey } from '../../operators/browser-activity';
 
 const claims = {
   subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://access.example.test',
@@ -47,6 +48,8 @@ function fixture() {
     cancelDrive: vi.fn(async () => ({ ok: true, state: { status: 'cancel-requested' } })),
     getBrowserDetail: vi.fn(async (): Promise<typeof summary & { checkpoint: unknown; result: unknown }> =>
       ({ ...summary, checkpoint: { step: 1 }, result: null })),
+    getBrowserSummary: vi.fn(async (_ownerKey: string): Promise<(typeof summary & {
+      operatorName?: string; context?: string }) | null> => null),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
     publishRenovateAssessment: vi.fn(async () => ({ ok: true, phase: 'reserved' })),
   };
@@ -193,6 +196,57 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(denied.status).toBe(404);
     expect(activity.getBrowserDetail).not.toHaveBeenCalled();
     expect(activity.collectBrowserResult).not.toHaveBeenCalled();
+  });
+
+  it('REQ-OPERATOR-027: recovers missing historical display metadata on the owner page without exposing result bytes', async () => {
+    const { request, activity } = fixture();
+    const ownerKey = await operatorOwnerKey(claims);
+    activity.getBrowserSummary.mockImplementation(async key => key === ownerKey
+      ? { ...summary, operatorName: 'Renovate Dispatcher', context: 'owner/repo · PR #42',
+          executionStatus: 'completed', updatedAt: summary.updatedAt + 1000 } : null);
+    const response = await request('?limit=5');
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ items: [{ activityId: 'activity-1',
+      operatorName: 'Renovate Dispatcher', context: 'owner/repo · PR #42', executionStatus: 'running',
+      updatedAt: summary.updatedAt }], nextCursor: null, workingCount: 1, unreadCount: 1, latestSequence: 1 });
+    expect(JSON.stringify(payload)).not.toContain('checkpoint');
+    expect(JSON.stringify(payload)).not.toContain('result');
+    expect(await (await request()).json()).toEqual({ items: [summary] });
+  });
+
+  it('REQ-OPERATOR-027: preserves indexed status and existing metadata; ignores unavailable or mismatched Activity projections', async () => {
+    const { request, registry, activity } = fixture();
+    const indexed = { ...summary, operatorName: 'Pinned name', context: 'existing/repo · PR #7' };
+    registry.listOwnedActivityPage.mockResolvedValue({ items: [indexed], nextCursor: 'activity-1',
+      workingCount: 3, unreadCount: 2, latestSequence: 5 });
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Different name',
+      context: 'other/repo · PR #8', executionStatus: 'completed' });
+    expect(await (await request('?limit=5')).json()).toMatchObject({ items: [{ operatorName: 'Pinned name',
+      context: 'existing/repo · PR #7', executionStatus: 'running' }], nextCursor: 'activity-1',
+      workingCount: 3, unreadCount: 2, latestSequence: 5 });
+    registry.listOwnedActivityPage.mockResolvedValue({ items: [summary], nextCursor: null,
+      workingCount: 3, unreadCount: 2, latestSequence: 5 });
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, activityId: 'another-activity', operatorName: 'Foreign name' });
+    expect((await (await request('?limit=5')).json()).items[0]).not.toHaveProperty('operatorName');
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorId: 'foreign-operator', operatorName: 'Foreign name' });
+    expect((await (await request('?limit=5')).json()).items[0]).not.toHaveProperty('operatorName');
+    activity.getBrowserSummary.mockResolvedValue(null);
+    expect((await (await request('?limit=5')).json()).items[0]).toEqual(summary);
+    activity.getBrowserSummary.mockRejectedValueOnce(new Error('Read unavailable'));
+    expect((await (await request('?limit=5')).json()).items[0]).toEqual(summary);
+    const nameOnly = { ...summary, operatorName: 'Pinned name' };
+    registry.listOwnedActivityPage.mockResolvedValue({ items: [nameOnly], nextCursor: null,
+      workingCount: 3, unreadCount: 2, latestSequence: 5 });
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Other name',
+      context: 'owner/repo · PR #42' });
+    expect((await (await request('?limit=5')).json()).items[0]).toMatchObject({
+      operatorName: 'Pinned name', context: 'owner/repo · PR #42' });
+    const contextOnly = { ...summary, context: 'pinned/repo · PR #7' };
+    registry.listOwnedActivityPage.mockResolvedValue({ items: [contextOnly], nextCursor: null,
+      workingCount: 3, unreadCount: 2, latestSequence: 5 });
+    expect((await (await request('?limit=5')).json()).items[0]).toMatchObject({
+      operatorName: 'Other name', context: 'pinned/repo · PR #7' });
   });
 
   it('REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor', async () => {

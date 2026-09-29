@@ -69,19 +69,32 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   it('REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates', async () => withActivity(async ({ activity, ctx }) => {
     const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
     expect(admission).toBeTruthy();
-    await ctx.storage.put('admission', { ...admission, boundary: { repositoryId: 123, pullRequest: 42,
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['account-audience'] });
+    await ctx.storage.put('admission', { ...admission, ownerKey, boundary: { repositoryId: 123, pullRequest: 42,
       contextDigest: 'd'.repeat(64), session: { bucket: 'owner-bucket', sessionId: 'session-1', generation: 1 } },
       receipt: { ...admission!.receipt, manifestJson: JSON.stringify({ name: 'Trusted Reviewer' }) },
       invocationJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
         consumerId: 'boundary-reviews', input: { context: { repositoryId: 123, pullRequest: 42,
           head: 'a'.repeat(40), base: 'b'.repeat(40), mergeBase: 'c'.repeat(40) } },
         source: { kind: 'session', reference: 'owner/repo' }, accessToken: 'secret-token', notes: 'private notes' }),
-      drive: { generation: 1, status: 'waiting', checkpoint: { stage: 'checking' }, result: null } });
+      drive: { generation: 1, status: 'waiting', checkpoint: { stage: 'checking' },
+        result: { privateReport: 'private report bytes' } } });
     const detail = await activity.getBrowserDetail();
     expect(detail).toMatchObject({ operatorName: 'Trusted Reviewer', context: 'owner/repo · PR #42',
       progress: 'checking' });
     expect(JSON.stringify(detail)).not.toContain('secret-token');
     expect(JSON.stringify(detail)).not.toContain('private notes');
+    const readSummary = (key: string) => (activity as unknown as {
+      getBrowserSummary: (ownerKey: string) => Promise<unknown> }).getBrowserSummary(key);
+    const historical = await readSummary(ownerKey);
+    expect(historical).toMatchObject({ operatorName: 'Trusted Reviewer', context: 'owner/repo · PR #42' });
+    expect(JSON.stringify(historical)).not.toContain('secret-token');
+    expect(JSON.stringify(historical)).not.toContain('private notes');
+    expect(JSON.stringify(historical)).not.toContain('private report bytes');
+    expect(historical).not.toHaveProperty('checkpoint');
+    expect(historical).not.toHaveProperty('result');
+    expect(await readSummary('f'.repeat(64))).toBeNull();
     const longRepository = `${'a'.repeat(128)}/${'b'.repeat(127)}`;
     const currentAdmission = await ctx.storage.get<Record<string, unknown>>('admission');
     await ctx.storage.put('admission', { ...currentAdmission!,
@@ -90,6 +103,9 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const longDetail = await activity.getBrowserDetail();
     expect(longDetail?.context?.length).toBeLessThanOrEqual(256);
     expect(longDetail?.context).toContain('PR #42');
+    const unowned = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...unowned, ownerKey: undefined });
+    expect(await readSummary(ownerKey)).toBeNull();
   }));
 
   it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {
