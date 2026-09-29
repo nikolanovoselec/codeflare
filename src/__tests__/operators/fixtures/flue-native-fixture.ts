@@ -37,7 +37,10 @@ export type FlueFixtureCommand =
   | { action: 'tail-probe-empty' }
   | { action: 'tail-probe-awaited' }
   | { action: 'tail-probe-background' }
-  | { action: 'tail-probe-silent' };
+  | { action: 'tail-probe-silent' }
+  | { action: 'facet-tail-probe'; mode: 'direct' | 'scheduled' | 'fiber' }
+  | { action: 'facet-tail-receipt'; mode: 'direct' | 'scheduled' | 'fiber' }
+  | { action: 'facet-tail-release-fiber' };
 
 type FacetPath = readonly Readonly<{ className: string; name: string }>[];
 type Facet = Fetcher & {
@@ -45,6 +48,9 @@ type Facet = Fetcher & {
   _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number>;
   _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean>;
   fixtureSnapshot(): Promise<unknown>;
+  fixtureDiagnosticProbeStart?(mode: 'direct' | 'scheduled' | 'fiber'): Promise<void>;
+  fixtureDiagnosticProbeReceipt?(mode: 'direct' | 'scheduled' | 'fiber'): Promise<boolean>;
+  fixtureDiagnosticProbeReleaseFiber?(): Promise<{ released: boolean }>;
 };
 type NativeEnv = Cloudflare.Env & {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
@@ -133,10 +139,52 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       // generation-two continuation indistinguishable from a stale warm caller.
       // Only controlled adapter-failure cases need a test Tail sink. Other
       // lifecycle fixtures must not create a second RPC back into this owner.
-      const tailEnabled = await this.ctx.storage.get<boolean>('fixture:tail-enabled');
-      const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}:${binding.generation}`, async () => ({
+      const probe = await this.ctx.storage.get<boolean>('fixture:facet-tail-probe') ?? false;
+      const tailEnabled = probe || await this.ctx.storage.get<boolean>('fixture:tail-enabled');
+      // A synthetic wrapper adds test callbacks without changing any pinned module
+      // or serving as approved-artifact acceptance. The original cases never load it.
+      const probeModule = 'fixture-tail-schedule.js';
+      const probeSource = `import { FlueDispatcherAgent as Pinned } from './index.js';
+export class FlueDispatcherAgent extends Pinned {
+  async fixtureDiagnosticProbeStart(mode) {
+    if (mode === 'direct') {
+      console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+      await this.ctx.storage.put('fixture:probe:direct', true);
+      return;
+    }
+    await this.schedule(0, 'fixtureDiagnosticProbeWake', mode, { idempotent: false });
+  }
+  async fixtureDiagnosticProbeWake(mode) {
+    if (mode === 'scheduled') {
+      console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+      await this.ctx.storage.put('fixture:probe:scheduled', true);
+      return;
+    }
+    this._fixtureFiberReady = new Promise(resolve => { this._fixtureFiberReadyResolve = resolve; });
+    const running = this.runFiber('fixture-tail-fiber', async () => {
+      await new Promise(resolve => {
+        this._fixtureFiberRelease = resolve;
+        this._fixtureFiberReadyResolve();
+      });
+      console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+      await this.ctx.storage.put('fixture:probe:fiber', true);
+    });
+    this.ctx.waitUntil(running);
+  }
+  async fixtureDiagnosticProbeReleaseFiber() {
+    await this._fixtureFiberReady;
+    this._fixtureFiberRelease();
+    return { released: true };
+  }
+  async fixtureDiagnosticProbeReceipt(mode) {
+    return await this.ctx.storage.get('fixture:probe:' + mode) === true;
+  }
+}`;
+      if (probe && artifact.mainModule !== 'index.js') throw new Error('Pinned probe main module unavailable');
+      const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}:${binding.generation}${probe ? ':tail-probe' : ''}`, async () => ({
         compatibilityDate: artifact.compatibilityDate, compatibilityFlags: artifact.compatibilityFlags,
-        mainModule: artifact.mainModule, modules: artifact.modules,
+        mainModule: probe ? probeModule : artifact.mainModule,
+        modules: probe ? { ...artifact.modules, [probeModule]: { js: probeSource } } : artifact.modules,
         // The facet receives only this direct, activity-private RPC target.
         // Its generation is captured here from the owner, never from delivery.
         env: { OPERATOR: exports.FixtureFlueTransport({ props: { activityId: this.name, generation: binding.generation } }) },
@@ -305,6 +353,28 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
       digest: await this.ctx.storage.get('fixture:digest'),
     };
+  }
+
+  async facetTailProbe(mode: 'direct' | 'scheduled' | 'fiber') {
+    if (this.facet) throw new Error('Synthetic probe must precede facet creation');
+    await this.ctx.storage.put('fixture:facet-tail-probe', true);
+    const child = await this.child();
+    if (!child.fixtureDiagnosticProbeStart) throw new Error('Synthetic facet probe unavailable');
+    await child.fixtureDiagnosticProbeStart(mode);
+    return { started: true };
+  }
+
+  async facetTailReceipt(mode: 'direct' | 'scheduled' | 'fiber') {
+    const child = await this.child();
+    if (!child.fixtureDiagnosticProbeReceipt) throw new Error('Synthetic facet receipt unavailable');
+    return { completed: await child.fixtureDiagnosticProbeReceipt(mode),
+      ...(mode === 'fiber' ? { callbackReturned: await this.ctx.storage.get<boolean>('fixture:probe:callback-returned') === true } : {}) };
+  }
+
+  async facetTailReleaseFiber() {
+    const child = await this.child();
+    if (!child.fixtureDiagnosticProbeReleaseFiber) throw new Error('Synthetic fiber release unavailable');
+    return child.fixtureDiagnosticProbeReleaseFiber();
   }
 
   async release() {
@@ -534,7 +604,12 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   // that Agents uses to wake and recover this exact activity-private facet.
   override async _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean> {
     this.#path(ownerPath);
-    return (await this.child())._cf_dispatchScheduledCallback(ownerPath, row);
+    const executed = await (await this.child())._cf_dispatchScheduledCallback(ownerPath, row);
+    if (executed && await this.ctx.storage.get<boolean>('fixture:facet-tail-probe')
+      && (row as { callback?: unknown })?.callback === 'fixtureDiagnosticProbeWake') {
+      await this.ctx.storage.put('fixture:probe:callback-returned', true);
+    }
+    return executed;
   }
   override async _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number> {
     this.#path(ownerPath);
@@ -689,6 +764,9 @@ export async function flueFixture(request: Request, env: NativeEnv) {
     case 'tail-probe-awaited': return Response.json(await root.tailProbe('awaited'));
     case 'tail-probe-background': return Response.json(await root.tailProbe('background'));
     case 'tail-probe-silent': return Response.json(await root.tailProbe('silent'));
+    case 'facet-tail-probe': return Response.json(await root.facetTailProbe(command.mode));
+    case 'facet-tail-receipt': return Response.json(await root.facetTailReceipt(command.mode));
+    case 'facet-tail-release-fiber': return Response.json(await root.facetTailReleaseFiber());
     case 'evict':
       await root.evict().catch(() => {});
       return Response.json({ evicted: true });

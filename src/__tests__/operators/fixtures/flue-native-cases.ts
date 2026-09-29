@@ -439,6 +439,32 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect((await snapshot(id)).activity.executionStatus).toBe('running');
     });
 
+    it.each(['direct', 'scheduled', 'fiber'] as const)(
+      'REQ-OPERATOR-048: synthetic Loader facet %s warning reaches Tail after independent completion', async mode => {
+        const { id } = await prepare();
+        expect(await command(id, { action: 'facet-tail-probe', mode })).toEqual({ started: true });
+        const end = Date.now() + 10_000;
+        let receipt: { completed: boolean; callbackReturned?: boolean };
+        if (mode === 'fiber') {
+          do {
+            receipt = await command(id, { action: 'facet-tail-receipt', mode });
+            if (receipt.callbackReturned) break;
+            await new Promise(resolve => setTimeout(resolve, 50));
+          } while (Date.now() < end);
+          expect(receipt!).toMatchObject({ callbackReturned: true, completed: false });
+          expect(await command(id, { action: 'facet-tail-release-fiber' })).toEqual({ released: true });
+        }
+        do {
+          receipt = await command(id, { action: 'facet-tail-receipt', mode });
+          if (receipt.completed) break;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } while (Date.now() < end);
+        expect(receipt!).toMatchObject({ completed: true });
+        const diagnosed = await observeTail(id, value => value.diagnostics.some(item => item.stage === 'fetch-rejected'));
+        expect(diagnosed).toMatchObject({ activityId: id, generation: 1,
+          diagnostics: [{ activityId: id, generation: 1, stage: 'fetch-rejected' }] });
+      });
+
     it.each([
       { mode: 'fetch-reject' as const, sentinel: 'Controlled inference fetch rejected' },
       { mode: 'abort-reject' as const, sentinel: 'Controlled inference fetch aborted' },
