@@ -1818,8 +1818,9 @@ export class OperatorActivity extends Agent {
       || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher') {
       return { ok: false, reason: 'not-ready' };
     }
+    const parent = JSON.parse(plan.invocationJson) as { repository: string; pullRequest: number };
     let assessment: ReturnType<typeof parsePublishableAssessment>;
-    try { assessment = parsePublishableAssessment(state.drive.result); }
+    try { assessment = parsePublishableAssessment(state.drive.result, parent); }
     catch { return { ok: false, reason: 'invalid-assessment' }; }
     const ownerKey = await operatorOwnerKey(authority.human);
     if (state.ownerKey !== ownerKey || plan.executionContext.owner.subject !== authority.human.subject
@@ -1830,7 +1831,6 @@ export class OperatorActivity extends Agent {
     }
     const digest = await sha256(JSON.stringify(state.drive.result));
     const generation = state.drive.generation;
-    const parent = JSON.parse(plan.invocationJson) as { repository: string; pullRequest: number };
     const prospective = parent.pullRequest !== 1299;
     const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
     const proof = prospective ? await registry.readProspectiveRenovateAdmission(plan.activityId) : null;

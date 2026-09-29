@@ -17,8 +17,15 @@ const assessmentSchema = z.object({ classification: z.enum(['safe', 'unsafe', 'u
   checks: z.object({ state: z.string(), observedHead: commit.nullable() }),
 });
 export type RenovateAssessment = z.infer<typeof assessmentSchema>;
-export function parsePublishableAssessment(value: unknown): RenovateAssessment {
-  const result = assessmentSchema.parse(value);
+export function parsePublishableAssessment(value: unknown, target?: { repository: string; pullRequest: number }): RenovateAssessment {
+  const envelope = z.object({ repository: z.string().min(1), pullRequest: id,
+    observedHead: commit, readOnly: z.literal(true), assessment: assessmentSchema }).parse(value);
+  if (Object.prototype.hasOwnProperty.call(value, 'classification')
+    || envelope.observedHead !== envelope.assessment.observedHead
+    || (target && (envelope.repository !== target.repository || envelope.pullRequest !== target.pullRequest))) {
+    throw new Error('Contradictory Dispatcher assessment');
+  }
+  const result = envelope.assessment;
   // The compiled Dispatcher owns citation semantics; the parent only rejects
   // an uncited or explicitly gapped positive result before granting an effect.
   if (result.classification === 'safe' && (result.gaps.length > 0 || result.citations.length === 0)) {

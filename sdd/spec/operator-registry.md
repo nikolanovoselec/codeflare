@@ -302,7 +302,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment)
 
-**Verification:** Test-only RED `8c4c6af0` failed the intended publisher and route cases in PR Checks `36432738228`. Final code head `7006520a9b00a8ee9982f287fda886d7ee0458c8` passed PR Checks `36436401592`, including backend publisher and route tests, node-native/Flue, Typecheck and aggregate. Test transports are synthetic; no live Komodo #1299 assessment, comment, approval, merge, activation or deployment occurred. The prospective post-cutoff scheduler remains separate.
+**Verification:** Test-only RED `8c4c6af0` failed the intended publisher and route cases in PR Checks `36432738228`. Final code head `7006520a9b00a8ee9982f287fda886d7ee0458c8` passed PR Checks `36436401592`, including backend publisher and route tests, node-native/Flue, Typecheck and aggregate. The pinned compiled-output interoperability RED at `4335bb313ad6485f9bb8b78e46c27b02a24b2307` failed the expected parser and publisher cases in PR Checks `36505023626`; the nested-envelope correction awaits final exact-head GREEN. The compiled producer-to-parser assertion, synthetic settled snapshot through real Activity collection, and real publisher against mocked GitHub effects are complementary, not a single live end-to-end run. No live Komodo #1299 assessment, comment, approval, merge, activation or deployment occurred. The prospective post-cutoff scheduler remains separate.
 
 **Status:** Complete
 
