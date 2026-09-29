@@ -1415,7 +1415,14 @@ export class OperatorActivity extends Agent {
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
           const errorType = settlement.error?.type;
           const reason = typeof settlement.error?.meta?.reason === 'string' ? settlement.error.meta.reason : '';
+          const operation = errorType === 'operation_failed' && settlement.error?.meta?.operation === 'prompt'
+            ? 'prompt' : 'unknown';
+          const failureClass = operation !== 'prompt' ? 'unknown'
+            : reason === 'Stream ended without finish_reason (retryable_interruption)' ? 'model-completion'
+              : reason === 'the session advanced past this input before it completed' ? 'superseded'
+                : reason === 'the input could not be persisted' ? 'persistence' : 'unknown';
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
+            activityId: plan.activityId, generation: lease.generation, operation, failureClass,
             outcome: ['failed', 'aborted', 'completed'].includes(settlement.outcome) ? settlement.outcome : 'unrecognized',
             errorType: ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
               'tool_output_validation', 'operation_failed', 'submission_timeout', 'submission_aborted',
