@@ -5,7 +5,7 @@
  * admission remain the missing behavior. The upstream transport intentionally
  * accepts effects so blanket denial and absent authority checks cannot pass.
  */
-import { WorkerEntrypoint } from 'cloudflare:workers';
+import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
 import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
@@ -34,7 +34,10 @@ export type FlueFixtureCommand =
   | { action: 'evict' }
   | { action: 'abort' }
   | { action: 'tail-probe' }
-  | { action: 'tail-probe-empty' };
+  | { action: 'tail-probe-empty' }
+  | { action: 'tail-probe-awaited' }
+  | { action: 'tail-probe-background' }
+  | { action: 'tail-probe-silent' };
 
 type FacetPath = readonly Readonly<{ className: string; name: string }>[];
 type Facet = Fetcher & {
@@ -45,6 +48,7 @@ type Facet = Fetcher & {
 };
 type NativeEnv = Cloudflare.Env & {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
+  TAIL_INBOX: DurableObjectNamespace<FixtureTailInbox>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
   LOADER: { get(id: string, code: () => Promise<unknown>): { getDurableObjectClass(name: string): unknown } };
 };
@@ -235,28 +239,22 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     await this.ctx.storage.delete('fixture:active-submission');
   }
 
-  async recordTailProbe(generation: number, diagnostics: unknown[], summary: TailProbeSummary) {
-    await this.ctx.storage.transaction(async storage => {
-      const prior = await storage.get<{ generation: number; diagnostics: unknown[]; summary: TailProbeSummary }>('fixture:tail-probe');
-      const current = prior?.generation === generation ? prior : null;
-      const fields: Array<keyof TailProbeSummary> = ['deliveries', 'accepted', 'markerObject', 'markerString',
-        'unmarkedStringObject', 'unmarkedTwoStrings', 'otherLogs'];
-      const accumulated = {} as TailProbeSummary;
-      for (const field of fields) accumulated[field] = Math.min(255, (current?.summary?.[field] ?? 0) + summary[field]);
-      await storage.put('fixture:tail-probe', {
-        activityId: this.name, generation,
-        diagnostics: [...(current?.diagnostics ?? []), ...diagnostics].slice(0, 8),
-        summary: accumulated,
-      });
-    });
-  }
-
-  async tailProbe(empty = false) {
+  async tailProbe(mode: 'valid' | 'empty' | 'awaited' | 'background' | 'silent' = 'valid') {
     const { exports } = this.ctx as unknown as { exports: { FixtureTailProbe(options: {
       props: { activityId: string; generation: number },
     }): unknown } };
-    const source = empty ? `export default { fetch() {
+    const source = mode === 'silent' ? `export default { fetch() { return new Response('ok'); } }`
+      : mode === 'empty' ? `export default { fetch() {
       console.warn('PRIVATE_PROVIDER_BODY_SENTINEL', { ignored: true });
+      return new Response('ok');
+    } }` : mode === 'awaited' ? `export default { fetch() {
+      console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+      throw new Error('controlled rejection');
+    } }` : mode === 'background' ? `export default { fetch(_request, _env, ctx) {
+      ctx.waitUntil(Promise.resolve().then(() => {
+        console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+        throw new Error('controlled rejection');
+      }));
       return new Response('ok');
     } }` : `export default { fetch() {
       console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
@@ -266,14 +264,22 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       console.error('PRIVATE_PROVIDER_BODY_SENTINEL');
       return new Response('ok');
     } }`;
-    const worker = this.env.LOADER.get(`tail-probe:${this.name}:${empty ? 'empty' : 'valid'}`, async () => ({
+    const worker = this.env.LOADER.get(`tail-probe:${this.name}:${mode}`, async () => ({
       compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
       mainModule: 'probe.js', modules: { 'probe.js': { js: source } },
       env: {}, globalOutbound: null,
       tails: [exports.FixtureTailProbe({ props: { activityId: this.name, generation: 1 } })],
     })) as unknown as { getEntrypoint(): Fetcher };
-    const response = await worker.getEntrypoint().fetch(new Request('https://probe.internal/'));
-    return { status: response.status, body: await response.text() };
+    try {
+      const response = await worker.getEntrypoint().fetch(new Request('https://probe.internal/'));
+      return { status: response.status, body: await response.text() };
+    } catch (error) {
+      if (mode === 'awaited' && error instanceof Error
+        && (error.message === 'controlled rejection' || error.message === 'Error: controlled rejection')) {
+        return { status: 599, body: 'rejected' };
+      }
+      throw error;
+    }
   }
 
   async snapshot() {
@@ -295,7 +301,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       external: await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [],
       externalAttempts: await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [],
       productionCalls: await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [],
-      tailProbe: await this.ctx.storage.get('fixture:tail-probe') ?? null,
+      tailProbe: await this.env.TAIL_INBOX.getByName(this.name).snapshot(),
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
       digest: await this.ctx.storage.get('fixture:digest'),
     };
@@ -533,9 +539,27 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 }
 
-// Counts only nonempty deliveries recorded by this test sink, not all platform Tail invocations.
+// Counts Tail invocations observed by this passive test sink, including empty deliveries.
 type TailProbeSummary = { deliveries: number; accepted: number; markerObject: number; markerString: number;
   unmarkedStringObject: number; unmarkedTwoStrings: number; otherLogs: number };
+
+// Passive test-only store: Tail observation cannot reconstruct the Flue execution owner.
+export class FixtureTailInbox extends DurableObject<NativeEnv> {
+  async record(activityId: string, generation: number, diagnostics: unknown[], summary: TailProbeSummary) {
+    await this.ctx.storage.transaction(async storage => {
+      const prior = await storage.get<{ generation: number; diagnostics: unknown[]; summary: TailProbeSummary }>('fixture:tail-probe');
+      const current = prior?.generation === generation ? prior : null;
+      const fields: Array<keyof TailProbeSummary> = ['deliveries', 'accepted', 'markerObject', 'markerString',
+        'unmarkedStringObject', 'unmarkedTwoStrings', 'otherLogs'];
+      const accumulated = {} as TailProbeSummary;
+      for (const field of fields) accumulated[field] = Math.min(255, (current?.summary?.[field] ?? 0) + summary[field]);
+      await storage.put('fixture:tail-probe', { activityId, generation,
+        diagnostics: [...(current?.diagnostics ?? []), ...diagnostics].slice(0, 8), summary: accumulated });
+    });
+  }
+
+  async snapshot() { return await this.ctx.storage.get('fixture:tail-probe') ?? null; }
+}
 
 export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
   async tail(events: unknown) {
@@ -582,10 +606,7 @@ export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
       } catch { return []; }
     });
     summary.accepted = diagnostics.length;
-    if (summary.markerObject || summary.markerString || summary.unmarkedStringObject
-      || summary.unmarkedTwoStrings || summary.otherLogs || diagnostics.length) {
-      await this.env.FLUE_ROOT.getByName(activityId).recordTailProbe(generation, diagnostics, summary);
-    }
+    await this.env.TAIL_INBOX.getByName(activityId).record(activityId, generation, diagnostics, summary);
   }
 }
 
@@ -661,7 +682,10 @@ export async function flueFixture(request: Request, env: NativeEnv) {
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());
     case 'tail-probe': return Response.json(await root.tailProbe());
-    case 'tail-probe-empty': return Response.json(await root.tailProbe(true));
+    case 'tail-probe-empty': return Response.json(await root.tailProbe('empty'));
+    case 'tail-probe-awaited': return Response.json(await root.tailProbe('awaited'));
+    case 'tail-probe-background': return Response.json(await root.tailProbe('background'));
+    case 'tail-probe-silent': return Response.json(await root.tailProbe('silent'));
     case 'evict':
       await root.evict().catch(() => {});
       return Response.json({ evicted: true });

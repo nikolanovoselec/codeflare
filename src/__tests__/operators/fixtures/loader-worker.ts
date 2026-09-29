@@ -4,8 +4,8 @@
  * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { flueFixture } from './flue-native-fixture';
-export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe } from './flue-native-fixture';
+import { flueFixture, type FixtureTailInbox } from './flue-native-fixture';
+export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe, FixtureTailInbox } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
@@ -72,6 +72,7 @@ interface FixtureEnv {
   PARENT_SECRET: string;
   OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
+  TAIL_INBOX: DurableObjectNamespace<FixtureTailInbox>;
 }
 
 /** Test-only RPC capability. Identity comes from the parent binding, not arguments. */
@@ -168,6 +169,11 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === '/flue') {
         return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
+      }
+      if (url.pathname === '/flue-tail' && request.method === 'GET') {
+        const activityId = url.searchParams.get('activity');
+        if (!activityId || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return new Response('Invalid activity', { status: 400 });
+        return Response.json(await env.TAIL_INBOX.getByName(activityId).snapshot());
       }
       if (url.pathname === '/activity') {
         const activity = env.ACTIVITY.getByName(url.searchParams.get('activity') ?? 'default');
