@@ -370,6 +370,48 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.external).toEqual([]);
     });
 
+    it.each([
+      { mode: 'fetch-reject' as const, sentinel: 'Controlled inference fetch rejected' },
+      { mode: 'abort-reject' as const, sentinel: 'Controlled inference fetch aborted' },
+      { mode: 'stream-fail' as const, sentinel: 'Controlled inference stream failed' },
+    ])('characterizes a controlled $mode after-tool inference through the compiled child', async ({ mode, sentinel }) => {
+      const { id } = await prepare();
+      const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+        productionEvidence: assessmentEvidence(), productionBehavior: mode,
+      });
+      expect(admitted.status).toBe(202);
+      let value = await observe(id, state => state.productionCalls.some(call =>
+        call.path === '/v1/dispatcher/inference' && call.modelTurn === 'after-tool'));
+      const end = Date.now() + 10_000;
+      let settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      while (!settlement && Date.now() < end) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        value = await snapshot(id);
+        settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+      }
+      expect(value.failure).toBeUndefined();
+      // Only fixed labels leave this controlled fixture; no arbitrary provider or model text is logged.
+      const outcomeClass = settlement?.outcome === 'completed' || settlement?.outcome === 'failed'
+        ? settlement.outcome : settlement ? 'other' : 'pending';
+      const operationClass = settlement?.error?.meta?.operation === `direct(${admitted.body.submissionId})` ? 'direct' : 'unknown';
+      const reasonClass = settlement?.error?.meta?.reason?.includes(sentinel) ? 'controlled' : 'unavailable';
+      const errorClass = settlement?.error?.type === 'operation_failed' ? 'operation_failed'
+        : settlement?.error?.type ? 'other' : 'none';
+      console.info(`[native-flue] ${mode}: outcome=${outcomeClass} error=${errorClass} operation=${operationClass} reason=${reasonClass}`);
+      expect(value.productionCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: '/v1/dispatcher/inference', modelTurn: 'after-tool' }),
+      ]));
+      expect(value.productionCalls.filter(call => call.modelTurn === 'after-tool').at(-1)?.status).toBeUndefined();
+      if (mode !== 'abort-reject') {
+        expect(settlement?.outcome).toBe('failed');
+        expect(value.activity.executionStatus).toBe('unknown');
+      } else expect(value.activity.executionStatus).not.toBe('waiting');
+      expect(results(value)).toEqual([]);
+      expect(value.activity.result).toBeNull();
+      expect(value.external).toEqual([]);
+    });
+
     it('carries a cited release receipt through the pinned compiled Dispatcher and parent read bridge', async () => {
       const { id } = await prepare();
       const head = 'b'.repeat(40);

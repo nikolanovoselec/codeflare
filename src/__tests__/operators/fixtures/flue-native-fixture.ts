@@ -26,7 +26,7 @@ export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
       productionEvidence?: ProductionEvidence; productionDecision?: unknown;
-      productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error'; holdResearch?: boolean; holdInference?: boolean }
+      productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error' | 'fetch-reject' | 'abort-reject' | 'stream-fail'; holdResearch?: boolean; holdInference?: boolean }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -156,7 +156,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 
   async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence,
-    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error', holdResearch?: boolean,
+    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error' | 'fetch-reject' | 'abort-reject' | 'stream-fail', holdResearch?: boolean,
     holdInference?: boolean) {
     try {
       if (!('mode' in delivery) && productionEvidence) {
@@ -285,7 +285,8 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         const calls = await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [];
         priorInferences = calls.filter(call => call.path === '/v1/dispatcher/inference').length;
         const behavior = await this.ctx.storage.get<string>('fixture:production-behavior');
-        calls.push({ path, status: done && behavior === 'model-error' ? 422 : 200,
+        calls.push({ path, status: done && behavior === 'model-error' ? 422
+          : done && ['fetch-reject', 'abort-reject', 'stream-fail'].includes(behavior ?? '') ? undefined : 200,
           modelTurn: done ? 'after-tool' : 'initial' });
         await this.ctx.storage.put('fixture:production-calls', calls);
         if (done && await this.ctx.storage.get('fixture:hold-inference')) {
@@ -303,6 +304,19 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       const behavior = path === '/v1/dispatcher/inference'
         ? await this.ctx.storage.get<string>('fixture:production-behavior') : null;
       if (done && behavior === 'model-error') return Response.json({ error: 'fixture model rejected' }, { status: 422 });
+      if (done && behavior === 'fetch-reject') throw new Error('Controlled inference fetch rejected');
+      if (done && behavior === 'abort-reject') throw new DOMException('Controlled inference fetch aborted', 'AbortError');
+      if (done && behavior === 'stream-fail') {
+        let sent = false;
+        return new Response(new ReadableStream({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              controller.enqueue(new TextEncoder().encode('data: {"choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}\n\n'));
+            } else controller.error(new Error('Controlled inference stream failed'));
+          },
+        }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream' } });
+      }
       const candidate = path === '/v1/dispatcher/inference' && done
         && (priorInferences < 2 || behavior === 'persistent-malformed')
         ? await this.ctx.storage.get<unknown>('fixture:production-decision') : null;
