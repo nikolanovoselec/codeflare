@@ -589,7 +589,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await start(f);
     const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
       evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
-      bounds: { files: 3, checks: 76 } };
+      bounds: { files: 3, checks: 76 }, assessment: { classification: 'unknown',
+        observedHead: 'b'.repeat(40), baseSha: 'a'.repeat(40), checks: { state: 'unconfigured', observedHead: null },
+        reasons: ['No complete upstream evidence'], compatibility: 'Compatibility cannot be established',
+        citations: [], gaps: ['Migration guidance unavailable'] } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',

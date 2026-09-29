@@ -28,6 +28,10 @@ const cited = { classification: 'safe', observedHead: HEAD, baseSha: BASE,
     { kind: 'config', ref: 'agent/compose.yaml:dozzle-agent:before' },
   ], gaps: [] as string[] };
 const uncited = { ...cited, citations: [], compatibility: 'Compatibility not established' };
+// Pinned compiled Dispatcher wire result: read-only research summary and nested assessment.
+const compiled = (assessment: unknown, selected = target) => ({ ...selected, observedHead: HEAD, readOnly: true,
+  evidence: { complete: true, stale: false, truncated: false, bot: 'renovate[bot]' },
+  bounds: { files: 13, checks: 1 }, assessment });
 
 type Command = { sessionId: string; sessionGeneration: number; bucket: string; operationId: string };
 type Publisher = { publishRenovateAssessment: (command: Command, authority: {
@@ -150,7 +154,7 @@ async function fixture(test: (f: {
       deadline: human.expiresAt * 1000, startExpiresAt: human.expiresAt * 1000, startVerifier: 'e'.repeat(64) };
     await native.storage.put('admission', { intent, phase: 'queued', receipt: {
       ...intent, admittedAt: NOW, selection }, executionContext: context, invocationJson, ownerKey: await operatorOwnerKey(human),
-      drive: { generation: 1, status: 'completed', checkpoint: null, result: cited } });
+      drive: { generation: 1, status: 'completed', checkpoint: null, result: compiled(cited, selected) } });
     const command = { bucket: 'owner-bucket', sessionId: 'session-1', sessionGeneration: 3, operationId: 'publication-1' };
     const access = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => state.loggedOut
       ? new Response(null, { status: 401 })
@@ -175,6 +179,26 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
       && (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
     expect(f.writes.every(write => !write.url.includes('another-repo'))).toBe(true);
   }));
+
+  it('REQ-OPERATOR-060: rejects absent, malformed, flattened or contradictory Dispatcher assessments before writes', async () => {
+    const invalid = [
+      { ...compiled(cited), assessment: undefined },
+      { ...compiled(null), ...cited },
+      { ...compiled({ ...cited, classification: 'unsafe', reasons: [] }), ...cited },
+      { ...compiled({ ...cited, classification: 'unknown', gaps: ['Unresolved migration'] }), ...cited },
+      { ...compiled({ ...cited, classification: 'unsafe' }), ...cited },
+      cited,
+      { ...compiled(cited), repository: 'other/repo' },
+      { ...compiled(cited), pullRequest: 1300 },
+      { ...compiled(cited), observedHead: 'f'.repeat(40) },
+      { ...compiled({ ...cited, observedHead: 'f'.repeat(40) }) },
+    ];
+    for (const value of invalid) await fixture(async f => {
+      await f.setAssessment(value);
+      expect(await f.publish()).toMatchObject({ ok: false, reason: 'invalid-assessment' });
+      expect(f.writes).toEqual([]);
+    });
+  });
 
   it('REQ-OPERATOR-061: prospective publication is tied to a fresh exact Registry admission and current owner session', async () => {
     for (const evidence of ['missing', 'old', 'foreign-session', 'foreign-owner', 'foreign-activity',
@@ -215,15 +239,15 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
   }));
 
   it('does not collect or publish a waiting assessment, even when its child snapshot looks safe', () => fixture(async f => {
-    await f.setAssessment(cited, 'waiting');
+    await f.setAssessment(compiled(cited), 'waiting');
     await f.publish().catch(() => undefined);
     expect(f.writes).toEqual([]);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
   }));
 
   it.each(['unsafe', 'unknown'])('%s permits only a bounded comment, not approval or merge', classification => fixture(async f => {
-    await f.setAssessment({ ...cited, classification, reasons: ['Cannot verify compatibility'],
-      compatibility: 'Cannot establish compatibility', gaps: classification === 'unknown' ? ['Unresolved migration'] : [] });
+    await f.setAssessment(compiled({ ...cited, classification, reasons: ['Cannot verify compatibility'],
+      compatibility: 'Cannot establish compatibility', gaps: classification === 'unknown' ? ['Unresolved migration'] : [] }));
     await f.publish();
     expect(f.writes.some(write => write.url.endsWith('/comments') && JSON.stringify(write.body).length < 4096)).toBe(true);
     expect(f.writes.some(write => write.url.endsWith('/reviews') || write.url.endsWith('/merge'))).toBe(false);
@@ -251,7 +275,7 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     if (reason === 'permission') f.change('permission', 'read');
     if (reason === 'author') f.change('author', 'someone-else');
     if (reason === 'mergeable') f.change('mergeable', null);
-    if (reason === 'uncited') await f.setAssessment(uncited);
+    if (reason === 'uncited') await f.setAssessment(compiled(uncited));
     await f.publish().catch(() => undefined);
     expect(f.writes.some(write => write.url.endsWith('/merge'))).toBe(false);
   }));
@@ -272,7 +296,7 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
   it('does not treat zero configured checks as a veto or as compatibility proof', () => fixture(async f => {
     f.change('checks', []);
     f.change('requiredChecks', []);
-    await f.setAssessment({ ...cited, checks: { state: 'unconfigured', observedHead: HEAD } });
+    await f.setAssessment(compiled({ ...cited, checks: { state: 'unconfigured', observedHead: HEAD } }));
     await f.publish().catch(() => undefined);
     expect(f.writes.some(write => write.url.endsWith('/merge'))).toBe(true);
   }));
@@ -280,14 +304,14 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
   it('does not infer compatibility from zero checks when the assessment has no citations', () => fixture(async f => {
     f.change('checks', []);
     f.change('requiredChecks', []);
-    await f.setAssessment({ ...uncited, checks: { state: 'unconfigured', observedHead: HEAD } });
+    await f.setAssessment(compiled({ ...uncited, checks: { state: 'unconfigured', observedHead: HEAD } }));
     await f.publish().catch(() => undefined);
     expect(f.writes.some(write => write.url.endsWith('/merge'))).toBe(false);
   }));
 
   it.each(['approval', 'comment'])('does not accept a copied %s marker from a different GitHub actor', effect => fixture(async f => {
-    if (effect === 'comment') await f.setAssessment({ ...cited, classification: 'unknown',
-      reasons: ['Compatibility unresolved'], gaps: ['Migration unverified'] });
+    if (effect === 'comment') await f.setAssessment(compiled({ ...cited, classification: 'unknown',
+      reasons: ['Compatibility unresolved'], gaps: ['Migration unverified'] }));
     f.change('ambiguity', true);
     f.change('forgedReadback', true);
     expect(await f.publish()).toMatchObject({ ok: false, reason: 'uncertain-effect' });
@@ -295,8 +319,8 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
   }));
 
   it('reconciles an ambiguous comment by its durable external marker without reposting it', () => fixture(async f => {
-    await f.setAssessment({ ...cited, classification: 'unknown', reasons: ['Upstream compatibility unresolved'],
-      gaps: ['Migration behavior unverified'] });
+    await f.setAssessment(compiled({ ...cited, classification: 'unknown', reasons: ['Upstream compatibility unresolved'],
+      gaps: ['Migration behavior unverified'] }));
     f.change('ambiguity', true);
     expect(await f.publish()).toMatchObject({ ok: true, phase: 'completed', effect: 'comment' });
     f.restart();

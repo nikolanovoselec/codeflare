@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+// The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
+vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
+  throw new Error('Unexpected Dispatcher body read in parser contract test');
+} }));
 import type { OperatorActivityPreparation } from '../../../operators/activity';
+import { parsePublishableAssessment } from '../../../operators/renovate-publication';
 import type { ActivityFixtureCommand } from './loader-worker';
 import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery } from './flue-native-fixture';
 
@@ -243,10 +248,13 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       });
       expect(admitted.status).toBe(202);
       const value = await settle(id, admitted.body.submissionId);
-      expect(results(value).at(-1)).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
+      const compiled = results(value).at(-1);
+      expect(compiled).toMatchObject({ repository: 'owner/repository', pullRequest: 17,
         observedHead: 'b'.repeat(40), readOnly: true, assessment: { classification: variant.verdict,
           compatibility: expect.any(String), reasons: expect.any(Array), citations: expect.any(Array),
           gaps: expect.any(Array) } });
+      expect(parsePublishableAssessment(compiled))
+        .toMatchObject({ classification: variant.verdict, observedHead: 'b'.repeat(40) });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/github/read').map(call => call.resource).sort())
         .toEqual(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose'].sort());
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').map(call => call.modelTurn))
