@@ -83,7 +83,7 @@ interface RenovatePublication {
   effects: Partial<Record<RenovateEffect, { phase: 'reserved' | 'unknown' | 'completed'; receiptId?: number;
     mergeSha?: string; remoteMerged?: boolean }>>;
 }
-const DISPATCHER_LIMIT_MS = 30_000;
+const DISPATCHER_LIMIT_MS = 90_000;
 const dispatcherLog = createLogger('dispatcher-settlement');
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
