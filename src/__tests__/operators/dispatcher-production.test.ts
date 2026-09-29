@@ -649,6 +649,54 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
   }));
+  for (const { name, error, errorType, operation, classification } of [
+    { name: 'known model completion failure', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption)' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'model-completion' },
+    { name: 'known input supersession', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'the session advanced past this input before it completed' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'superseded' },
+    { name: 'known input persistence failure', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'the input could not be persisted' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'persistence' },
+    { name: 'secret-suffixed completion lookalike', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption) private.jwt' } },
+      errorType: 'operation_failed', operation: 'prompt', classification: 'unknown' },
+    { name: 'unrecognized metadata', error: { type: 'operation_failed', meta: {
+      operation: 'arbitrary-secret', reason: 'inline-secret' } }, errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'malformed metadata', error: { type: 'operation_failed', meta: { operation: { secret: 'private.jwt' }, reason: { secret: 'inline-secret' } } },
+      errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'absent error', error: undefined, errorType: 'other', operation: 'unknown', classification: 'unknown' },
+    { name: 'absent metadata', error: { type: 'operation_failed' }, errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'null metadata', error: { type: 'operation_failed', meta: null }, errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'unrecognized error type', error: { type: 'inline-secret', meta: { operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption)' } },
+      errorType: 'other', operation: 'unknown', classification: 'unknown' },
+  ]) {
+    it(`REQ-OPERATOR-048: diagnoses ${name} without leaking settlement metadata or replaying`, () => fixture(async f => {
+      await start(f);
+      const emitted: string[] = [];
+      setLogLevel('warn');
+      try {
+        vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+        f.settle('submission-1', 'failed', error);
+        await f.activity.reconcileDispatcherLease();
+        const events = emitted.map(value => JSON.parse(value) as { module: string; message: string;
+          data?: Record<string, unknown> }).filter(event => event.module === 'dispatcher-settlement'
+          && event.message === 'Dispatcher settlement rejected' && event.data?.stage === 'outcome');
+        expect(events).toHaveLength(1);
+        const detail = await f.activity.getBrowserDetail();
+        expect(detail?.activityId).toMatch(/^activity-[0-9a-f-]{36}$/);
+        expect(events[0].data).toMatchObject({ activityId: detail?.activityId,
+          generation: 1, outcome: 'failed', errorType, operation, failureClass: classification });
+        expect(Object.keys(events[0].data ?? {}).sort()).toEqual([
+          'activityId', 'errorType', 'failureClass', 'generation', 'operation', 'outcome',
+          'reasonAvailable', 'reasonClass', 'stage',
+        ]);
+        expect(JSON.stringify(events)).not.toMatch(/private\.jwt|inline-secret|arbitrary-secret/);
+        expect(detail?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+        expect((await f.capability.fetch(read('after-failed'))).status).toBe(403);
+      } finally { setLogLevel('silent'); }
+    }));
+  }
   it('collects the settled pinned assessment once as a terminal result without another submission', () => fixture(async f => {
     await start(f);
     const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
