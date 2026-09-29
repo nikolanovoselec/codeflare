@@ -616,6 +616,16 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(scheduled.filter(row => row.callback === 'reconcileDispatcherLease' && row.type === 'delayed').length)
         .toBe(1);
     }
+    f.settle();
+    const next = await f.nextAlarm();
+    expect(next).not.toBeNull();
+    now = Math.max(now + 1_000, next! + 1_000);
+    clock.mockReturnValue(now);
+    await f.activity.alarm();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
+    } });
   }));
   it('REQ-OPERATOR-048: the original deadline still fences a pending SDK recheck', () => fixture(async f => {
     await start(f);

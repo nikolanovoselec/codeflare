@@ -1407,7 +1407,8 @@ export class OperatorActivity extends Agent {
           // A child may settle just after this snapshot; the deadline alarm cannot
           // read it once the lease expires. Recheck within the original lease.
           const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
-          if (remainingSeconds > 0) await this.schedule(Math.min(5, remainingSeconds), 'reconcileDispatcherLease', { generation: lease.generation });
+          if (remainingSeconds > 0) await this.schedule(Math.min(5, remainingSeconds),
+            'reconcileDispatcherLease', { generation: lease.generation }, { idempotent: true });
           return;
         }
         stage = 'authorize';
