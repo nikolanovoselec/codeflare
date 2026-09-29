@@ -2074,7 +2074,7 @@ export class OperatorActivity extends Agent {
 type DispatcherChildDiagnostic = { stage: 'fetch-rejected' } | { stage: 'http-rejected'; status: number };
 
 /** Only exact fixed child warnings enter trusted parent observability. No child text or IDs cross the filter. */
-export function filterDispatcherTailEvents(events: unknown): DispatcherChildDiagnostic[] {
+function filterDispatcherTailEvents(events: unknown): DispatcherChildDiagnostic[] {
   const result: DispatcherChildDiagnostic[] = [];
   if (!Array.isArray(events)) return result;
   let inspected = 0;

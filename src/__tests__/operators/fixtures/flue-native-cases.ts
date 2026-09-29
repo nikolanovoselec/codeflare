@@ -387,6 +387,15 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         { activityId: id, generation: 1, stage: 'http-rejected', status: 422 },
       ] });
       expect(JSON.stringify(value.tailProbe)).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
+      expect(await command(id, { action: 'tail-probe-empty' })).toEqual({ status: 200, body: 'ok' });
+      const retained = await observe(id, state => state.tailProbe?.shape.some(log =>
+        Array.isArray(log.message) && log.message.length === 2
+          && log.message[0] === 'string' && log.message[1] === 'object') === true);
+      expect(retained.tailProbe?.diagnostics).toMatchObject([
+        { activityId: id, generation: 1, stage: 'fetch-rejected' },
+        { activityId: id, generation: 1, stage: 'http-rejected', status: 422 },
+      ]);
+      expect(JSON.stringify(retained.tailProbe)).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
       expect(value.activity.executionStatus).toBe('running');
     });
 

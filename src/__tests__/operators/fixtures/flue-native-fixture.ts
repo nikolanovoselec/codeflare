@@ -33,7 +33,8 @@ export type FlueFixtureCommand =
   | { action: 'release' }
   | { action: 'evict' }
   | { action: 'abort' }
-  | { action: 'tail-probe' };
+  | { action: 'tail-probe' }
+  | { action: 'tail-probe-empty' };
 
 type FacetPath = readonly Readonly<{ className: string; name: string }>[];
 type Facet = Fetcher & {
@@ -126,6 +127,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       // retaining the same activity-private facet identity/SQLite. Reusing the
       // old Loader key would retain generation one's RPC props and make a valid
       // generation-two continuation indistinguishable from a stale warm caller.
+      // Only controlled adapter-failure cases need a test Tail sink. Other
+      // lifecycle fixtures must not create a second RPC back into this owner.
+      const tailEnabled = await this.ctx.storage.get<boolean>('fixture:tail-enabled');
       const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}:${binding.generation}`, async () => ({
         compatibilityDate: artifact.compatibilityDate, compatibilityFlags: artifact.compatibilityFlags,
         mainModule: artifact.mainModule, modules: artifact.modules,
@@ -133,7 +137,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         // Its generation is captured here from the owner, never from delivery.
         env: { OPERATOR: exports.FixtureFlueTransport({ props: { activityId: this.name, generation: binding.generation } }) },
         globalOutbound: null,
-        tails: [exports.FixtureTailProbe({ props: { activityId: this.name, generation: binding.generation } })],
+        ...(tailEnabled ? { tails: [exports.FixtureTailProbe({ props: {
+          activityId: this.name, generation: binding.generation,
+        } })] } : {}),
       }));
       const { facets } = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): Facet } };
       const child = facets.get('dispatcher', () => ({
@@ -168,6 +174,9 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
         await this.ctx.storage.put('fixture:production-decision', productionDecision ?? null);
         await this.ctx.storage.put('fixture:production-behavior', productionBehavior ?? null);
+        await this.ctx.storage.put('fixture:tail-enabled',
+          productionBehavior === 'model-error' || productionBehavior === 'fetch-reject'
+            || productionBehavior === 'abort-reject');
         await this.ctx.storage.put('fixture:hold-research', holdResearch ?? false);
         await this.ctx.storage.put('fixture:hold-inference', holdInference ?? false);
       }
@@ -226,17 +235,26 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     await this.ctx.storage.delete('fixture:active-submission');
   }
 
-  async recordTailProbe(generation: number, diagnostics: unknown, shape: unknown) {
-    const prior = await this.ctx.storage.get<{ diagnostics?: unknown[] }>('fixture:tail-probe');
-    if (prior?.diagnostics?.length && (!Array.isArray(diagnostics) || diagnostics.length === 0)) return;
-    await this.ctx.storage.put('fixture:tail-probe', { activityId: this.name, generation, diagnostics, shape });
+  async recordTailProbe(generation: number, diagnostics: unknown[], shape: unknown[]) {
+    await this.ctx.storage.transaction(async storage => {
+      const prior = await storage.get<{ generation: number; diagnostics: unknown[]; shape: unknown[] }>('fixture:tail-probe');
+      const current = prior?.generation === generation ? prior : null;
+      await storage.put('fixture:tail-probe', {
+        activityId: this.name, generation,
+        diagnostics: [...(current?.diagnostics ?? []), ...diagnostics].slice(0, 8),
+        shape: shape.length ? shape.slice(0, 12) : current?.shape ?? [],
+      });
+    });
   }
 
-  async tailProbe() {
+  async tailProbe(empty = false) {
     const { exports } = this.ctx as unknown as { exports: { FixtureTailProbe(options: {
       props: { activityId: string; generation: number },
     }): unknown } };
-    const source = `export default { fetch() {
+    const source = empty ? `export default { fetch() {
+      console.warn('PRIVATE_PROVIDER_BODY_SENTINEL', { ignored: true });
+      return new Response('ok');
+    } }` : `export default { fetch() {
       console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
       console.warn('Dispatcher inference boundary', { stage: 'http-rejected', status: 422 });
       console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected', reason: 'PRIVATE_PROVIDER_BODY_SENTINEL' });
@@ -244,7 +262,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       console.error('PRIVATE_PROVIDER_BODY_SENTINEL');
       return new Response('ok');
     } }`;
-    const worker = this.env.LOADER.get(`tail-probe:${this.name}`, async () => ({
+    const worker = this.env.LOADER.get(`tail-probe:${this.name}:${empty ? 'empty' : 'valid'}`, async () => ({
       compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
       mainModule: 'probe.js', modules: { 'probe.js': { js: source } },
       env: {}, globalOutbound: null,
@@ -521,8 +539,6 @@ export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
           message: Array.isArray(item?.message) ? item.message.map((part: unknown) =>
             part === 'Dispatcher inference boundary' ? 'marker' : typeof part) : typeof item?.message };
       }) : []) : [];
-    const root = this.env.FLUE_ROOT.getByName(activityId);
-    await root.recordTailProbe(generation, [], shape);
     const captured: unknown[] = [];
     const original = console.warn;
     setLogLevel('warn');
@@ -542,7 +558,9 @@ export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
           && entry.data && typeof entry.data === 'object' ? [entry.data] : [];
       } catch { return []; }
     });
-    await root.recordTailProbe(generation, diagnostics, shape);
+    if (shape.length || diagnostics.length) {
+      await this.env.FLUE_ROOT.getByName(activityId).recordTailProbe(generation, diagnostics, shape);
+    }
   }
 }
 
@@ -618,6 +636,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());
     case 'tail-probe': return Response.json(await root.tailProbe());
+    case 'tail-probe-empty': return Response.json(await root.tailProbe(true));
     case 'evict':
       await root.evict().catch(() => {});
       return Response.json({ evicted: true });

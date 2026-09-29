@@ -525,7 +525,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             messages: [{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: scanRuntime.result }] }] }),
         }) } },
         exports: { configurable: true, value: { ...(native as unknown as { exports: object }).exports,
-          OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }) } },
+          OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
+          OperatorDispatcherTail: () => ({ tail: async () => {} }) } },
       });
       mockEnv.LOADER = { get: () => ({ getDurableObjectClass: () => ({}) }) };
       expect((await activity.getBrowserDetail())?.executionStatus).toBe('waiting');
