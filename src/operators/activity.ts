@@ -83,7 +83,6 @@ interface RenovatePublication {
   effects: Partial<Record<RenovateEffect, { phase: 'reserved' | 'unknown' | 'completed'; receiptId?: number;
     mergeSha?: string; remoteMerged?: boolean }>>;
 }
-const DISPATCHER_LIMIT_MS = 90_000;
 const dispatcherLog = createLogger('dispatcher-settlement');
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
@@ -1268,7 +1267,7 @@ export class OperatorActivity extends Agent {
         || approved.sourceCommit !== plan.receipt.selection.release.sourceCommit) throw new Error('Dispatcher artifact mismatch');
       await authorizeDispatcherPlan(plan, this.#appEnv);
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
-        expiresAt: Math.floor(Math.min(plan.deadline, Date.now() + DISPATCHER_LIMIT_MS) / 1000) * 1000,
+        expiresAt: Math.floor(plan.deadline / 1000) * 1000,
         submissionId: null, status: 'admitting' };
       await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
