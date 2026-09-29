@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-29
+
+- **Dispatcher assessment follows the original human deadline, not a fixed 90-second execution cap** ([REQ-OPERATOR-048](operator-registry.md#req-operator-048-dispatcher-execution)). One generation, immutable submission and current human/installation authority still fence each effect and settlement. An otherwise authorized second inference and genuine completed assessment may settle past 90 seconds; expired or revoked authority remains denied. The generated child must also drop its separate short whole-submission timeout while retaining bounded attempts and individual operation safeguards. The user requested eliminating the discretionary assessment timeout after the only authorized post-budget live run failed with `submission_timeout` despite HTTP 200 research and inference responses. Test/spec RED batch and package correction remain to be verified; no new live run is implied.
+
 ## 2026-09-28
 
 - **Host sandbox prerequisite isolates Ubuntu apt sources in CI** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)). GitHub-hosted Ubuntu host tests fetch bubblewrap and AppArmor only from the runner's official Ubuntu package source, so an unrelated third-party apt outage cannot block required sandbox setup. Missing required sources or packages still fail; custom runners retain their package-source policy and the actual sandbox probe remains unchanged. The requested separate integration deploy `36498234641` stopped before deployment after both a Microsoft apt HTTP 403 in Host shard-2 and an unrelated non-JSON Wrangler transport response in the Node-Flue persistent-malformed case. Exact-head test/spec RED `f97bbbd7` / `36499479383` failed all five installer cases on the absent helper while Typecheck and Node-Flue passed. Final hosted CI and deployment retry pending; controlled command fixtures do not prove live apt or sandbox isolation.

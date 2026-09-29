@@ -26,7 +26,7 @@ export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest: number };
       productionEvidence?: ProductionEvidence; productionDecision?: unknown;
-      productionBehavior?: 'finish-early' | 'persistent-malformed'; holdResearch?: boolean }
+      productionBehavior?: 'finish-early' | 'persistent-malformed'; holdResearch?: boolean; holdInference?: boolean }
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
@@ -58,6 +58,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private readonly instance = crypto.randomUUID();
   private facet?: Promise<Facet>;
   private releaseBarrier?: () => void;
+  private releaseInference?: () => void;
   private readonly researchBarriers = new Map<string, () => void>();
 
   constructor(ctx: DurableObjectState, env: NativeEnv) {
@@ -155,13 +156,15 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 
   async send(delivery: NativeDelivery | { repository: string; pullRequest: number }, productionEvidence?: ProductionEvidence,
-    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed', holdResearch?: boolean) {
+    productionDecision?: unknown, productionBehavior?: 'finish-early' | 'persistent-malformed', holdResearch?: boolean,
+    holdInference?: boolean) {
     try {
       if (!('mode' in delivery) && productionEvidence) {
         await this.ctx.storage.put('fixture:production-evidence', productionEvidence);
         await this.ctx.storage.put('fixture:production-decision', productionDecision ?? null);
         await this.ctx.storage.put('fixture:production-behavior', productionBehavior ?? null);
         await this.ctx.storage.put('fixture:hold-research', holdResearch ?? false);
+        await this.ctx.storage.put('fixture:hold-inference', holdInference ?? false);
       }
       const path = 'mode' in delivery ? '/dispatcher' : '/agents/Dispatcher/dispatcher';
       const response = await (await this.child()).fetch(new Request(`https://flue.internal${path}`, {
@@ -172,7 +175,10 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       if (response.status === 202 && typeof body.submissionId === 'string') {
         const binding = await this.facetBridgeBinding();
         if (binding.status === 'current') {
-          const active = { submissionId: body.submissionId, generation: binding.generation, expiresAt: Date.now() + 5_000 };
+          const authority = await this.activityBinding();
+          if (!authority || authority.deadline <= Date.now()) throw new Error('Fixture authority expired');
+          const active = { submissionId: body.submissionId, generation: binding.generation,
+            expiresAt: holdInference ? Math.min(authority.deadline, Date.now() + 45_000) : Date.now() + 5_000 };
           await this.ctx.storage.put('fixture:active-submission', active);
           this.ctx.waitUntil(this.reconcileSubmission(active));
         }
@@ -242,6 +248,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   async release() {
     await this.ctx.storage.put('fixture:released', true);
     this.releaseBarrier?.();
+    this.releaseInference?.();
     for (const resource of ['release-notes', 'upstream-guide', 'changed-compose']) {
       this.researchBarriers.get(resource)?.();
     }
@@ -279,6 +286,12 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         priorInferences = calls.filter(call => call.path === '/v1/dispatcher/inference').length;
         calls.push({ path, status: 200, modelTurn: done ? 'after-tool' : 'initial' });
         await this.ctx.storage.put('fixture:production-calls', calls);
+        if (done && await this.ctx.storage.get('fixture:hold-inference')) {
+          await this.ctx.storage.put('fixture:barrier-reached', true);
+          if (!await this.ctx.storage.get('fixture:released')) await new Promise<void>(resolve => {
+            this.releaseInference = resolve;
+          });
+        }
       }
       // Deterministic two-turn model: research, then a model-proposed judgment.
       // The child must validate this untrusted judgment against the parent receipts.
@@ -514,7 +527,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest));
     case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,
-      command.productionDecision, command.productionBehavior, command.holdResearch));
+      command.productionDecision, command.productionBehavior, command.holdResearch, command.holdInference));
     case 'snapshot': return Response.json(await root.snapshot());
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());

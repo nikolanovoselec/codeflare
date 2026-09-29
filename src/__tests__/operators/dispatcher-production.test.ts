@@ -156,7 +156,7 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(now + 91_000);
+          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1);
           return Response.json({ number: 17, body: 'inline-secret',
             user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
             base: { sha: baseSha }, head: { sha: headSha } });
@@ -591,14 +591,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await f.activity.alarm();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
   }));
-  it('completes two inference turns and the exact assessment near the 90-second lease limit', () => fixture(async f => {
+  it('collects two inference turns and the exact assessment past the former 90-second budget while authority remains current', () => fixture(async f => {
     await start(f);
     const inference = (operationId: string) => new Request('https://operator.internal/v1/dispatcher/inference', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ operationId, input: { messages: [{ role: 'user', content: 'assess cited evidence' }] } }),
     });
     expect((await f.capability.fetch(inference('first-inference'))).status).toBe(200);
-    f.advanceClock(88_000);
+    f.advanceClock(112_000);
     expect((await f.capability.fetch(inference('second-inference'))).status).toBe(200);
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
@@ -606,9 +606,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
     } });
   }));
-  it('fences a late assessment after the bounded lease even while human authority remains current', () => fixture(async f => {
+  it('fences a late assessment after the original human authorization expires', () => fixture(async f => {
     await start(f);
-    f.advanceClock(91_000);
+    f.advanceClock(301_000);
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
@@ -627,9 +627,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
   }, { humanLifetimeSeconds: 45 }));
-  it('denies a revoked invoker after the former cutoff while the extended lease is current', () => fixture(async f => {
+  it('denies a revoked invoker past the former 90-second cutoff while human authority is otherwise current', () => fixture(async f => {
     await start(f);
-    f.advanceClock(31_000);
+    f.advanceClock(112_000);
     expect((await f.capability.fetch(read('before-revocation'))).status).toBe(200);
     f.revoke();
     expect((await f.capability.fetch(read('after-revocation'))).status).toBe(403);

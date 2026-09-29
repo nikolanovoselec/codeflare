@@ -285,6 +285,34 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(value.activity.sessionId).toBeNull();
     });
 
+    it('settles a cited second-turn assessment after the former child timeout without extending human authority', async () => {
+      const { id } = await prepare();
+      const startedAt = Date.now();
+      try {
+        const admitted = await command<{ status: number; body: { submissionId: string } }>(id, {
+          action: 'send', delivery: { repository: 'owner/repository', pullRequest: 17 },
+          productionEvidence: assessmentEvidence(), productionDecision: decision('safe', compatible), holdInference: true,
+        });
+        expect(admitted.status).toBe(202);
+        await observe(id, value => value.barrierReached
+          && value.productionCalls.some(call => call.path === '/v1/dispatcher/inference' && call.modelTurn === 'after-tool'));
+        await new Promise(resolve => setTimeout(resolve, 29_000));
+        const held = await snapshot(id);
+        expect(held.conversation?.settlements.some(item => item.submissionId === admitted.body.submissionId)).toBe(false);
+        await command(id, { action: 'release' });
+        const value = await observe(id, state => state.activity.executionStatus === 'waiting'
+          && state.conversation?.settlements.some(item => item.submissionId === admitted.body.submissionId
+            && item.outcome === 'completed') === true, 12_000);
+        expect(Date.now() - startedAt).toBeGreaterThan(27_000);
+        const result = results(value).at(-1);
+        expect(parsePublishableAssessment(result)).toMatchObject({ classification: 'safe', observedHead: 'b'.repeat(40) });
+        expect(value.activity.checkpoint).not.toBeNull();
+      } finally {
+        await command(id, { action: 'release' });
+        await command(id, { action: 'abort' });
+      }
+    }, 55_000);
+
     it.each(['missing-notes', 'missing-guide', 'missing-config', 'stale-head', 'unsupported-notes', 'malformed-decision'] as const)(
       'records unknown for $name rather than inventing compatibility or mutating', async scenario => {
         const { id } = await prepare();
