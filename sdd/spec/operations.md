@@ -749,7 +749,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
 
-**Verification:** Automated committed runtime-lock integrity tests
+**Verification:** Automated committed runtime-lock integrity tests. Security-floor RED `78d3ec471dc8454ad694b36bbfde836e37fb1a9f` / PR Checks `36537064228` failed as intended on the old Pi undici 8.9.0 resolution and the old 7.29.0 regeneration pin. The ip-address regeneration fixture assertion was added during implementation, not in the remote RED batch; final exact-head GREEN and default-branch alert clearance remain separate.
 
 **Status:** Implemented
 

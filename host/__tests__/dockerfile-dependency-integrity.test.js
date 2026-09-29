@@ -212,13 +212,16 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       }
     }
 
-    for (const lockfile of [npmToolsLock, piLock, browserRunLock]) {
+    for (const [lockfile, manifest] of [[npmToolsLock, npmToolsPackage], [piLock, piPackage],
+      [browserRunLock, browserRunPackage]]) {
       const versions = versionsOf(lockfile, 'ip-address');
       assert.ok(versions.length > 0, 'ip-address must be represented in each affected runtime lock');
       assert.ok(
         versions.every((version) => version.startsWith('10.') && atLeast(version, '10.5.1')),
         `ip-address versions ${versions.join(', ')} must all be patched for NAT64 local-use classification`,
       );
+      assert.ok(manifest.overrides['ip-address'].startsWith('10.') &&
+        atLeast(manifest.overrides['ip-address'], '10.5.1'), 'the runtime override must not restore vulnerable ip-address');
     }
 
     for (const [lockfile, manifest] of [[rootLock, rootPackage], [wranglerLock, wranglerPackage]]) {

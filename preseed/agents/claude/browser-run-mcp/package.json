@@ -11,6 +11,7 @@
     "@modelcontextprotocol/sdk": "1.30.0"
   },
   "overrides": {
-    "@hono/node-server": "2.0.12"
+    "@hono/node-server": "2.0.12",
+    "ip-address": "10.7.2"
   }
 }

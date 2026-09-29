@@ -35,6 +35,11 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
             resolved: 'old-8',
             integrity: 'old-8',
           },
+          'node_modules/vendor/node_modules/ip-address': {
+            version: '10.4.0',
+            resolved: 'old-ip',
+            integrity: 'old-ip',
+          },
           'node_modules/scoped': {
             version: '2.0.0',
             resolved: 'https://registry.example/scoped-2.0.0.tgz',
@@ -79,6 +84,13 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
         integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
         license: 'MIT',
         engines: { node: '>=22.19.0' },
+      });
+      assert.deepEqual(lock.packages['node_modules/vendor/node_modules/ip-address'], {
+        version: '10.7.2',
+        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.2.tgz',
+        integrity: 'sha512-7H/2gFSIitxc0hG3nOI1glS8QLo/EHBFFLk8vEUjXY/xu0AdL8jZ9U1IzO2PUm0d2D/ofQcAifb0g6OBkt8U7w==',
+        license: 'MIT',
+        engines: { node: '>= 12' },
       });
       assert.equal(
         lock.packages['node_modules/vendor/node_modules/scoped'].integrity,
