@@ -20,7 +20,9 @@ type Snapshot = {
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
-  tailProbe: { activityId: string; generation: number; diagnostics: Array<{ stage: string; status?: number }> } | null;
+  tailProbe: { activityId: string; generation: number;
+    diagnostics: Array<{ activityId: string; generation: number; stage: string; status?: number }>;
+    shape: Array<{ level: string; message: string[] | string }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
     settlements: Array<{ submissionId: string; outcome: string;
@@ -366,6 +368,11 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(settlement).toMatchObject({ outcome: 'failed', error: { type: 'operation_failed',
         meta: { operation: `direct(${admitted.body.submissionId})`, reason: 'Parent inference denied: 422' } } });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').at(-1)?.status).toBe(422);
+      const diagnosed = await observe(id, state => state.tailProbe?.diagnostics.some(item =>
+        item.stage === 'http-rejected' && item.status === 422) === true);
+      expect(diagnosed.tailProbe).toMatchObject({ activityId: id, generation: 1,
+        diagnostics: [{ activityId: id, generation: 1, stage: 'http-rejected', status: 422 }] });
+      expect(JSON.stringify(diagnosed.tailProbe)).not.toContain('fixture model rejected');
       expect(results(value)).toEqual([]);
       expect(value.activity.executionStatus).toBe('unknown');
       expect(value.external).toEqual([]);
@@ -374,9 +381,10 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
     it('captures only sanitized child warnings through an actual Loader Tail Worker', async () => {
       const { id } = await prepare();
       expect(await command(id, { action: 'tail-probe' })).toEqual({ status: 200, body: 'ok' });
-      const value = await observe(id, state => state.tailProbe !== null);
-      expect(value.tailProbe).toEqual({ activityId: id, generation: 1, diagnostics: [
-        { stage: 'fetch-rejected' }, { stage: 'http-rejected', status: 422 },
+      const value = await observe(id, state => state.tailProbe?.diagnostics.length === 2);
+      expect(value.tailProbe).toMatchObject({ activityId: id, generation: 1, diagnostics: [
+        { activityId: id, generation: 1, stage: 'fetch-rejected' },
+        { activityId: id, generation: 1, stage: 'http-rejected', status: 422 },
       ] });
       expect(JSON.stringify(value.tailProbe)).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
       expect(value.activity.executionStatus).toBe('running');
@@ -419,6 +427,13 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         expect(settlement?.outcome).toBe('failed');
         expect(value.activity.executionStatus).toBe('unknown');
       } else expect(value.activity.executionStatus).not.toBe('waiting');
+      if (mode === 'fetch-reject' || mode === 'abort-reject') {
+        const diagnosed = await observe(id, state => state.tailProbe?.diagnostics.some(item =>
+          item.stage === 'fetch-rejected') === true);
+        expect(diagnosed.tailProbe).toMatchObject({ activityId: id, generation: 1,
+          diagnostics: [{ activityId: id, generation: 1, stage: 'fetch-rejected' }] });
+        expect(JSON.stringify(diagnosed.tailProbe)).not.toContain(sentinel);
+      }
       expect(results(value)).toEqual([]);
       expect(value.activity.result).toBeNull();
       expect(value.external).toEqual([]);

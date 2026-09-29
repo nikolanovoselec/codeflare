@@ -13,6 +13,7 @@ import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
+export { OperatorDispatcherTail } from '../../../operators/activity';
 /** Native eviction fixture proves state survives a new DO instance, not isolate memory. */
 export class FixtureActivity extends OperatorActivity {
   private readonly instanceId = crypto.randomUUID();

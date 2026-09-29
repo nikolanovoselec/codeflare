@@ -84,6 +84,7 @@ interface RenovatePublication {
     mergeSha?: string; remoteMerged?: boolean }>>;
 }
 const dispatcherLog = createLogger('dispatcher-settlement');
+const dispatcherTailLog = createLogger('dispatcher-inference-tail');
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
   '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
@@ -1364,12 +1365,17 @@ export class OperatorActivity extends Agent {
         bundle = await parseDispatcherBundle(bytes, lease.artifactDigest);
       }
       const context = this.ctx as unknown as {
-        exports: { OperatorDispatcherCapability(options: { props: { activityId: string; generation: number } }): Fetcher };
+        exports: {
+          OperatorDispatcherCapability(options: { props: { activityId: string; generation: number } }): Fetcher;
+          OperatorDispatcherTail(options: { props: { activityId: string; generation: number } }): OperatorDispatcherTail;
+        };
         facets: { get(name: string, init: () => unknown): DispatcherFacet };
       };
-      const capability = context.exports.OperatorDispatcherCapability({ props: { activityId: plan.activityId, generation: lease.generation } });
+      const props = { activityId: plan.activityId, generation: lease.generation };
+      const capability = context.exports.OperatorDispatcherCapability({ props });
+      const tail = context.exports.OperatorDispatcherTail({ props });
       const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
-        plan.activityId, lease.generation, capability);
+        plan.activityId, lease.generation, capability, tail);
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -2062,6 +2068,55 @@ export class OperatorActivity extends Agent {
   async getAdmission(): Promise<ActivityAdmissionProjection | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state ? { activityId: state.intent.activityId, phase: state.phase, receipt: state.receipt } : null;
+  }
+}
+
+type DispatcherChildDiagnostic = { stage: 'fetch-rejected' } | { stage: 'http-rejected'; status: number };
+
+/** Only exact fixed child warnings enter trusted parent observability. No child text or IDs cross the filter. */
+export function filterDispatcherTailEvents(events: unknown): DispatcherChildDiagnostic[] {
+  const result: DispatcherChildDiagnostic[] = [];
+  if (!Array.isArray(events)) return result;
+  let inspected = 0;
+  for (const event of events.slice(0, 64)) {
+    if (!event || typeof event !== 'object' || !Array.isArray(event.logs)) continue;
+    for (const log of event.logs) {
+      if (++inspected > 128 || result.length >= 8) return result;
+      if (!log || typeof log !== 'object' || log.level !== 'warn'
+        || !Array.isArray(log.message) || log.message.length !== 2
+        || log.message[0] !== 'Dispatcher inference boundary') continue;
+      const value: unknown = log.message[1];
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const data = value as Record<string, unknown>;
+      let fields = 0;
+      let allowed = true;
+      for (const key in data) {
+        if (++fields > 2 || (key !== 'stage' && key !== 'status')) { allowed = false; break; }
+      }
+      if (!allowed || !Object.hasOwn(data, 'stage')) continue;
+      if (data.stage === 'fetch-rejected' && fields === 1) result.push({ stage: 'fetch-rejected' });
+      else if (data.stage === 'http-rejected' && fields === 2 && Object.hasOwn(data, 'status')
+        && typeof data.status === 'number' && Number.isInteger(data.status)
+        && data.status >= 300 && data.status <= 599) result.push({ stage: 'http-rejected', status: data.status });
+    }
+  }
+  return result;
+}
+
+/** Platform Tail delivery runs after the child event. Failure here cannot affect its settlement. */
+export class OperatorDispatcherTail extends WorkerEntrypoint<AppEnv> {
+  async tail(events: unknown): Promise<void> {
+    try {
+      const props = this.ctx.props as { activityId?: unknown; generation?: unknown } | undefined;
+      if (!props || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
+        || typeof props.generation !== 'number' || !Number.isSafeInteger(props.generation)
+        || props.generation < 1) return;
+      for (const diagnostic of filterDispatcherTailEvents(events)) {
+        dispatcherTailLog.warn('Dispatcher child inference diagnostic', {
+          activityId: props.activityId, generation: props.generation, ...diagnostic,
+        });
+      }
+    } catch { /* untrusted child logs and telemetry failures never affect execution */ }
   }
 }
 

@@ -9,7 +9,8 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
 import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
-import * as operatorActivity from '../../../operators/activity';
+import { OperatorDispatcherTail } from '../../../operators/activity';
+import { setLogLevel } from '../../../lib/logger';
 
 export type NativeArtifact = {
   schemaVersion: 1; sourceCommit: string;
@@ -119,6 +120,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       }
       const { exports } = this.ctx as unknown as { exports: {
         FixtureFlueTransport(options: { props: { activityId: string; generation: number } }): Fetcher;
+        FixtureTailProbe(options: { props: { activityId: string; generation: number } }): unknown;
       } };
       // A continuation generation receives a newly bound dynamic class while
       // retaining the same activity-private facet identity/SQLite. Reusing the
@@ -131,6 +133,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
         // Its generation is captured here from the owner, never from delivery.
         env: { OPERATOR: exports.FixtureFlueTransport({ props: { activityId: this.name, generation: binding.generation } }) },
         globalOutbound: null,
+        tails: [exports.FixtureTailProbe({ props: { activityId: this.name, generation: binding.generation } })],
       }));
       const { facets } = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): Facet } };
       const child = facets.get('dispatcher', () => ({
@@ -223,8 +226,10 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     await this.ctx.storage.delete('fixture:active-submission');
   }
 
-  async recordTailProbe(generation: number, diagnostics: unknown) {
-    await this.ctx.storage.put('fixture:tail-probe', { activityId: this.name, generation, diagnostics });
+  async recordTailProbe(generation: number, diagnostics: unknown, shape: unknown) {
+    const prior = await this.ctx.storage.get<{ diagnostics?: unknown[] }>('fixture:tail-probe');
+    if (prior?.diagnostics?.length && (!Array.isArray(diagnostics) || diagnostics.length === 0)) return;
+    await this.ctx.storage.put('fixture:tail-probe', { activityId: this.name, generation, diagnostics, shape });
   }
 
   async tailProbe() {
@@ -509,10 +514,35 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
 export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
   async tail(events: unknown) {
     const { activityId, generation } = this.ctx.props as { activityId: string; generation: number };
-    const filter = (operatorActivity as unknown as { filterDispatcherTailEvents: (events: unknown) => unknown[] })
-      .filterDispatcherTailEvents;
-    const diagnostics = filter(events);
-    await this.env.FLUE_ROOT.getByName(activityId).recordTailProbe(generation, diagnostics);
+    const shape = Array.isArray(events) ? events.slice(0, 2).flatMap(event =>
+      Array.isArray(event?.logs) ? event.logs.slice(0, 6).map((log: unknown) => {
+        const item = log as { level?: unknown; message?: unknown } | null;
+        return { level: item?.level === 'warn' ? 'warn' : 'other',
+          message: Array.isArray(item?.message) ? item.message.map((part: unknown) =>
+            part === 'Dispatcher inference boundary' ? 'marker' : typeof part) : typeof item?.message };
+      }) : []) : [];
+    const root = this.env.FLUE_ROOT.getByName(activityId);
+    await root.recordTailProbe(generation, [], shape);
+    const captured: unknown[] = [];
+    const original = console.warn;
+    setLogLevel('warn');
+    console.warn = (value: unknown) => { if (captured.length < 8) captured.push(value); };
+    let completion!: Promise<void>;
+    try {
+      const tail = new OperatorDispatcherTail(this.ctx, this.env as unknown as ConstructorParameters<typeof OperatorDispatcherTail>[1]);
+      completion = tail.tail(events);
+    } finally { console.warn = original; setLogLevel('info'); }
+    await completion;
+    const diagnostics = captured.flatMap(value => {
+      try {
+        const entry = typeof value === 'string' ? JSON.parse(value) as {
+          module?: unknown; message?: unknown; data?: unknown,
+        } : null;
+        return entry?.module === 'dispatcher-inference-tail' && entry.message === 'Dispatcher child inference diagnostic'
+          && entry.data && typeof entry.data === 'object' ? [entry.data] : [];
+      } catch { return []; }
+    });
+    await root.recordTailProbe(generation, diagnostics, shape);
   }
 }
 

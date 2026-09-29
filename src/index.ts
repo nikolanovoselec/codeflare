@@ -564,7 +564,7 @@ export default {
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
-export { OperatorActivity, OperatorDispatcherCapability } from './operators/activity';
+export { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail } from './operators/activity';
 export { OperatorRuntimeCapability } from './operators/operator-runtime-capability';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the

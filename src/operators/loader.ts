@@ -15,6 +15,7 @@ interface OperatorLoaderCode {
   modules: OperatorBundle['modules'];
   env: { OPERATOR: Fetcher };
   globalOutbound: Fetcher | null;
+  tails?: Array<{ tail(events: unknown): Promise<void> }>;
 }
 
 export interface OperatorLoaderBinding {
@@ -62,6 +63,7 @@ export function loadOperatorDispatcherClass(
   activityId: string,
   generation: number,
   capability: Fetcher,
+  tail: { tail(events: unknown): Promise<void> },
 ): unknown {
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1) {
@@ -74,5 +76,6 @@ export function loadOperatorDispatcherClass(
     modules: bundle.modules,
     env: { OPERATOR: capability },
     globalOutbound: null,
+    tails: [tail],
   })).getDurableObjectClass(bundle.className);
 }
