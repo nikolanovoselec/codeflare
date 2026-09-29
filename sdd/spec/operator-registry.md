@@ -37,7 +37,7 @@ This release extends the existing Operator foundation with GitHub package instal
 **Acceptance Criteria:**
 
 1. Registration resolves a canonical GitHub repository identity and protects its acquisition-only PAT. <!-- @impl: src/operators/github-release-management.ts::registerGithubOperator --> <!-- @test: src/__tests__/operators/github-release-source.test.ts (REQ-OPERATOR-044) -->
-2. Promotion accepts only bounded immutable assets with matching repository, approved workflow provenance and digest. Provenance may name the approved workflow as its exact path-qualified ref or its exact branch ref; both require the same verified workflow ID, run path and branch. <!-- @impl: src/operators/github-release-management.ts::acquireRelease --> <!-- @test: src/__tests__/operators/github-release-source.test.ts (REQ-OPERATOR-044) -->
+2. Promotion accepts only bounded immutable assets with matching repository, approved workflow provenance and digest. Provenance may name the approved workflow as its exact path-qualified ref or its exact branch ref; both require the same verified workflow ID, run path and branch. Discovery of a new release reuses already-verified, unchanged same-source releases without reacquiring their bytes; a changed retained identity is rejected and newly acquired bytes remain under the existing aggregate budget before one atomic Registry commit. Retained installation pins and rollback releases remain unchanged. <!-- @impl: src/operators/github-release-management.ts::acquireRelease --> <!-- @impl: src/operators/github-release-management.ts::refreshGithubReleases --> <!-- @test: src/__tests__/operators/github-release-source.test.ts (REQ-OPERATOR-044) -->
 3. Unsafe URLs or redirects, unavailable bytes, and provenance, digest, or schema mismatches fail without credential disclosure or enablement. <!-- @impl: src/operators/github-release-management.ts::githubBytes --> <!-- @impl: src/operators/github-release-management.ts::acquireRelease --> <!-- @test: src/__tests__/operators/github-release-source.test.ts (REQ-OPERATOR-044) -->
 4. The shared package compiler deterministically emits the approved bundle schema, exact resource digests and sizes, and a matching discovery manifest. <!-- @impl: scripts/operator-package/compiler.mjs::compileOperatorPackage --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
 5. The package compiler rejects unsafe paths and package-supplied authority rather than inferring policy or bindings. <!-- @impl: scripts/operator-package/compiler.mjs::compileOperatorPackage --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
@@ -53,7 +53,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Verification:** Adjacent acquisition and compiler tests cover the delivered behavior; exact-head CI remains outstanding.
 
-**Status:** Partial
+**Status:** Planned; incremental discovery and retained-version acceptance require exact-head CI and Enterprise Integration readback. Other acquisition criteria remain independently verified by existing tests.
 
 ---
 
