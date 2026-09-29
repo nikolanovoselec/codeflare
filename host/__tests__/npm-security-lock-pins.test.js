@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 
 const script = fileURLToPath(new URL('../../scripts/apply-npm-security-lock-pins.mjs', import.meta.url));
 
-describe('REQ-OPS-019: bounded npm security lock pins', () => {
+describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
   it('replaces every vulnerable bundled security pin and preserves unrelated packages', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-security-lock-'));
     const lockPath = join(directory, 'package-lock.json');
@@ -34,6 +34,7 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
             version: '8.9.0',
             resolved: 'old-8',
             integrity: 'old-8',
+            dev: true,
           },
           'node_modules/vendor/node_modules/ip-address': {
             version: '10.4.0',
@@ -84,6 +85,7 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
         integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
         license: 'MIT',
         engines: { node: '>=22.19.0' },
+        dev: true,
       });
       assert.deepEqual(lock.packages['node_modules/vendor/node_modules/ip-address'], {
         version: '10.7.2',
@@ -109,6 +111,27 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  function assertPatchedTransportLock(relativePath) {
+    const lock = JSON.parse(readFileSync(new URL(relativePath, import.meta.url), 'utf8'));
+    const transports = Object.entries(lock.packages).filter(([path]) =>
+      path === 'node_modules/undici' || path.endsWith('/node_modules/undici'));
+    assert.ok(transports.length > 0, `${relativePath} must include the audited transport`);
+    for (const [path, metadata] of transports) {
+      const [major, minor, patch] = metadata.version.split('.').map(Number);
+      assert.ok(major > 8 || (major === 8 && (minor > 10 || (minor === 10 && patch >= 2))),
+        `${relativePath}:${path} must include the 8.10.2 security fix`);
+      assert.equal(metadata.dev, true, `${relativePath}:${path} remains a development-only dependency`);
+    }
+  }
+
+  it('keeps host transport lock above the patched GHSA-vp8m-p9jh-q5pm floor', () => {
+    assertPatchedTransportLock('../package-lock.json');
+  });
+
+  it('keeps UI transport lock above the patched GHSA-vp8m-p9jh-q5pm floor', () => {
+    assertPatchedTransportLock('../../web-ui/package-lock.json');
   });
 
   it('fails closed for malformed lockfiles', () => {
