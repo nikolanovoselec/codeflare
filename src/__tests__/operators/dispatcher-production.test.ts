@@ -155,7 +155,7 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(now + 26_000);
+          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(now + 31_000);
           return Response.json({ number: 17, body: 'inline-secret',
             user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
             base: { sha: baseSha }, head: { sha: headSha } });
