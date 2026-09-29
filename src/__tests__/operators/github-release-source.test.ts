@@ -282,7 +282,8 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
   }));
 
   it.each(['productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
-    'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net'] as const)(
+    'productionresultssa6.blob.core.windows.net', 'productionresultssa8.blob.core.windows.net',
+    'productionresultssa16.blob.core.windows.net'] as const)(
     'REQ-OPERATOR-044: release CDN transport via %s succeeds without forwarding acquisition credentials', async artifactCdnHost => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
     vi.stubGlobal('fetch', fixture.fetcher);
@@ -305,5 +306,22 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(fixture.requests.some(outbound => outbound.origin === 'https://api.github.com'
       && outbound.authorization === `Bearer ${registration.githubPat}`)).toBe(true);
     expect(JSON.stringify(discovered)).not.toContain(registration.githubPat);
+  }));
+
+  it('rejects an unapproved adjacent Actions artifact CDN host without forwarding the PAT or committing a release', async () => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost: 'productionresultssa66.blob.core.windows.net' });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } });
+    expect(controls.status).toBe(200);
+    const registered = await request('/operators', 'POST', registration);
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(503);
+    expect(await refreshed.text()).not.toContain(registration.githubPat);
+    const detail = await (await request(`/operators/${operator.operatorId}`)).json() as { releases: unknown[] };
+    expect(detail.releases).toHaveLength(0);
+    expect(fixture.requests.some(outbound => outbound.origin === 'https://productionresultssa66.blob.core.windows.net')).toBe(false);
   }));
 });

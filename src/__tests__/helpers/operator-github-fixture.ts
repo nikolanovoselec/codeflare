@@ -54,7 +54,8 @@ export type GitHubFixtureFault = 'provenance-repository' | 'provenance-compiler'
 export async function createOperatorGitHubFixture(options: {
   fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
   artifactCdnHost?: 'productionresultssa1.blob.core.windows.net' | 'productionresultssa3.blob.core.windows.net'
-    | 'productionresultssa8.blob.core.windows.net' | 'productionresultssa16.blob.core.windows.net';
+    | 'productionresultssa6.blob.core.windows.net' | 'productionresultssa8.blob.core.windows.net'
+    | 'productionresultssa16.blob.core.windows.net' | 'productionresultssa66.blob.core.windows.net';
   profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
   omitCompilerCommit?: boolean; provenanceWorkflowRef?: string;
   bundlePaddingBytes?: number; releaseCount?: number;
