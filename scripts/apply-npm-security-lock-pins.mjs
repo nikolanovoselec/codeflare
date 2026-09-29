@@ -76,7 +76,7 @@ function main() {
     }
 
     if (!securityPin || compareVersions(metadata.version, securityPin.version) >= 0) continue;
-    lock.packages[packagePath] = { ...securityPin };
+    lock.packages[packagePath] = { ...securityPin, ...(metadata.dev === true ? { dev: true } : {}) };
     changed = true;
   }
 
