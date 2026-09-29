@@ -5,7 +5,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { flueFixture } from './flue-native-fixture';
-export { FixtureFlueRoot, FixtureFlueTransport } from './flue-native-fixture';
+export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';

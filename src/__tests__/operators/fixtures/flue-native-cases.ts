@@ -20,6 +20,7 @@ type Snapshot = {
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
+  tailProbe: { activityId: string; generation: number; diagnostics: Array<{ stage: string; status?: number }> } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
     settlements: Array<{ submissionId: string; outcome: string;
@@ -368,6 +369,17 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(results(value)).toEqual([]);
       expect(value.activity.executionStatus).toBe('unknown');
       expect(value.external).toEqual([]);
+    });
+
+    it('captures only sanitized child warnings through an actual Loader Tail Worker', async () => {
+      const { id } = await prepare();
+      expect(await command(id, { action: 'tail-probe' })).toEqual({ status: 200, body: 'ok' });
+      const value = await observe(id, state => state.tailProbe !== null);
+      expect(value.tailProbe).toEqual({ activityId: id, generation: 1, diagnostics: [
+        { stage: 'fetch-rejected' }, { stage: 'http-rejected', status: 422 },
+      ] });
+      expect(JSON.stringify(value.tailProbe)).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
+      expect(value.activity.executionStatus).toBe('running');
     });
 
     it.each([

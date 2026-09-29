@@ -34,7 +34,9 @@ async function digest(value: string | Uint8Array) {
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
-  artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
+  artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
+  deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
+  settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void;
@@ -90,6 +92,8 @@ async function fixture(test: (f: {
     let expireAfterRead = false;
     let exceedDeadline = false;
     const sent: Request[] = [];
+    const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
+    let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
     const child = {
@@ -111,6 +115,12 @@ async function fixture(test: (f: {
       facets: { configurable: true, value: { get: () => child } },
       exports: { configurable: true, value: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
+        OperatorDispatcherTail: ({ props }: { props: { activityId: string; generation: number } }) => ({
+          tail: async (events: unknown) => {
+            const stage = (events as Array<{ logs: Array<{ message: Array<{ stage?: string }> }> }>)[0]?.logs?.[0]?.message?.[1]?.stage;
+            if (stage) deliveredTail.push({ ...props, stage });
+          },
+        }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request);
           if (transportThrows) throw new Error('private transport failure');
@@ -177,7 +187,12 @@ async function fixture(test: (f: {
     };
     const environment = { ...encryption, ENTERPRISE_MODE: 'active',
       OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
-      LOADER: { get: () => ({ getDurableObjectClass: () => ({}) }) },
+      LOADER: { get: (_key: string, factory: () => Promise<{ tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
+        getDurableObjectClass: () => {
+          configuredTail = factory().then(code => code.tails?.[0] as { tail(events: unknown): Promise<void> });
+          return {};
+        },
+      }) },
     } as unknown as Env;
     const activityEnvironment = environment as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     activity = new OperatorActivity(context, activityEnvironment);
@@ -194,7 +209,9 @@ async function fixture(test: (f: {
     const staleCapability = new OperatorDispatcherCapability({ props: { activityId, generation: 2 } } as unknown as ExecutionContext,
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
-      await test({ activity, capability, staleCapability, environment, artifactDigest, sent,
+      await test({ activity, capability, staleCapability, environment, artifactDigest, activityId, deliveredTail,
+        deliverTail: async events => { if (!configuredTail) throw new Error('No configured Dispatcher tail');
+          await (await configuredTail).tail(events); }, sent,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
           settlements = [{ submissionId: id, outcome, error }];
           if (id === 'submission-1' && outcome === 'completed' && !messagesSet) {
@@ -270,6 +287,11 @@ async function start(f: Parameters<Parameters<typeof fixture>[0]>[0]) {
 }
 
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
+  it('binds only this Activity and generation into the child Tail Worker', () => fixture(async f => {
+    await start(f);
+    await f.deliverTail([{ logs: [{ message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] }] }]);
+    expect(f.deliveredTail).toEqual([{ activityId: f.activityId, generation: 1, stage: 'fetch-rejected' }]);
+  }));
   it('exposes only PR identity, never a secret-bearing description', () => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(read('project-pr'));

@@ -92,9 +92,11 @@ describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
       return { getDurableObjectClass };
     }) };
     const capability = { fetch: vi.fn() } as unknown as Fetcher;
+    const tail = { tail: async (_events: unknown) => {} };
 
     const digest = 'b'.repeat(64);
-    const loaded = loadOperatorDispatcherClass(loader, bundle, digest, 'activity-1', 3, capability);
+    const loaded = (loadOperatorDispatcherClass as (...args: unknown[]) => unknown)(
+      loader, bundle, digest, 'activity-1', 3, capability, tail);
 
     expect(loaded).toBe(generatedClass);
     expect(loader.get).toHaveBeenCalledWith(`dispatcher:activity-1:${digest}:3`, expect.any(Function));
@@ -102,6 +104,7 @@ describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
     return expect(codeFactory!()).resolves.toEqual({
       compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
       mainModule: 'index.js', modules: bundle.modules, env: { OPERATOR: capability }, globalOutbound: null,
+      tails: [tail],
     });
   });
 

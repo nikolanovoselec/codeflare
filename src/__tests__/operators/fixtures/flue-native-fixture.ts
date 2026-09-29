@@ -9,6 +9,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
 import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
+import * as operatorActivity from '../../../operators/activity';
 
 export type NativeArtifact = {
   schemaVersion: 1; sourceCommit: string;
@@ -30,7 +31,8 @@ export type FlueFixtureCommand =
   | { action: 'snapshot' }
   | { action: 'release' }
   | { action: 'evict' }
-  | { action: 'abort' };
+  | { action: 'abort' }
+  | { action: 'tail-probe' };
 
 type FacetPath = readonly Readonly<{ className: string; name: string }>[];
 type Facet = Fetcher & {
@@ -221,6 +223,32 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     await this.ctx.storage.delete('fixture:active-submission');
   }
 
+  async recordTailProbe(generation: number, diagnostics: unknown) {
+    await this.ctx.storage.put('fixture:tail-probe', { activityId: this.name, generation, diagnostics });
+  }
+
+  async tailProbe() {
+    const { exports } = this.ctx as unknown as { exports: { FixtureTailProbe(options: {
+      props: { activityId: string; generation: number },
+    }): unknown } };
+    const source = `export default { fetch() {
+      console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+      console.warn('Dispatcher inference boundary', { stage: 'http-rejected', status: 422 });
+      console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected', reason: 'PRIVATE_PROVIDER_BODY_SENTINEL' });
+      console.warn('PRIVATE_PROVIDER_BODY_SENTINEL');
+      console.error('PRIVATE_PROVIDER_BODY_SENTINEL');
+      return new Response('ok');
+    } }`;
+    const worker = this.env.LOADER.get(`tail-probe:${this.name}`, async () => ({
+      compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
+      mainModule: 'probe.js', modules: { 'probe.js': { js: source } },
+      env: {}, globalOutbound: null,
+      tails: [exports.FixtureTailProbe({ props: { activityId: this.name, generation: 1 } })],
+    })) as unknown as { getEntrypoint(): Fetcher };
+    const response = await worker.getEntrypoint().fetch(new Request('https://probe.internal/'));
+    return { status: response.status, body: await response.text() };
+  }
+
   async snapshot() {
     let conversation: unknown = null;
     let facet: unknown = null;
@@ -240,6 +268,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       external: await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [],
       externalAttempts: await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [],
       productionCalls: await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [],
+      tailProbe: await this.ctx.storage.get('fixture:tail-probe') ?? null,
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
       digest: await this.ctx.storage.get('fixture:digest'),
     };
@@ -477,6 +506,16 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 }
 
+export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
+  async tail(events: unknown) {
+    const { activityId, generation } = this.ctx.props as { activityId: string; generation: number };
+    const filter = (operatorActivity as unknown as { filterDispatcherTailEvents: (events: unknown) => unknown[] })
+      .filterDispatcherTailEvents;
+    const diagnostics = filter(events);
+    await this.env.FLUE_ROOT.getByName(activityId).recordTailProbe(generation, diagnostics);
+  }
+}
+
 export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
   #root(): Promise<FixtureFlueRootStub> {
     const { activityId } = this.ctx.props as { activityId: string; generation: number };
@@ -548,6 +587,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
     case 'snapshot': return Response.json(await root.snapshot());
     case 'release': return Response.json(await root.release());
     case 'abort': return Response.json(await root.abort());
+    case 'tail-probe': return Response.json(await root.tailProbe());
     case 'evict':
       await root.evict().catch(() => {});
       return Response.json({ evicted: true });
