@@ -341,6 +341,12 @@ function isDirectManagedCheck(words: string[]): boolean {
 }
 
 export function isLocalBuildCommand(command: string): boolean {
+  const commands = executableShellCommands(command);
+  // Git staging arguments can name test tools without executing them. Chained
+  // commands and command substitutions are parsed separately and remain guarded.
+  if (commands.length > 0 && commands.every((words) => operationAfterGlobalOptions(words, "git") === "add")) {
+    return false;
+  }
   const executableCommand = withoutHeredocBodies(command);
   return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
     || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand)
