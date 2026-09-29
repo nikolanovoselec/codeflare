@@ -235,14 +235,18 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     await this.ctx.storage.delete('fixture:active-submission');
   }
 
-  async recordTailProbe(generation: number, diagnostics: unknown[], shape: unknown[]) {
+  async recordTailProbe(generation: number, diagnostics: unknown[], summary: TailProbeSummary) {
     await this.ctx.storage.transaction(async storage => {
-      const prior = await storage.get<{ generation: number; diagnostics: unknown[]; shape: unknown[] }>('fixture:tail-probe');
+      const prior = await storage.get<{ generation: number; diagnostics: unknown[]; summary: TailProbeSummary }>('fixture:tail-probe');
       const current = prior?.generation === generation ? prior : null;
+      const fields: Array<keyof TailProbeSummary> = ['deliveries', 'accepted', 'markerObject', 'markerString',
+        'unmarkedStringObject', 'unmarkedTwoStrings', 'otherLogs'];
+      const accumulated = {} as TailProbeSummary;
+      for (const field of fields) accumulated[field] = Math.min(255, (current?.summary?.[field] ?? 0) + summary[field]);
       await storage.put('fixture:tail-probe', {
         activityId: this.name, generation,
         diagnostics: [...(current?.diagnostics ?? []), ...diagnostics].slice(0, 8),
-        shape: shape.length ? shape.slice(0, 12) : current?.shape ?? [],
+        summary: accumulated,
       });
     });
   }
@@ -529,16 +533,35 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   }
 }
 
+// Counts only nonempty deliveries recorded by this test sink, not all platform Tail invocations.
+type TailProbeSummary = { deliveries: number; accepted: number; markerObject: number; markerString: number;
+  unmarkedStringObject: number; unmarkedTwoStrings: number; otherLogs: number };
+
 export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
   async tail(events: unknown) {
     const { activityId, generation } = this.ctx.props as { activityId: string; generation: number };
-    const shape = Array.isArray(events) ? events.slice(0, 2).flatMap(event =>
-      Array.isArray(event?.logs) ? event.logs.slice(0, 6).map((log: unknown) => {
-        const item = log as { level?: unknown; message?: unknown } | null;
-        return { level: item?.level === 'warn' ? 'warn' : 'other',
-          message: Array.isArray(item?.message) ? item.message.map((part: unknown) =>
-            part === 'Dispatcher inference boundary' ? 'marker' : typeof part) : typeof item?.message };
-      }) : []) : [];
+    const summary: TailProbeSummary = { deliveries: 1, accepted: 0, markerObject: 0, markerString: 0,
+      unmarkedStringObject: 0, unmarkedTwoStrings: 0, otherLogs: 0 };
+    if (Array.isArray(events)) {
+      let inspected = 0;
+      for (const event of events.slice(0, 64)) {
+        if (!Array.isArray(event?.logs)) continue;
+        for (const log of event.logs) {
+          if (++inspected > 128) break;
+          const parts: unknown[] = Array.isArray(log?.message) ? log.message : [];
+          if (log?.level !== 'warn' || parts.length !== 2) { summary.otherLogs++; continue; }
+          if (parts[0] === 'Dispatcher inference boundary') {
+            if (parts[1] && typeof parts[1] === 'object' && !Array.isArray(parts[1])) summary.markerObject++;
+            else if (typeof parts[1] === 'string') summary.markerString++;
+            else summary.otherLogs++;
+          } else if (typeof parts[0] === 'string' && parts[1] && typeof parts[1] === 'object') {
+            summary.unmarkedStringObject++;
+          } else if (typeof parts[0] === 'string' && typeof parts[1] === 'string') {
+            summary.unmarkedTwoStrings++;
+          } else summary.otherLogs++;
+        }
+      }
+    }
     const captured: unknown[] = [];
     const original = console.warn;
     setLogLevel('warn');
@@ -558,8 +581,10 @@ export class FixtureTailProbe extends WorkerEntrypoint<NativeEnv> {
           && entry.data && typeof entry.data === 'object' ? [entry.data] : [];
       } catch { return []; }
     });
-    if (shape.length || diagnostics.length) {
-      await this.env.FLUE_ROOT.getByName(activityId).recordTailProbe(generation, diagnostics, shape);
+    summary.accepted = diagnostics.length;
+    if (summary.markerObject || summary.markerString || summary.unmarkedStringObject
+      || summary.unmarkedTwoStrings || summary.otherLogs || diagnostics.length) {
+      await this.env.FLUE_ROOT.getByName(activityId).recordTailProbe(generation, diagnostics, summary);
     }
   }
 }

@@ -22,7 +22,8 @@ type Snapshot = {
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   tailProbe: { activityId: string; generation: number;
     diagnostics: Array<{ activityId: string; generation: number; stage: string; status?: number }>;
-    shape: Array<{ level: string; message: string[] | string }> } | null;
+    summary: { deliveries: number; accepted: number; markerObject: number; markerString: number;
+      unmarkedStringObject: number; unmarkedTwoStrings: number; otherLogs: number } } | null;
   activity: { executionStatus: string; checkpoint: unknown; result: unknown; sessionId: string | null };
   conversation: { messages: Array<{ submissionId?: string; parts: Array<{ type: string; data?: Assessment }> }>;
     settlements: Array<{ submissionId: string; outcome: string;
@@ -388,13 +389,12 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       ] });
       expect(JSON.stringify(value.tailProbe)).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
       expect(await command(id, { action: 'tail-probe-empty' })).toEqual({ status: 200, body: 'ok' });
-      const retained = await observe(id, state => state.tailProbe?.shape.some(log =>
-        Array.isArray(log.message) && log.message.length === 2
-          && log.message[0] === 'string' && log.message[1] === 'object') === true);
+      const retained = await observe(id, state => (state.tailProbe?.summary.unmarkedStringObject ?? 0) > 0);
       expect(retained.tailProbe?.diagnostics).toMatchObject([
         { activityId: id, generation: 1, stage: 'fetch-rejected' },
         { activityId: id, generation: 1, stage: 'http-rejected', status: 422 },
       ]);
+      expect(retained.tailProbe?.summary).toMatchObject({ accepted: 2, markerObject: 3, unmarkedStringObject: 1 });
       expect(JSON.stringify(retained.tailProbe)).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
       expect(value.activity.executionStatus).toBe('running');
     });
