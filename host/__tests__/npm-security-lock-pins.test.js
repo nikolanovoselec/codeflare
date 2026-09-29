@@ -26,12 +26,12 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
             dependencies: { 'balanced-match': '^4.0.2' },
           },
           'node_modules/vendor-7/node_modules/undici': {
-            version: '7.28.0',
+            version: '7.29.0',
             resolved: 'old-7',
             integrity: 'old-7',
           },
           'node_modules/vendor-8/node_modules/undici': {
-            version: '8.5.0',
+            version: '8.9.0',
             resolved: 'old-8',
             integrity: 'old-8',
           },
@@ -67,16 +67,16 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
         'sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==',
       );
       assert.deepEqual(lock.packages['node_modules/vendor-7/node_modules/undici'], {
-        version: '7.29.0',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-7.29.0.tgz',
-        integrity: 'sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==',
+        version: '7.30.0',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.0.tgz',
+        integrity: 'sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==',
         license: 'MIT',
         engines: { node: '>=20.18.1' },
       });
       assert.deepEqual(lock.packages['node_modules/vendor-8/node_modules/undici'], {
-        version: '8.9.0',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-8.9.0.tgz',
-        integrity: 'sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==',
+        version: '8.11.2',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-8.11.2.tgz',
+        integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
         license: 'MIT',
         engines: { node: '>=22.19.0' },
       });

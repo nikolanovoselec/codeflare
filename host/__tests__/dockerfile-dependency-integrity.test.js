@@ -11,6 +11,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
 const rootPackage = readJson('package.json');
 const rootLock = readJson('package-lock.json');
+const landingLock = readJson('landing/package-lock.json');
 const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
 const npmToolsPackage = readJson('preseed/npm-tools/package.json');
 const npmToolsLock = readJson('preseed/npm-tools/package-lock.json');
@@ -195,7 +196,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     const floors = {
       'brace-expansion': '5.0.9',
       protobufjs: '7.6.5',
-      undici: '8.9.0',
+      undici: '8.10.2',
       ws: '8.21.0',
       '@hono/node-server': '2.0.5',
     };
@@ -215,21 +216,31 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       const versions = versionsOf(lockfile, 'ip-address');
       assert.ok(versions.length > 0, 'ip-address must be represented in each affected runtime lock');
       assert.ok(
-        versions.every((version) => atLeast(version, '10.3.1')),
-        `ip-address versions ${versions.join(', ')} must all be >= 10.3.1`,
+        versions.every((version) => version.startsWith('10.') && atLeast(version, '10.5.1')),
+        `ip-address versions ${versions.join(', ')} must all be patched for NAT64 local-use classification`,
       );
     }
 
-    for (const lockfile of [rootLock, wranglerLock]) {
+    for (const [lockfile, manifest] of [[rootLock, rootPackage], [wranglerLock, wranglerPackage]]) {
       const versions = versionsOf(lockfile, 'undici');
       assert.ok(versions.length > 0, 'undici must be represented in each 7.x runtime lock');
-      assert.ok(versions.every((version) => atLeast(version, '7.29.0')));
+      assert.ok(versions.every((version) => version.startsWith('7.') && atLeast(version, '7.29.1')));
+      assert.ok(atLeast(manifest.overrides.undici, '7.29.1'), 'the manifest override must not restore vulnerable undici');
       const sharpVersions = versionsOf(lockfile, 'sharp');
       assert.ok(sharpVersions.length > 0, 'sharp must be represented in each affected lock');
       assert.ok(sharpVersions.every((version) => atLeast(version, '0.35.4')));
       const libvipsVersions = versionsWithPrefix(lockfile, '@img/sharp-libvips-');
       assert.ok(libvipsVersions.length > 0, 'sharp libvips platform packages must be represented in each affected lock');
       assert.ok(libvipsVersions.every((version) => atLeast(version, '1.3.3')));
+    }
+    for (const lockfile of [landingLock, npmToolsLock, piLock]) {
+      const versions = versionsOf(lockfile, 'undici');
+      assert.ok(versions.length > 0, 'undici must be represented in each 8.x runtime lock');
+      assert.ok(versions.every((version) => version.startsWith('8.') && atLeast(version, '8.10.2')),
+        'WebSocket decompression failures must resolve patched undici');
+    }
+    for (const manifest of [npmToolsPackage, piPackage]) {
+      assert.ok(atLeast(manifest.overrides.undici, '8.10.2'), 'the manifest override must not restore vulnerable undici');
     }
     assert.ok(atLeast(rootLock.packages['node_modules/@emnapi/runtime'].version, '1.11.3'), 'sharp wasm runtime must satisfy the committed sharp tree');
 
