@@ -453,11 +453,15 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const pending: Promise<unknown>[] = [];
       (mockCtx as any).waitUntil = (work: Promise<unknown>) => { pending.push(work); };
       scanRuntime.enabled = true;
-      scanRuntime.result = { classification: 'unknown', observedHead: 'c'.repeat(40), baseSha: 'b'.repeat(40),
-        checks: { state: 'unavailable', observedHead: 'c'.repeat(40) },
-        reasons: ['Upstream compatibility is not established'],
-        compatibility: 'The release and configuration evidence is incomplete.',
-        citations: [], gaps: ['Missing upstream compatibility evidence'] };
+      scanRuntime.result = { repository: 'nikolanovoselec/komodo', pullRequest: 1302,
+        observedHead: 'c'.repeat(40), readOnly: true,
+        evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
+        bounds: { files: 1, checks: 0 },
+        assessment: { classification: 'unknown', observedHead: 'c'.repeat(40), baseSha: 'b'.repeat(40),
+          checks: { state: 'unavailable', observedHead: 'c'.repeat(40) },
+          reasons: ['Upstream compatibility is not established'],
+          compatibility: 'The release and configuration evidence is incomplete.',
+          citations: [], gaps: ['Missing upstream compatibility evidence'] } };
       (mockCtx as any).exports = { OperatorRuntimeCapability: () => ({ fetch: async () => Response.json({}) }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
         const url = new URL(request.url);
@@ -531,7 +535,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       finally { nextClock.mockRestore(); }
       expect((await activity.getBrowserDetail())?.activityId).toBe(detail?.activityId);
       expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
-      expect((await activity.getBrowserDetail())?.result).toMatchObject({ classification: 'unknown' });
+      expect((await activity.getBrowserDetail())?.result).toMatchObject({ assessment: { classification: 'unknown' } });
       expect(writes).toEqual(['comment']);
       const publishClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
