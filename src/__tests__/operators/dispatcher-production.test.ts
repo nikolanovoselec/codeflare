@@ -6,6 +6,7 @@ import { OperatorActivity, OperatorDispatcherCapability, createOperatorIntentDig
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { setLogLevel } from '../../lib/logger';
 import type { DispatcherBundle } from '../../operators/distribution';
 import type { Env } from '../../types';
 
@@ -32,10 +33,10 @@ async function digest(value: string | Uint8Array) {
 
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
-  activity: OperatorActivity; capability: OperatorDispatcherCapability; environment: Env;
+  activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
   artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
-  restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
+  restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
   messages: (value: unknown[]) => void;
   files: (value: unknown[]) => void;
@@ -67,6 +68,7 @@ async function fixture(test: (f: {
     let messagesSet = false;
     let aborted: string | undefined;
     let uncertain = false;
+    let transportThrows = false;
     let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
     let changedFiles: unknown[] = [];
     let composeBodies: Record<string, unknown> = {};
@@ -105,7 +107,8 @@ async function fixture(test: (f: {
       exports: { configurable: true, value: {
         OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-          sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+          sent.push(request); if (transportThrows) throw new Error('private transport failure');
+          if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
           if (request.url.includes('/releases/tags/')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
             if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
@@ -179,8 +182,10 @@ async function fixture(test: (f: {
     expect(await activity.start('s'.repeat(43))).toEqual({ ok: true, phase: 'queued' });
     const capability = new OperatorDispatcherCapability({ props: { activityId, generation: 1 } } as unknown as ExecutionContext,
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
+    const staleCapability = new OperatorDispatcherCapability({ props: { activityId, generation: 2 } } as unknown as ExecutionContext,
+      environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
-      await test({ activity, capability, environment, artifactDigest, sent,
+      await test({ activity, capability, staleCapability, environment, artifactDigest, sent,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
           settlements = [{ submissionId: id, outcome, error }];
           if (id === 'submission-1' && outcome === 'completed' && !messagesSet) {
@@ -205,6 +210,7 @@ async function fixture(test: (f: {
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; },
+        throwTransport: () => { transportThrows = true; },
         oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
           oversizedChecks = { count, outputBytes, overlap };
         },
@@ -717,6 +723,53 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(await (await f.capability.fetch(read())).text()).toBe(await first.text());
     expect((await f.capability.fetch(read('read-1', { resource: 'files' }))).status).toBe(409);
     expect(f.sent.map(r => r.method)).toEqual(['GET']);
+  }));
+  it.each([
+    { name: 'conflict', stage: 'reservation', resource: 'files', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        await f.capability.fetch(read('diagnostic-conflict'));
+        return f.capability.fetch(read('diagnostic-conflict', { resource: 'files' }));
+      } },
+    { name: 'uncertain protected operation', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.throwTransport(); return f.capability.fetch(read('diagnostic-uncertain'));
+      } },
+    { name: 'expired authority', stage: 'authority', resource: 'unparsed', deadline: 'expired', status: 403,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.expire(); return f.capability.fetch(read('diagnostic-expired'));
+      } },
+    { name: 'stale generation with current deadline', stage: 'authority', resource: 'unparsed', deadline: 'current', status: 403,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => f.staleCapability.fetch(read('diagnostic-stale')) },
+    { name: 'upstream non-success response', stage: 'upstream', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.loseResponse(); return f.capability.fetch(read('diagnostic-upstream'));
+      } },
+  ])('REQ-OPERATOR-047/048: emits bounded $name diagnostic with its fenced response', ({ stage, resource, deadline, status, exercise }) => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      const response = await exercise(f);
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ code: status === 403 ? 'OPERATOR_CAPABILITY_DENIED'
+        : stage === 'reservation' ? 'OPERATOR_OPERATION_CONFLICT' : 'OPERATOR_OPERATION_UNKNOWN' });
+      const events = emitted.map(value => JSON.parse(value) as { module: string; message: string;
+        data?: Record<string, unknown> }).filter(event => event.module === 'dispatcher-settlement'
+        && event.message === 'Dispatcher operation rejected');
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ data: { stage, resource, deadline, status } });
+      expect(Object.keys(events[0].data ?? {}).sort()).toEqual(['deadline', 'resource', 'stage', 'status']);
+      expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-expired|diagnostic-stale|diagnostic-upstream|private\.jwt|inline-secret/);
+      if (stage === 'effect' || stage === 'upstream') {
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect((await f.capability.fetch(read('diagnostic-followup'))).status).toBe(403);
+      } else if (stage === 'reservation' || deadline === 'current') {
+        expect((await f.capability.fetch(read('diagnostic-fresh'))).status).toBe(200);
+      } else {
+        expect(f.sent.some(request => request.url.startsWith('https://api.github.com/'))).toBe(false);
+      }
+    } finally { setLogLevel('silent'); }
   }));
   it('does not replay uncertain effects and cannot commit waiting afterward', () => fixture(async f => {
     await start(f); f.loseResponse(); expect((await f.capability.fetch(read())).status).toBe(409);
