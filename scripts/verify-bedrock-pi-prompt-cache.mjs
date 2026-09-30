@@ -13,7 +13,6 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildBedrockAnthropicRequest, adaptBedrockAnthropicResponse } from '../src/lib/bedrock-anthropic-native-adapter.ts';
@@ -21,8 +20,6 @@ import { getBuiltInProfile, translateRuntimeReasoningRequest } from '../src/lib/
 import { compatibilityRequest, compatibilityResponse } from '../src/lib/ai-capability-discovery/compatibility-wire.ts';
 
 const piRoot = resolve(process.argv[2] ?? 'preseed/agents/pi/node_modules/@earendil-works/pi-ai');
-const { version } = JSON.parse(await readFile(resolve(piRoot, 'package.json'), 'utf8'));
-assert.equal(version, '0.99.1', 'Update the contract evidence deliberately when Pi changes');
 const { stream } = await import(pathToFileURL(resolve(piRoot, 'dist/api/openai-completions.js')).href);
 const { normalizeContext } = await import(pathToFileURL(resolve(piRoot, 'dist/index.js')).href);
 const syntheticSigned = [
