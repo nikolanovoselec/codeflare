@@ -100,6 +100,33 @@ export async function verifySelectedAgentLaunchers(
   return versions;
 }
 
+export async function verifyRpivExtensionStartup(nodeModulesRoot) {
+  const home = await mkdtemp(join(tmpdir(), 'pi-rpiv-startup-'));
+  try {
+    const agentDir = join(home, '.pi', 'agent');
+    await mkdir(agentDir, { recursive: true });
+    const packages = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo']
+      .map(name => join(nodeModulesRoot, '@juicesharp', name));
+    await writeFile(join(agentDir, 'settings.json'), JSON.stringify({ packages }));
+    const { DefaultResourceLoader } = await import(pathToFileURL(join(
+      nodeModulesRoot, '@earendil-works/pi-coding-agent/dist/index.js',
+    )).href);
+    const loader = new DefaultResourceLoader({ cwd: home, agentDir,
+      noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+    await loader.reload();
+    const result = loader.getExtensions();
+    assert.deepEqual(result.errors, [], 'RPIV extensions must load through the actual Pi SDK');
+    assert.deepEqual(result.warnings ?? [], [], 'RPIV startup must not warn about duplicate host modules');
+    const tools = new Set(result.extensions.flatMap(extension => [...extension.tools.keys()]));
+    for (const name of ['advisor', 'ask_user_question', 'todo']) {
+      assert.ok(tools.has(name), `actual Pi loader must register RPIV tool ${name}`);
+    }
+    return 'RPIV_HOST_PEERS_OK';
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 export async function verifyPiClassicSessionStartup({
   piPath = '/usr/local/bin/pi',
   temporaryRoot = tmpdir(),
@@ -432,6 +459,12 @@ async function main() {
   const piClassicSessionId = piVersion
     ? await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path })
     : null;
+  const rpivExtensionStartup = piVersion ? [] : null;
+  if (piVersion) {
+    for (const root of [NPM_TOOLS_NODE_MODULES, PI_NPM_NODE_MODULES]) {
+      rpivExtensionStartup.push(await verifyRpivExtensionStartup(root));
+    }
+  }
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
@@ -452,6 +485,7 @@ async function main() {
     claudeVersion,
     piVersion,
     piClassicSessionId,
+    rpivExtensionStartup,
   })}\n`);
 }
 
