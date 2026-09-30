@@ -13,6 +13,7 @@ export const EXPECTED_PI_GOAL_VERSION = '0.54.3';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
   '0.54.4',
+  '0.54.8',
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
@@ -519,8 +520,12 @@ export function patchPiGoalLifecycleSource(source) {
   );
   patched = replaceOnce(
     patched,
-    ') {\n\tpi.on("session_start", async (_event, ctx) => {',
-    `) {${CONTROL_BLOCK}\n\n\tpi.on("session_start", async (_event, ctx) => {`,
+    source.includes('\tlet sessionActive = true;')
+      ? '\tlet sessionActive = true;'
+      : ') {\n\tpi.on("session_start", async (_event, ctx) => {',
+    source.includes('\tlet sessionActive = true;')
+      ? `${CONTROL_BLOCK}\n\tlet sessionActive = true;`
+      : `) {${CONTROL_BLOCK}\n\n\tpi.on("session_start", async (_event, ctx) => {`,
     'lifecycle registration',
   );
   patched = replaceOnce(
@@ -913,6 +918,13 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     settings: readFileSync(paths.settings, 'utf8'),
     toolPolicy: readFileSync(paths.toolPolicy, 'utf8'),
   };
+  // The reviewed 0.54.8 release uses two-space indentation. Round-trip only
+  // leading indentation through the existing exact, fail-closed patch anchors.
+  if (expectedVersion === '0.54.8') {
+    for (const name of Object.keys(originals)) {
+      originals[name] = originals[name].replace(/^(?:  )+/gm, (indent) => '\t'.repeat(indent.length / 2));
+    }
+  }
   const patched = {
     commands: patchPiGoalCommandsSource(originals.commands),
     goal: patchPiGoalEntrypointSource(originals.goal),
@@ -942,7 +954,10 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
 
   writeFileSync(paths.packageJson, patchedPackageManifest);
   for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings', 'toolPolicy']) {
-    writeFileSync(paths[name], patched[name]);
+    const source = expectedVersion === '0.54.8'
+      ? patched[name].replace(/^\t+/gm, (indent) => '  '.repeat(indent.length))
+      : patched[name];
+    writeFileSync(paths[name], source);
   }
 }
 

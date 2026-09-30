@@ -1,0 +1,57 @@
+name: Pi upgrade lock preparation
+on:
+  push:
+    branches: [fix/pi-runtime-extension-upgrade]
+    paths:
+      - .github/workflows/pi-upgrade-locks.yml
+      - preseed/npm-tools/package.json
+      - preseed/agents/pi/package.json
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  locks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Regenerate only the requested runtime locks
+        run: |
+          node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+          node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
+          python3 - <<'PY'
+          import json, urllib.request
+          for path in ['preseed/npm-tools/package-lock.json', 'preseed/agents/pi/package-lock.json']:
+              with open(path) as f:
+                  lock = json.load(f)
+              for key, entry in lock['packages'].items():
+                  if not key or entry.get('link') or entry.get('integrity'):
+                      continue
+                  name = key.rsplit('node_modules/', 1)[1]
+                  url = 'https://registry.npmjs.org/' + name.replace('/', '%2f') + '/' + entry['version']
+                  with urllib.request.urlopen(url, timeout=15) as response:
+                      metadata = json.load(response)
+                  assert entry['resolved'] == metadata['dist']['tarball'], name
+                  entry['integrity'] = metadata['dist']['integrity']
+              with open(path, 'w') as f:
+                  f.write(json.dumps(lock, indent=2) + '\n')
+          PY
+          node scripts/generate-agent-seed.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pi-upgrade-locks
+          path: |
+            preseed/npm-tools/package-lock.json
+            preseed/agents/pi/package-lock.json
+            src/lib/agent-seed.generated.ts
+          if-no-files-found: error
+          retention-days: 3
+      - name: Exercise actual Goal and Plan release behavior
+        run: |
+          npm ci --ignore-scripts
+          node --test host/__tests__/pi-goal-review-control-patch.test.js

@@ -233,7 +233,7 @@ const piPackage = JSON.parse(
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
-  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
+  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'dist/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },

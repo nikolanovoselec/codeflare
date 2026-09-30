@@ -738,7 +738,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
-    usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
+    usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/dist/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
     mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
