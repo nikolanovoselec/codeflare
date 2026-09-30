@@ -281,8 +281,8 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(fixture.requests.every(outbound => outbound.origin === 'https://api.github.com')).toBe(true);
   }));
 
-  it.each(['productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
-    'productionresultssa6.blob.core.windows.net', 'productionresultssa8.blob.core.windows.net',
+  it.each(['productionresultssa1.blob.core.windows.net', 'productionresultssa2.blob.core.windows.net',
+    'productionresultssa3.blob.core.windows.net', 'productionresultssa6.blob.core.windows.net', 'productionresultssa8.blob.core.windows.net',
     'productionresultssa16.blob.core.windows.net'] as const)(
     'REQ-OPERATOR-044: release CDN transport via %s succeeds without forwarding acquisition credentials', async artifactCdnHost => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
@@ -296,7 +296,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
     expect(refreshed.status).toBe(200);
     const discovered = await refreshed.json() as { items: unknown[] };
-    expect(discovered.items).toHaveLength(1);
+    expect(discovered.items).toEqual([expect.objectContaining({ sourceCommit: fixture.sourceCommit,
+      bundleDigest: fixture.bundleDigest, manifestDigest: fixture.manifestDigest, approved: false })]);
+    const detail = await (await request(`/operators/${operator.operatorId}`)).json();
+    expect(detail).toMatchObject({ releases: discovered.items, installations: [] });
     // The outbound origin/header contract is intentional security evidence, not private-call counting.
     const cdnRequests = fixture.requests.filter(outbound => outbound.origin === 'https://release-assets.githubusercontent.com'
       || outbound.origin === `https://${artifactCdnHost}`);
@@ -308,8 +311,10 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(JSON.stringify(discovered)).not.toContain(registration.githubPat);
   }));
 
-  it('rejects an unapproved adjacent Actions artifact CDN host without forwarding the PAT or committing a release', async () => withManagementApi(async request => {
-    const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost: 'productionresultssa66.blob.core.windows.net' });
+  it.each(['productionresultssa22.blob.core.windows.net', 'productionresultssa66.blob.core.windows.net',
+    'productionresultssa2.blob.core.windows.net.attacker.example'] as const)(
+    'rejects unapproved Actions artifact CDN host %s without forwarding the PAT or committing a release', async artifactCdnHost => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
     vi.stubGlobal('fetch', fixture.fetcher);
     const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
@@ -322,6 +327,49 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(await refreshed.text()).not.toContain(registration.githubPat);
     const detail = await (await request(`/operators/${operator.operatorId}`)).json() as { releases: unknown[] };
     expect(detail.releases).toHaveLength(0);
-    expect(fixture.requests.some(outbound => outbound.origin === 'https://productionresultssa66.blob.core.windows.net')).toBe(false);
+    expect(fixture.requests.some(outbound => outbound.origin === `https://${artifactCdnHost}`)).toBe(false);
+  }));
+
+  it('rejects mismatched build bytes from the approved Actions CDN without admitting a release', async () => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true,
+      artifactCdnHost: 'productionresultssa2.blob.core.windows.net', fault: 'build-bytes' });
+    vi.stubGlobal('fetch', fixture.fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const registered = await request('/operators', 'POST', registration);
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(503);
+    const detail = await (await request(`/operators/${operator.operatorId}`)).json();
+    expect(detail).toMatchObject({ releases: [], installations: [] });
+    expect(fixture.requests.some(outbound => outbound.origin === 'https://productionresultssa2.blob.core.windows.net')).toBe(true);
+    expect(fixture.requests.filter(outbound => outbound.origin !== 'https://api.github.com')
+      .every(outbound => outbound.authorization === null)).toBe(true);
+  }));
+
+  it('rejects an approved CDN response that crosses the acquisition deadline without committing a release', async () => withManagementApi(async request => {
+    const fixture = await createOperatorGitHubFixture({ useCdn: true,
+      artifactCdnHost: 'productionresultssa2.blob.core.windows.net' });
+    const clock = vi.spyOn(Date, 'now');
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await fixture.fetcher(input, init);
+      if (new URL(new Request(input, init).url).origin === 'https://productionresultssa2.blob.core.windows.net') {
+        clock.mockReturnValue(Date.now() + 31_000);
+      }
+      return response;
+    });
+    try {
+      expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+        ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+      const registered = await request('/operators', 'POST', registration);
+      expect(registered.status).toBe(201);
+      const operator = await registered.json() as { operatorId: string; revision: number };
+      const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+      expect(refreshed.status).toBe(503);
+      const detail = await (await request(`/operators/${operator.operatorId}`)).json();
+      expect(detail).toMatchObject({ releases: [], installations: [] });
+      expect(fixture.requests.some(outbound => outbound.origin === 'https://productionresultssa2.blob.core.windows.net')).toBe(true);
+    } finally { clock.mockRestore(); }
   }));
 });
