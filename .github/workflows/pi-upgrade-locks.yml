@@ -1,5 +1,11 @@
 name: Pi upgrade lock preparation
 on:
+  push:
+    branches: [fix/pi-runtime-extension-upgrade]
+    paths:
+      - .github/workflows/pi-upgrade-locks.yml
+      - preseed/npm-tools/package.json
+      - preseed/agents/pi/package.json
   workflow_dispatch:
 permissions:
   contents: read
