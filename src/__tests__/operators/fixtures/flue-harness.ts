@@ -61,5 +61,5 @@ export function registerFlueShard(index: number) {
     reset: async () => { await worker?.stop(); await startWorker(); },
     queuedActivity,
     activity,
-  }, 'flue', { index, total: 4 });
+  }, 'flue', { index, total: 3 });
 }

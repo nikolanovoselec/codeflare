@@ -510,7 +510,6 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       'src/__tests__/operators/loader-flue.test.ts',
       'src/__tests__/operators/loader-flue-1.test.ts',
       'src/__tests__/operators/loader-flue-2.test.ts',
-      'src/__tests__/operators/loader-flue-3.test.ts',
     ]);
     const nodeGroups = ['native', 'flue', 'rest'].map(group => nodeSuiteFiles(group));
     expect(nodeGroups.every(group => group.length > 0)).toBe(true);
