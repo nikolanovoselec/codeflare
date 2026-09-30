@@ -85,6 +85,51 @@ interface RenovatePublication {
 }
 const dispatcherLog = createLogger('dispatcher-settlement');
 const dispatcherTailLog = createLogger('dispatcher-inference-tail');
+const dispatcherReportLog = createLogger('dispatcher-inference-report');
+type DispatcherDiagnostic = { stage: 'fetch-rejected' } | { stage: 'http-rejected'; status: number };
+
+async function readDispatcherDiagnostic(request: Request): Promise<DispatcherDiagnostic | null> {
+  if (request.method !== 'POST' || request.headers.get('content-type') !== 'application/json' || !request.body) return null;
+  const sizeHeader = request.headers.get('content-length');
+  if (sizeHeader && (!/^\d{1,3}$/.test(sizeHeader) || Number(sizeHeader) > 256)) return null;
+  const reader = request.body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const read = async (): Promise<Uint8Array> => {
+      const parts: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > 256) throw new Error('Diagnostic body limit');
+        parts.push(chunk.value);
+      }
+      const body = new Uint8Array(size);
+      let offset = 0;
+      for (const part of parts) { body.set(part, offset); offset += part.byteLength; }
+      return body;
+    };
+    const bytes = await Promise.race([read(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Diagnostic read deadline')), 250);
+    })]);
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const data = value as Record<string, unknown>;
+    if (Object.keys(data).length === 1 && data.stage === 'fetch-rejected') return { stage: 'fetch-rejected' };
+    if (Object.keys(data).length === 2 && data.stage === 'http-rejected' && typeof data.status === 'number'
+      && Number.isInteger(data.status) && data.status >= 300 && data.status <= 599) {
+      return { stage: 'http-rejected', status: data.status };
+    }
+    return null;
+  } catch { return null; }
+  finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+    try { reader.releaseLock(); } catch { /* an expired read can still be pending */ }
+  }
+}
+
 const DISPATCHER_SDK_METHODS = [
   '_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
   '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet', '_cf_acquireFacetKeepAlive',
@@ -282,6 +327,8 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
 export class OperatorActivity extends Agent {
   #appEnv: AppEnv & { OPERATOR_REGISTRY: NonNullable<AppEnv['OPERATOR_REGISTRY']> };
   #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
+  #diagnosticReportGeneration?: number;
+  #diagnosticReports = 0;
   #reconciling?: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
@@ -1489,6 +1536,36 @@ export class OperatorActivity extends Agent {
   }
 
   /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
+  /** Supplemental, non-authorizing child telemetry; never reserves a protected operation. */
+  async dispatcherDiagnosticReport(generation: number, request: Request): Promise<Response> {
+    const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
+    try {
+      if (!await this.dispatcherGenerationCurrent(generation)) return denied();
+      if (this.#diagnosticReportGeneration === generation && this.#diagnosticReports >= 8) {
+        return new Response(null, { status: 429 });
+      }
+      const diagnostic = await readDispatcherDiagnostic(request);
+      if (!diagnostic) return denied();
+      const plan = await this.getRuntimePlan();
+      if (!plan) return denied();
+      await authorizeDispatcherPlan(plan, this.#appEnv);
+      if (!await this.dispatcherGenerationCurrent(generation)) return denied();
+      if (this.#diagnosticReportGeneration !== generation) {
+        this.#diagnosticReportGeneration = generation;
+        this.#diagnosticReports = 0;
+      }
+      // No await between the cap and increment: overlapping requests cannot
+      // forward more than eight reports from this live Activity generation.
+      if (this.#diagnosticReports >= 8) return new Response(null, { status: 429 });
+      this.#diagnosticReports++;
+      dispatcherReportLog.warn('Dispatcher child inference diagnostic', {
+        activityId: plan.activityId, generation, stage: diagnostic.stage,
+        ...(diagnostic.stage === 'http-rejected' ? { status: diagnostic.status } : {}),
+      });
+      return new Response(null, { status: 204 });
+    } catch { return denied(); }
+  }
+
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
     const deadline = (lease?: DispatcherLease) => !lease ? 'unavailable'
@@ -2133,6 +2210,9 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     try {
       const { activity, generation } = this.#binding();
+      if (new URL(request.url).pathname === '/v1/dispatcher/diagnostic') {
+        return await activity.dispatcherDiagnosticReport(generation, request);
+      }
       return await activity.dispatcherOperation(generation, request);
     } catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
   }
