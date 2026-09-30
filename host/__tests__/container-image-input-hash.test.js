@@ -109,6 +109,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-native-model-display.mjs',
+      'scripts/patch-rpiv-host-peers.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',
@@ -189,10 +190,15 @@ describe('deployment container image input hash', () => {
     const planPatchTag = imageHashResult().tag;
     assert.notEqual(planPatchTag, goalPatchTag);
 
+    write('scripts/patch-rpiv-host-peers.mjs', 'RPIV compatibility correction changed\n');
+    commit('RPIV peer correction change');
+    const rpivPatchTag = imageHashResult().tag;
+    assert.notEqual(rpivPatchTag, planPatchTag, 'changing RPIV compatibility must invalidate image reuse');
+
     write('scripts/ci/prune-npm-platform-artifacts.mjs', 'pruning change\n');
     commit('pruning change');
     const pruningTag = imageHashResult().tag;
-    assert.notEqual(pruningTag, planPatchTag);
+    assert.notEqual(pruningTag, rpivPatchTag);
 
     write('scripts/ci/prune-selected-npm-tools.sh', 'selected npm prune change\n');
     commit('selected npm prune change');

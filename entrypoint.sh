@@ -3215,6 +3215,17 @@ update_pi_and_codex_when_fast_start_disabled() {
             update_failed=1
         fi
     fi
+    if [ "$pi_installed" = true ]; then
+        # Extension updates and npm repair can restore upstream package metadata.
+        # Repair both trees again before exposing the updated runtime to the PTY.
+        local rpiv_root
+        for rpiv_root in "$npm_tools_dir/node_modules" "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}/node_modules"; do
+            if ! node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs "$rpiv_root"; then
+                echo "[entrypoint] ERROR: RPIV host dependency compatibility repair failed"
+                update_failed=1
+            fi
+        done
+    fi
     rm -rf -- "$update_cache"
 
     if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then

@@ -196,6 +196,37 @@ describe('entrypoint production helpers', () => {
     assert.equal(readFileSync(destination, 'utf8'), 'operator-owned\n');
   });
 
+  it('REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'rpiv-startup-repair-'));
+    const shared = join(fixture, 'shared'); const profile = join(fixture, 'profile');
+    const roots = [join(shared, 'node_modules'), join(profile, 'node_modules')];
+    const names = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo'];
+    for (const root of roots) for (const name of names) mkdirSync(join(root, '@juicesharp', name), { recursive: true });
+    const reset = join(fixture, 'reset.mjs');
+    writeFileSync(reset, `import { writeFileSync } from 'node:fs';
+      for (const root of ${JSON.stringify(roots)}) for (const name of ${JSON.stringify(names)})
+        writeFileSync(root + '/@juicesharp/' + name + '/package.json', JSON.stringify({
+          name: '@juicesharp/' + name, dependencies: { typebox: '^1.1.24' }
+        }));`);
+    try {
+      const result = runFunction('update_pi_and_codex_when_fast_start_disabled', `
+        command() { if [ "$1" = -v ] && [ "$2" = codex ]; then return 1; else builtin command "$@"; fi; }
+        pi() { if [ "$1" = update ]; then "$NODE_BIN" "$RESET"; else echo fixture-pi; fi; }
+        npm() { if [ "$1" = view ]; then echo 1.0.0; else "$NODE_BIN" "$RESET"; fi; }
+        node() { case "$1" in */patch-rpiv-host-peers.mjs) "$NODE_BIN" "$PATCH" "$2";; *) return 0;; esac; }
+      `, 'update_pi_and_codex_when_fast_start_disabled', {
+        FAST_CLI_START: 'false', USER_HOME: fixture, CODEFLARE_NPM_TOOLS_DIR: shared, PI_NPM_DIR: profile,
+        NODE_BIN: process.execPath, RESET: reset, PATCH: resolve(__dirname, '../../scripts/patch-rpiv-host-peers.mjs'),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      for (const root of roots) for (const name of names) {
+        const manifest = JSON.parse(readFileSync(join(root, '@juicesharp', name, 'package.json')));
+        assert.equal(manifest.dependencies.typebox, undefined);
+        assert.equal(manifest.peerDependencies.typebox, '*');
+      }
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agent-fast-start-'));
     const calls = join(fixture, 'calls.log');
@@ -337,7 +368,7 @@ describe('entrypoint production helpers', () => {
     const tools = join(fixture, 'tools');
     const source = join(fixture, 'package');
     const scripts = resolve(__dirname, '../../scripts');
-    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
+    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, PI_NPM_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
     const npm = (args, cwd) => {
       const result = spawnSync('npm', args, { cwd, env, encoding: 'utf8', timeout: 60_000 });
       assert.equal(result.status, 0, result.stderr);
@@ -350,7 +381,16 @@ describe('entrypoint production helpers', () => {
       writeFileSync(join(source, 'dist/utils/image-process.js'), 'export async function processImage() { return { ok: true }; }');
       const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
       const tarball = join(source, packed);
-      writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies: { '@earendil-works/pi-coding-agent': `file:${tarball}` } }));
+      const dependencies = { '@earendil-works/pi-coding-agent': `file:${tarball}` };
+      for (const name of ['typebox', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo']) {
+        const dir = join(fixture, name.replaceAll('/', '-'));
+        mkdirSync(dir);
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.3.27',
+          ...(name !== 'typebox' ? { dependencies: { typebox: dependencies.typebox } } : {}) }));
+        const archive = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], dir).stdout)[0].filename;
+        dependencies[name] = `file:${join(dir, archive)}`;
+      }
+      writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies }));
       npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
       const processor = join(installed, 'dist/utils/image-process.js');
