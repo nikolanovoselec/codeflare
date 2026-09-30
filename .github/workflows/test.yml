@@ -474,7 +474,8 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     # Native workerd groups run separately from ordinary Node tests so a stuck
     # generated facet cannot hold the complete backend lane for ten minutes.
-    timeout-minutes: 3
+    # Flue needs room for setup and cleanup around its passing suite.
+    timeout-minutes: ${{ matrix.slug == 'flue' && 4 || 3 }}
     strategy:
       fail-fast: false
       max-parallel: 3
