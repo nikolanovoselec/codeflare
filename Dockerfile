@@ -349,6 +349,7 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
       "https://registry.npmjs.org/brace-expansion/-/brace-expansion-${BRACE_EXPANSION_VERSION}.tgz" -o /tmp/brace-expansion.tgz && \
     echo "${BRACE_EXPANSION_SHA512}  /tmp/brace-expansion.tgz" | sha512sum -c - && \
+    mv /tmp/brace-expansion.tgz /usr/local/share/codeflare-brace-expansion.tgz && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
       "https://registry.npmjs.org/undici/-/undici-${UNDICI_NPM_VERSION}.tgz" -o /tmp/undici-npm.tgz && \
     echo "${UNDICI_NPM_SHA512}  /tmp/undici-npm.tgz" | sha512sum -c - && \
@@ -356,7 +357,7 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
       "https://registry.npmjs.org/undici/-/undici-${UNDICI_IDE_VERSION}.tgz" -o /tmp/undici-ide.tgz && \
     echo "${UNDICI_IDE_SHA512}  /tmp/undici-ide.tgz" | sha512sum -c - && \
     for SECURITY_PAIR in \
-      '/tmp/brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
+      '/usr/local/share/codeflare-brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
       '/tmp/undici-npm.tgz:/usr/local/lib/node_modules/npm/node_modules/undici' \
       '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici'; do \
       SECURITY_ARCHIVE="${SECURITY_PAIR%%:*}" && SECURITY_DIR="${SECURITY_PAIR#*:}" && \
@@ -559,9 +560,9 @@ RUN for BRACE_DIR in \
       /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion; do \
       if test -d "$BRACE_DIR"; then \
         rm -rf "$BRACE_DIR" && mkdir -p "$BRACE_DIR" && \
-        tar -xzf /tmp/brace-expansion.tgz -C "$BRACE_DIR" --strip-components=1 || exit 1; \
+        tar -xzf /usr/local/share/codeflare-brace-expansion.tgz -C "$BRACE_DIR" --strip-components=1 || exit 1; \
       fi; \
-    done && rm -f /tmp/brace-expansion.tgz /tmp/undici-npm.tgz /tmp/undici-ide.tgz
+    done && rm -f /usr/local/share/codeflare-brace-expansion.tgz /tmp/undici-npm.tgz /tmp/undici-ide.tgz
 
 COPY scripts/patch-context-mode-bundles.mjs /tmp/patch-context-mode-bundles.mjs
 RUN <<'EOF'
