@@ -267,7 +267,8 @@ export class FlueDispatcherAgent extends Pinned {
           const authority = await this.activityBinding();
           if (!authority || authority.deadline <= Date.now()) throw new Error('Fixture authority expired');
           const active = { submissionId: body.submissionId, generation: binding.generation,
-            expiresAt: holdInference ? Math.min(authority.deadline, Date.now() + 45_000) : Date.now() + 5_000 };
+            expiresAt: productionBehavior === 'stream-fail' ? authority.deadline
+              : holdInference ? Math.min(authority.deadline, Date.now() + 45_000) : Date.now() + 5_000 };
           await this.ctx.storage.put('fixture:active-submission', active);
           this.ctx.waitUntil(this.reconcileSubmission(active));
         }
