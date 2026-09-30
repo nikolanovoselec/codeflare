@@ -5,21 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 const REVIEWED_FINDINGS = [
   {
-    // Observed in integration runs 34897440885/34897443967 at head 0a5f222b.
-    // Owner accepts this exact bundled-npm copy pending an upstream rebuild.
-    // Crafted brace patterns can exhaust memory/CPU in the user's container;
-    // this is a risk exception, not a claim that the package is patched.
-    // Remove when the bundled copy reaches the fixed 5.0.9 release.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-69152',
-    packageName: 'brace-expansion',
-    packagePath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
-    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
-    installedVersion: '5.0.7',
-    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
-    severity: 'HIGH',
-  },
-  {
     // Same two integration scans: npm actually bundles vulnerable 10.2.0.
     // Leading-zero IPv4 parsing disagreement can bypass SSRF/trust boundaries;
     // reachability here is unproven, not asserted absent. Owner accepts only

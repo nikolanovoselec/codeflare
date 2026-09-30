@@ -58,10 +58,6 @@ function report(results = [
   {
     Target: 'Node.js',
     Vulnerabilities: [
-      braceExpansionVulnerability({
-        PkgPath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.7' },
-      }),
       ipAddressVulnerability('10.2.0', {
         PkgPath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
@@ -76,10 +72,9 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('accepts only the reviewed HIGH/CRITICAL findings', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [
-      'Node.js@5.0.7',
       'Node.js@10.2.0',
     ]);
-    assert.equal(result.evidence.length, 2);
+    assert.equal(result.evidence.length, 1);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -101,7 +96,6 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       const identities = output.split('\n').filter((line) => line.startsWith('Observed reviewed Trivy identity:'));
       const prefix = 'Observed reviewed Trivy identity: ';
       assert.deepEqual(identities, [
-        `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
         `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
       ]);
     } finally {
@@ -169,10 +163,8 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('rejects the superseded npm bundle identities', () => {
     const input = report();
     const findings = input.Results[0].Vulnerabilities;
-    findings[0].InstalledVersion = '5.0.5';
-    findings[0].PkgIdentifier.PURL = 'pkg:npm/brace-expansion@5.0.5';
-    findings[1].InstalledVersion = '10.1.0';
-    findings[1].PkgIdentifier.PURL = 'pkg:npm/ip-address@10.1.0';
+    findings[0].InstalledVersion = '10.1.0';
+    findings[0].PkgIdentifier.PURL = 'pkg:npm/ip-address@10.1.0';
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*missing reviewed finding/s);
   });
 
@@ -239,16 +231,17 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     );
   });
 
-  it('rejects a missing reviewed Node.js finding', () => {
-    const nodeResult = structuredClone(report().Results[0]);
-    nodeResult.Vulnerabilities.splice(
-      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'brace-expansion'),
-      1,
-    );
-    assert.throws(
-      () => validateTrivyResult(report([nodeResult])),
-      /missing reviewed finding.*brace-expansion 5\.0\.7.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/brace-expansion\/package\.json; purl=pkg:npm\/brace-expansion@5\.0\.7/s,
-    );
+  it('accepts a patched image without the retired npm brace finding', () => {
+    assert.doesNotThrow(() => validateTrivyResult(report()));
+  });
+
+  it('rejects recurrence of the retired npm brace vulnerability', () => {
+    const input = report();
+    input.Results[0].Vulnerabilities.push(braceExpansionVulnerability({
+      PkgPath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
+      PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.7' },
+    }));
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*CVE-2026-69152/s);
   });
 
   it('rejects drift in the reviewed Node.js finding', () => {
