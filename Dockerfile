@@ -311,6 +311,12 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     CODE_SERVER_VSCODE_COMMIT="645f29cc3176500b4b5762ba887cf2a7f0ffdf2c" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
+    BRACE_EXPANSION_VERSION="5.0.12" && \
+    BRACE_EXPANSION_SHA512="628bd0debce168b308ac38cd0cc90d4b4d6d79af77aa11211b9c72f1febe47497e770dca8bee6c0a822823de368ae2d94c75a881692d830543854d3d88d12299" && \
+    UNDICI_NPM_VERSION="6.29.0" && \
+    UNDICI_NPM_SHA512="47e44e0c1aa9ea2da93df94676afb120e52497e44d7c6807c288a779c2aefc90ae7f6b8ed3a70e2a80db2363fb0e7e8a72cc1d2b0adccdb53a21827a2bc5fec2" && \
+    UNDICI_IDE_VERSION="7.30.0" && \
+    UNDICI_IDE_SHA512="764ad05de1d26a86a69c8b6561b9b31b4c0562b3346700f108883403b68a8d3cb2861f6cbd1cc234513357e566d39ff27a18c2ce30d9df52977c6123612ced0d" && \
     PACOTE_VERSION="21.5.1" && \
     PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
@@ -340,6 +346,25 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     mkdir -p /usr/local/lib/node_modules/npm/node_modules/pacote && \
     tar -xzf /tmp/pacote.tgz -C /usr/local/lib/node_modules/npm/node_modules/pacote --strip-components=1 && \
     test "$(jq -r .version /usr/local/lib/node_modules/npm/node_modules/pacote/package.json)" = "$PACOTE_VERSION" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/brace-expansion/-/brace-expansion-${BRACE_EXPANSION_VERSION}.tgz" -o /tmp/brace-expansion.tgz && \
+    echo "${BRACE_EXPANSION_SHA512}  /tmp/brace-expansion.tgz" | sha512sum -c - && \
+    mv /tmp/brace-expansion.tgz /usr/local/share/codeflare-brace-expansion.tgz && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/undici/-/undici-${UNDICI_NPM_VERSION}.tgz" -o /tmp/undici-npm.tgz && \
+    echo "${UNDICI_NPM_SHA512}  /tmp/undici-npm.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/undici/-/undici-${UNDICI_IDE_VERSION}.tgz" -o /tmp/undici-ide.tgz && \
+    echo "${UNDICI_IDE_SHA512}  /tmp/undici-ide.tgz" | sha512sum -c - && \
+    for SECURITY_PAIR in \
+      '/usr/local/share/codeflare-brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
+      '/tmp/undici-npm.tgz:/usr/local/lib/node_modules/npm/node_modules/undici' \
+      '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici'; do \
+      SECURITY_ARCHIVE="${SECURITY_PAIR%%:*}" && SECURITY_DIR="${SECURITY_PAIR#*:}" && \
+      test -f "$SECURITY_DIR/package.json" && \
+      rm -rf "$SECURITY_DIR" && mkdir -p "$SECURITY_DIR" && \
+      tar -xzf "$SECURITY_ARCHIVE" -C "$SECURITY_DIR" --strip-components=1 || exit 1; \
+    done && \
     npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
@@ -363,6 +388,7 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/node-tar.tgz /tmp/pacote.tgz
 
+# The verified brace archive is retained for shrinkwrapped Pi copies installed below.
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
 # permissions bypass inside the container. .cache-bust invalidates this layer on
 # requested fresh builds; exact versions come from the committed npm-tool lock or
@@ -527,6 +553,17 @@ RUN cd /opt/codeflare/pi-agent/npm && \
 # source; npm pulls it from the public registry at build time through the
 # committed lock, and we only edit the installed bundle in place.
 COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
+# Pi's published shrinkwrap can retain nested dependencies despite outer overrides.
+# Replace both nested runtime copies from the already integrity-verified archive.
+RUN for BRACE_DIR in \
+      /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion \
+      /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion; do \
+      if test -d "$BRACE_DIR"; then \
+        rm -rf "$BRACE_DIR" && mkdir -p "$BRACE_DIR" && \
+        tar -xzf /usr/local/share/codeflare-brace-expansion.tgz -C "$BRACE_DIR" --strip-components=1 || exit 1; \
+      fi; \
+    done && rm -f /usr/local/share/codeflare-brace-expansion.tgz /tmp/undici-npm.tgz /tmp/undici-ide.tgz
+
 COPY scripts/patch-context-mode-bundles.mjs /tmp/patch-context-mode-bundles.mjs
 RUN <<'EOF'
 set -e
