@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import {
   lstat,
@@ -261,6 +262,50 @@ export async function verifyNodeTarRuntimes({
   return runtimePaths;
 }
 
+export async function verifyBundledSecurityRuntimes({ bracePaths, undiciPaths = [
+  '/usr/local/lib/node_modules/npm/node_modules/undici',
+  '/opt/code-server/lib/vscode/node_modules/undici',
+] } = {}) {
+  if (!bracePaths) {
+    bracePaths = ['/usr/local/lib/node_modules/npm/node_modules/brace-expansion'];
+    for (const base of [NPM_TOOLS_NODE_MODULES, PI_NPM_NODE_MODULES]) {
+      const agent = join(base, '@earendil-works/pi-coding-agent');
+      try { await stat(join(agent, 'package.json')); } catch (error) {
+        if (error.code === 'ENOENT') continue;
+        throw error;
+      }
+      bracePaths.push(join(base, 'brace-expansion'), join(agent, 'node_modules/brace-expansion'));
+    }
+  }
+  const require = createRequire(import.meta.url);
+  for (const path of bracePaths) {
+    const brace = require(path);
+    assert.deepEqual(brace.expand('{alpha,beta}/{1,2}'),
+      ['alpha/1', 'alpha/2', 'beta/1', 'beta/2'], `${path}: brace expansion runtime`);
+  }
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { Connection: 'close' });
+    response.end('bundled runtime smoke');
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/`;
+    for (const path of undiciPaths) {
+      const undici = require(path);
+      const response = await undici.fetch(url, { signal: AbortSignal.timeout(5000) });
+      assert.equal(response.status, 200, `${path}: undici HTTP runtime status`);
+      assert.equal(await response.text(), 'bundled runtime smoke', `${path}: undici HTTP runtime body`);
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return { bracePaths, undiciPaths };
+}
+
 export async function verifyPacoteRuntime({
   runtimePath = '/usr/local/lib/node_modules/npm/node_modules/pacote',
   expectedVersion = '21.5.1',
@@ -309,6 +354,7 @@ async function main() {
   const jsYamlRuntime = await verifyJsYamlRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
   const pacoteRuntime = await verifyPacoteRuntime();
+  await verifyBundledSecurityRuntimes();
   const oxlintVersion = verifyOxlintRuntime();
   const welcomeRoot = join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', WELCOME_EXTENSION_NAME);
   const welcomeManifest = JSON.parse(await readFile(join(welcomeRoot, 'package.json'), 'utf8'));
