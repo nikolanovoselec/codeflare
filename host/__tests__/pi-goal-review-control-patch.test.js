@@ -791,6 +791,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       goalIntegrity: 'sha512-WqGGYnX5YBaEUlkC2Lh3sFHizJ6/hiGBijybOBv/7RRDZvpMdfygORIl5OHhzqSPekC9+z0ROxiCzPE6hS17jQ==',
       planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.56.0.tgz'),
       planIntegrity: 'sha512-sxbIODVaV6Ct+eD+lDN+tEn0mKtU9PG7rkkVhF6EC1d7t6YLHi1ixFhrKwMrJmsAPfkCnBKKImJcXx/bMFateg==' },
+    { goal: '0.54.8', plan: '0.58.3',
+      goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.8.tgz'),
+      goalIntegrity: 'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==',
+      planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
+      planIntegrity: 'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==' },
   ]) {
   describe(`Goal ${versions.goal}, Plan ${versions.plan}`, () => {
   it('REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
@@ -810,9 +815,12 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const goalAfter = readFixturePackage(goalRoot);
     patchPiGoalDirectory(versions.goal, goalRoot);
     assert.deepEqual(readFixturePackage(goalRoot), goalAfter);
-    if (versions.plan === '0.56.0') {
+    if (versions.plan === '0.56.0' || versions.plan === '0.58.3') {
       const configured = { git: ['status'], gh: ['pr view'] };
-      for (const [index, file] of ['src/tool-policy.ts', 'dist/chunks/chunk-57OBPS7P.js'].entries()) {
+      const policyChunk = versions.plan === '0.58.3'
+        ? 'dist/chunks/chunk-L2CXUWCH.ts'
+        : 'dist/chunks/chunk-57OBPS7P.js';
+      for (const [index, file] of ['src/tool-policy.ts', policyChunk].entries()) {
         const policy = await bundleFixture(join(planRoot, file), join(planRoot, `policy-${index}.mjs`), 'namespace');
         for (const check of [policy.findBlockedCommandSegment, policy.findBlockedPowerShellCommandSegment]) {
           assert.equal(check('git status', configured), undefined);

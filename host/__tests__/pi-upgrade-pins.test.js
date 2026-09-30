@@ -21,6 +21,11 @@ describe('REQ-AGENT-206: approved Pi crash-recovery release pins', () => {
       '@juicesharp/rpiv-todo': '2.11.0',
       'pi-web-access': '0.34.0',
       'pi-mcp-adapter': '3.3.0',
+      '@narumitw/pi-goal': '0.54.8',
+      '@narumitw/pi-plan-mode': '0.58.3',
+      '@narumitw/pi-usage': '0.61.1',
+      'context-mode': '1.0.169',
+      'pi-evaluate': '0.1.5',
     })) assert.equal(pi.dependencies[name], version, name);
   });
 });
