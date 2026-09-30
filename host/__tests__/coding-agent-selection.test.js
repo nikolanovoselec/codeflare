@@ -25,6 +25,46 @@ const containerWorkflow = parseYaml(readFileSync(join(ROOT, '.github/workflows/c
 
 const ALL_AGENTS = 'claude-code,codex,copilot,antigravity,opencode,pi';
 
+it('REQ-OPS-046 AC3: bundled brace runtimes must expand patterns correctly at every path', async () => {
+  const smoke = await import('../../scripts/ci/smoke-openvscode-sidebar-image.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'bundled-brace-smoke-'));
+  try {
+    const good = join(root, 'good');
+    const bad = join(root, 'bad');
+    for (const path of [good, bad]) {
+      mkdirSync(path);
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ main: 'index.cjs' }));
+    }
+    writeFileSync(join(good, 'index.cjs'), "exports.expand = () => ['alpha/1', 'alpha/2', 'beta/1', 'beta/2'];\n");
+    writeFileSync(join(bad, 'index.cjs'), "exports.expand = () => ['unexpanded'];\n");
+    await smoke.verifyBundledSecurityRuntimes({ bracePaths: [good], undiciPaths: [] });
+    await assert.rejects(
+      smoke.verifyBundledSecurityRuntimes({ bracePaths: [good, bad], undiciPaths: [] }),
+      /brace expansion runtime/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+it('REQ-OPS-046 AC3: bundled undici runtimes must complete an HTTP body round trip at every path', async () => {
+  const smoke = await import('../../scripts/ci/smoke-openvscode-sidebar-image.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'bundled-undici-smoke-'));
+  try {
+    const good = join(root, 'good');
+    const bad = join(root, 'bad');
+    for (const path of [good, bad]) {
+      mkdirSync(path);
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ main: 'index.cjs' }));
+    }
+    writeFileSync(join(good, 'index.cjs'), 'exports.fetch = globalThis.fetch;\n');
+    writeFileSync(join(bad, 'index.cjs'), "exports.fetch = async () => ({ status: 200, text: async () => 'wrong body' });\n");
+    await smoke.verifyBundledSecurityRuntimes({ bracePaths: [], undiciPaths: [good] });
+    await assert.rejects(
+      smoke.verifyBundledSecurityRuntimes({ bracePaths: [], undiciPaths: [good, bad] }),
+      /undici HTTP runtime/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 async function selector() {
   return import(`file://${selectorPath}?test=${Date.now()}-${Math.random()}`);
 }
