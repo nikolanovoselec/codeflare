@@ -3007,7 +3007,7 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@21.4.5',
+  'npm:@gotgenes/pi-subagents@21.7.6',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.9.0',
