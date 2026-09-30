@@ -254,8 +254,9 @@ async function fixture(test: (f: {
   });
 }
 function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, path = '/v1/dispatcher/diagnostic', method = 'POST') {
-  return new Request(`https://operator.internal${path}`, { method,
-    headers: { 'content-type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined });
+  const url = `https://operator.internal${path}`;
+  if (method === 'GET') return new Request(url, { method: 'GET' });
+  return new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
 function composeRead(operationId = 'compose-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
@@ -360,14 +361,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, cancel() { canceled = true; } });
     const request = new Request('https://operator.internal/v1/dispatcher/diagnostic', { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit);
-    const start = performance.now();
+    const startedAt = performance.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const response = await Promise.race([f.capability.fetch(request),
         new Promise<'pending'>(resolve => { timer = setTimeout(() => resolve('pending'), 700); })]);
       expect(response).not.toBe('pending');
       expect((response as Response).status).toBe(403);
-      expect(performance.now() - start).toBeLessThan(400);
+      expect(performance.now() - startedAt).toBeLessThan(400);
     } finally { clearTimeout(timer); }
     expect(canceled).toBe(true);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
