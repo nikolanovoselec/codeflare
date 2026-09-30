@@ -631,9 +631,13 @@ export function patchPiGoalSettingsSource(source) {
     '\treturn typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;',
     '}',
   ].join('\n');
+  const compactContinuationLimitNormalizer = continuationLimitNormalizer.replace(
+    'function normalizeContinuationLimit(\n\tvalue: unknown,\n\tfallback: ContinuationLimit,\n): ContinuationLimit | undefined {',
+    'function normalizeContinuationLimit(value: unknown, fallback: ContinuationLimit): ContinuationLimit | undefined {',
+  );
   patched = replaceOnce(
     patched,
-    continuationLimitNormalizer,
+    source.includes(compactContinuationLimitNormalizer) ? compactContinuationLimitNormalizer : continuationLimitNormalizer,
     [
       continuationLimitNormalizer,
       '',
@@ -780,9 +784,13 @@ export function patchPiGoalRuntimeSource(source) {
       `\tprivate continuationDispatchTimer?: NodeJS.Timeout; // ${RUNTIME_PATCH_MARKER}`,
       'native continuation scheduler marker',
     );
+    const compactScheduler = RUNTIME_NATIVE_SCHEDULER_SOURCE.replace(
+      '\t\t\tif (\n\t\t\t\tgeneration !== this.menuGeneration ||\n\t\t\t\tthis.activeGoal?.id !== goalId ||\n\t\t\t\t!this.ownsWorkflow(this.activeGoal)\n\t\t\t) {',
+      '\t\t\tif (generation !== this.menuGeneration || this.activeGoal?.id !== goalId || !this.ownsWorkflow(this.activeGoal)) {',
+    );
     patched = replaceOnce(
       patched,
-      RUNTIME_NATIVE_SCHEDULER_SOURCE,
+      source.includes(compactScheduler) ? compactScheduler : RUNTIME_NATIVE_SCHEDULER_SOURCE,
       RUNTIME_NATIVE_SCHEDULER_PATCH,
       'native continuation scheduler interval',
     );
