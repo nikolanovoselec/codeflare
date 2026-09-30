@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { createFlueCaseShard } from '../operators/fixtures/flue-case-shard';
 
 describe('REQ-OPS-003: parallel Flue case ownership', () => {
-  it.each([1, 2, 3, 4, 39, 40])('executes all %i admitted cases exactly once across three isolated partitions', count => {
+  it.each([1, 2, 3, 4, 39, 40])('executes all %i admitted cases exactly once across four isolated partitions', count => {
     const cases = Array.from({ length: count }, (_, index) => index);
-    const partitions = [0, 1, 2].map(index => {
-      const ownsNext = createFlueCaseShard(index, 3);
+    const partitions = [0, 1, 2, 3].map(index => {
+      const ownsNext = createFlueCaseShard(index, 4);
       return cases.filter(() => ownsNext());
     });
     const executed = partitions.flat();
@@ -16,8 +16,8 @@ describe('REQ-OPS-003: parallel Flue case ownership', () => {
 
   it('keeps table rows and individual declarations in one complete ownership sequence', () => {
     const declarations = [['single'], ['row-a', 'row-b', 'row-c', 'row-d'], ['last']];
-    const executed = [0, 1, 2].flatMap(index => {
-      const ownsNext = createFlueCaseShard(index, 3);
+    const executed = [0, 1, 2, 3].flatMap(index => {
+      const ownsNext = createFlueCaseShard(index, 4);
       return declarations.flatMap(rows => rows.filter(() => ownsNext()));
     });
     expect([...executed].sort()).toEqual(declarations.flat().sort());

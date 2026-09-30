@@ -11,6 +11,7 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/operators/loader-flue.test.ts',
   'src/__tests__/operators/loader-flue-1.test.ts',
   'src/__tests__/operators/loader-flue-2.test.ts',
+  'src/__tests__/operators/loader-flue-3.test.ts',
   // Phase-1 regression fence for canonical local-review packet bytes.
   'src/__tests__/operators/legacy-review-unchanged.test.ts',
   'src/__tests__/operators/approved-git-pack.test.ts',
@@ -58,6 +59,7 @@ export function nodeSuiteFiles(group = 'all') {
     'src/__tests__/operators/loader-flue.test.ts',
     'src/__tests__/operators/loader-flue-1.test.ts',
     'src/__tests__/operators/loader-flue-2.test.ts',
+    'src/__tests__/operators/loader-flue-3.test.ts',
   ];
   if (group === 'rest') return NODE_SUITE_FILES.filter(file => !nodeSuiteFiles('native').includes(file) && !nodeSuiteFiles('flue').includes(file));
   throw new Error(`Unsupported Node test group: ${group}`);

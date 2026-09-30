@@ -20,8 +20,8 @@ export default defineConfig({
     // it would make a pool switch or a major bump an opaque suite failure.
     pool: 'forks',
     include: nodeSuiteFiles(process.env.VITEST_NODE_SUITE_GROUP),
-    // Three isolated Flue files run concurrently; never share a case's workerd.
-    maxWorkers: process.env.VITEST_NODE_SUITE_GROUP === 'flue' ? 3 : undefined,
+    // Four isolated Flue files run concurrently; never share a case's workerd.
+    maxWorkers: process.env.VITEST_NODE_SUITE_GROUP === 'flue' ? 4 : undefined,
     slowTestThreshold: 5000,
     testTimeout: 30000,
     hookTimeout: 30000,
