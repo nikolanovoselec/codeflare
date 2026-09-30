@@ -502,17 +502,16 @@ export class FlueDispatcherAgent extends Pinned {
       if (done && behavior === 'abort-reject') throw new DOMException('Controlled inference fetch aborted', 'AbortError');
       if (done && behavior === 'stream-fail') {
         let sent = false;
-        const owner = this;
         return new Response(new ReadableStream({
-          pull(controller) {
+          pull: (controller) => {
             if (!sent) {
               sent = true;
               controller.enqueue(new TextEncoder().encode('data: {"choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}\n\n'));
-              owner.streamPhase = 'prefix-enqueued';
+              this.streamPhase = 'prefix-enqueued';
             } else {
               controller.error(new Error('Controlled inference stream failed'));
-              owner.streamPhase = 'error-injected';
-              owner.streamErrorAt = Date.now();
+              this.streamPhase = 'error-injected';
+              this.streamErrorAt = Date.now();
             }
           },
         }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream' } });

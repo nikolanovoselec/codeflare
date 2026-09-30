@@ -513,6 +513,11 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       if (mode === 'stream-fail') {
         expect(value.instance, 'The producer and observation must use the same root instance').toBe(rootInstance);
         expect(value.streamPhase, 'The producer must inject the controlled stream error').toBe('error-injected');
+        value = await observe(id, state => state.reconcileOutcome === 'settled' || state.reconcileOutcome === 'interrupted', 2_000);
+        settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
+        expect(value.reconcileOutcome, 'An artificial fixture expiry must not decide the stream-failure result').toBe('settled');
+        expect(value.streamErrorVsExpiry).toBe('unobserved');
+        expect(value.interruptionVsError).toBe('unobserved');
       }
       expect(value.productionCalls).toEqual(expect.arrayContaining([
         expect.objectContaining({ path: '/v1/dispatcher/inference', modelTurn: 'after-tool' }),
