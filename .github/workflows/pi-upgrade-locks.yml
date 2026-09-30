@@ -24,6 +24,23 @@ jobs:
         run: |
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
+          python3 - <<'PY'
+          import json, urllib.request
+          for path in ['preseed/npm-tools/package-lock.json', 'preseed/agents/pi/package-lock.json']:
+              with open(path) as f:
+                  lock = json.load(f)
+              for key, entry in lock['packages'].items():
+                  if not key or entry.get('link') or entry.get('integrity'):
+                      continue
+                  name = key.rsplit('node_modules/', 1)[1]
+                  url = 'https://registry.npmjs.org/' + name.replace('/', '%2f') + '/' + entry['version']
+                  with urllib.request.urlopen(url, timeout=15) as response:
+                      metadata = json.load(response)
+                  assert entry['resolved'] == metadata['dist']['tarball'], name
+                  entry['integrity'] = metadata['dist']['integrity']
+              with open(path, 'w') as f:
+                  f.write(json.dumps(lock, indent=2) + '\n')
+          PY
           node scripts/generate-agent-seed.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
