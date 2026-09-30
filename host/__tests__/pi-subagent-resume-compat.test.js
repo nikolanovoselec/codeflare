@@ -9,18 +9,19 @@ const root = resolve(__dirname, '../..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'preseed/agents/pi/package.json'), 'utf8'));
 const lock = JSON.parse(readFileSync(resolve(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
 
-// 21.4.5 still checks session readiness, not queued/running status, before
-// manager.resume invokes agent.resume. Retain the guard: an executable probe
-// of this method invokes the child for both queued and running records, while
-// the managed guard rejects both before invocation.
-// Reviewed source: https://github.com/gotgenes/pi-packages/blob/pi-subagents-v21.4.5/packages/pi-subagents/src/lifecycle/subagent-manager.ts#L358-L366
-// Behavioral coverage: src/__tests__/lib/pi-subagent-resume-guard.test.ts
-const REVIEWED_GUARDED_VERSION = '21.4.5';
+// 21.8.1 manager.resume checks agent.resumeRefusal before claim or invocation.
+// resumeRefusal rejects running agents and queued agents lacking a ready session.
+// Keep the existing status-only managed boundary and its stable steering guidance
+// for this dependency-only upgrade; no runtime guard behavior changes here.
+// Reviewed npm source: @gotgenes/pi-subagents@21.8.1, src/lifecycle/subagent-manager.ts
+// and src/lifecycle/subagent.ts. Behavioral managed-boundary coverage remains:
+// src/__tests__/lib/pi-subagent-resume-guard.test.ts.
+const REVIEWED_GUARDED_VERSION = '21.8.1';
 const REVIEW_MESSAGE = [
   '@gotgenes/pi-subagents changed. Re-run active-resume compatibility review.',
-  'If upstream now rejects queued/running resume before manager/session invocation,',
-  'remove subagent-resume-guard.ts and this sentinel. Otherwise review and advance',
-  'REVIEWED_GUARDED_VERSION with behavioral evidence.',
+  'Review upstream queued/running refusal before manager/session invocation',
+  'and preserve the managed status-only boundary unless its removal is scoped.',
+  'Advance REVIEWED_GUARDED_VERSION only after compatibility review.',
 ].join(' ');
 
 describe('REQ-AGENT-159: pi-subagents active-resume compatibility', () => {
