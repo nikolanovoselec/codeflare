@@ -3,26 +3,26 @@
   "private": true,
   "//pi-coding-agent-override": "Must match preseed/npm-tools/package.json. The Docker build consumes this committed lockfile with npm ci and fails if the runtime and prewarm Pi versions drift.",
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.87.1",
-    "@gotgenes/pi-subagents": "21.4.5",
-    "@juicesharp/rpiv-advisor": "2.9.0",
-    "@juicesharp/rpiv-ask-user-question": "2.9.0",
-    "@juicesharp/rpiv-todo": "2.9.0",
-    "@narumitw/pi-goal": "0.54.4",
-    "@narumitw/pi-plan-mode": "0.56.0",
-    "@narumitw/pi-usage": "0.60.3",
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@gotgenes/pi-subagents": "21.8.1",
+    "@juicesharp/rpiv-advisor": "2.11.0",
+    "@juicesharp/rpiv-ask-user-question": "2.11.0",
+    "@juicesharp/rpiv-todo": "2.11.0",
+    "@narumitw/pi-goal": "0.54.8",
+    "@narumitw/pi-plan-mode": "0.58.3",
+    "@narumitw/pi-usage": "0.61.1",
     "context-mode": "1.0.169",
     "pi-evaluate": "0.1.5",
-    "pi-mcp-adapter": "2.32.1",
-    "pi-web-access": "0.28.0"
+    "pi-mcp-adapter": "3.3.0",
+    "pi-web-access": "0.34.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "0.87.1",
-    "@earendil-works/pi-ai": "0.87.1",
-    "@earendil-works/pi-tui": "0.87.1"
+    "@earendil-works/pi-agent-core": "0.99.1",
+    "@earendil-works/pi-ai": "0.99.1",
+    "@earendil-works/pi-tui": "0.99.1"
   },
   "overrides": {
-    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.99.1",
     "pi-mcp-adapter": {
       "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
     },

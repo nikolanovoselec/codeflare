@@ -233,7 +233,7 @@ const piPackage = JSON.parse(
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
-  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
+  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'dist/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
@@ -241,7 +241,7 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'advisor', package: '@juicesharp/rpiv-advisor', entrypoint: 'index.ts' },
   { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
-  { variable: 'web', package: 'pi-web-access', entrypoint: 'index.ts' },
+  { variable: 'web', package: 'pi-web-access', entrypoint: 'dist/index.js' },
   { variable: 'context', package: 'context-mode', entrypoint: 'build/adapters/pi/extension.js' },
 ];
 
@@ -338,7 +338,10 @@ describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
         assert.notEqual(fixture.result.status, 0);
         const { source } = fixture.sources.find((entry) => entry.name === name);
         const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-warm-tmp/jiti'));
-        assert.ok(fixture.result.stderr.includes(`jiti cache artifact is missing at ${artifact}`), fixture.result.stderr);
+        const expected = source.endsWith('.js')
+          ? `native import missing for ${source}`
+          : `jiti cache artifact is missing at ${artifact}`;
+        assert.ok(fixture.result.stderr.includes(expected), fixture.result.stderr);
       } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
     }
   });
