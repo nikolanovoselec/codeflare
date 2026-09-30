@@ -13,10 +13,7 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = MAX_BUNDLE_BYTES + 256 * 1024;
 const API = 'https://api.github.com';
-const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com',
-  'productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
-  'productionresultssa6.blob.core.windows.net', 'productionresultssa8.blob.core.windows.net',
-  'productionresultssa16.blob.core.windows.net']);
+const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com']);
 const FILES = ['operator-manifest.json', 'operator-bundle.json', 'operator-provenance.json'] as const;
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
@@ -115,7 +112,11 @@ async function githubBytes(path: string, pat: string, limit: number, deadline: n
       const location = response.headers.get('location');
       if (!location || location.length > 8192) throw new Error('Invalid GitHub redirect');
       const redirect = new URL(location);
-      if (redirect.protocol !== 'https:' || !CDN_HOSTS.has(redirect.hostname) || redirect.port || redirect.username || redirect.password || redirect.hash) throw new Error('Unsafe GitHub redirect');
+      // GitHub documents *.blob.core.windows.net for Actions artifacts; account names are not stable.
+      // Accept that transport only from our authenticated artifact endpoint, never arbitrary release URLs.
+      const artifactCdn = /^\/repositories\/[1-9]\d*\/actions\/artifacts\/[1-9]\d*\/zip$/.test(path)
+        && /^[a-z0-9]{3,24}\.blob\.core\.windows\.net$/.test(redirect.hostname);
+      if (redirect.protocol !== 'https:' || !(CDN_HOSTS.has(redirect.hostname) || artifactCdn) || redirect.port || redirect.username || redirect.password || redirect.hash) throw new Error('Unsafe GitHub redirect');
       void response.body?.cancel().catch(() => {});
       response = await fetch(new Request(redirect.href, { method: 'GET', redirect: 'manual', signal: controller.signal,
         headers: { accept: 'application/octet-stream' } }));

@@ -283,7 +283,8 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
 
   it.each(['productionresultssa1.blob.core.windows.net', 'productionresultssa2.blob.core.windows.net',
     'productionresultssa3.blob.core.windows.net', 'productionresultssa6.blob.core.windows.net', 'productionresultssa8.blob.core.windows.net',
-    'productionresultssa16.blob.core.windows.net'] as const)(
+    'productionresultssa16.blob.core.windows.net', 'productionresultssa22.blob.core.windows.net',
+    'productionresultssa66.blob.core.windows.net'] as const)(
     'REQ-OPERATOR-044: release CDN transport via %s succeeds without forwarding acquisition credentials', async artifactCdnHost => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
     vi.stubGlobal('fetch', fixture.fetcher);
@@ -311,8 +312,7 @@ describe('REQ-OPERATOR-044: GitHub immutable package acquisition', () => {
     expect(JSON.stringify(discovered)).not.toContain(registration.githubPat);
   }));
 
-  it.each(['productionresultssa22.blob.core.windows.net', 'productionresultssa66.blob.core.windows.net',
-    'productionresultssa2.blob.core.windows.net.attacker.example'] as const)(
+  it.each(['productionresultssa2.blob.core.windows.net.attacker.example'] as const)(
     'rejects unapproved Actions artifact CDN host %s without forwarding the PAT or committing a release', async artifactCdnHost => withManagementApi(async request => {
     const fixture = await createOperatorGitHubFixture({ useCdn: true, artifactCdnHost });
     vi.stubGlobal('fetch', fixture.fetcher);
