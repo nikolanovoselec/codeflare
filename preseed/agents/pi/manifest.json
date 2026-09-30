@@ -263,12 +263,6 @@
       "advanced"
     ]
   },
-  "rules/engineering-constitution.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "rules/git-workflow.md": {
     "modes": [
       "default",
