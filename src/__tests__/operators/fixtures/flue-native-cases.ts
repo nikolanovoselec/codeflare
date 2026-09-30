@@ -384,7 +384,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         meta: { operation: `direct(${admitted.body.submissionId})`, reason: 'Parent inference denied: 422' } } });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').at(-1)?.status).toBe(422);
       const diagnosed = await observe(id, receipt => receipt.diagnosticReports.some(item =>
-        item.stage === 'http-rejected' && item.status === 422));
+        item.stage === 'http-rejected' && item.status === 422), 3_000);
       expect(diagnosed.diagnosticReports).toEqual([{ activityId: id, generation: 1, stage: 'http-rejected', status: 422 }]);
       expect(JSON.stringify(diagnosed.diagnosticReports)).not.toContain('fixture model rejected');
       expect(results(value)).toEqual([]);
@@ -462,7 +462,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         expect(receipt!).toMatchObject({ completed: true });
         if (mode === 'rpc-fiber') {
           expect(receipt!).toMatchObject({ warningCompleted: true, callbackReturned: true });
-          const diagnosed = await observe(id, value => value.diagnosticReports.some(item => item.stage === 'fetch-rejected'));
+          const diagnosed = await observe(id, value => value.diagnosticReports.some(item => item.stage === 'fetch-rejected'), 3_000);
           expect(diagnosed.diagnosticReports).toEqual([{ activityId: id, generation: 1, stage: 'fetch-rejected' }]);
           const passive = await harness.fetch(`/flue-tail?activity=${encodeURIComponent(id)}`);
           expect(passive.status).toBe(200);
@@ -514,7 +514,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       } else expect(value.activity.executionStatus).not.toBe('waiting');
       if (mode === 'fetch-reject' || mode === 'abort-reject') {
         const diagnosed = await observe(id, receipt => receipt.diagnosticReports.some(item =>
-          item.stage === 'fetch-rejected'));
+          item.stage === 'fetch-rejected'), 3_000);
         expect(diagnosed.diagnosticReports).toEqual([{ activityId: id, generation: 1, stage: 'fetch-rejected' }]);
         expect(JSON.stringify(diagnosed.diagnosticReports)).not.toContain(sentinel);
       }
