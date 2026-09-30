@@ -33,7 +33,7 @@ function runBump(failure) {
     write(join(repo, 'entrypoint.sh'), 'fixture\n');
     write(join(repo, 'host/__tests__/pi-settings-packages.test.js'), 'fixture\n');
     for (const tree of ['preseed/agents/pi', 'preseed/npm-tools']) {
-      write(join(repo, tree, 'package.json'), JSON.stringify({ dependencies: { '@juicesharp/rpiv-advisor': '1.0.0' } }, null, 2));
+      write(join(repo, tree, 'package.json'), JSON.stringify({ dependencies: { '@juicesharp/rpiv-advisor': '1.0.0', 'unrelated-agent': '3.0.0' } }, null, tree === 'preseed/npm-tools' ? undefined : 2));
       for (const name of names) write(join(repo, tree, 'node_modules/@juicesharp', name, 'package.json'),
         JSON.stringify({ name: `@juicesharp/${name}`, dependencies: { typebox: '^1.1.24' } }));
       const sdk = join(repo, tree, 'node_modules/@earendil-works/pi-coding-agent');
@@ -56,14 +56,19 @@ function runBump(failure) {
         BRANCH: 'bump/fixture-rpiv', GH_TOKEN: 'fixture', GITHUB_REPOSITORY: 'fixture/repo' },
     });
     const published = git('ls-remote', 'origin', 'refs/heads/bump/fixture-rpiv').trim();
-    return { result, published };
+    const manifests = published ? ['preseed/agents/pi', 'preseed/npm-tools'].map(tree =>
+      JSON.parse(execFileSync('git', ['--git-dir', remote, 'show', `refs/heads/bump/fixture-rpiv:${tree}/package.json`], { encoding: 'utf8' }))) : [];
+    return { result, published, manifests };
   } finally { rmSync(home, { recursive: true, force: true }); }
 }
 
 it('RPIV bump publishes only after both installation trees pass patched startup', () => {
-  const { result, published } = runBump(null);
+  const { result, published, manifests } = runBump(null);
   assert.equal(result.status, 0, result.stderr);
   assert.notEqual(published, '');
+  for (const manifest of manifests) assert.deepEqual(manifest.dependencies, {
+    '@juicesharp/rpiv-advisor': '1.0.1', 'unrelated-agent': '3.0.0',
+  }, 'published installer manifests must contain the candidate pin and preserve unrelated dependencies');
 });
 
 for (const failure of ['api', 'warning', 'tool']) {

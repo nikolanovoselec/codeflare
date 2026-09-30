@@ -1406,7 +1406,18 @@ jobs:
             'host/__tests__/pi-settings-packages.test.js',
           ]) {
             const before = fs.readFileSync(f, 'utf-8');
-            const after = bump(before);
+            let after;
+            if (f.endsWith('/package.json')) {
+              const manifest = JSON.parse(before);
+              if (manifest.dependencies?.[PKG] === CUR) {
+                manifest.dependencies[PKG] = LAT;
+                after = JSON.stringify(manifest, null, 2) + '\n';
+              } else {
+                after = before;
+              }
+            } else {
+              after = bump(before);
+            }
             if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
           }
           NODE
@@ -1416,6 +1427,7 @@ jobs:
           # not programmatically invokable; reject a bump before opening its PR
           # when that exact candidate no longer satisfies the reviewed anchors.
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
+          node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
           if [ "$PKG" = '@narumitw/pi-goal' ]; then
             (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
             node scripts/patch-pi-goal-review-control.mjs \
@@ -1428,7 +1440,6 @@ jobs:
           fi
           case "$PKG" in
             @juicesharp/rpiv-advisor|@juicesharp/rpiv-ask-user-question|@juicesharp/rpiv-todo)
-              node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
               (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
               (cd preseed/npm-tools && npm ci --ignore-scripts --no-audit --no-fund)
               node scripts/verify-rpiv-host-peers.mjs preseed/agents/pi/node_modules
