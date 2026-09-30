@@ -1445,13 +1445,25 @@ export class OperatorActivity extends Agent {
       }
       if (lease.status !== 'running' || !lease.submissionId) return;
       let stage = 'status';
+      let statusStep = 'plan';
+      let activityId: string | undefined;
+      let statusHttpStatus: number | undefined;
       try {
         const plan = await this.getRuntimePlan();
         if (!plan) throw new Error('Dispatcher plan unavailable');
+        activityId = plan.activityId;
         const value = await this.#boundedDispatcher(lease, async () => {
-          const response = await (await this.#dispatcherFacet(lease)).fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher'));
+          statusStep = 'facet';
+          const child = await this.#dispatcherFacet(lease);
+          statusStep = 'fetch';
+          const response = await child.fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher'));
+          statusStep = 'http';
+          statusHttpStatus = response.status;
           if (!response.ok) throw new Error('Dispatcher status unavailable');
-          return JSON.parse(await readDispatcherBody(response));
+          statusStep = 'body';
+          const body = await readDispatcherBody(response);
+          statusStep = 'json';
+          return JSON.parse(body);
         });
         const settlement = Array.isArray(value?.settlements)
           ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
@@ -1527,8 +1539,17 @@ export class OperatorActivity extends Agent {
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
           await this.interruptDrive(lease.generation);
         }
-      } catch {
-        dispatcherLog.warn('Dispatcher settlement rejected', { stage });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        const failureClass = message === 'Dispatcher body exceeds limit' ? 'body-limit'
+          : message === 'Dispatcher lease expired' ? 'lease-expired'
+            : message === 'Dispatcher status unavailable' ? 'http-rejected'
+              : error instanceof SyntaxError ? 'invalid-json'
+                : error instanceof TypeError ? 'type-error'
+                  : error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'other';
+        dispatcherLog.warn('Dispatcher settlement rejected', { stage, activityId, generation: lease.generation,
+          ...(stage === 'status' ? { statusStep, failureClass,
+            ...(statusHttpStatus === undefined ? {} : { statusHttpStatus }) } : {}) });
         await this.interruptDrive(lease.generation);
       }
     })();
