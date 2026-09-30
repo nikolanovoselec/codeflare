@@ -113,7 +113,7 @@ async function readDispatcherDiagnostic(request: Request): Promise<DispatcherDia
     const bytes = await Promise.race([read(), new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error('Diagnostic read deadline')), 250);
     })]);
-    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const data = value as Record<string, unknown>;
     if (Object.keys(data).length === 1 && data.stage === 'fetch-rejected') return { stage: 'fetch-rejected' };
