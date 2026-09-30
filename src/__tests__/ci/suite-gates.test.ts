@@ -997,13 +997,18 @@ esac
     expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
-  it('REQ-OPS-025 AC5: Pi extension bumps update every exact-version sentinel', () => {
+  it('REQ-OPS-025 AC5: Pi extension bumps align both runtime manifests and install specs', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
     const fixture = join(work, 'pi-extension-bump');
     const piDirectory = join(fixture, 'preseed/agents/pi');
+    const sharedDirectory = join(fixture, 'preseed/npm-tools');
     const hostTests = join(fixture, 'host/__tests__');
+    mkdirSync(sharedDirectory, { recursive: true });
+    writeFileSync(join(sharedDirectory, 'package.json'), JSON.stringify({ dependencies: {
+      '@juicesharp/rpiv-todo': '2.6.0', 'unrelated-agent': '1.0.0',
+    } }));
     mkdirSync(piDirectory, { recursive: true });
     mkdirSync(hostTests, { recursive: true });
     writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
@@ -1049,6 +1054,9 @@ esac
       env: { ...process.env, PKG: '@juicesharp/rpiv-todo', CUR: '2.6.0', LAT: '2.7.1' },
     });
     expect(todoApplied.status, todoApplied.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(sharedDirectory, 'package.json'), 'utf8')).dependencies).toEqual({
+      '@juicesharp/rpiv-todo': '2.7.1', 'unrelated-agent': '1.0.0',
+    });
     expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['@juicesharp/rpiv-todo']).toBe('2.7.1');
     expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:@juicesharp/rpiv-todo@2.7.1');
     expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain("pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1'");
