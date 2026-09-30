@@ -49,7 +49,7 @@ on:
       runner:
         description: 'runs-on label'
         type: string
-        default: 'ubuntu-latest'
+        default: 'ubuntu-24.04'
     outputs:
       image_tag:
         # The full registry URI must NOT be an output: it embeds the account id

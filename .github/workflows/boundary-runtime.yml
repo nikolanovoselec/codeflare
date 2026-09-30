@@ -21,7 +21,7 @@ permissions: {}
 jobs:
   collect:
     if: github.event_name == 'pull_request_target' && github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       contents: read
@@ -61,7 +61,7 @@ jobs:
 
   publish:
     needs: collect
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read

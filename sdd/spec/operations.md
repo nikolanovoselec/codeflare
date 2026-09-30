@@ -1442,7 +1442,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @manual: Confirm exact-head BuildKit output reuses unrelated dependency layers and rebuilds late IDE and seed assembly. -->
 3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm the exact-head deployment retains the uploaded BuildKit timing artifact. -->
 
-**Constraints:** The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
+**Constraints:** Hosted Ubuntu runner defaults are pinned to `ubuntu-24.04`, including reusable-workflow runner inputs; existing explicit runner overrides remain supported. No self-hosted or larger-runner dependency is introduced. <!-- @test: host/__tests__/ci-runner-os-pin.test.js (REQ-OPS-050: workflow scheduling defaults pin Ubuntu 24.04 while retaining explicit runner overrides) -->
 
 **Priority:** P1
 

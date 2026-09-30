@@ -92,7 +92,7 @@ env:
 jobs:
   changes:
     name: Detect changed areas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       # Single source of truth for "the diff filter did not run, so every lane
@@ -277,7 +277,7 @@ jobs:
       needs.changes.outputs.webui == 'true' ||
       needs.changes.outputs.host == 'true' ||
       needs.changes.outputs.ide == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -368,7 +368,7 @@ jobs:
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -406,7 +406,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -471,7 +471,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     # Native workerd groups run separately from ordinary Node tests so a stuck
     # generated facet cannot hold the complete backend lane for ten minutes.
     # Flue needs room for setup and cleanup around its passing suite.
@@ -520,7 +520,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.workflows == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -641,7 +641,7 @@ jobs:
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -694,7 +694,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -724,7 +724,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.webui == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -761,7 +761,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.webui == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -787,7 +787,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.webui == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -834,7 +834,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.landing == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -873,7 +873,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.pi == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -966,7 +966,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     strategy:
       fail-fast: false
@@ -1149,7 +1149,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.ide == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1201,7 +1201,7 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: github.event_name == 'pull_request'
     steps:
@@ -1231,7 +1231,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1247,7 +1247,7 @@ jobs:
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1281,7 +1281,7 @@ jobs:
       - rclone-bookkeeping
       - impeccable-engine
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

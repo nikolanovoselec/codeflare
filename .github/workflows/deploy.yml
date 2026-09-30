@@ -111,7 +111,7 @@ jobs:
   verify-existing:
     name: Resolve reusable PR Checks
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read
@@ -179,7 +179,7 @@ jobs:
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # production is locked to main (the guard step below rejects it elsewhere);
     # enterprise and enterprise integration are separate single-tenant envs that may
@@ -249,7 +249,7 @@ jobs:
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
       && needs.prepare.result == 'success'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 15
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -339,7 +339,7 @@ jobs:
       worker-name: ${{ needs.prepare.outputs.worker_name }}
       cache-bust: ${{ needs.prepare.outputs.cache_bust }}
       coding-agents: ${{ needs.prepare.outputs.coding_agents }}
-      runner: ${{ vars.RUNNER || 'ubuntu-latest' }}
+      runner: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
   deploy:
@@ -364,7 +364,7 @@ jobs:
       && needs.prepare.result == 'success'
       && needs.build-worker.result == 'success'
       && needs.container.result == 'success'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     environment: ${{ needs.prepare.outputs.env_name }}
     timeout-minutes: 20
     env:
@@ -804,7 +804,7 @@ jobs:
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

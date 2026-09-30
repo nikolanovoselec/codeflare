@@ -28,7 +28,7 @@ jobs:
             config: ./.github/codeql/codeql-worker.yml
           - shard: container-ui
             config: ./.github/codeql/codeql-container-ui.yml
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -61,7 +61,7 @@ jobs:
     if: always()
     needs: analyze
     permissions: {}
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 1
     steps:
       - name: Require every CodeQL shard

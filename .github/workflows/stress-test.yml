@@ -24,7 +24,7 @@ concurrency:
 jobs:
   setup:
     name: Verify target
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     environment: integration
     timeout-minutes: 10
     outputs:
@@ -106,7 +106,7 @@ jobs:
     name: API throughput
     needs: setup
     if: inputs.suite == 'all' || inputs.suite == 'api-throughput'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     environment: integration
     timeout-minutes: 15
     env:
@@ -141,7 +141,7 @@ jobs:
     name: Session lifecycle
     needs: setup
     if: inputs.suite == 'all' || inputs.suite == 'session-lifecycle'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     environment: integration
     timeout-minutes: 15
     env:
@@ -176,7 +176,7 @@ jobs:
     name: Storage operations
     needs: setup
     if: inputs.suite == 'all' || inputs.suite == 'storage-operations'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     environment: integration
     timeout-minutes: 15
     env:
@@ -214,7 +214,7 @@ jobs:
     # ran three of the four and the summary reported green having never
     # validated rate limits at all.
     if: inputs.suite == 'all' || inputs.suite == 'rate-limit-validation'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
     environment: integration
     timeout-minutes: 10
     env:
@@ -247,7 +247,7 @@ jobs:
     name: Summary
     needs: [api-throughput, session-lifecycle, storage-operations, rate-limit-validation]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Fail if any suite did not succeed
