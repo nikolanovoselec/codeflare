@@ -100,7 +100,7 @@ export async function verifySelectedAgentLaunchers(
   return versions;
 }
 
-export async function verifyRpivExtensionStartup(nodeModulesRoot) {
+export async function verifyRpivExtensionStartup(nodeModulesRoot, sdkNodeModulesRoot = nodeModulesRoot) {
   const home = await mkdtemp(join(tmpdir(), 'pi-rpiv-startup-'));
   try {
     const agentDir = join(home, '.pi', 'agent');
@@ -109,7 +109,7 @@ export async function verifyRpivExtensionStartup(nodeModulesRoot) {
       .map(name => join(nodeModulesRoot, '@juicesharp', name));
     await writeFile(join(agentDir, 'settings.json'), JSON.stringify({ packages }));
     const { DefaultResourceLoader } = await import(pathToFileURL(join(
-      nodeModulesRoot, '@earendil-works/pi-coding-agent/dist/index.js',
+      sdkNodeModulesRoot, '@earendil-works/pi-coding-agent/dist/index.js',
     )).href);
     const loader = new DefaultResourceLoader({ cwd: home, agentDir,
       noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
@@ -462,7 +462,7 @@ async function main() {
   const rpivExtensionStartup = piVersion ? [] : null;
   if (piVersion) {
     for (const root of [NPM_TOOLS_NODE_MODULES, PI_NPM_NODE_MODULES]) {
-      rpivExtensionStartup.push(await verifyRpivExtensionStartup(root));
+      rpivExtensionStartup.push(await verifyRpivExtensionStartup(PI_NPM_NODE_MODULES, root));
     }
   }
 

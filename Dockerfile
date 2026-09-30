@@ -533,7 +533,6 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs ./node_modules && \
     if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
       node /opt/codeflare/scripts/patch-pi-native-model-display.mjs /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent && \
-      node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs /opt/codeflare/npm-tools/node_modules && \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
         /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json; \
     fi && \

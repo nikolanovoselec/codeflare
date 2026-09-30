@@ -199,7 +199,7 @@ describe('entrypoint production helpers', () => {
   it('REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'rpiv-startup-repair-'));
     const shared = join(fixture, 'shared'); const profile = join(fixture, 'profile');
-    const roots = [join(shared, 'node_modules'), join(profile, 'node_modules')];
+    const roots = [join(profile, 'node_modules')];
     const names = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo'];
     for (const root of roots) for (const name of names) mkdirSync(join(root, '@juicesharp', name), { recursive: true });
     const reset = join(fixture, 'reset.mjs');
@@ -219,6 +219,7 @@ describe('entrypoint production helpers', () => {
         NODE_BIN: process.execPath, RESET: reset, PATCH: resolve(__dirname, '../../scripts/patch-rpiv-host-peers.mjs'),
       });
       assert.equal(result.status, 0, result.stderr);
+      assert.equal(existsSync(join(shared, 'node_modules/@juicesharp/rpiv-advisor')), false);
       for (const root of roots) for (const name of names) {
         const manifest = JSON.parse(readFileSync(join(root, '@juicesharp', name, 'package.json')));
         assert.equal(manifest.dependencies.typebox, undefined);

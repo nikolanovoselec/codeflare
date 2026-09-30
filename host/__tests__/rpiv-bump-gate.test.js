@@ -33,8 +33,8 @@ function runBump(failure) {
     write(join(repo, 'entrypoint.sh'), 'fixture\n');
     write(join(repo, 'host/__tests__/pi-settings-packages.test.js'), 'fixture\n');
     for (const tree of ['preseed/agents/pi', 'preseed/npm-tools']) {
-      write(join(repo, tree, 'package.json'), JSON.stringify({ dependencies: { '@juicesharp/rpiv-advisor': '1.0.0', 'unrelated-agent': '3.0.0' } }, null, tree === 'preseed/npm-tools' ? undefined : 2));
-      for (const name of names) write(join(repo, tree, 'node_modules/@juicesharp', name, 'package.json'),
+      write(join(repo, tree, 'package.json'), JSON.stringify({ dependencies: { ...(tree === 'preseed/agents/pi' ? { '@juicesharp/rpiv-advisor': '1.0.0' } : {}), 'unrelated-agent': '3.0.0' } }, null, tree === 'preseed/npm-tools' ? undefined : 2));
+      for (const name of tree === 'preseed/agents/pi' ? names : []) write(join(repo, tree, 'node_modules/@juicesharp', name, 'package.json'),
         JSON.stringify({ name: `@juicesharp/${name}`, dependencies: { typebox: '^1.1.24' } }));
       const sdk = join(repo, tree, 'node_modules/@earendil-works/pi-coding-agent');
       write(join(sdk, 'package.json'), '{"type":"module"}');
@@ -66,9 +66,10 @@ it('RPIV bump publishes only after both installation trees pass patched startup'
   const { result, published, manifests } = runBump(null);
   assert.equal(result.status, 0, result.stderr);
   assert.notEqual(published, '');
-  for (const manifest of manifests) assert.deepEqual(manifest.dependencies, {
-    '@juicesharp/rpiv-advisor': '1.0.1', 'unrelated-agent': '3.0.0',
-  }, 'published installer manifests must contain the candidate pin and preserve unrelated dependencies');
+  assert.deepEqual(manifests.map(manifest => manifest.dependencies), [
+    { '@juicesharp/rpiv-advisor': '1.0.1', 'unrelated-agent': '3.0.0' },
+    { 'unrelated-agent': '3.0.0' },
+  ], 'the published candidate belongs to the extension tree; shared SDK startup must not require a duplicate installation');
 });
 
 for (const failure of ['api', 'warning', 'tool']) {
