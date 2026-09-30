@@ -50,6 +50,7 @@ type Facet = Fetcher & {
   fixtureSnapshot(): Promise<unknown>;
   fixtureDiagnosticProbeStart?(mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber'): Promise<void>;
   fixtureDiagnosticProbeReceipt?(mode: 'direct' | 'scheduled' | 'fiber' | 'rpc-fiber'): Promise<boolean>;
+  fixtureDiagnosticProbeWarningReceipt?(): Promise<boolean>;
   fixtureDiagnosticProbeReleaseFiber?(): Promise<{ released: boolean }>;
 };
 type NativeEnv = Cloudflare.Env & {
@@ -174,6 +175,13 @@ export class FlueDispatcherAgent extends Pinned {
         if (!response.ok) throw new Error('Synthetic inference bridge unavailable');
       }
       console.warn('Dispatcher inference boundary', { stage: 'fetch-rejected' });
+      if (mode === 'rpc-fiber') await this.ctx.storage.put('fixture:probe:rpc-fiber:warning-completed', true);
+      if (mode === 'rpc-fiber') {
+        const report = await this.env.OPERATOR.fetch(new Request('https://operator.internal/v1/dispatcher/diagnostic', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stage: 'fetch-rejected' }),
+        }));
+        if (!report.ok) throw new Error('Synthetic diagnostic report denied');
+      }
       await this.ctx.storage.put('fixture:probe:' + mode, true);
     });
     this.ctx.waitUntil(running);
@@ -185,6 +193,9 @@ export class FlueDispatcherAgent extends Pinned {
   }
   async fixtureDiagnosticProbeReceipt(mode) {
     return await this.ctx.storage.get('fixture:probe:' + mode) === true;
+  }
+  async fixtureDiagnosticProbeWarningReceipt() {
+    return await this.ctx.storage.get('fixture:probe:rpc-fiber:warning-completed') === true;
   }
 }`;
       if (probe && artifact.mainModule !== 'index.js') throw new Error('Pinned probe main module unavailable');
@@ -356,6 +367,7 @@ export class FlueDispatcherAgent extends Pinned {
       external: await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [],
       externalAttempts: await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [],
       productionCalls: await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [],
+      diagnosticReports: await this.ctx.storage.get('fixture:diagnostic-reports') ?? [],
       tailProbe: await this.env.TAIL_INBOX.getByName(this.name).snapshot(),
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
       digest: await this.ctx.storage.get('fixture:digest'),
@@ -375,6 +387,7 @@ export class FlueDispatcherAgent extends Pinned {
     const child = await this.child();
     if (!child.fixtureDiagnosticProbeReceipt) throw new Error('Synthetic facet receipt unavailable');
     return { completed: await child.fixtureDiagnosticProbeReceipt(mode),
+      ...(mode === 'rpc-fiber' ? { warningCompleted: await child.fixtureDiagnosticProbeWarningReceipt?.() ?? false } : {}),
       ...((mode === 'fiber' || mode === 'rpc-fiber')
         ? { callbackReturned: await this.ctx.storage.get<boolean>('fixture:probe:callback-returned') === true } : {}) };
   }
@@ -401,8 +414,30 @@ export class FlueDispatcherAgent extends Pinned {
   }
 
   /** Synthetic upstream, deliberately NOT the missing parent authority bridge. */
-  async transport(request: Request): Promise<Response> {
+  async transport(request: Request, boundGeneration: number): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (path === '/v1/dispatcher/diagnostic') {
+      if (request.method !== 'POST' || request.headers.get('content-type') !== 'application/json') return new Response(null, { status: 403 });
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).byteLength > 256) return new Response(null, { status: 403 });
+      let report: Record<string, unknown>;
+      try { report = JSON.parse(raw) as Record<string, unknown>; } catch { return new Response(null, { status: 403 }); }
+      if (!report || typeof report !== 'object' || Array.isArray(report)
+        || !(Object.keys(report).length === 1 && report.stage === 'fetch-rejected')
+          && !(Object.keys(report).length === 2 && report.stage === 'http-rejected'
+            && typeof report.status === 'number' && Number.isInteger(report.status)
+            && report.status >= 300 && report.status <= 599)) {
+        return new Response(null, { status: 403 });
+      }
+      const reports = await this.ctx.storage.get<Array<{ activityId: string; generation: number; stage: string; status?: number }>>('fixture:diagnostic-reports') ?? [];
+      if (reports.length >= 8) return new Response(null, { status: 403 });
+      const binding = await this.facetBridgeBinding(boundGeneration);
+      if (binding.status !== 'current') return new Response(null, { status: 403 });
+      reports.push({ activityId: this.name, generation: boundGeneration, stage: report.stage as string,
+        ...(report.stage === 'http-rejected' ? { status: report.status as number } : {}) });
+      await this.ctx.storage.put('fixture:diagnostic-reports', reports);
+      return new Response(null, { status: 204 });
+    }
     if (path === '/fixture/inference' || path === '/v1/dispatcher/inference') {
       const body = await request.clone().json() as { input: { messages?: Array<{ role: string }> } };
       const done = body.input.messages?.at(-1)?.role === 'tool';
@@ -718,7 +753,8 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
     if (binding.status !== 'current') {
       return Response.json({ error: 'Facet bridge generation rejected' }, { status: binding.status === 'stale' ? 409 : 403 });
     }
-    return (await this.#root()).transport(request);
+    const { generation } = this.ctx.props as { activityId: string; generation: number };
+    return (await this.#root()).transport(request, generation);
   }
 
   async _cf_scheduleForFacet<T = string>(

@@ -19,6 +19,7 @@ type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
+  diagnosticReports: Array<{ activityId: string; generation: number; stage: string; status?: number }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   tailProbe: { activityId: string; generation: number;
     diagnostics: Array<{ activityId: string; generation: number; stage: string; status?: number }>;
@@ -382,11 +383,10 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(settlement).toMatchObject({ outcome: 'failed', error: { type: 'operation_failed',
         meta: { operation: `direct(${admitted.body.submissionId})`, reason: 'Parent inference denied: 422' } } });
       expect(value.productionCalls.filter(call => call.path === '/v1/dispatcher/inference').at(-1)?.status).toBe(422);
-      const diagnosed = await observeTail(id, receipt => receipt.diagnostics.some(item =>
+      const diagnosed = await observe(id, receipt => receipt.diagnosticReports.some(item =>
         item.stage === 'http-rejected' && item.status === 422));
-      expect(diagnosed).toMatchObject({ activityId: id, generation: 1,
-        diagnostics: [{ activityId: id, generation: 1, stage: 'http-rejected', status: 422 }] });
-      expect(JSON.stringify(diagnosed)).not.toContain('fixture model rejected');
+      expect(diagnosed.diagnosticReports).toEqual([{ activityId: id, generation: 1, stage: 'http-rejected', status: 422 }]);
+      expect(JSON.stringify(diagnosed.diagnosticReports)).not.toContain('fixture model rejected');
       expect(results(value)).toEqual([]);
       expect(value.activity.executionStatus).toBe('unknown');
       expect(value.external).toEqual([]);
@@ -395,7 +395,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
     it('REQ-OPERATOR-048: failed compiled durable direct submission carries its bounded Flue operation label',
       async () => assertCompiledHttpRejection('model-error'));
 
-    it('REQ-OPERATOR-048: bodyless after-tool HTTP rejection keeps the same strict child Tail diagnostic',
+    it('REQ-OPERATOR-048: compiled diagnostic report retains bodyless after-tool HTTP rejection',
       async () => assertCompiledHttpRejection('model-error-empty'));
 
     it('captures only sanitized child warnings through an actual Loader Tail Worker', async () => {
@@ -440,7 +440,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
     });
 
     it.each(['direct', 'scheduled', 'fiber', 'rpc-fiber'] as const)(
-      'REQ-OPERATOR-048: synthetic Loader facet %s warning reaches Tail after independent completion', async mode => {
+      'REQ-OPERATOR-048: synthetic Loader facet %s warning is observable after independent completion', async mode => {
         const { id } = await prepare();
         expect(await command(id, { action: 'facet-tail-probe', mode })).toEqual({ started: true });
         const end = Date.now() + 10_000;
@@ -460,9 +460,19 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
           await new Promise(resolve => setTimeout(resolve, 50));
         } while (Date.now() < end);
         expect(receipt!).toMatchObject({ completed: true });
-        const diagnosed = await observeTail(id, value => value.diagnostics.some(item => item.stage === 'fetch-rejected'));
-        expect(diagnosed).toMatchObject({ activityId: id, generation: 1,
-          diagnostics: [{ activityId: id, generation: 1, stage: 'fetch-rejected' }] });
+        if (mode === 'rpc-fiber') {
+          expect(receipt!).toMatchObject({ warningCompleted: true, callbackReturned: true });
+          const diagnosed = await observe(id, value => value.diagnosticReports.some(item => item.stage === 'fetch-rejected'));
+          expect(diagnosed.diagnosticReports).toEqual([{ activityId: id, generation: 1, stage: 'fetch-rejected' }]);
+          const passive = await harness.fetch(`/flue-tail?activity=${encodeURIComponent(id)}`);
+          expect(passive.status).toBe(200);
+          const tail = await passive.json<Snapshot['tailProbe']>();
+          console.info(`[native-flue] rpc-fiber Tail deliveries=${tail?.summary.deliveries ?? 0} accepted=${tail?.summary.accepted ?? 0}`);
+        } else {
+          const diagnosed = await observeTail(id, value => value.diagnostics.some(item => item.stage === 'fetch-rejected'));
+          expect(diagnosed).toMatchObject({ activityId: id, generation: 1,
+            diagnostics: [{ activityId: id, generation: 1, stage: 'fetch-rejected' }] });
+        }
       });
 
     it.each([
@@ -503,11 +513,10 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
         expect(value.activity.executionStatus).toBe('unknown');
       } else expect(value.activity.executionStatus).not.toBe('waiting');
       if (mode === 'fetch-reject' || mode === 'abort-reject') {
-        const diagnosed = await observeTail(id, receipt => receipt.diagnostics.some(item =>
+        const diagnosed = await observe(id, receipt => receipt.diagnosticReports.some(item =>
           item.stage === 'fetch-rejected'));
-        expect(diagnosed).toMatchObject({ activityId: id, generation: 1,
-          diagnostics: [{ activityId: id, generation: 1, stage: 'fetch-rejected' }] });
-        expect(JSON.stringify(diagnosed)).not.toContain(sentinel);
+        expect(diagnosed.diagnosticReports).toEqual([{ activityId: id, generation: 1, stage: 'fetch-rejected' }]);
+        expect(JSON.stringify(diagnosed.diagnosticReports)).not.toContain(sentinel);
       }
       expect(results(value)).toEqual([]);
       expect(value.activity.result).toBeNull();

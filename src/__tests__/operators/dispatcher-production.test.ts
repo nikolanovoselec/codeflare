@@ -253,6 +253,10 @@ async function fixture(test: (f: {
     }
   });
 }
+function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, path = '/v1/dispatcher/diagnostic', method = 'POST') {
+  return new Request(`https://operator.internal${path}`, { method,
+    headers: { 'content-type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined });
+}
 function composeRead(operationId = 'compose-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'changed-compose', ...extra }) });
@@ -292,6 +296,126 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await f.deliverTail([{ logs: [{ message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] }] }]);
     expect(f.deliveredTail).toEqual([{ activityId: f.activityId, generation: 1, stage: 'fetch-rejected' }]);
   }));
+  it('REQ-OPERATOR-048: bounded diagnostic report uses trusted Activity/generation and leaves execution running', () => fixture(async f => {
+    await start(f);
+    const before = await f.activity.getBrowserDetail();
+    setLogLevel('warn');
+    const events: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
+      expect((await f.capability.fetch(diagnosticReport({ stage: 'http-rejected', status: 422 }))).status).toBe(204);
+      const reports = events.map(value => JSON.parse(value) as { module: string; data: Record<string, unknown> })
+        .filter(value => value.module === 'dispatcher-inference-report');
+      expect(reports.map(value => value.data)).toEqual([
+        { activityId: f.activityId, generation: 1, stage: 'fetch-rejected' },
+        { activityId: f.activityId, generation: 1, stage: 'http-rejected', status: 422 },
+      ]);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: before!.executionStatus,
+        cleanupStatus: before!.cleanupStatus, checkpoint: before!.checkpoint, result: before!.result });
+      expect((await f.capability.fetch(read('after-valid-report'))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+
+  it.each([
+    { stage: 'fetch-rejected', activityId: 'forged' }, { stage: 'fetch-rejected', reason: 'PRIVATE_PROVIDER_BODY_SENTINEL' },
+    { stage: 'http-rejected', status: '422' }, { stage: 'http-rejected', status: 200 },
+    { stage: 'http-rejected', status: 600 }, { stage: 'http-rejected', status: 422.5 },
+    { stage: 'unknown' }, { stage: 'fetch-rejected', status: 422 }, 'PRIVATE_PROVIDER_BODY_SENTINEL',
+  ])('REQ-OPERATOR-048: bounded diagnostic report rejects malformed child payload %#', body => fixture(async f => {
+    await start(f);
+    setLogLevel('warn');
+    const events: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      expect((await f.capability.fetch(diagnosticReport(body))).status).toBe(403);
+      expect(events.join('')).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
+      expect(events.some(value => value.includes('dispatcher-inference-report'))).toBe(false);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report denies wrong route, method, content-type, syntax, byte size and stale generation', () => fixture(async f => {
+    await start(f);
+    const url = 'https://operator.internal/v1/dispatcher/diagnostic';
+    for (const request of [diagnosticReport(undefined, '/v1/dispatcher/unrelated'),
+      diagnosticReport(undefined, '/v1/dispatcher/diagnostic', 'GET'),
+      new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{"stage":"fetch-rejected"}' }),
+      new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"stage":' }),
+      new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: `${' '.repeat(300)}{"stage":"fetch-rejected"}` }),
+      diagnosticReport({ stage: 'http-rejected' })]) {
+      expect((await f.capability.fetch(request)).status).toBe(403);
+    }
+    expect((await f.staleCapability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    expect((await f.capability.fetch(read('after-rejected-report'))).status).toBe(200);
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report refuses an unfinished body without holding the Activity', () => fixture(async f => {
+    await start(f);
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"stage":"fetch-rejected"'));
+    }, cancel() { canceled = true; } });
+    const request = new Request('https://operator.internal/v1/dispatcher/diagnostic', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit);
+    const start = performance.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([f.capability.fetch(request),
+        new Promise<'pending'>(resolve => { timer = setTimeout(() => resolve('pending'), 700); })]);
+      expect(response).not.toBe('pending');
+      expect((response as Response).status).toBe(403);
+      expect(performance.now() - start).toBeLessThan(400);
+    } finally { clearTimeout(timer); }
+    expect(canceled).toBe(true);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report denies revoked authority without relying on cancellation', () => fixture(async f => {
+    await start(f);
+    f.revoke();
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report denies cancellation without relying on expiry', () => fixture(async f => {
+    await start(f);
+    await f.activity.cancelDrive();
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report never extends its original human deadline', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
+    f.expire();
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.capability.fetch(read('after-report-expiry'))).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report caps concurrent valid reports at eight per live Activity generation', () => fixture(async f => {
+    await start(f);
+    const responses = await Promise.all(Array.from({ length: 12 }, () => f.capability.fetch(diagnosticReport())));
+    expect(responses.map(response => response.status).sort()).toEqual([
+      ...Array.from({ length: 8 }, () => 204), ...Array.from({ length: 4 }, () => 429),
+    ]);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report tolerates unavailable owner logging without publishing a result', () => fixture(async f => {
+    await start(f);
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_REPORT_FAILURE'); });
+    try {
+      expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+
   it('exposes only PR identity, never a secret-bearing description', () => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(read('project-pr'));
