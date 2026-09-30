@@ -74,6 +74,11 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private facet?: Promise<Facet>;
   private releaseBarrier?: () => void;
   private releaseInference?: () => void;
+  private streamPhase: 'not-pulled' | 'prefix-enqueued' | 'error-injected' = 'not-pulled';
+  private reconcileOutcome: 'active' | 'settled' | 'expiring' | 'interrupted' = 'active';
+  private streamErrorAt = 0;
+  private reconcileExpiredAt = 0;
+  private authorityInterruptedAt = 0;
   private readonly researchBarriers = new Map<string, () => void>();
 
   constructor(ctx: DurableObjectState, env: NativeEnv) {
@@ -297,11 +302,16 @@ export class FlueDispatcherAgent extends Pinned {
           await activity.interruptDrive(active.generation);
         }
         await this.ctx.storage.delete('fixture:active-submission');
+        this.reconcileOutcome = 'settled';
         return;
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+    this.reconcileExpiredAt = Date.now();
+    this.reconcileOutcome = 'expiring';
     await this.env.ACTIVITY.getByName(this.name).interruptDrive(active.generation);
+    this.authorityInterruptedAt = Date.now();
+    this.reconcileOutcome = 'interrupted';
     await this.ctx.storage.delete('fixture:active-submission');
   }
 
@@ -367,6 +377,12 @@ export class FlueDispatcherAgent extends Pinned {
       external: await this.ctx.storage.get<ExternalReceipt[]>('fixture:external') ?? [],
       externalAttempts: await this.ctx.storage.get<ExternalAttempt[]>('fixture:external-attempts') ?? [],
       productionCalls: await this.ctx.storage.get<ProductionCall[]>('fixture:production-calls') ?? [],
+      streamPhase: this.streamPhase,
+      reconcileOutcome: this.reconcileOutcome,
+      streamErrorVsExpiry: this.streamErrorAt && this.reconcileExpiredAt
+        ? this.streamErrorAt <= this.reconcileExpiredAt ? 'before' : 'after' : 'unobserved',
+      interruptionVsError: this.authorityInterruptedAt && this.streamErrorAt
+        ? this.authorityInterruptedAt <= this.streamErrorAt ? 'before' : 'after' : 'unobserved',
       diagnosticReports: await this.ctx.storage.get('fixture:diagnostic-reports') ?? [],
       tailProbe: await this.env.TAIL_INBOX.getByName(this.name).snapshot(),
       activity: await this.env.ACTIVITY.getByName(this.name).getBrowserDetail(),
@@ -486,12 +502,18 @@ export class FlueDispatcherAgent extends Pinned {
       if (done && behavior === 'abort-reject') throw new DOMException('Controlled inference fetch aborted', 'AbortError');
       if (done && behavior === 'stream-fail') {
         let sent = false;
+        const owner = this;
         return new Response(new ReadableStream({
           pull(controller) {
             if (!sent) {
               sent = true;
               controller.enqueue(new TextEncoder().encode('data: {"choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}\n\n'));
-            } else controller.error(new Error('Controlled inference stream failed'));
+              owner.streamPhase = 'prefix-enqueued';
+            } else {
+              controller.error(new Error('Controlled inference stream failed'));
+              owner.streamPhase = 'error-injected';
+              owner.streamErrorAt = Date.now();
+            }
           },
         }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream' } });
       }

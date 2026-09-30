@@ -19,6 +19,10 @@ type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
+  streamPhase: 'not-pulled' | 'prefix-enqueued' | 'error-injected';
+  reconcileOutcome: 'active' | 'settled' | 'expiring' | 'interrupted';
+  streamErrorVsExpiry: 'before' | 'after' | 'unobserved';
+  interruptionVsError: 'before' | 'after' | 'unobserved';
   diagnosticReports: Array<{ activityId: string; generation: number; stage: string; status?: number }>;
   facet: { instance: string; fibers: Array<{ status: string }> } | null;
   tailProbe: { activityId: string; generation: number;
@@ -488,6 +492,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(admitted.status).toBe(202);
       let value = await observe(id, state => state.productionCalls.some(call =>
         call.path === '/v1/dispatcher/inference' && call.modelTurn === 'after-tool'));
+      const rootInstance = value.instance;
       const end = Date.now() + 10_000;
       let settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
       while (!settlement && Date.now() < end) {
@@ -503,7 +508,12 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       const reasonClass = settlement?.error?.meta?.reason?.includes(sentinel) ? 'controlled' : 'unavailable';
       const errorClass = settlement?.error?.type === 'operation_failed' ? 'operation_failed'
         : settlement?.error?.type ? 'other' : 'none';
-      console.info(`[native-flue] ${mode}: outcome=${outcomeClass} error=${errorClass} operation=${operationClass} reason=${reasonClass}`);
+      const afterToolAttempts = Math.min(8, value.productionCalls.filter(call => call.modelTurn === 'after-tool').length);
+      console.info(`[native-flue] ${mode}: outcome=${outcomeClass} error=${errorClass} operation=${operationClass} reason=${reasonClass}${mode === 'stream-fail' ? ` producer=${value.streamPhase} reconcile=${value.reconcileOutcome} error-vs-expiry=${value.streamErrorVsExpiry} interruption-vs-error=${value.interruptionVsError} attempts=${afterToolAttempts}` : ''}`);
+      if (mode === 'stream-fail') {
+        expect(value.instance, 'The producer and observation must use the same root instance').toBe(rootInstance);
+        expect(value.streamPhase, 'The producer must inject the controlled stream error').toBe('error-injected');
+      }
       expect(value.productionCalls).toEqual(expect.arrayContaining([
         expect.objectContaining({ path: '/v1/dispatcher/inference', modelTurn: 'after-tool' }),
       ]));
