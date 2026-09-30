@@ -9,7 +9,7 @@ describe('REQ-OPS-003: parallel Flue case ownership', () => {
       return cases.filter(() => ownsNext());
     });
     const executed = partitions.flat();
-    expect(executed.toSorted((a, b) => a - b)).toEqual(cases);
+    expect([...executed].sort((a, b) => a - b)).toEqual(cases);
     expect(new Set(executed).size).toBe(count);
     expect(Math.max(...partitions.map(part => part.length)) - Math.min(...partitions.map(part => part.length))).toBeLessThanOrEqual(1);
   });
@@ -20,7 +20,7 @@ describe('REQ-OPS-003: parallel Flue case ownership', () => {
       const ownsNext = createFlueCaseShard(index, 3);
       return declarations.flatMap(rows => rows.filter(() => ownsNext()));
     });
-    expect(executed.toSorted()).toEqual(declarations.flat().toSorted());
+    expect([...executed].sort()).toEqual(declarations.flat().sort());
   });
 
   it.each([[-1, 3], [3, 3], [0, 0], [0.5, 3], [0, 2.5], [0, NaN], [Infinity, 3]])(

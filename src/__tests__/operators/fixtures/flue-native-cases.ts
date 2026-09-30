@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
+import { createFlueCaseShard } from './flue-case-shard';
 // The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
 vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
   throw new Error('Unexpected Dispatcher body read in parser contract test');
@@ -42,7 +43,23 @@ type Harness = {
 };
 
 /** Each native group runs against its own real Wrangler/workerd fixture. */
-export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 'authority') {
+export function registerNativeDispatcherCases(
+  harness: Harness,
+  group: 'flue' | 'authority',
+  shard = { index: 0, total: 1 },
+) {
+  const ownsNext = createFlueCaseShard(shard.index, shard.total);
+  // Filter both ordinary declarations and table rows before registration;
+  // unowned cases are not duplicated as skipped tests in the other reports.
+  const it = Object.assign(
+    ((...args: Parameters<typeof vitestIt>) => {
+      if (ownsNext()) return Reflect.apply(vitestIt, undefined, args);
+    }) as typeof vitestIt,
+    { each: ((rows: readonly unknown[]) => {
+      const owned = rows.filter(() => ownsNext());
+      return owned.length ? vitestIt.each(owned) : () => undefined;
+    }) as typeof vitestIt.each },
+  );
   async function command<T>(id: string, value: FlueFixtureCommand, timeoutMs = 15_000): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`native fixture ${value.action} timed out`)), timeoutMs);
