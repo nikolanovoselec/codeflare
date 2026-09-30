@@ -493,7 +493,10 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       let value = await observe(id, state => state.productionCalls.some(call =>
         call.path === '/v1/dispatcher/inference' && call.modelTurn === 'after-tool'));
       const rootInstance = value.instance;
-      const end = Date.now() + 10_000;
+      // The pinned Flue transient retry policy can back off 2 + 4 + 8 seconds.
+      // Only this controlled stream case allows that bounded retry progress plus
+      // the original ten-second settlement allowance; authority is unchanged.
+      const end = Date.now() + (mode === 'stream-fail' ? 24_000 : 10_000);
       let settlement = value.conversation?.settlements.find(item => item.submissionId === admitted.body.submissionId);
       while (!settlement && Date.now() < end) {
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -536,7 +539,7 @@ export function registerNativeDispatcherCases(harness: Harness, group: 'flue' | 
       expect(results(value)).toEqual([]);
       expect(value.activity.result).toBeNull();
       expect(value.external).toEqual([]);
-    });
+    }, 40_000);
 
     it('carries a cited release receipt through the pinned compiled Dispatcher and parent read bridge', async () => {
       const { id } = await prepare();
