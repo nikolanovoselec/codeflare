@@ -24,11 +24,13 @@ jobs:
         run: |
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
+          node scripts/generate-agent-seed.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: pi-upgrade-locks
           path: |
             preseed/npm-tools/package-lock.json
             preseed/agents/pi/package-lock.json
+            src/lib/agent-seed.generated.ts
           if-no-files-found: error
           retention-days: 3
