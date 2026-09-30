@@ -656,6 +656,9 @@ const PINNED_RUNTIME_STUBS = {
         export const isRetryableAssistantError = () => false;
         export const runMenu = async () => ({ kind: "cancel" });
         export const stripTerminalSequences = (value) => value;
+        // Fixture inputs contain no terminal controls; UI sanitation is an
+        // external boundary, not the workflow ownership behavior under test.
+        export const sanitizeTerminalText = (value) => value;
         export const truncateHead = (content) => ({ content, truncated: false });
         export const truncateToWidth = (value) => value;
         export const withFileMutationQueue = async (_path, operation) => operation();
