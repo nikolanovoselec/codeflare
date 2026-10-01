@@ -64,6 +64,7 @@ export function loadOperatorDispatcherClass(
   generation: number,
   capability: Fetcher,
   tail: { tail(events: unknown): Promise<void> },
+  outbound: Fetcher | null = null,
 ): unknown {
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1) {
@@ -75,7 +76,7 @@ export function loadOperatorDispatcherClass(
     mainModule: bundle.mainModule,
     modules: bundle.modules,
     env: { OPERATOR: capability },
-    globalOutbound: null,
+    globalOutbound: outbound,
     tails: [tail],
   })).getDurableObjectClass(bundle.className);
 }

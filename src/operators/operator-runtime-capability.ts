@@ -161,7 +161,7 @@ export async function createDispatcherOperation(input: {
     // No resource credentials or account-scoped Gateway exemption are granted by fetch.
     const transport = entrypoint({ props: github
       ? { user: authority.human.email, bucket, strict: true }
-      : { bucket, strict: true, resourcePolicy: 'mutable' } });
+      : { bucket, strict: true } });
     return async () => {
       await sourceCurrent();
       const signal = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
@@ -232,7 +232,7 @@ export async function createDispatcherOperation(input: {
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
     const aig = await getAigConfig(env);
     const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
-      sessionId: `operator-${plan.activityId}`, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
+      gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
       operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted } } });
     const value = dispatcherInferenceSchema.parse(operation.body);
     return async () => {

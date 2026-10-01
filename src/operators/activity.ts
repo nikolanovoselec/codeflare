@@ -1427,7 +1427,8 @@ export class OperatorActivity extends Agent {
       const capability = context.exports.OperatorDispatcherCapability({ props });
       const tail = context.exports.OperatorDispatcherTail({ props });
       const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
-        plan.activityId, lease.generation, capability, tail);
+        plan.activityId, lease.generation, capability, tail,
+        JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null);
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -1607,7 +1608,7 @@ export class OperatorActivity extends Agent {
     const deadline = (lease?: DispatcherLease) => !lease ? 'unavailable'
       : lease.expiresAt <= Date.now() ? 'expired' : 'current';
     const rejected = (stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'forwarded-upstream' | 'commit',
-      resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' | 'comment' | 'merge',
+      resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' | 'comment' | 'merge' | 'source',
       lease: DispatcherLease | undefined, status: number) => {
       dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status });
     };
@@ -1643,6 +1644,7 @@ export class OperatorActivity extends Agent {
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch { return denied(); }
     const resource = operation.path === '/v1/dispatcher/inference' ? 'inference'
+      : operation.path === '/v1/dispatcher/source' ? 'source'
       : operation.path === '/v1/dispatcher/github/comment' ? 'comment'
         : operation.path === '/v1/dispatcher/github/merge' ? 'merge'
           : (operation.body as { resource: 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' }).resource;
@@ -2249,6 +2251,25 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     try {
       const { activity, generation } = this.#binding();
+      if (new URL(request.url).origin !== 'https://operator.internal') {
+        // The same generation-bound capability services Loader outbound; identity never comes from HTTP headers.
+        const operationId = request.headers.get('x-codeflare-operator-operation-id');
+        if (request.method !== 'GET' || !operationId || !/^[A-Za-z0-9_-]{1,128}$/.test(operationId)
+          || ['authorization', 'cookie', 'cf-access-jwt-assertion', 'x-api-key'].some(name => request.headers.has(name))) {
+          return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
+        }
+        const result = await activity.dispatcherOperation(generation, new Request('https://operator.internal/v1/dispatcher/source', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operationId, url: request.url }),
+        }));
+        if (!result.ok) return result;
+        const source = JSON.parse(await readDispatcherBody(result));
+        if (source.url !== request.url || !Number.isInteger(source.status) || source.status < 200 || source.status > 599
+          || typeof source.body !== 'string' || !source.headers || typeof source.headers !== 'object'
+          || Array.isArray(source.headers)) throw new Error('Dispatcher source receipt unavailable');
+        return new Response([204, 205, 304].includes(source.status) ? null : source.body,
+          { status: source.status, headers: source.headers });
+      }
       if (new URL(request.url).pathname === '/v1/dispatcher/diagnostic') {
         return await activity.dispatcherDiagnosticReport(generation, request);
       }

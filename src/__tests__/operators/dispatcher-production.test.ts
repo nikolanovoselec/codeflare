@@ -1200,6 +1200,25 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
     expect(await response.json()).toEqual({ url: 'https://docs.example.test/migration', status: 200,
       headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
   }, { repositoryOnly: true }));
+  it('serves standard fetch through the same generation-bound capability without passing session cookies', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(new Request('https://docs.example.test/migration', {
+      headers: { 'x-codeflare-operator-operation-id': 'standard-fetch' },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toBe('guide-v3');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await response.text()).toBe('Official migration guidance');
+  }, { repositoryOnly: true }));
+  it('denies direct outbound without stable operation identity or with caller credentials', () => fixture(async f => {
+    await start(f);
+    const deniedHeaders: HeadersInit[] = [{}, { 'x-codeflare-operator-operation-id': 'forged', authorization: 'foreign' }];
+    for (const headers of deniedHeaders) {
+      const response = await f.capability.fetch(new Request('https://docs.example.test/migration', { headers }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    }
+  }, { repositoryOnly: true }));
   it('denies identity, credential and write substitution while allowing the legitimate source read', () => fixture(async f => {
     await start(f);
     for (const extra of [{ user: 'foreign@example.test' }, { headers: { authorization: 'foreign' } }, { method: 'POST' }]) {
