@@ -25,9 +25,19 @@ export type NativeDelivery = {
 };
 type ProductionEvidence = Partial<Record<'pull-request' | 'files' | 'checks' | 'release-notes' | 'changed-compose', unknown>>;
 type ProductionCall = { path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' };
+export type NativeJourneyDiagnostic = {
+  historyStatus: number;
+  outcome: string;
+  errorType: string;
+  operation: 'none' | 'direct' | 'unknown';
+  reason: string;
+  firstFailedTool: string | null;
+  tools: Array<{ tool: string; state: string; reason: string }>;
+};
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string; journey?: boolean; readonly oversizedSourceMetadata?: boolean; readonly researchBodyBytes?: 131072 | 262144 | 1044480 }
   | { action: 'journey-updates'; submissionId: string; previous: DispatcherResultProjection }
+  | { action: 'journey-diagnostic'; submissionId: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest?: number };
       productionEvidence?: ProductionEvidence; productionDecision?: unknown;
       productionBehavior?: 'finish-early' | 'persistent-malformed' | 'model-error' | 'model-error-empty' | 'fetch-reject' | 'abort-reject' | 'stream-fail'; holdResearch?: boolean; holdInference?: boolean }
@@ -256,6 +266,49 @@ export class FlueDispatcherAgent extends Pinned {
     const response = await (await this.child()).fetch(new Request(
       `https://flue.internal/agents/Dispatcher/dispatcher?view=updates&offset=${encodeURIComponent(previous.offset)}`));
     return readDispatcherUpdates(response, previous, submissionId);
+  }
+
+  /** Public SDK history only: no fixtureSnapshot/private tables or raw error prose. */
+  async journeyDiagnostic(submissionId: string): Promise<NativeJourneyDiagnostic> {
+    const allow = (value: unknown, values: readonly string[], fallback = 'unknown') =>
+      typeof value === 'string' && values.includes(value) ? value : fallback;
+    const reason = (value: unknown): string => {
+      if (value === undefined) return 'none';
+      // Exact known package/adapter messages only; arbitrary SDK/provider text
+      // may contain input, source bodies or credentials and stays unclassified.
+      const known = ['Unadmitted target', 'Citation provenance unavailable', 'Decisions incomplete',
+        'Results incomplete or effect unknown', 'Discovery unavailable', 'Discovery ordering or identity unavailable',
+        'Discovery target changed', 'Protected transport denied', 'Invalid source envelope',
+        'Source request oversized', 'Operation conflict', 'Receipt identity mismatch',
+        'Actual ledger receipt unavailable', 'Actual operation capacity unavailable before effects'];
+      if (typeof value === 'string' && /^Parent inference denied: [3-5][0-9]{2}$/.test(value)) return value;
+      return allow(value, known, 'unclassified');
+    };
+    const response = await (await this.child()).fetch(new Request(
+      'https://flue.internal/agents/Dispatcher/dispatcher?view=history'));
+    const diagnostic: NativeJourneyDiagnostic = { historyStatus: response.status, outcome: 'unknown',
+      errorType: 'none', operation: 'none', reason: 'none', firstFailedTool: null, tools: [] };
+    if (!response.ok) return diagnostic;
+    const history = await response.json() as { messages?: Array<{ submissionId?: string;
+      parts?: Array<{ type?: string; toolName?: unknown; state?: unknown; errorText?: unknown }> }>;
+      settlements?: Array<{ submissionId?: string; outcome?: unknown;
+        error?: { type?: unknown; meta?: { operation?: unknown; reason?: unknown } } }> };
+    const settlement = history.settlements?.find(item => item.submissionId === submissionId);
+    diagnostic.outcome = allow(settlement?.outcome, ['completed', 'failed', 'aborted'], 'pending');
+    diagnostic.errorType = allow(settlement?.error?.type, ['operation_failed', 'tool_output_serialization',
+      'tool_output_validation', 'tool_execution', 'submission_timeout', 'retry_exhausted'], settlement?.error ? 'unknown' : 'none');
+    diagnostic.operation = settlement?.error?.meta?.operation === undefined ? 'none'
+      : settlement.error.meta.operation === `direct(${submissionId})` ? 'direct' : 'unknown';
+    diagnostic.reason = reason(settlement?.error?.meta?.reason);
+    const tools = ['discover_renovate', 'research_renovate', 'decide_renovate', 'seal_dispatcher',
+      'comment_renovate', 'finish_dispatcher'];
+    diagnostic.tools = (history.messages ?? []).filter(message => message.submissionId === submissionId).slice(0, 32)
+      .flatMap(message => (message.parts ?? []).slice(0, 16)).filter(part => part.type === 'dynamic-tool').slice(0, 8)
+      .map(part => ({ tool: allow(part.toolName, tools),
+        state: allow(part.state, ['input-streaming', 'input-available', 'output-available', 'output-error']),
+        reason: reason(part.errorText) }));
+    diagnostic.firstFailedTool = diagnostic.tools.find(tool => tool.state === 'output-error')?.tool ?? null;
+    return diagnostic;
   }
 
   async send(delivery: NativeDelivery | { repository: string; pullRequest?: number }, productionEvidence?: ProductionEvidence,
@@ -933,6 +986,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest, command.journey, command.oversizedSourceMetadata, command.researchBodyBytes));
     case 'journey-updates': return Response.json(await root.journeyUpdates(command.submissionId, command.previous));
+    case 'journey-diagnostic': return Response.json(await root.journeyDiagnostic(command.submissionId));
     case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,
       command.productionDecision, command.productionBehavior, command.holdResearch, command.holdInference));
     case 'snapshot': return Response.json(await root.snapshot());

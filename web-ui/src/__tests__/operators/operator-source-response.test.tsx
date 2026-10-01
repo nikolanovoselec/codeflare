@@ -32,8 +32,10 @@ beforeEach(() => {
       saved = JSON.parse(String(init.body));
       if (path.endsWith('/access')) { access = { ...access, ...saved, ceiling: saved.ceiling!, managers: saved.managers!, revision: access.revision + 1 }; return response(access); }
       if (path.endsWith('/capabilities')) {
-        operator = { ...operator, revision: operator.revision + 1, policy: { ...operator.policy, ...saved } };
-        installation = { ...installation, enabled: false }; return response(operator);
+        operator = { ...operator, revision: operator.revision + 1, policy: { ...operator.policy, capabilities: saved.capabilities!,
+          ...(saved.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: saved.sourceResponseBytes }) } };
+        if (installation.enabled) installation = { ...installation, revision: installation.revision + 1, enabled: false };
+        return response(operator);
       }
       installation = { ...installation, policy: saved.policy!, revision: installation.revision + 1, enabled: false };
       return response(installation);
@@ -116,7 +118,7 @@ describe('Dispatcher source response allowance', () => {
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
     expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 200000 });
     expect(screen.getByRole('spinbutton', { name: 'Operator source response limit (bytes)' })).toHaveValue(200000);
-    expect(screen.getByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Enable for new runs$/ })).toBeEnabled());
     expect(screen.getByText(/v1\.0\.0/, { selector: 'strong' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Operator source response limit (bytes)' }), { target: { value: '65536' } });
@@ -126,9 +128,9 @@ describe('Dispatcher source response allowance', () => {
     expect(screen.getByRole('spinbutton', { name: 'Operator source response limit (bytes)' })).toHaveValue(65536);
     expect(screen.getByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
     expect(screen.getByText(/v1\.0\.0/, { selector: 'strong' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Permissions', exact: true }));
-    expect(within(screen.getByRole('group', { name: 'Managers', exact: true })).getByRole('checkbox', { name: grant.users[0] })).toBeChecked();
-    expect(within(screen.getByRole('group', { name: 'Runners', exact: true })).getByRole('checkbox', { name: grant.users[0] })).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Permissions' }));
+    expect(within(screen.getByRole('group', { name: 'Managers' })).getByRole('checkbox', { name: grant.users[0] })).toBeChecked();
+    expect(within(screen.getByRole('group', { name: 'Runners' })).getByRole('checkbox', { name: grant.users[0] })).toBeChecked();
   });
 
   it('omits an initially absent operator default but explicitly saves an edited 65536 value', async () => {

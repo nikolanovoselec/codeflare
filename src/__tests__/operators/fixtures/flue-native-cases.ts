@@ -10,7 +10,7 @@ vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatche
 import type { OperatorActivityPreparation } from '../../../operators/activity';
 import { parsePublishableAssessment } from '../../../operators/renovate-publication';
 import type { ActivityFixtureCommand } from './loader-worker';
-import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery } from './flue-native-fixture';
+import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery, NativeJourneyDiagnostic } from './flue-native-fixture';
 
 type Assessment = NativeDelivery & {
   result: { status: number; body: { accepted?: boolean; evidence?: unknown } };
@@ -232,6 +232,14 @@ export function registerNativeDispatcherCases(
       const quote = 'Migration compatibility remains unverified.';
       const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
       const comment = `${quote} Source: ${url}`;
+      // Diagnose the exact submission before the success assertion can bail.
+      // Only fixed public-SDK tool/error classes leave the Worker, never bodies.
+      if (projection.outcome !== 'completed') {
+        const diagnostic = await command<NativeJourneyDiagnostic>(id, {
+          action: 'journey-diagnostic', submissionId: admission.body.submissionId,
+        });
+        console.info(`[native-flue] research bytes=${researchBodyBytes} diagnostic=${JSON.stringify(diagnostic)}`);
+      }
       expect(projection).toMatchObject({ outcome: 'completed', writes: 1 });
       expect(projection.result).toEqual({ repository: 'authorized/project', results: [{
         ...target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
@@ -261,7 +269,7 @@ export function registerNativeDispatcherCases(
       const windows: Window[] = [];
       const visit = (value: unknown): void => {
         if (typeof value === 'string') {
-          if (/^\s*[\[{]/.test(value)) {
+          if (/^\s*[[{]/.test(value)) {
             try { visit(JSON.parse(value)); } catch { /* Ordinary untrusted text. */ }
           }
         } else if (Array.isArray(value)) {

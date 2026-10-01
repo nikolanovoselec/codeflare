@@ -235,7 +235,9 @@ async function fixture(test: (f: {
     Object.defineProperties(native, {
       facets: { configurable: true, value: { get: () => child } },
       exports: { configurable: true, value: {
-        OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
+        OperatorDispatcherCapability: ({ props }: { props: { activityId: string; generation: number } }) =>
+          new OperatorDispatcherCapability({ props } as unknown as ExecutionContext,
+            environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]),
         OperatorDispatcherTail: ({ props }: { props: { activityId: string; generation: number } }) => ({
           tail: async (events: unknown) => {
             const stage = (events as Array<{ logs: Array<{ message: Array<{ stage?: string }> }> }>)[0]?.logs?.[0]?.message?.[1]?.stage;
@@ -1500,13 +1502,20 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
   }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceBody: 'x'.repeat(65537) }));
 
-  it('REQ-OPERATOR-048: raising source responses does not admit oversized final result', () => fixture(async f => {
+  it.each([64512, 65537])('REQ-OPERATOR-048: source allowance preserves final-result admission for %s bytes', resultBytes => fixture(async f => {
     await start(f);
-    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: {
-      repository: 'another/service', results: [], padding: 'x'.repeat(65537),
-    } }] }]);
+    const empty = { repository: 'another/service', results: [], padding: '' };
+    const overhead = new TextEncoder().encode(JSON.stringify(empty)).byteLength;
+    const result = { ...empty, padding: 'x'.repeat(resultBytes - overhead) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: result }] }]);
     f.settle();
     await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'interrupted', result: null });
+    if (resultBytes === 64512) {
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    } else {
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }
   }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
 });
