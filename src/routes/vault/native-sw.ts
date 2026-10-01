@@ -59,33 +59,32 @@ export const VAULT_NATIVE_SW_VERBATIM = "var Ti=Object.create;var wt=Object.defi
  */
 export const VAULT_NATIVE_SW_SHA256 = "be8d1d2def7568b3440f15128a213a54f21e3b9aa43672c388597bfe808c512a";
 
-// The codeflare recovery helper, injected into the worker scope right after
-// `var v;` so it closes over `v` and the hoisted `et` decoder. Idempotent:
-// a no-op when `v` is already populated.
+// Recovery uses SilverBullet 2.11.1's key decoder and logout generation.
+// Never revive a key after logout begins or after its generation changes.
 const CF_RECOVER_HELPER =
-  'async function __cfRecover(){if(v!==void 0)return;try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){v=await et(cfb.key),console.info("Recovered encryption key from codeflare")}}}catch(cfe){}}';
+  'async function __cfRecover(){if(z!==void 0||D.active)return;let cft=ne;try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){let cfk=await Kt(cfb.key);if(cft===ne&&!D.active&&z===void 0){z=cfk,console.info("Recovered encryption key from codeflare")}}}}catch(cfe){}}';
 
 // Anchors (exact upstream minified substrings) and their grafted replacements.
-const ANCHOR_VARY = ";var v;setInterval(";
+const ANCHOR_VARY = ";var z,ne=0,yt,D=new we(";
 // Upstream proactively wipes the in-memory key 5s after the last window client
-// disconnects (the flush body inside the ANCHOR_VARY setInterval). That races the
+// disconnects (the no-client interval following the key declaration). That races the
 // bootstrap-hop -> editor 0-client transition and drops the just-posted key,
-// bouncing cold opens to `.auth` (REQ-VAULT-024 AC4). Neuter the wipe so `v` lives
+// bouncing cold opens to `.auth` (REQ-VAULT-024 AC4). Neuter the wipe so the key lives
 // for the worker's natural lifetime; __cfRecover still re-derives it after a
 // genuine idle restart. Distinct from ANCHOR_NO_CLIENTS_INFO (`t.length===0`) and
 // occurs exactly once.
-const ANCHOR_PROACTIVE_FLUSH = 'a.length===0&&v&&(console.info("No more clients, flushing encryption key"),v=void 0)';
-const ANCHOR_GETKEY = "case\"get-encryption-key\":{a.source.postMessage({type:\"encryption-key\",key:v&&await me(v)});break}";
-const ANCHOR_CONFIG_GATE = "if(t.enableClientEncryption&&!v){console.error(\"Supposed to use encryption, but no phrase set yet, auth error\"),g({type:\"auth-error\",message:\"Re-authentication required, redirecting...\",actionOrRedirectHeader:\".auth\"});return}";
-const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",a)";
-const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",c,p),c===q.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})";
-const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
+const ANCHOR_PROACTIVE_FLUSH = "o.length===0&&z&&(console.info(\"No more clients, flushing encryption key\"),z=void 0)";
+const ANCHOR_GETKEY = "case\"get-encryption-key\":{if(D.active)break;o.source.postMessage({type:\"encryption-key\",key:z&&await $e(z)});break}";
+const ANCHOR_CONFIG_GATE = "case\"config\":{if(D.active)break;let t=ne,i=z,n=e.config;";
+const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",o)";
+const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",f,y),f===se.message&&g.reset(),b({type:\"auth-error\",message:f,actionOrRedirectHeader:y})";
+const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",n.message)";
 // Not-ready guard on the REMOTE file list. A full sync cycle binds
-// `s=await this.primary.fetchFileList()` (the persistent browser-local store) then
-// `o=await this.secondary.fetchFileList()` (the in-container SilverBullet server over
+// `a=await this.primary.fetchFileList()` (the persistent browser-local store) then
+// `s=await this.secondary.fetchFileList()` (the in-container SilverBullet server over
 // HTTP). The per-file reconciler treats the remote (`secondary`) as authoritative for
 // DELETIONS: a file present in the local store AND in the sync snapshot but ABSENT
-// from `o` is deleted from primary ("File deleted on secondary, deleting from primary").
+// from the remote list is deleted from primary ("File deleted on secondary, deleting from primary").
 //
 // The in-container SB server takes ~1-2 min to become ready after a fresh session
 // starts. During that window `fetchFileList()` does NOT return the real list — it
@@ -107,22 +106,22 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
 // deletes once it has reached SB and SB has confirmed the file list. (REQ-VAULT-025 AC2,
 // REQ-VAULT-023 AC2.)
 //
-// CRITICAL — `o` is one binding in a single `let s=...,o=...,r=...,l=...` declarator
-// list (the minified sync-cycle declaration). The guard MUST wrap the `o=`
-// INITIALIZER, not add a second `o=` declarator: `let ...,o=X,o=Y,...` is a duplicate
-// lexical binding (`SyntaxError: Identifier 'o' has already been declared`), which
+// CRITICAL — The remote list is one binding in a single `let a=...,s=...,c=...,r=...,l=...` declarator
+// list (the minified sync-cycle declaration). The guard MUST wrap the `s=`
+// INITIALIZER, not add a second `s=` declarator: `let ...,s=X,s=Y,...` is a duplicate
+// lexical binding (`SyntaxError: Identifier 's' has already been declared`), which
 // makes the ENTIRE service worker fail to parse — the browser rejects the SW, the
 // vault never registers, and the readiness button never goes ready. So the anchor is
-// just the `o=` initializer and the graft replaces it with an IIFE that guards in
-// place, keeping `o` a single declarator that still feeds every later consumer. The
-// IIFE reads `s` (the already-bound primary list) and `t` (the snapshot param of the
+// just the `s=` initializer and the graft replaces it with an IIFE that guards in
+// place, keeping `s` a single declarator that still feeds every later consumer. The
+// IIFE reads `a` (the already-bound primary list) and `t` (the snapshot param of the
 // enclosing `syncFiles(t)`, whose `.files` Map the cycle dereferences anyway).
 // ANCHOR_REMOTE_LIST_COERCE.
-const ANCHOR_REMOTE_LIST_COERCE = "o=await this.secondary.fetchFileList()";
+const ANCHOR_REMOTE_LIST_COERCE = "s=await this.secondary.fetchFileList()";
 
 /**
  * Apply the codeflare key-recovery graft to the verbatim SilverBullet worker:
- * inject `__cfRecover` and call it before the two `v`-empty failure paths
+ * inject `__cfRecover` and call it before the two key-empty message paths
  * (the `config` auth-error gate and the `get-encryption-key` reply). Throws if
  * any anchor is missing (SB version drift), so a re-vendor cannot silently ship
  * without the graft.
@@ -146,27 +145,28 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     }
   }
   return verbatim
-    .replace(ANCHOR_VARY, ";var v;" + CF_RECOVER_HELPER + "setInterval(")
-    // Neuter the proactive 5s key flush: keep the no-client log, drop the `v=void 0`
-    // wipe so the key survives the bootstrap-hop -> editor transition (REQ-VAULT-024 AC4).
+    .replace(ANCHOR_VARY, ";" + CF_RECOVER_HELPER + ANCHOR_VARY)
     .replace(
       ANCHOR_PROACTIVE_FLUSH,
-      'a.length===0&&console.info("No more clients; codeflare retains encryption key for recovery")',
+      'o.length===0&&console.info("No more clients; codeflare retains encryption key for recovery")',
     )
     .replace(
       ANCHOR_GETKEY,
-      'case"get-encryption-key":{if(v===void 0)await __cfRecover();a.source.postMessage({type:"encryption-key",key:v&&await me(v)});break}',
+      'case"get-encryption-key":{if(D.active)break;let cft=ne;if(z===void 0)await __cfRecover();if(cft!==ne||D.active)break;o.source.postMessage({type:"encryption-key",key:z&&await $e(z)});break}',
     )
-    .replace(ANCHOR_CONFIG_GATE, "if(t.enableClientEncryption&&!v){await __cfRecover()}" + ANCHOR_CONFIG_GATE)
+    .replace(
+      ANCHOR_CONFIG_GATE,
+      'case"config":{if(D.active)break;let t=ne;if(z===void 0)await __cfRecover();if(t!==ne||D.active)break;let i=z,n=e.config;',
+    )
     .replace(ANCHOR_NO_CLIENTS_INFO, "void 0")
     .replace(
       ANCHOR_SERVICE_PROXY_ERROR,
-      "c===q.message?console.info(\"[service proxy auth]\",c):console.error(\"[service proxy error]\",c,p),c===q.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})",
+      'f===se.message?console.info("[service proxy auth]",f):console.error("[service proxy error]",f,y),f===se.message&&g.reset(),b({type:"auth-error",message:f,actionOrRedirectHeader:y})',
     )
-    .replace(ANCHOR_SYNC_SPACE_ERROR, "console.warn(\"Sync space error\",t.message)")
+    .replace(ANCHOR_SYNC_SPACE_ERROR, 'console.warn("Sync space error",n.message)')
     .replace(
       ANCHOR_REMOTE_LIST_COERCE,
-      "o=(a=>{a=Array.isArray(a)?a:[];if(a.length===0&&(s.length>0||t.files.size>0))throw new Error(\"[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion\");return a})(await this.secondary.fetchFileList())",
+      's=(cf=>{cf=Array.isArray(cf)?cf:[];if(cf.length===0&&(a.length>0||t.files.size>0))throw new Error("[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion");return cf})(await this.secondary.fetchFileList())',
     );
 }
 

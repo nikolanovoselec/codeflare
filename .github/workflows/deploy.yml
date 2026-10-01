@@ -152,7 +152,7 @@ jobs:
       && needs.verify-existing.outputs.verified == 'false'
     permissions:
       contents: read
-    uses: ./.github/workflows/test.yml
+    uses: $/.github/workflows/test.yml
     with:
       # Keeps this deploy's inline verify in its own concurrency group. Without
       # it, deploying two environments from one branch puts both verifies in the
@@ -271,12 +271,12 @@ jobs:
       # runs anyway and wipes node_modules, making the fallback inert) and had
       # no timeout around npm ci, which is the one thing that makes its retry
       # reachable when a registry connection hangs instead of failing.
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: landing
           key-prefix: landing
@@ -331,7 +331,7 @@ jobs:
     # credentials — silently. Inheriting is the correct behaviour here, not a
     # convenience; the callee only reads CLOUDFLARE_{API_TOKEN,ACCOUNT_ID} and
     # DOCKERHUB_{USERNAME,TOKEN}.
-    uses: ./.github/workflows/container-image.yml
+    uses: $/.github/workflows/container-image.yml
     with:
       registry: ${{ needs.prepare.outputs.registry }}
       environment: ${{ needs.prepare.outputs.env_name }}
@@ -380,7 +380,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 

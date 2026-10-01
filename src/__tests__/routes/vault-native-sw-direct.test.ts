@@ -78,15 +78,15 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const start = worker.indexOf(`case"${message}":{`);
     const end = configure ? worker.indexOf('if(g.setSpacePrefixes', start) : worker.indexOf('case"set-encryption-key"', start);
     const handler = worker.slice(start, end) + (configure ? 'return i;}' : '');
-    const state = { active: false };
-    const run = new Function('D', 'fetch', `let z,ne=0;D.expire=()=>{ne++};async function Kt(key){return key}async function $e(key){return key}
+    const state: { active: boolean; expire?: () => void } = { active: false };
+    const run = new Function('D', 'fetch', 'self', `let z,ne=0;D.expire=()=>{ne++};async function Kt(key){return key}async function $e(key){return key}
       ${worker.slice(helperStart, helperEnd)}
       return async function(){let reply;let o={data:{type:"${message}",config:{}},source:{postMessage(value){reply=value.key}}};let e=o.data;
         switch(e.type){${handler}}return reply;};`)(state, async () => ({ ok: true, json: async () => {
           if (logout) state.active = true;
-          if (expire) state.expire();
+          if (expire) state.expire?.();
           return { key: 'RECOVERED-KEY' };
-        } }));
+        } }), { registration: { scope: 'https://vault.test/' } });
     return run();
   }
 
@@ -119,7 +119,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const open = sw.indexOf(NEEDLE + 'o.length===0');
     if (open < 0) throw new Error('no-client flush callback not found in served worker');
     const keyVariable =
-      /async function __cfRecover\(\)\{if\(([A-Za-z_$][\w$]*)!==void 0\)/.exec(sw)?.[1]
+      /async function __cfRecover\(\)\{if\(([A-Za-z_$][\w$]*)!==void 0/.exec(sw)?.[1]
       ?? /o\.length===0&&([A-Za-z_$][\w$]*)&&\(console\.info\("No more clients, flushing encryption key"\),\1=void 0\)/.exec(sw)?.[1];
     if (!keyVariable) throw new Error('encryption-key variable not found in worker');
     const exprStart = open + NEEDLE.length;

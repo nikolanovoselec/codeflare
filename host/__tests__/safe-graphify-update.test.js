@@ -63,10 +63,10 @@ function runWrapper({ args = ['.'], env = {} } = {}) {
   }
 }
 
-// REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
+// REQ-AGENT-215: Knowledge-Graph Capability (Graphify)
 
 for (const script of [SCRIPT, resolve(__dirname, '../../preseed/agents/pi/scripts/safe-graphify-update.sh')]) {
-  test(`REQ-AGENT-023: ${script.includes('/pi/') ? 'Pi' : 'Claude'} graph update preserves managed skills against upstream auto-refresh`, () => {
+  test(`REQ-AGENT-215: ${script.includes('/pi/') ? 'Pi' : 'Claude'} graph update preserves managed skills against upstream auto-refresh`, () => {
     const dir = mkdtempSync(join(tmpdir(), 'graphify-managed-skill-'));
     const skill = join(dir, 'SKILL.md');
     const managed = '# Managed user guidance\n';

@@ -1450,7 +1450,6 @@ None.
 5. Advanced mode tracks the active repository; resolution walks up to the nearest Git repo or graph artefact and understands command-local `cd ... &&` plus `git -C ...` forms. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::effectivePathForCommand --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) -->
 6. When the active-repo signal is absent or stale, Pi graphify query tools fall back from the session cwd repo graph to the same-repo sentinel graph and then to the merged global graph. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::pickGraphSource --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (graphify-mcp-lazy.py static contract) -->
 7. Claude and Pi full-semantic extraction scope each semantic-cache write to the files actually dispatched in the current uncached set, preventing a model-attributed out-of-scope node from replacing another file's complete cache entry. <!-- @impl: preseed/agents/claude/skills/graphify/references/extraction-spec.md::Step B3 - Collect, cache, and merge --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::Step 3 — merge chunks into Graphify semantic cache and local fragment --> <!-- @manual -->
-8. Graphify upgrades do not auto-refresh Codeflare-managed skill files. The image disables upstream auto-refresh and bounded Claude/Pi update wrappers enforce the same opt-out even when an invoking environment enables refresh. <!-- @impl: Dockerfile::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @test: host/__tests__/safe-graphify-update.test.js -->
 
 **Constraints:**
 
@@ -5569,3 +5568,24 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-215: Managed Graphify Skill Ownership
+
+**Intent:** Upstream Graphify upgrades preserve deployment-managed skill guidance.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The image defaults upstream Graphify auto-refresh off so installed managed skills remain owned by signed curation. <!-- @impl: Dockerfile::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @manual: Verify GRAPHIFY_NO_AUTO_REFRESH=1 inside the built image and run a non-install CLI command without changing managed skill bytes. -->
+2. Bounded Claude and Pi graph-update wrappers prevent upstream auto-refresh from replacing managed guidance even when the invoking environment enables refresh. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @test: host/__tests__/safe-graphify-update.test.js (graph update preserves managed skills against upstream auto-refresh) -->
+
+**Constraints:** Preserve existing user consent, query routing and update resource bounds.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
+
+**Verification:** Automated test, Manual test
+
+**Status:** Implemented

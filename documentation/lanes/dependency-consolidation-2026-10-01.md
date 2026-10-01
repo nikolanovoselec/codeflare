@@ -1,5 +1,22 @@
 # Dependency consolidation: 1 October 2026
 
+**Audience:** Developers, Operators
+
+**Owns:** This captured consolidation campaign, compatibility decisions and evidence gates. **Does not own:** Runtime inventory, managed publication procedures or production authority.
+
+## Contents
+
+- [Scope and gates](#scope-and-gates)
+- [Compatibility decisions](#compatibility-decisions)
+- [Shared source and release ownership](#shared-source-and-release-ownership)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Branch cleanup](#branch-cleanup)
+- [Verification status](#verification-status)
+- [Captured PR disposition](#captured-pr-disposition)
+- [Skill payload and activation evidence](#skill-payload-and-activation-evidence)
+- [Related Documentation](#related-documentation)
+- [Review corrections and remaining evidence](#review-corrections-and-remaining-evidence)
+
 ## Scope and gates
 
 The captured input is 59 open Codeflare PRs (#1129 through #1213, not every number in that interval), based on `develop` at `0dbb3d3984d562a4c1e804e59071024cfbd15287`. Consolidation uses `merge/all-open-prs-2026-10-01`; it does not promote to `main`. All captured PR heads are incorporated in its ancestry, including superseded proposals without rolling back newer versions. Net changes and retained compatibility constraints, rather than the presence of a merge commit, determine what ships.
@@ -58,9 +75,15 @@ Sources: [1.9.0](https://github.com/ChromeDevTools/chrome-devtools-mcp/releases/
 
 ### Coding-agent CLIs and official IDE extension
 
-- **Claude Code 2.1.263 to 2.1.282:** inspect the full intervening changelog, especially managed-policy parsing, namespace restrictions for `anthropic-skills`/`claude-ai`, MCP validation and resumed-turn reasoning/tool handling. Keep object-form attribution configuration for backwards compatibility; do not enable newly offered Chrome/managed-MCP overrides. Existing Codeflare skills have different namespaces. VSIX 2.1.281 is separately pinned by its checksum and installed unmodified; CLI and VSIX releases are not assumed interchangeable.
-- **Codex 0.153.4 to 0.156.1:** inspected 0.154, 0.155, 0.156 and the 0.156.1 hotfix. `codex mcp-server` and `thread/rollback` are removed. MCP OAuth failures must not be replayed as writes. Voice/worktrees are newly enabled defaults in upstream TUI; that is not permission for Codeflare to access microphones, create worktrees or alter user settings. Server model catalog additions do not change approved gateway routes or inference bounds.
-- **OpenCode 1.18.29 to 1.18.32:** inspected 1.18.30 through 1.18.32. Bedrock ARN/model identifiers, ACP resume/fork context and image-attachment handling change. Remote configuration authentication failures now exit unsuccessfully: retain failure evidence rather than treating an unsuccessful start as an empty healthy session. No provider switch or credential migration is added.
+**Claude Code 2.1.263 to 2.1.282:** inspect the full intervening changelog, especially managed-policy parsing, namespace restrictions for `anthropic-skills`/`claude-ai`, MCP validation and resumed-turn reasoning/tool handling. Keep object-form attribution configuration for backwards compatibility; do not enable newly offered Chrome/managed-MCP overrides.
+
+Existing Codeflare skills have different namespaces. VSIX 2.1.281 is separately pinned by its checksum and installed unmodified; CLI and VSIX releases are not assumed interchangeable.
+**Codex 0.153.4 to 0.156.1:** inspected 0.154, 0.155, 0.156 and the 0.156.1 hotfix. `codex mcp-server` and `thread/rollback` are removed. MCP OAuth failures must not be replayed as writes.
+
+Voice/worktrees are newly enabled defaults in upstream TUI; that is not permission for Codeflare to access microphones, create worktrees or alter user settings. Server model catalog additions do not change approved gateway routes or inference bounds.
+**OpenCode 1.18.29 to 1.18.32:** inspected 1.18.30 through 1.18.32. Bedrock ARN/model identifiers, ACP resume/fork context and image-attachment handling change.
+
+Remote configuration authentication failures now exit unsuccessfully: retain failure evidence rather than treating an unsuccessful start as an empty healthy session. No provider switch or credential migration is added.
 - **Copilot 1.0.86 to 1.0.88:** update the package and all platform-specific locked assets consistently. Preserve the current Pi 0.99.1 prewarm/runtime selection; older bump branches must not restore 0.87.1. Existing terminal/subscription launch behavior remains the compatibility gate.
 
 Sources: [Claude changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md), [Codex 0.154](https://github.com/openai/codex/releases/tag/rust-v0.154.0), [0.155](https://github.com/openai/codex/releases/tag/rust-v0.155.0), [0.156](https://github.com/openai/codex/releases/tag/rust-v0.156.0), [0.156.1](https://github.com/openai/codex/releases/tag/rust-v0.156.1), [OpenCode 1.18.30](https://github.com/anomalyco/opencode/releases/tag/v1.18.30), [1.18.31](https://github.com/anomalyco/opencode/releases/tag/v1.18.31), [1.18.32](https://github.com/anomalyco/opencode/releases/tag/v1.18.32). Metadata/engines/integrity were retrieved from the authoritative npm registry for the selected package versions. This is static compatibility analysis, not live acceptance for every CLI.
@@ -69,7 +92,13 @@ Sources: [Claude changelog](https://github.com/anthropics/claude-code/blob/main/
 
 Root Hono 4.13.8 and Zod 4.6.5 are gated by real authorization/input-boundary tests, not a semver assumption. Wrangler 4.137.0 changes the build/deploy tooling without changing deploy targets. Vite 8.3.0, jsdom 30.1.1, Astro 7.3.4 and motion 13.4.2 require the full frontend/landing suites and build gates; no interface redesign is added. fast-check, types, knip, oxlint, typebox and yaml updates retain the existing test/quality contracts. Workflow actions remain immutable-SHA pinned; Buildx, CodeQL and zizmor changes do not grant additional workflow permissions or broaden triggers.
 
-SilverBullet 2.11.1 changes its tracked service-worker artifact/cache constants; verify Vault editor/static routing through existing tests and deployment acceptance, without changing user notes or running a Vault index. code-server 4.139.1 retains the native authenticated WebSocket transport fix and exact protocol/binary tests. Its bump PR deliberately supplied an invalid checksum placeholder: replace it with the official linux-amd64 release asset digest `53029be6c5781b7bca49b815fcc9a2a3fc111813ad8c9965b2c0f0d2985a0674`. The authoritative tag resolves to the expected `53c2f3253bcf32886706fc023e794bbeb253c90f` commit. The release also rejects `--idle-timeout-seconds` values of 60 or less in both argument syntaxes; do not work around that validation. [Upstream release](https://github.com/coder/code-server/releases/tag/v4.139.1). Image download verification and IDE smoke remain required; metadata alone is not a downloaded-asset or live-workbench proof. Herdr 0.9.3 retains the reviewed launcher's terminal-ID interface, immutable native provenance and checksum. uv 0.12.18 is downloaded from its versioned release asset and verified before extraction; no installer checksum bypass is added. Browser Run's separate MCP SDK moves from 1.30.0 to 1.30.1, not from v1 to v2; it does not replace the Pi adapter's distinct MCP v2 transport.
+SilverBullet 2.11.1 changes its tracked service-worker artifact/cache constants; verify Vault editor/static routing through existing tests and deployment acceptance, without changing user notes or running a Vault index.
+
+code-server 4.139.1 retains the native authenticated WebSocket transport fix and exact protocol/binary tests. Its bump PR deliberately supplied an invalid checksum placeholder: replace it with the official linux-amd64 release asset digest `53029be6c5781b7bca49b815fcc9a2a3fc111813ad8c9965b2c0f0d2985a0674`. The authoritative tag resolves to the expected `53c2f3253bcf32886706fc023e794bbeb253c90f` commit. The release also rejects `--idle-timeout-seconds` values of 60 or less in both argument syntaxes; do not work around that validation. [Upstream release](https://github.com/coder/code-server/releases/tag/v4.139.1). Image download verification and IDE smoke remain required; metadata alone is not a downloaded-asset or live-workbench proof.
+
+Herdr 0.9.3 retains the reviewed launcher's terminal-ID interface, immutable native provenance and checksum. uv 0.12.18 is downloaded from its versioned release asset and verified before extraction; no installer checksum bypass is added.
+
+Browser Run's separate MCP SDK moves from 1.30.0 to 1.30.1, not from v1 to v2; it does not replace the Pi adapter's distinct MCP v2 transport.
 
 ## Shared source and release ownership
 
@@ -77,11 +106,11 @@ Update both Codeflare `preseed/` and curation for the Graphify metadata, Graphif
 
 Companion source changes are staged locally until their release gate is reached. Private Managed seed CI, signed immutable publication, runtime-hash selection and consuming-session activation are separate checks. Existing sessions do not silently reload newly delivered Pi extensions.
 
-## Requirement and verification mapping
+## Requirement and Source Map
 
 | Outcome | Existing contract | Evidence/gate |
 |---|---|---|
-| Graphify pin, managed ownership and bounded updates | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) | Guard RED/GREEN tests, seed compilation, image smoke |
+| Graphify pin, managed ownership and bounded updates | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-215](../../sdd/spec/agents.md#req-agent-215-managed-graphify-skill-ownership) | Guard RED/GREEN tests, seed compilation, image smoke |
 | Browser Run discovery, auth and retained MCP settings | [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-mcp) | Existing startup/configuration tests, managed prompt checks |
 | IDE Node ABI and native WebSocket behavior | [Browser IDE contract](../../sdd/spec/browser-ide.md) | Image's executable Node assertion, real 101/text/256-KiB tests |
 | Immutable package/parent bridge compatibility | [Operator contracts](../../sdd/spec/operators.md), [registry](../../sdd/spec/operator-registry.md) | Exact legacy SDK retained; native Flue settlement/collection/restart tests |
@@ -180,3 +209,22 @@ Existing domain skills are retained; no new skill, description trigger or runtim
 | `pi/skills/graphify/SKILL.md` | 13339 | 14290 | +951 |
 
 The increase is justified by specific observed breaking changes: private RPC removal, queue/memory migration contracts, auto-refresh overwrites, truncated extraction coverage and current browser-tool discovery. Canonical Claude SDK guidance keeps its existing compiler fan-out; native Pi Graphify/Browser Run implementations keep their existing mode selections. Exact compressed seed bytes and signed publication identity remain protected-CI release evidence, not local estimates.
+
+## Related Documentation
+
+- [Container](container.md) owns current packaged runtime inventory and IDE provenance.
+- [Preseed](preseed.md) owns managed-source delivery and runtime activation.
+- [Deployment](deployment.md) owns rollout gates and verification.
+- [Vault](vault.md) owns key recovery and synchronization behavior.
+
+## Review corrections and remaining evidence
+
+Exact-head review and [PR Checks 36903949057](https://github.com/nikolanovoselec/codeflare/actions/runs/36903949057) blocked the initial consolidation. SilverBullet changed minified key, decoder and synchronization bindings; its old graft aborted application initialization. The corrected graft preserves recovery, no-client retention and unreadable-remote deletion protection, including upstream logout-generation fences. Behavioral cases cover query/config recovery and logout interruption. Final corrected-head CI remains pending.
+
+The Node 26 mirror index and Linux amd64 child `0a992e1420e2d70611578f1844a6f10a9d11fe6bb535aabf72efe3007f13d79b`, its config and all four layers were retrieved or checked successfully before synchronizing the immutable allowlist. The seven missing Pi 0.99.1 integrity records were restored from exact authoritative registry versions; package tarball URLs were cross-checked.
+
+Zizmor 1.30 requires dedicated same-repository action references. Forty-two affected workflow references use the supported `$/` syntax; no audit is suppressed. [GitHub's syntax announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/) explains immutable workflow-commit resolution instead of mutable checkout contents.
+
+The separate shadow review failed because its configured origin was unavailable. It remains unresolved; no origin, credential, branch protection or Operator activation is fabricated. Required product checks and all review corrections still need corrected-head verification. Documentation inventories, evidence anchors, lane indexing and requirement traceability are synchronized without rewriting historical acceptance.
+
+Supplemental corrected-source checks passed nine Graphify/Node-pin cases and five served-worker parse/recovery/logout cases. TypeScript syntax parsing passed. Two additional focused Host suites could not load the absent local `yaml` dependency; no local installation was attempted, and their verification remains with CI.

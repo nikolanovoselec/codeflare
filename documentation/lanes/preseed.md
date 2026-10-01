@@ -1184,7 +1184,9 @@ See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-
 <a id="graphify-req-agent-023"></a>
 ## Graphify Toolchain ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
-Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow now respect stored edge direction, ignored-file pruning and merge shrink protection fail closed, and Java external annotations no longer collapse into local classes. In the current 0.9.61 package, BFS/DFS neighborhoods explore connections in both directions while retaining displayed edge direction. Directed shortest-path and callflow evidence remain separate: neighborhood connectivity never proves a directed path, and an absent reverse path does not authorize reversing edges.
+Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow now respect stored edge direction, ignored-file pruning and merge shrink protection fail closed, and Java external annotations no longer collapse into local classes. In the current 0.9.73 package, BFS/DFS neighborhoods explore connections in both directions while retaining displayed edge direction. Directed shortest-path and callflow evidence remain separate: neighborhood connectivity never proves a directed path, and an absent reverse path does not authorize reversing edges.
+
+[REQ-AGENT-215](../../sdd/spec/agents.md#req-agent-215-managed-graphify-skill-ownership) owns managed skill preservation: the image defaults upstream auto-refresh off, and bounded Claude/Pi update wrappers enforce that opt-out even when the caller enables refresh. Image-default acceptance is separate from wrapper behavioral proof.
 
 ### Graph-first soft nudge ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1)
 
