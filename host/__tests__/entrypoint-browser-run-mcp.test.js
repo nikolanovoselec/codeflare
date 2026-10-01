@@ -21,11 +21,18 @@ function extractBrowserRunBlock() {
   return entrypoint.slice(start, end);
 }
 
-function generatedBrowserConfigs() {
+function generatedBrowserConfigs({ legacy, target } = {}) {
   const userHome = mkdtempSync(join(tmpdir(), 'browser-run-entrypoint-'));
   const claudeJsonPath = join(userHome, '.claude.json');
   mkdirSync(join(userHome, '.pi', 'agent'), { recursive: true });
   writeFileSync(claudeJsonPath, '{}');
+  const legacyPath = join(userHome, '.pi', 'agent', 'mcp.json');
+  const targetPath = join(userHome, '.pi', 'agent', 'mcp-adapter.json');
+  if (legacy !== undefined) writeFileSync(legacyPath, JSON.stringify(legacy));
+  if (target !== undefined) writeFileSync(targetPath, JSON.stringify(target));
+  const migrationStart = entrypoint.indexOf('configure_pi_mcp_adapter() {');
+  const migrationEnd = entrypoint.indexOf('\n}', migrationStart) + 2;
+  const migrationFunction = entrypoint.slice(migrationStart, migrationEnd);
 
   const script = `
 set -e
@@ -34,6 +41,8 @@ USER_CLAUDE_JSON="${claudeJsonPath}"
 SESSION_MODE=advanced
 CLOUDFLARE_API_TOKEN=test-token
 CLOUDFLARE_ACCOUNT_ID=test-account
+${migrationFunction}
+configure_pi_mcp_adapter "${resolve(__dirname, '../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts')}"
 ${extractBrowserRunBlock()}
 `;
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
@@ -43,7 +52,8 @@ ${extractBrowserRunBlock()}
 
   return {
     claude: JSON.parse(readFileSync(claudeJsonPath, 'utf8')),
-    pi: JSON.parse(readFileSync(join(userHome, '.pi', 'agent', 'mcp.json'), 'utf8')),
+    pi: JSON.parse(readFileSync(targetPath, 'utf8')),
+    legacyBytes: target === undefined || legacy === undefined ? undefined : readFileSync(legacyPath, 'utf8'),
   };
 }
 
@@ -64,5 +74,23 @@ describe('entrypoint Browser Run MCP registration', () => {
   it('REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for three minutes', () => {
     const { pi } = generatedBrowserConfigs();
     assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '180000');
+    assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy');
+  });
+
+  it('REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials', () => {
+    const legacy = { mcpServers: {
+      'chrome-devtools': { command: 'custom-browser', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'], lifecycle: 'lazy' },
+      custom: { command: 'custom', env: { TOKEN: 'synthetic-secret' } },
+    }, settings: { custom: true } };
+    const { pi } = generatedBrowserConfigs({ legacy });
+    assert.deepEqual(pi, legacy);
+  });
+
+  it('REQ-BROWSER-006: adapter destination wins without merging or deleting legacy settings', () => {
+    const legacy = { mcpServers: { old: { command: 'old' } } };
+    const target = { mcpServers: { 'chrome-devtools': { command: 'preferred', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'] } } };
+    const { pi, legacyBytes } = generatedBrowserConfigs({ legacy, target });
+    assert.deepEqual(pi, target);
+    assert.equal(legacyBytes, JSON.stringify(legacy));
   });
 });

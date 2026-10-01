@@ -3146,9 +3146,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi reads `consult-llm` from `~/.pi/agent/mcp.json` through the pi-mcp-adapter `mcp` proxy. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @manual -->
+1. Pi reads `consult-llm` from `~/.pi/agent/mcp-adapter.json` through the pi-mcp-adapter `mcp` proxy. Startup and the signed managed migration extension move a valid legacy `mcp.json` byte-for-byte only when the adapter destination is absent; existing destinations win and retain the legacy file. Malformed or nonregular paths fail closed without deleting user data. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
 2. The Pi `consult-llm` entry uses `lifecycle:"lazy"`, so `consult-llm-mcp` starts on proxy use rather than session start. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
-3. Each container start replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing stale `keep-alive` and `directTools` fields. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
+3. Container startup adds the lazy Pi `mcpServers["consult-llm"]` object only when absent, preserving an existing adapter entry and its user configuration. Claude's existing owned-entry replacement remains unchanged. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
 **Constraints:**

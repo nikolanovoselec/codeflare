@@ -392,13 +392,14 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy.
-[Adapter 2.31.0](https://github.com/nicobailon/pi-mcp-adapter/releases/tag/v2.31.0)
-retains the 2.20 proxy contract and modular MCP v2 transport. Its new Parallel
-Search preset is opt-in, and its non-TUI status fallback does not alter
-Codeflare's configured servers. Codeflare leaves the legacy protocol default
-and plugin paths unchanged, so no owned MCP skill or configuration migration is
-required.
+`~/.pi/agent/mcp-adapter.json` via the pi-mcp-adapter `mcp` proxy.
+Adapter 3.3.0 retains the config schema but, since 3.0.0, no longer reads Pi's
+`mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
+migrate a valid legacy file byte-for-byte only when the destination is absent.
+Existing adapter files win; both files remain when both exist. Invalid or
+nonregular paths block bootstrap changes. The legacy path is not retired.
+Managed delivery reaches existing images on the next Pi load or `/reload`, not
+merely when the release is published or refreshed.
 
 The adapter's transport runs on `@modelcontextprotocol/client` and
 `@modelcontextprotocol/core` 2.0.0, with `jose`, `pkce-challenge`, `eventsource`,
@@ -681,7 +682,7 @@ build/update skill.
 Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
 MCP servers through the `pi-mcp-adapter`: it reaches `consult-llm` and
-`chrome-devtools` through the `mcp` proxy, wired into `~/.pi/agent/mcp.json` by
+`chrome-devtools` through the `mcp` proxy, wired into `~/.pi/agent/mcp-adapter.json` by
 `entrypoint.sh`. A default or token-less start removes restored Codeflare-owned
 Browser Run registrations from Claude and Pi while preserving unrelated user MCP
 servers, so an old bearer-bearing configuration cannot survive a mode or credential
@@ -932,7 +933,7 @@ note requests without embedding hook internals or requiring pre-task graph queri
 `preseed/agents/pi/rules/git-workflow.md` instead. The `consult-llm` skill depends
 on the consult-llm MCP tool, so it is excluded from the codex/opencode/antigravity
 transform lane. Pi still gets a native `consult-llm` skill + MCP server via
-`~/.pi/agent/mcp.json`, see
+`~/.pi/agent/mcp-adapter.json`, see
 [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
 
 Pi receives native TypeScript extensions for runtime behaviors that cannot be

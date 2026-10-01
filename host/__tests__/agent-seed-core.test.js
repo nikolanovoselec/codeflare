@@ -50,6 +50,11 @@ describe('shared agent seed compiler', () => {
 
       const compiled = await generateAgentSeed({ rootDir: repoRoot, outputFile, log: () => undefined });
 
+      assert.equal(compiled.retiredKeys.includes('.pi/agent/mcp.json'), false,
+        'generated retirement contract must preserve legacy adapter credentials before migration');
+      const migration = compiled.documents.find(({ key }) => key === '.pi/agent/extensions/00-mcp-adapter-config.ts');
+      assert.ok(migration, 'image generated artifact must deliver the adapter filename migration');
+      assert.deepEqual([...migration.modes].sort(), ['advanced', 'default']);
       assert.match(compiled.runtimeHash, /^[0-9a-f]{64}$/);
       assert.match(compiled.source, new RegExp(`export const PRESEED_RUNTIME_DEPENDENCY_HASH = '${compiled.runtimeHash}';`));
       const licenses = compiled.documents.filter((document) => document.key.endsWith('/LICENSE'));

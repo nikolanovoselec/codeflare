@@ -7,7 +7,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 | Concept | Definition |
 |---------|-----------|
 | Browser Run | Cloudflare's remote headless-Chrome service. Two surfaces are used: the Chrome DevTools Protocol (CDP) `/devtools` WebSocket (for `chrome-devtools-mcp`, the interactive surface) and the REST "Quick Actions" (`/markdown`, `/content`, `/scrape`, the cheap one-shot read surface) |
-| chrome-devtools-mcp | The MCP server that exposes the CDP-driven browser to an agent as tools (navigate / click / screenshot / snapshot / viewport). In Codeflare it is registered, only in Pro (advanced) session mode and only when a CF token + account are present, for BOTH agents pointed at the Browser Run CDP endpoint: for Claude Code in `~/.claude.json`, and for Pi in `~/.pi/agent/mcp.json` where the `pi-mcp-adapter` bridges it in |
+| chrome-devtools-mcp | The MCP server that exposes the CDP-driven browser to an agent as tools (navigate / click / screenshot / snapshot / viewport). In Codeflare it is registered, only in Pro (advanced) session mode and only when a CF token + account are present, for BOTH agents pointed at the Browser Run CDP endpoint: for Claude Code in `~/.claude.json`, and for Pi in `~/.pi/agent/mcp-adapter.json` where the `pi-mcp-adapter` bridges it in |
 | Pi native Browser Run wrapper | A Pi extension (`preseed/agents/pi/extensions/browser-run.ts`) that registers native `browser_markdown` / `browser_content` / `browser_scrape` tools calling the Browser Run REST Quick Actions — the cheap one-shot read surface (mirrors how the first-party `graphify-native.ts` ships native `graphify_*` tools). It is a cost/context choice, not a limitation: Pi also has the interactive `chrome-devtools` surface |
 | Claude `browser-run` MCP server | A small Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`, built into the image, registered in `~/.claude.json`) exposing the same `browser_markdown` / `browser_content` / `browser_scrape` REST Quick Actions — the Claude analog of Pi's native wrapper, giving Claude the cheap read surface |
 | WebFetch Fallback | The role the read surface plays: when plain WebFetch is blocked (bot protection, login walls, redirect chains, JS-only pages), the agent retries through the real browser to load a public target |
@@ -187,14 +187,14 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server. <!-- @manual -->
 3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude. <!-- @manual -->
 4. Standard mode and token-less deploys remove a restored Codeflare-owned Pi `chrome-devtools` registration while preserving unrelated user servers; Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) remain unchanged and gated. <!-- @impl: entrypoint.sh::remove_owned_browser_mcp_servers --> <!-- @manual -->
-5. Pi's interactive browser closes after three minutes of inactivity. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for three minutes) -->
+5. Newly bootstrapped Pi interactive browsers close after three minutes of inactivity. An existing adapter browser entry, including an explicit `600000` retention, is preserved during filename migration and subsequent startup. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for three minutes) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials) -->
 6. Pi's interactive tools control the same authenticated Browser Run browser surface as Claude. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 7. Pi starts interactive browser resources only on first use. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 
 **Constraints:**
 
 - Same gate as the rest of Browser Run (advanced + a token carrying the `Browser Rendering - Edit` scope); the `chrome-devtools` server is the same Dockerfile-baked `chrome-devtools-mcp` binary Claude uses.
-- The merge into `~/.pi/agent/mcp.json` mirrors the existing `consult-llm` Pi merge so it composes with any already-configured servers.
+- Bootstrap writes `~/.pi/agent/mcp-adapter.json` and preserves existing adapter entries. Signed managed Pi migration also reaches existing images on the next Pi load or `/reload`; a release refresh alone does not reload a running Pi process. Legacy `mcp.json` is not a managed retirement, so credentials remain available until safe migration, including when both files exist.
 
 **Priority:** P2
 

@@ -31,6 +31,12 @@
       "advanced"
     ]
   },
+  "extensions/00-mcp-adapter-config.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/active-repo-memory.ts": {
     "modes": [
       "default",

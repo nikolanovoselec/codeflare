@@ -485,7 +485,7 @@ RUN cd /opt/codeflare/npm-tools && \
 # is updated. That is the point of a pin, but the recovery path must not be
 # discovered mid-incident: read the new script, then set this ARG to its sha256
 # (`curl -fsSL <url> | sha256sum`). Do NOT work around it by dropping the check.
-ARG ANTIGRAVITY_INSTALLER_SHA256=ee1ea43ce4e9e56356c4ab6dad907ef357ae4bdfcaadb682735909fb57c9c640
+ARG ANTIGRAVITY_INSTALLER_SHA256=62966c07365423bd4dc209355060744058fb30d60f5323e2d360e39de64e5042
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh && \
       echo "${ANTIGRAVITY_INSTALLER_SHA256}  /tmp/agy-install.sh" | sha256sum -c - && \

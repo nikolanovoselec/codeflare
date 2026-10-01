@@ -3307,10 +3307,31 @@ echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 # Wrapped in a function called with `|| echo WARNING` so a jq/IO failure can never
 # abort the entrypoint before the init-complete flag (would crash-loop the
 # container, the AD-class bug fixed for the enterprise block).
+# Reuse the same no-clobber migration delivered by the signed managed Pi seed.
+# A rejected user file blocks Pi bootstrap writes/removals, not container startup.
+configure_pi_mcp_adapter() {
+    local module="${1:-/opt/codeflare/pi-agent/extensions/00-mcp-adapter-config.ts}"
+    PI_MCP_CONFIG_READY=0
+    if node --input-type=module - "$module" "$USER_HOME/.pi/agent" <<'PI_MCP_MIGRATION'
+import { pathToFileURL } from 'node:url';
+const { migratePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
+process.exitCode = migratePiMcpAdapterConfig(process.argv[3]) ? 0 : 1;
+PI_MCP_MIGRATION
+    then
+        PI_MCP_CONFIG_READY=1
+    else
+        echo "[entrypoint] WARNING: Pi MCP config migration skipped; user files preserved"
+    fi
+}
+configure_pi_mcp_adapter
+
 _merge_consult_llm_mcp() {
     # $1 target json, $2 config json, $3 human label
     local target="$1" cfg="$2" label="$3" tmp
     if [ -f "$target" ]; then
+        if [ "${4:-0}" = "1" ] && jq -e '.mcpServers | has("consult-llm")' "$target" >/dev/null 2>&1; then
+            return 0
+        fi
         tmp=$(mktemp)
         if jq --argjson mcp "$cfg" '.mcpServers = ((.mcpServers // {}) + {"consult-llm": $mcp.mcpServers["consult-llm"]})' "$target" > "$tmp" 2>/dev/null; then
             mv "$tmp" "$target"
@@ -3342,7 +3363,9 @@ _remove_consult_llm_mcp() {
 
 _remove_disabled_consult_llm() {
     _remove_consult_llm_mcp "$USER_CLAUDE_JSON" "Claude Code"
-    _remove_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" "Pi"
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        _remove_consult_llm_mcp "$USER_HOME/.pi/agent/mcp-adapter.json" "Pi"
+    fi
     rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
 }
 
@@ -3391,17 +3414,19 @@ configure_consult_llm() {
         "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
         "Claude Code"
 
-    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Adapter
+    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp-adapter.json (same shape). Adapter
     # 2.15+ interprets a leading `!` as a command-backed secret and `!!` as a
     # literal leading bang, so encode only Pi's copy; Claude receives raw env.
     # Keep the server behind the adapter's lazy `mcp` proxy so consult-llm-mcp
     # starts only when the user explicitly asks to consult an external LLM.
     pi_env_obj=$(printf '%s' "$env_obj" | jq -c \
         'with_entries(.value |= if type == "string" and startswith("!") then "!" + . else . end)')
-    mkdir -p "$USER_HOME/.pi/agent"
-    _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-        "$(jq -n --argjson env "$pi_env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
-        "Pi"
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        mkdir -p "$USER_HOME/.pi/agent"
+        _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp-adapter.json" \
+            "$(jq -n --argjson env "$pi_env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
+            "Pi" "1"
+    fi
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
 
@@ -4038,7 +4063,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # (navigate, click, fill, take_screenshot, take_snapshot, resize_page for a
 # mobile viewport) — the foundation the browser-e2e skill rests on:
 #   - Claude Code: registered in ~/.claude.json mcpServers (canonical MCP path).
-#   - Pi: registered in ~/.pi/agent/mcp.json; Pi's pi-mcp-adapter bridges it in
+#   - Pi: registered in ~/.pi/agent/mcp-adapter.json; Pi's pi-mcp-adapter bridges it in
 #     (reachable through the `mcp` proxy tool), exactly as consult-llm is wired
 #     for Pi above. lifecycle:lazy so an idle session does not pin a remote
 #     browser open. Pi ALSO keeps its native browser_* tools (the REST Quick
@@ -4107,7 +4132,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     fi
     echo "[entrypoint] chrome-devtools MCP server registered in .claude.json (Cloudflare Browser Run)"
 
-    # Pi (~/.pi/agent/mcp.json) - the SAME chrome-devtools server, bridged in by
+    # Pi (~/.pi/agent/mcp-adapter.json) - the SAME chrome-devtools server, bridged in by
     # the pi-mcp-adapter (reachable via the `mcp` proxy). Mirrors the Claude merge
     # above and the consult-llm Pi merge in configure_consult_llm. lifecycle:lazy
     # connects on first use and disconnects on idle, so an idle Pi session does
@@ -4115,20 +4140,24 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # cheap one-shot REST read path); chrome-devtools adds the interactive flow.
     BROWSER_MCP_PI=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
         '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
-    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
-    mkdir -p "$USER_HOME/.pi/agent"
-    if [ -f "$PI_MCP_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$PI_MCP_JSON"
+    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp-adapter.json"
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        mkdir -p "$USER_HOME/.pi/agent"
+        if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
+            : # Existing adapter browser settings (including retention/auth) win.
+        elif [ -f "$PI_MCP_JSON" ]; then
+            TMP_JSON=$(mktemp)
+            if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
+                mv "$TMP_JSON" "$PI_MCP_JSON"
+            else
+                echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp-adapter.json (malformed?)"
+                rm -f "$TMP_JSON"
+            fi
         else
-            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp.json (malformed?)"
-            rm -f "$TMP_JSON"
+            echo "$BROWSER_MCP_PI" | jq '.' > "$PI_MCP_JSON"
         fi
-    else
-        echo "$BROWSER_MCP_PI" | jq '.' > "$PI_MCP_JSON"
+        echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp-adapter.json (Cloudflare Browser Run)"
     fi
-    echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp.json (Cloudflare Browser Run)"
 
     # Claude (~/.claude.json) - the cheap one-shot page-read surface (markdown /
     # content / scrape), giving Claude parity with Pi's native browser_* tools.
@@ -4155,7 +4184,9 @@ else
     # untouched, while stale bearer-bearing Browser Run entries cannot survive a mode
     # or credential change.
     remove_owned_browser_mcp_servers "$USER_CLAUDE_JSON" '["chrome-devtools","browser-run"]'
-    remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp.json" '["chrome-devtools"]'
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp-adapter.json" '["chrome-devtools"]'
+    fi
     rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
            "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
     echo "[entrypoint] Browser Run not configured; owned MCP registrations and browser skills removed"
