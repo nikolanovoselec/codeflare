@@ -285,7 +285,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       jobs: { 'pi-prompt': { steps: Array<{ uses?: string; with?: Record<string, string> }> } };
     };
     const install = workflow.jobs['pi-prompt'].steps.find(
-      (step) => step.uses === '$/.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
+      (step) => step.uses === './.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
     );
     expect(install?.with).toEqual({
       directory: 'preseed/agents/pi',
@@ -520,7 +520,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
       steps: Array<{ uses?: string; with?: Record<string, string> }>;
     };
-    const coverageMerge = coverageBackend.steps.find((step) => step.uses === '$/.github/actions/merge-coverage');
+    const coverageMerge = coverageBackend.steps.find((step) => step.uses === './.github/actions/merge-coverage');
     expect(coverageMerge?.with?.['expected-shards']).toBe(String(backendCoverageLegs));
 
     const host = testWorkflow.jobs['host-tests'] as {
@@ -565,7 +565,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     for (const [name, matrix] of [['coverage-backend', 'backend-tests'], ['coverage-frontend', 'frontend-tests']] as const) {
       const job = testWorkflow.jobs[name] as { needs?: string[]; steps?: Array<{ uses?: string }> };
       expect(job.needs).toEqual(['changes', matrix]);
-      expect(job.steps?.some((step) => step.uses === '$/.github/actions/merge-coverage')).toBe(true);
+      expect(job.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
     }
   });
 
@@ -761,8 +761,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(workflow.jobs.coverage).toBeUndefined();
     expect(backend.if).toContain("needs.changes.outputs.backend == 'true'");
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
-    expect(backend.steps?.some((step) => step.uses === '$/.github/actions/merge-coverage')).toBe(true);
-    expect(frontend.steps?.some((step) => step.uses === '$/.github/actions/merge-coverage')).toBe(true);
+    expect(backend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
+    expect(frontend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
   });
 
 });

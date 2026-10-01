@@ -125,7 +125,7 @@ describe('PR lane selection', () => {
     assert.deepEqual([...assigned].sort(), listFrontendTests());
     assert.equal(new Set(assigned).size, assigned.length);
 
-    const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === '$/.github/actions/merge-coverage');
+    const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
     assert.equal(merge.with['expected-shards'], '4');
   });
 });
@@ -672,8 +672,8 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       const job = prChecks.jobs[jobName];
       assert.deepEqual(job.needs, ['changes', matrixJob]);
       assert.deepEqual(
-        job.steps.filter((candidate) => candidate.uses === '$/.github/actions/merge-coverage'),
-        [{ uses: '$/.github/actions/merge-coverage', with: inputs }],
+        job.steps.filter((candidate) => candidate.uses === './.github/actions/merge-coverage'),
+        [{ uses: './.github/actions/merge-coverage', with: inputs }],
       );
     }
   });
@@ -682,7 +682,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
 describe('shared CI components', () => {
   it('installs every fuzz package tree before its corresponding suite', () => {
     const steps = fuzz.jobs.fuzz.steps;
-    const installs = steps.filter((candidate) => candidate.uses === '$/.github/actions/install-deps');
+    const installs = steps.filter((candidate) => candidate.uses === './.github/actions/install-deps');
     assert.deepEqual(installs.map((candidate) => candidate.with), [
       { directory: '.', 'key-prefix': 'fuzz-root' },
       { directory: 'web-ui', 'key-prefix': 'fuzz-web-ui' },

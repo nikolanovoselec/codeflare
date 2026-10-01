@@ -27,7 +27,7 @@ describe('nightly PR Checks routing', () => {
   it('calls the canonical full matrix without copying any test lane', () => {
     assert.deepEqual(nightly.permissions, { contents: 'read' });
     assert.deepEqual(Object.keys(nightly.jobs), ['full-matrix']);
-    assert.equal(nightly.jobs['full-matrix'].uses, '$/.github/workflows/test.yml');
+    assert.equal(nightly.jobs['full-matrix'].uses, './.github/workflows/test.yml');
     assert.equal(nightly.jobs['full-matrix'].secrets, undefined);
 
     const changes = prChecks.jobs.changes;

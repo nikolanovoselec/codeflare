@@ -46,7 +46,7 @@ describe('shadow-pin workflow forward-only routing', () => {
   const cooldownRoutes = Object.entries(workflow.jobs).flatMap(([jobName, job]) => {
     const steps = job.steps ?? [];
     const usesCooldown = steps.some(
-      (step) => step.uses === '$/.github/actions/npm-cooldown-version',
+      (step) => step.uses === './.github/actions/npm-cooldown-version',
     );
     if (!usesCooldown) return [];
     return [{
