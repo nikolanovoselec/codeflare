@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { env, runInDurableObject } from 'cloudflare:test';
+import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 import { OperatorActivity } from '../../operators/activity';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
@@ -1454,7 +1455,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // private port/SDK platform collaborators are fixtures, not fetch().
       const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
       const nativeStub = namespace.get(namespace.newUniqueId());
-      await runInDurableObject<DurableObject, void>(nativeStub as DurableObjectStub<DurableObject>, async nativeInstance => {
+      await runInDurableObject<NativeDurableObject, void>(nativeStub as DurableObjectStub<NativeDurableObject>, async nativeInstance => {
         nativeInstance.fetch = (request: Request) => instance.fetch(request);
       });
       const response = await nativeStub.fetch(new Request(`https://codeflare.ch${path}?reconnect=a%2Fb&empty=&bare`, {

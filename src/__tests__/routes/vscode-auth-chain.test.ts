@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env as nativeEnv, runInDurableObject } from 'cloudflare:test';
+import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 import { handleVscodeRequest, validateVscodeRoute } from '../../routes/vscode';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -423,7 +424,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     const nativeStub = namespace.get(namespace.newUniqueId());
     // Reuse the existing native DO harness; a toy endpoint avoids Docker and
     // code-server startup. The real route/guards and Stub.fetch run unchanged.
-    await runInDurableObject<DurableObject, void>(nativeStub as DurableObjectStub<DurableObject>, async instance => {
+    await runInDurableObject<NativeDurableObject, void>(nativeStub as DurableObjectStub<NativeDurableObject>, async instance => {
       instance.fetch = async (forwarded: Request) => {
         const url = new URL(forwarded.url);
         if (url.pathname !== `/api/vscode/${SID}/ws` || url.search !== query
