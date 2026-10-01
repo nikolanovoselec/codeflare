@@ -54,6 +54,18 @@ describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', 
       }
     }, { repositoryOnly, githubApiHost: 'github.enterprise.test' });
   });
+  it('projects actual journal consumption on receipts without charging cached receipt observations', async () => fixture(async f => {
+    await start(f);
+    const source = { operationId: 'budget-read', url: 'https://api.github.com/repos/another/service' };
+    expect((await f.capability.fetch(genericWire('source', source))).status).toBe(200);
+    const first = await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json() as { operationCount: number; operationLimit: number };
+    expect(first.operationLimit).toBe(128);
+    expect(first.operationCount).toBeGreaterThanOrEqual(1);
+    expect((await f.capability.fetch(genericWire('source', { ...source, operationId: 'budget-read-next' }))).status).toBe(200);
+    const next = await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json() as { operationCount: number };
+    expect(next.operationCount).toBe(first.operationCount + 1);
+    expect(await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json()).toEqual(next);
+  }, { repositoryOnly: true }));
   it('keeps missing or ambiguous package readback unknown and fences revoked installation', async () => {
     for (const evidence of [[], [{ id: 1 }, { id: 2 }]]) await fixture(async f => {
       await start(f);

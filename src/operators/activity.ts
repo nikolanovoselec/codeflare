@@ -1654,6 +1654,7 @@ export class OperatorActivity extends Agent {
           if (!original?.request || original.generation !== generation) return denied();
           if (operation.path.endsWith('/receipt')) return Response.json({ operationId: value.operationId,
             generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
+            operationCount: Object.keys(operations).length, operationLimit: 128,
             ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}) });
           if (original.requestDigest !== value.requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
           const readbacks = value.readbacks!;

@@ -37,10 +37,11 @@ POST JSON to `https://operator.internal/v1/dispatcher/receipt`:
 // HTTP 200
 { operationId: string, generation: number, requestDigest: string,
   method: 'GET' | 'POST' | 'PUT', url: string,
-  phase: 'reserved' | 'unknown' | 'completed', responseDigest?: string }
+  phase: 'reserved' | 'unknown' | 'completed', responseDigest?: string,
+  operationCount: number, operationLimit: 128 }
 ```
 
-Request digest is SHA-256 of `JSON.stringify({path, body})` for the parsed immutable operation; use the returned digest, do not reconstruct it. Response digest is SHA-256 of the exact persisted response body (the source envelope, not only its inner body). Receipt projection exposes no credentials, journal internals or remote body.
+Request digest is SHA-256 of `JSON.stringify({path, body})` for the parsed immutable operation; use the returned digest, do not reconstruct it. Response digest is SHA-256 of the exact persisted response body (the source envelope, not only its inner body). Receipt projection exposes no credentials, journal internals or remote body. `operationCount` counts all entries in the Activity operation journal, including inference and earlier generations, not only package source calls. It is a point-in-time observation, not a reservation or a guarantee against future unbounded inference.
 
 Package-owned deterministic code must first validate positive, unique remote domain evidence: original target/head/text/publisher/outcome as applicable. Missing or ambiguous evidence stays unknown. A model assertion, absent receipt or a generic merged flag is not domain proof. Then POST JSON to `https://operator.internal/v1/dispatcher/resolve`:
 
