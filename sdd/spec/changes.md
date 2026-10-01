@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-01
 
+- **Preserve managed Graphify ownership across upstream auto-refresh** ([REQ-AGENT-215](agents.md#req-agent-215-managed-graphify-skill-ownership)). Separate the image default from bounded wrapper enforcement, retaining inherited-environment override coverage and existing Graphify criteria. Update the explicit Node 26 base allowlist only after mirror child/config/layer verification. SilverBullet graft compatibility and integrity/pin corrections remain subject to exact-head CI and image acceptance; no production or Operator activation follows from source changes.
+
 - **Use ordinary task wording for discovery's tool canary** ([REQ-ENTERPRISE-033](enterprise-mode.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)). Planning's Opus 5 canary returned `refusal / reasoning_extraction` with HTTP 200 and no tool call. A contemporaneous original-wording probe failed the valid-tool contract on both Planning and Review. Changing only the system instruction completed valid streamed tool calls and exact tool-result continuations on both routes: four HTTP 200 responses, initial `tool_calls`, replay `stop`, usage and `[DONE]`. Preserve tool names/schema, all qualification gates, profiles and the existing wire-envelope revision; this does not issue new receipts or establish cache reuse. The request-contract test precedes the one-instruction correction. GitHub Actions verification and Integration deployment are separate gates.
 
 ## 2026-09-30

@@ -5568,3 +5568,26 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-215: Managed Graphify Skill Ownership
+
+**Intent:** Upstream Graphify upgrades preserve deployment-managed skill guidance.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The image defaults upstream Graphify auto-refresh off so installed managed skills remain owned by signed curation. <!-- @impl: Dockerfile::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @manual: Verify GRAPHIFY_NO_AUTO_REFRESH=1 inside the built image and run a non-install CLI command without changing managed skill bytes. -->
+2. Bounded Claude and Pi graph-update wrappers prevent upstream auto-refresh from replacing managed guidance even when the invoking environment enables refresh. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh::GRAPHIFY_NO_AUTO_REFRESH --> <!-- @test: host/__tests__/safe-graphify-update.test.js (graph update preserves managed skills against upstream auto-refresh) -->
+
+**Constraints:** Preserve existing user consent, query routing and update resource bounds.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
+
+**Verification:** Automated test, Manual test
+
+**Status:** Implemented
+
+---

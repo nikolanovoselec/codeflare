@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use the digest-verified Google mirror of Docker Hub. Public ECR throttled
 # both pinned Node bases on shared GitHub Actions runners (HTTP 429).
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS rclone-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz" | sha256sum -c - \
@@ -48,7 +48,7 @@ RUN mkdir -p /out \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS impeccable-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
     && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
@@ -144,7 +144,7 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
 
 # ---- Stage 2: Runtime ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -225,9 +225,9 @@ COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
-RUN HERDR_VERSION="0.9.0" && \
-    HERDR_COMMIT="b99002ac99b09e00b4ca692436cb15a6b0d676f1" && \
-    HERDR_SHA256="4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f" && \
+RUN HERDR_VERSION="0.9.3" && \
+    HERDR_COMMIT="7b116c05bfda646af39d2524c54e70c751f57ee8" && \
+    HERDR_SHA256="18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
       -o /tmp/herdr && \
@@ -276,8 +276,8 @@ RUN LAZYGIT_VERSION="0.65.1" && \
 #
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.10.0" && \
-    SILVERBULLET_SHA256="ca33f7de3bae2f2e7d95cdd2cca1a023e51267388c9dbc8ff5acc33b1cbd5a7d" && \
+RUN SILVERBULLET_VERSION="2.11.1" && \
+    SILVERBULLET_SHA256="82af0d5d008c377cdb4b49dbd21db0d21f8d14619efa40b0fdeae1dce778d018" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
@@ -304,11 +304,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.137.0" && \
-    CODE_SERVER_SHA256="9303165b7fd43532091922f77e2f119ff2fa109c6b6f1c3c966fb02f3d6d9c8b" && \
-    CODE_SERVER_COMMIT="b11dabdaca0d3369986975be285db92c8795cea5" && \
-    CODE_SERVER_CODE_VERSION="1.137.0" && \
-    CODE_SERVER_VSCODE_COMMIT="645f29cc3176500b4b5762ba887cf2a7f0ffdf2c" && \
+RUN CODE_SERVER_VERSION="4.139.1" && \
+    CODE_SERVER_SHA256="53029be6c5781b7bca49b815fcc9a2a3fc111813ad8c9965b2c0f0d2985a0674" && \
+    CODE_SERVER_COMMIT="53c2f3253bcf32886706fc023e794bbeb253c90f" && \
+    CODE_SERVER_CODE_VERSION="1.139.1" && \
+    CODE_SERVER_VSCODE_COMMIT="04c0d99f4fb0d8afe6ce4f0c58e31e183ac3e4b1" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     BRACE_EXPANSION_VERSION="5.0.12" && \
@@ -633,8 +633,10 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.10
-ARG UV_X86_64_LINUX_SHA256=173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b
+# Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
+ENV GRAPHIFY_NO_AUTO_REFRESH=1
+ARG UV_VERSION=0.12.18
+ARG UV_X86_64_LINUX_SHA256=89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e

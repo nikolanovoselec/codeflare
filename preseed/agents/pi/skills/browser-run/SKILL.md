@@ -33,6 +33,10 @@ Both are Pro (advanced) only, and only when a Cloudflare API token with the **Br
 
 All three take `url` and an optional `wait_until`. For JS-heavy pages or SPAs, pass `wait_until: "networkidle0"` so content has rendered before capture.
 
+## Version and tool discovery
+
+The consolidation source pins Chrome DevTools MCP 1.10.1; verify the installed version independently, and use its configured remote CDP server, not an `npx @latest` installation or an implicitly launched local browser. Discover the server's current tool names and input schemas through `mcp` before calling them. Pi adapter 3.x reads `mcp-adapter.json`; preserve custom server credentials and retention settings. An unavailable interactive tool is not permission to weaken authentication or replace the user's MCP config. Performance tools may send trace URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+
 ## Notes
 
 - Output is capped (~120k chars) to protect the context window; narrow with `browser_scrape` if a page is huge.

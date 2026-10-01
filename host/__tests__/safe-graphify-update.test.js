@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,7 +63,31 @@ function runWrapper({ args = ['.'], env = {} } = {}) {
   }
 }
 
-// REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
+// REQ-AGENT-215: Knowledge-Graph Capability (Graphify)
+
+for (const script of [SCRIPT, resolve(__dirname, '../../preseed/agents/pi/scripts/safe-graphify-update.sh')]) {
+  test(`REQ-AGENT-215: ${script.includes('/pi/') ? 'Pi' : 'Claude'} graph update preserves managed skills against upstream auto-refresh`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'graphify-managed-skill-'));
+    const skill = join(dir, 'SKILL.md');
+    const managed = '# Managed user guidance\n';
+    writeFileSync(skill, managed);
+    writeFileSync(join(dir, 'graphify'), `#!/usr/bin/env bash
+if [ "\${GRAPHIFY_NO_AUTO_REFRESH:-0}" != "1" ]; then
+  printf 'upstream replacement\\n' > "$MANAGED_SKILL"
+fi
+`, { mode: 0o755 });
+    try {
+      const result = spawnSync('bash', [script, '.'], {
+        encoding: 'utf8', timeout: 5_000,
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MANAGED_SKILL: skill, GRAPHIFY_NO_AUTO_REFRESH: '0' },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(skill, 'utf8'), managed, 'upstream refresh must not replace managed guidance');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
 
 test('safe-graphify-update.sh: defaults set GRAPHIFY_MAX_WORKERS=1 and ulimit -v=1500000', () => {
   const r = runWrapper({ args: ['.'] });

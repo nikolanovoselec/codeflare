@@ -56,6 +56,7 @@ When public workflows or consumers change, update the owning document in the [pr
 | [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
 | [D1 Session Lifecycle](lanes/session-lifecycle-d1.md) | D1 session authority, runtime recovery, status projection, and clean-slate cutover boundary | Operators, Developers |
 | [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
+| [Dependency consolidation: October 2026](lanes/dependency-consolidation-2026-10-01.md) | Captured proposal disposition, compatibility constraints and release evidence | Developers, Operators |
 | [CI/CD & Testing](lanes/ci-cd.md) | Public workflow behavior and test-suite structure | Developers |
 | [Development & Deployment](lanes/deployment.md) | Deployment execution, verification, rollback, development references, dated cost evidence | Developers, Operators |
 | [Troubleshooting](lanes/troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |

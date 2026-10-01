@@ -8,6 +8,10 @@ Fetch https://developers.cloudflare.com/agents/api-reference/think/ for complete
 npm install @cloudflare/think
 ```
 
+## Memory and version migration
+
+For Agents 0.23+, the experimental `agents/experimental/memory/session` and `agents/experimental/memory/utils` subpaths are removed. Use the version-matched `agents/sessions` and `agents/context` capabilities; do not copy older `Session.create().withContext()`, `SessionManager`, or Postgres-provider examples. Legacy `assistant_*` conversation tables are migrated and dropped when the new Sessions capability starts: rolling back the package afterward does not restore those tables. Check the matching Think/AIChat package peer range and migration outcome before upgrading. Do not infer Codeflare's pinned Flue bridge compatibility from these public chat APIs.
+
 ## Minimal Agent
 
 ```typescript

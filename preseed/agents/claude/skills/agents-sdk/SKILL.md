@@ -70,6 +70,14 @@ The Agents SDK provides:
 - **Browser tools** (experimental) — CDP-powered browsing via `agents/browser`
 - **Think** (experimental) — Higher-level chat agent via `@cloudflare/think`
 
+## Version compatibility before upgrading
+
+Read the installed `agents` version and its release notes, not just the latest docs. Codeflare's immutable Flue/Dispatcher packages and parent facet bridge currently require `agents@0.20.1`; do not upgrade that bridge implicitly.
+
+In 0.22+, private `_cf_*ForFacet` scheduling RPCs are replaced by `_cf_routeLifecycle`. In 0.23+, `dynamicAgents` is the preferred facade (the public `subAgent()` aliases remain), Lifecycle owns the job queue, and the experimental memory subpaths are removed. In 0.24, queue inspection/removal becomes asynchronous, `QueueItem.created_at` becomes `createdAt`, and queued callbacks no longer inherit the enqueuing request or connection. Old queue rows migrate on startup; upstream says the temporary migration is removed in the next minor, so do not skip the upgrade step for populated objects.
+
+For standalone Lifecycle hosts, install the required capabilities explicitly; do not assume Agent's state or WebSocket composition exists on every Durable Object. Keep the default WebSocket transport unless an independently authorized change requires another wire. Consult the [upstream changelog](https://github.com/cloudflare/agents/blob/main/packages/agents/CHANGELOG.md) and the version notes in the references below before copying newer examples.
+
 ## FIRST: Verify Installation
 
 ```bash
