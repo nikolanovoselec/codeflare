@@ -365,7 +365,10 @@ function basePiMessages(prompt: string): Array<Record<string, unknown>> {
   return [
     {
       role: 'system',
-      content: 'You are a deterministic protocol compatibility canary. Follow the user request and use only the provided inert function.',
+      // Real Planning/Review probes failed with the protocol-canary wording;
+      // task-focused wording completed the same function call and exact replay.
+      // Change only the instruction, not the tool schema or qualification gates.
+      content: 'Use the provided function to help with the user request.',
     },
     { role: 'user', content: prompt },
   ];

@@ -78,6 +78,13 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
       max_completion_tokens: 16_384,
       tools: [{ type: 'function', function: { name: 'codeflare_profile_canary', strict: false } }],
     });
+    // Intentional public probe contract: ordinary task wording passed real
+    // Planning/Review tool + replay checks where the protocol-canary wording
+    // received reasoning_extraction refusals. Keep the same wire/tool contract.
+    expect(initial.messages).toEqual([
+      { role: 'system', content: 'Use the provided function to help with the user request.' },
+      { role: 'user', content: 'Call codeflare_profile_canary with value "ok". After its result, reply exactly DONE.' },
+    ]);
 
     const parsed = await parsePiSseText([
       'data: {"id":"must-not-leak","choices":[{"delta":{"reasoning_content":"think","reasoning":"duplicate"},"finish_reason":null}]}',
