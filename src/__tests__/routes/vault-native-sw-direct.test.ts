@@ -128,8 +128,8 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(logs).toEqual([]);
 
     clients.push({ postMessage(value) { received.push(value); } });
-    const callbackStart = worker.indexOf('(f,y)=>{') + '(f,y)=>{'.length;
-    const callbackEnd = worker.indexOf('},void 0,d,"sync")', callbackStart);
+    const callbackEnd = worker.indexOf('},void 0,d,"sync")');
+    const callbackStart = worker.lastIndexOf('(f,y)=>{', callbackEnd) + '(f,y)=>{'.length;
     for (const [error, expectedLevel, configured] of [
       ['AUTH_GATE', 'info', false], ['UNEXPECTED_FAILURE', 'error', true],
     ] as const) {
