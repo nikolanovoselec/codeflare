@@ -508,8 +508,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(pinned).toMatchObject({ invocationJson: JSON.stringify({
         repository: 'nikolanovoselec/komodo', pullRequest: 1302 }),
         executionContext: { owner: { subject: human.subject, email: human.email } } });
-      // Supply a settled child snapshot and let the *real* Activity collector
-      // validate it; do not synthesize completed state or intercept collection.
+      // Seed the simulated child's durable output, then exercise the real collector
+      // and publication fences. This case is not native SDK settlement evidence.
       const saved = await native.storage.get<{ drive: { generation: number }; receipt: { intentDigest: string } }>('admission');
       await native.storage.put('admission', { ...saved, drive: { generation: saved!.drive.generation,
         status: 'waiting', checkpoint: { submissionId: 'submission-1',
@@ -518,11 +518,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         artifactDigest: bundleDigest, inputDigest: saved!.receipt.intentDigest,
         expiresAt: Date.now() + 15_000_000, submissionId: 'submission-1', settledSubmissionId: 'submission-1',
         status: 'settled' });
+      await native.storage.put(`dispatcher:result:${saved!.drive.generation}`, scanRuntime.result);
       Object.defineProperties(native, {
         facets: { configurable: true, value: { get: () => ({
           _cf_initAsFacet: async () => {},
-          fetch: async () => Response.json({ settlements: [{ submissionId: 'submission-1', outcome: 'completed' }],
-            messages: [{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: scanRuntime.result }] }] }),
+          fetch: async () => { throw new Error('Durable collection must not refetch SDK history'); },
         }) } },
         exports: { configurable: true, value: { ...(native as unknown as { exports: object }).exports,
           OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),

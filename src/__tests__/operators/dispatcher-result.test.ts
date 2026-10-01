@@ -53,7 +53,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(previous).toEqual(initial());
   });
   it('handles UTF-8 and quoted delimiters split across transport reads', async () => {
-    const special = { comment: '🙂 quoted \" } ] and slash \\ end' };
+    const special = { comment: '🙂 quoted " } ] and slash \\ end' };
     const bytes = new TextEncoder().encode(JSON.stringify([start, { ...data, data: special }, settled]));
     const stream = new ReadableStream<Uint8Array>({ start(controller) {
       for (let index = 0; index < bytes.length; index += 3) controller.enqueue(bytes.slice(index, index + 3));

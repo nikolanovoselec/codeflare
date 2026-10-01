@@ -76,7 +76,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
     || response.headers.get('content-type')?.split(';')[0] !== 'application/json') throw new Error('Dispatcher updates unavailable');
   const state = structuredClone(previous);
   const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let record = ''; let recordBytes = 0; let depth = 0; let quoted = false; let escaped = false;
   let started = false; let ended = false; let afterRecord = false; let recordRequired = false;
   const consume = (text: string) => {

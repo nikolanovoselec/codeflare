@@ -70,7 +70,7 @@ export function parsePublishableAssessment(value: unknown, target?: { repository
 }
 
 /** Parent-only, repository-scoped credentialed GitHub transport; never passed to the child. */
-export function renovateGithub(input: { env: Env; exports: Record<string, (input: { props: Record<string, unknown> }) => Fetcher>;
+export function renovateGithub(input: { env: Env; exports: Record<string, (input: { props: Record<string, unknown> }) => { fetch(request: Request): Promise<Response> }>;
   user: string; bucket: string; repository: string; pullRequest: number; current: () => Promise<void>;
   prospective: boolean; prospectiveCreatedAt?: string; repositoryDiscovery?: boolean }) {
   const { env, exports, repository, pullRequest, current } = input;
