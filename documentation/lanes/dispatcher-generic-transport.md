@@ -8,6 +8,16 @@ Repository-only generated code receives `env.OPERATOR` (generation-bound Fetcher
 
 Current Access identity verification retains issuer, expiry, matching subject/email, response and size checks. Cloudflare's documented identity without `groups` asserts no memberships: explicit user grants remain eligible, group-only grants do not. Present malformed groups still deny. This preserves authenticated source composition without JWT group substitution, anonymous modes or alternate credentials. The real Access-helper/source regression covers this contract; the correction is not yet live-verified. Reference: [Cloudflare User Identity](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/#user-identity).
 
+## Request ownership and meaning of transport
+
+```text
+Dispatcher Dynamic Worker → parent OPERATOR capability → existing interceptor → remote HTTP API
+```
+
+Dispatcher selects the GitHub/Internet URL, method and permitted body. The parent supplies original human identity and credentials through GitHubInterceptor/EgressController; no independent credential-bearing GitHub client or repository mirror exists in the child. The response limit belongs to the Codeflare/package wrapper, not GitHub or Flue. Four complete PR objects can exceed100KiB because GitHub includes descriptions, nested repositories/users and many URLs. One-item pages reduce response size, not total eligible PR coverage.
+
+The Loader supplies the approved non-secret decimal string `OPERATOR_SOURCE_RESPONSE_BYTES` only to repository-only code, alongside `GITHUB_API_ORIGIN`. Package validation uses that allowance but cannot widen host authority. Reusable components and model-facing bounded artifact windows: [template documentation](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/develop/documentation/reusable-dispatcher.md). Renovate selection remains all open verified bot PRs created within the inclusive rolling14-day window, with complete pagination and no silent omission; finite128-operation/deadline gates remain.
+
 ## Explicit transport
 
 POST JSON to `https://operator.internal/v1/dispatcher/source` through OPERATOR:
@@ -16,7 +26,7 @@ POST JSON to `https://operator.internal/v1/dispatcher/source` through OPERATOR:
 { operationId: string, url: string, method?: 'GET' | 'POST' | 'PUT', body?: string }
 ```
 
-IDs match `[A-Za-z0-9_-]{1,128}`. URL is HTTPS, at most 4096 characters, without credentials, fragment or explicit port. Method defaults to GET. GET forbids body; POST/PUT require a string body, sent verbatim with parent-selected JSON content type. The entire encoded request and response envelope are limited to 64 KiB. POST/PUT destinations must use GITHUB_API_ORIGIN and the existing authenticated GitHub interceptor; Internet GET uses the existing approved EgressController/Gateway. Resource-profile installations not supported by the current composition fail closed.
+IDs match `[A-Za-z0-9_-]{1,128}`. URL is HTTPS, at most 4096 characters, without credentials, fragment or explicit port. Method defaults to GET. GET forbids body; POST/PUT require a string body, sent verbatim with parent-selected JSON content type. The encoded request remains limited to64KiB. Source-response UTF-8 envelope bytes use the approved installation's optional `sourceResponseBytes`, bounded by its operator policy and Environment management ceiling. Each omitted value defaults to65536bytes, including older saved records; no implicit raised inheritance or clamping applies. The supported-cap candidate is1MiB pending this correction's receipt-storage/native verification. Source body and final encoded envelope are both checked; escaping/headers add bytes. Changing the setting retains current revision and disable/re-enable fences. Requests, inference, final results and SDK update/history bounds do not increase. POST/PUT destinations must use GITHUB_API_ORIGIN and the existing authenticated GitHub interceptor; Internet GET uses the existing approved EgressController/Gateway. Resource-profile installations not supported by the current composition fail closed.
 
 Success is a parent response HTTP 200 containing:
 

@@ -21,7 +21,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function fixture(identityResponse: IdentityResponse, groupGrant = false, grantIssuer = issuer) {
+async function fixture(identityResponse: IdentityResponse, groupGrant = false, grantIssuer = issuer,
+  options: { sourceResponseBytes?: number; sourceBody?: string } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const human: VerifiedHumanAccessClaims = { subject, email, issuer, audiences: ['operator-audience'],
     issuedAt: now - 1, expiresAt: now + 300, groups: [stableGroup.id] };
@@ -35,7 +36,8 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
     expect(request.headers.get('cookie')).toBe(`CF_Authorization=${accessJwt}`);
     return identity();
   });
-  const policy = { capabilities: ['fetch'], resourceProfileId: null };
+  const policy = { capabilities: ['fetch'], resourceProfileId: null,
+    ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
   const selection = { controlsRevision: 1,
     installation: { id: 'installation', revision: 1, policy },
     operator: { profile: 'dispatcher', revision: 1, invokers: {
@@ -59,7 +61,8 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
   const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
     expect(request.url).toBe(sourceUrl);
     expect(request.method).toBe('GET');
-    return Response.json({ full_name: 'owner/project' }, { headers: { etag: '"source-version"' } });
+    return new Response(options.sourceBody ?? JSON.stringify({ full_name: 'owner/project' }),
+      { headers: { 'content-type': 'application/json', etag: '"source-version"' } });
   } }) } as unknown as Parameters<typeof createDispatcherOperation>[0]['exports'];
   const prepare = () => createDispatcherOperation({ plan, env: environment, operation, exports, current: async () => true });
   return { human, prepare, execute: async () => (await prepare())(),
@@ -145,5 +148,35 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     expect((await resolveOperatorGroupIdentity(f.human, accessJwt)).groups).toEqual([]);
     expect(await operatorAccessSessionCurrent(f.human, accessJwt)).toBe(false);
     await expect(perform()).rejects.toThrow();
+  });
+});
+
+
+describe('REQ-OPERATOR-047: real Access source response allowance', () => {
+  it('REQ-OPERATOR-047: rejects a 100 KiB source under the default allowance', async () => {
+    const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
+      { sourceBody: 'x'.repeat(100 * 1024) });
+    const response = await f.execute();
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+  });
+
+  it('REQ-OPERATOR-047: returns the exact large source envelope under approved 128 KiB', async () => {
+    const body = 'x'.repeat(100 * 1024);
+    const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
+      { sourceResponseBytes: 131072, sourceBody: body });
+    const response = await f.execute();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: sourceUrl, status: 200,
+      headers: { 'content-type': 'application/json', etag: '"source-version"' }, body });
+  });
+
+  it('REQ-OPERATOR-047: bounds escaped UTF-8 envelope bytes even when raw source fits', async () => {
+    // Raw UTF-8 fits 128 KiB, but newline escaping makes the envelope exceed it.
+    const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
+      { sourceResponseBytes: 131072, sourceBody: 'é\n'.repeat(33000) });
+    const response = await f.execute();
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
   });
 });

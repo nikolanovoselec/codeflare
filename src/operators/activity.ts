@@ -10,6 +10,7 @@ import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from '
 import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
+import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin } from './operator-runtime-capability';
 import { z } from 'zod';
@@ -1433,7 +1434,8 @@ export class OperatorActivity extends Agent {
       const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
         plan.activityId, lease.generation, capability, tail,
         JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
-        JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined);
+        JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
+        isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined);
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -1629,6 +1631,7 @@ export class OperatorActivity extends Agent {
     }
     let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
     let perform: () => Promise<Response>;
+    let sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES;
     let lease: DispatcherLease | undefined;
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
     try {
@@ -1640,6 +1643,9 @@ export class OperatorActivity extends Agent {
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
+      if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
+        sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
+      }
       if (operation.path === '/v1/dispatcher/receipt' || operation.path === '/v1/dispatcher/resolve') {
         const { authority, policy } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (!policy.capabilities.includes('fetch') || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
@@ -1760,7 +1766,7 @@ export class OperatorActivity extends Agent {
           throw new Error('Protected operation did not complete');
         }
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
-          body: await readDispatcherBody(upstream) };
+          body: await readDispatcherBody(upstream, undefined, resource === 'source' ? sourceBytes : DEFAULT_SOURCE_RESPONSE_BYTES) };
       });
       let confirmedEffect = false;
       if (resource === 'comment' || resource === 'merge') {
@@ -2349,7 +2355,10 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
             ...(request.method !== 'GET' ? { method: request.method, body: await readDispatcherBody(request, request.signal) } : {}) }),
         }));
         if (!result.ok) return result;
-        const source = JSON.parse(await readDispatcherBody(result));
+        const plan = await activity.getRuntimePlan();
+        if (!plan || !isManagementReceipt(plan.receipt)) throw new Error('Dispatcher source authority unavailable');
+        const source = JSON.parse(await readDispatcherBody(result, undefined,
+          sourceResponseBytes(plan.receipt.selection.installation.policy)));
         if (source.url !== request.url || !Number.isInteger(source.status) || source.status < 200 || source.status > 599
           || typeof source.body !== 'string' || !source.headers || typeof source.headers !== 'object'
           || Array.isArray(source.headers)) throw new Error('Dispatcher source receipt unavailable');

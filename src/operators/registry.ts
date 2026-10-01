@@ -12,6 +12,7 @@ import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest 
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseOperatorPolicy } from './policy';
+import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceResponseBytes } from './dispatcher-source-limits';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';
@@ -105,7 +106,7 @@ interface ProtectedDistribution {
 export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
-export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null }
+export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number }
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
@@ -121,7 +122,7 @@ export interface ManagementRelease {
 export interface ManagementReleaseCandidate { release: ManagementRelease; manifestJson: string; bundleBytes: Uint8Array }
 export interface ManagementControls {
   revision: number; managers: ManagementGrant;
-  ceiling: { capabilities: string[]; resourceProfileIds: string[] };
+  ceiling: { capabilities: string[]; resourceProfileIds: string[]; sourceResponseBytes?: number };
   /** Target repository trust, never the operator package's approved build workflow. */
   boundaryActions?: Array<Omit<BoundaryActionBinding, 'controlsRevision'>>;
 }
@@ -901,6 +902,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   async setManagementControls(input: ManagementControls, actor: { email: string; expiresAt: number },
     trustedInstallation = false): Promise<OperatorRegistryResult<ManagementControls>> {
     this.managementSchema();
+    if (input.ceiling.sourceResponseBytes !== undefined && (!Number.isInteger(input.ceiling.sourceResponseBytes)
+      || input.ceiling.sourceResponseBytes < 1 || input.ceiling.sourceResponseBytes > MAX_SOURCE_RESPONSE_BYTES)) {
+      throw new ValidationError('Invalid management source response byte ceiling');
+    }
     if (input.boundaryActions !== undefined) {
       const seen = new Set<string>();
       if (!Array.isArray(input.boundaryActions) || input.boundaryActions.length > 100) throw new ValidationError('Invalid boundary Action bindings');
@@ -939,8 +944,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   private withinManagementCeiling(policy: ManagementPolicy): boolean {
     const controls = this.managementControls();
+    const bytes = effectiveSourceResponseBytes(policy);
     return controls.revision > 0 && policy.capabilities.every(value => controls.ceiling.capabilities.includes(value))
-      && (policy.resourceProfileId === null || controls.ceiling.resourceProfileIds.includes(policy.resourceProfileId));
+      && (policy.resourceProfileId === null || controls.ceiling.resourceProfileIds.includes(policy.resourceProfileId))
+      && Number.isInteger(bytes) && bytes >= 1 && bytes <= MAX_SOURCE_RESPONSE_BYTES
+      && bytes <= effectiveSourceResponseBytes(controls.ceiling);
   }
 
   private managementState(id: string): ManagementOperatorState | null {
@@ -1165,7 +1173,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
 
   private restrictivePolicy(policy: ManagementPolicy, ceiling: ManagementPolicy): boolean {
     return this.withinManagementCeiling(policy) && policy.capabilities.every(capability => ceiling.capabilities.includes(capability))
-      && (policy.resourceProfileId === null || policy.resourceProfileId === ceiling.resourceProfileId);
+      && (policy.resourceProfileId === null || policy.resourceProfileId === ceiling.resourceProfileId)
+      && effectiveSourceResponseBytes(policy) <= effectiveSourceResponseBytes(ceiling);
   }
 
   async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configurationJson = '{}'): Promise<OperatorRegistryResult<ManagementInstallation>> {
@@ -1253,16 +1262,18 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
       const fence = this.managementFence(state, authority);
       if (fence) return fence;
-      const policy = { ...state!.policy, capabilities };
+      const policy = { ...state!.policy, capabilities,
+        ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }) };
       if (!this.withinManagementCeiling(policy)) throw new ValidationError('Operator capabilities exceed management ceiling');
       if (capabilities.length === state!.policy.capabilities.length
-        && capabilities.every(value => state!.policy.capabilities.includes(value))) return { ok: true, value: this.saveManagement(state!) };
+        && capabilities.every(value => state!.policy.capabilities.includes(value))
+        && effectiveSourceResponseBytes(policy) === effectiveSourceResponseBytes(state!.policy)) return { ok: true, value: this.saveManagement(state!) };
       const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
       for (const row of rows) {
         const installation = this.parseManagementInstallation(row.data);

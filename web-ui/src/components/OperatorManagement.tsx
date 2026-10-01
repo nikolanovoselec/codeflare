@@ -11,6 +11,13 @@ import '../styles/operator-management.css';
 export interface OperatorManagementProps { userEmail?: string; isAdmin?: boolean }
 const emptyGrant = (): api.ManagementGrant => ({ users: [], groups: [] });
 const emptyPolicy = (): api.ManagementPolicy => ({ capabilities: [], resourceProfileId: null });
+const sourceBytes = (value?: number) => value ?? api.DEFAULT_SOURCE_RESPONSE_BYTES;
+const validSourceBytes = (value: number | undefined, ceiling: number) => Number.isInteger(sourceBytes(value)) && sourceBytes(value) >= 1 && sourceBytes(value) <= ceiling;
+const sourceResponseHelp = 'Includes the HTTP envelope: response body and headers. Does not change request, inference, final-output or SDK history limits.';
+const SourceResponseField: Component<{ label: string; value?: number; max: number; onChange: (value: number) => void }> = props =>
+  <label class="admin-form-field"><span>{props.label}</span><input aria-label={props.label} type="number" required min="1" step="1" max={props.max}
+    value={Number.isFinite(sourceBytes(props.value)) ? sourceBytes(props.value) : ''} onInput={event => props.onChange(event.currentTarget.valueAsNumber)} />
+    <small>{sourceResponseHelp} Current upper limit: {props.max} bytes.</small></label>;
 const lines = (value: string) => [...new Set(value.split('\n').map(line => line.trim()).filter(Boolean))];
 const name = (operator: api.ManagementSummary) => {
   if (operator.name === 'Conductor Review' && operator.profile === 'conductor' && operator.repositoryId === 1380652764
@@ -88,7 +95,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   const cancelSearch = () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = undefined; };
   const locked = () => busy() || stale() || detailLoading();
   const canRegister = () => !!choices() && !locked() && registrationPolicy().capabilities.length > 0
-    && (profile() === 'dispatcher' || !!registrationPolicy().resourceProfileId)
+    && (profile() === 'dispatcher' ? validSourceBytes(registrationPolicy().sourceResponseBytes, sourceBytes(choices()?.ceiling.sourceResponseBytes)) : !!registrationPolicy().resourceProfileId)
     && !hasUnavailablePolicy(registrationPolicy(), choices()!.ceiling.capabilities,
       profile() === 'dispatcher' ? [] : choices()!.ceiling.resourceProfileIds);
 
@@ -278,7 +285,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
               <Show when={choices()?.unresolvedGroups.length}><p role="status">Unverified configured groups cannot be assigned: {choices()!.unresolvedGroups.join(', ')}. Saved assignments remain until removed.</p></Show>
               <GrantFields title="Initial manager" value={registrationManagers()} choices={choices()} onChange={setRegistrationManagers} />
               <GrantFields title="Initial invoker" value={registrationInvokers()} choices={choices()} onChange={setRegistrationInvokers} />
-              <PolicyFields title="Operator" profile={profile()} value={registrationPolicy()} capabilities={choices()?.ceiling.capabilities ?? []} profiles={profile() === 'dispatcher' ? [] : choices()?.ceiling.resourceProfileIds ?? []} onChange={setRegistrationPolicy} />
+              <PolicyFields title="Operator" profile={profile()} value={registrationPolicy()} sourceResponseMax={sourceBytes(choices()?.ceiling.sourceResponseBytes)} capabilities={choices()?.ceiling.capabilities ?? []} profiles={profile() === 'dispatcher' ? [] : choices()?.ceiling.resourceProfileIds ?? []} onChange={setRegistrationPolicy} />
               <p>Select initial capabilities and scope within Environment limits. Operator capabilities can be edited later; changing them disables enabled installations until explicitly re-enabled.</p>
               <div class="operator-actions"><button class="admin-primary-button" type="submit" disabled={!canRegister()}>Register source</button></div>
               </fieldset>
@@ -338,7 +345,7 @@ const GrantFields: Component<{ title: string; value: api.ManagementGrant; choice
       <span>{group.id} · not listed in this session, retained until removed</span></label>}</For></div></div></div>
   </fieldset>;
 };
-const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatcher'; value: api.ManagementPolicy; capabilities: string[]; profiles: string[];
+const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatcher'; value: api.ManagementPolicy; capabilities: string[]; profiles: string[]; sourceResponseMax: number;
   onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
   <div class="admin-form-grid"><div class="admin-form-field"><span>Allowed actions</span><div class="admin-checkbox-list"><For each={props.capabilities}>{capability =>
     <label class="admin-toggle-field"><input type="checkbox" checked={props.value.capabilities.includes(capability)} onChange={event => props.onChange({ ...props.value,
@@ -348,6 +355,8 @@ const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatche
     <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => props.onChange({ ...props.value,
       capabilities: props.value.capabilities.filter(value => value !== item) })} /><span>{item} · unavailable — deselect to remove</span></label>
   }</For></div></div>
+    <Show when={props.profile === 'dispatcher'}><SourceResponseField label={`${props.title === 'Operator' ? 'Operator' : 'Installation'} source response limit (bytes)`}
+      value={props.value.sourceResponseBytes} max={props.sourceResponseMax} onChange={value => props.onChange({ ...props.value, sourceResponseBytes: value })} /></Show>
     <Show when={props.profile === 'conductor'}>
       <label class="admin-form-field"><span>Session and storage scope</span><select aria-label={`${props.title} resource profile`} value={props.value.resourceProfileId ?? ''} onChange={event => props.onChange({ ...props.value, resourceProfileId: event.currentTarget.value || null })}>
         <option value="">None</option><For each={props.profiles}>{id => <option value={id}>{id}</option>}</For>
@@ -368,6 +377,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [installOpen, setInstallOpen] = createSignal(false);
   const [policy, setPolicy] = createSignal(emptyPolicy());
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
+  const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
   const [assessmentRepository, setAssessmentRepository] = createSignal('');
@@ -381,6 +391,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   createEffect(() => {
     setManagers(props.detail.grants.managers); setInvokers(props.detail.grants.invokers);
     setOperatorCapabilities(props.detail.operator.policy.capabilities);
+    setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
   createEffect(() => {
@@ -399,6 +410,10 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     : props.detail.installations.length > 1 && !installation() ? 'Select an installed configuration to see its verified purpose.'
     : props.detail.releases.length === 1 ? props.detail.releases[0].description || 'Package description unavailable.'
     : 'Purpose available after selecting a verified version.';
+  const environmentSourceMax = () => sourceBytes(props.choices?.ceiling.sourceResponseBytes);
+  const installationSourceMax = () => Math.min(sourceBytes(operator().policy.sourceResponseBytes), environmentSourceMax());
+  const validOperatorSource = () => operator().profile !== 'dispatcher' || validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax());
+  const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
     ? [operator().policy.resourceProfileId!] : [];
@@ -477,8 +492,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       {props.feedback('installed-install')}
       <section class="admin-profile-editor" aria-label="Runtime permissions">
         <h3>Runtime permissions</h3>
-        <form onSubmit={event => { event.preventDefault(); void props.perform(() => api.saveOperatorCapabilities(operator().id, {
+        <form onSubmit={event => { event.preventDefault(); if (!validOperatorSource()) return; void props.perform(() => api.saveOperatorCapabilities(operator().id, {
           revision: operator().revision, capabilities: operatorCapabilities(),
+          ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
           <legend>Operator capabilities</legend><p>Operator-wide limits come from Environment. Changing these disables enabled installations; review each installation before re-enabling.</p>
           <div class="admin-checkbox-list"><For each={props.choices?.ceiling.capabilities ?? []}>{capability =>
@@ -488,13 +504,14 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setOperatorCapabilities(values => values.filter(value => value !== capability))} />
               <span>{capability} · unavailable under current Environment limit; remove before saving</span></label>
           }</For></div>
-          <button class="admin-secondary-button" type="submit" disabled={!props.choices || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
+          <Show when={operator().profile === 'dispatcher'}><SourceResponseField label="Operator source response limit (bytes)" value={operatorSourceResponseBytes()} max={environmentSourceMax()} onChange={setOperatorSourceResponseBytes} /></Show>
+          <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
-        <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); void props.perform(() => api.configureInstallation(item().id, {
+        <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {
           revision: item().revision, policy: policy(), configuration: item().configuration ?? {},
         }), 'Restrictions saved. Enable new runs separately when ready.', 'installed-restrictions'); }}><fieldset disabled={props.locked}>
-          <PolicyFields title={item().name} profile={operator().profile} value={policy()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} onChange={setPolicy} />
-          <button class="admin-secondary-button" type="submit" aria-label={`Save restrictions for ${item().name}`} disabled={!props.choices || hasUnavailablePolicy(policy(), allowedCapabilities(), allowedProfiles())}>Save restrictions</button>
+          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} onChange={setPolicy} />
+          <button class="admin-secondary-button" type="submit" aria-label={`Save restrictions for ${item().name}`} disabled={!props.choices || !validInstallationSource() || hasUnavailablePolicy(policy(), allowedCapabilities(), allowedProfiles())}>Save restrictions</button>
         </fieldset>{props.feedback('installed-restrictions')}</form>}</Show>
       </section>
       <details class="admin-route-details"><summary>Technical details</summary>
@@ -555,6 +572,7 @@ export const ManagementAccessPanel: Component = () => {
   const [managers, setManagers] = createSignal(emptyGrant());
   const [capabilities, setCapabilities] = createSignal<string[]>([]);
   const [resources, setResources] = createSignal('');
+  const [sourceResponseBytes, setSourceResponseBytes] = createSignal<number>();
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
@@ -564,6 +582,7 @@ export const ManagementAccessPanel: Component = () => {
   onCleanup(() => { active = false; });
   function populate(value: api.ManagementAccess) {
     setCurrent(value); setManagers(value.managers); setCapabilities(value.ceiling.capabilities); setResources(value.ceiling.resourceProfileIds.join('\n'));
+    setSourceResponseBytes(value.ceiling.sourceResponseBytes);
   }
   async function load() {
     setLoading(true); setError('');
@@ -576,11 +595,12 @@ export const ManagementAccessPanel: Component = () => {
   }
   void load();
   async function save() {
-    if (busy() || stale() || !current()) return;
+    if (busy() || stale() || !current() || !validSourceBytes(sourceResponseBytes(), api.MAX_SOURCE_RESPONSE_BYTES)) return;
     setBusy(true); setError(''); setNotice('');
     try {
       const value = await api.saveManagementAccess({ revision: current()!.revision, managers: managers(),
-        ceiling: { capabilities: capabilities(), resourceProfileIds: lines(resources()) } });
+        ceiling: { ...current()!.ceiling, capabilities: capabilities(), resourceProfileIds: lines(resources()),
+          ...(sourceResponseBytes() !== undefined ? { sourceResponseBytes: sourceResponseBytes() } : {}) } });
       if (active) { populate(value); setNotice('Management access saved. Operator ownership and invocation grants remain separate.'); }
     } catch (cause) { if (active) { setError(failure(cause, true)); setStale(true); } }
     finally { if (active) setBusy(false); }
@@ -596,11 +616,12 @@ export const ManagementAccessPanel: Component = () => {
         <div class="admin-checkbox-list operator-choice-list"><For each={choices()?.capabilities ?? []}>{capability => <label class="admin-toggle-field"><input type="checkbox" checked={capabilities().includes(capability)} onChange={event => setCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} /><span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>}</For>
           <For each={capabilities().filter(value => !choices()?.capabilities.includes(value))}>{item => <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setCapabilities(values => values.filter(value => value !== item))} /><span>{item} · unavailable — deselect to remove</span></label>}</For></div>
       </fieldset>
+      <SourceResponseField label="Largest Dispatcher source response (bytes)" value={sourceResponseBytes()} max={api.MAX_SOURCE_RESPONSE_BYTES} onChange={setSourceResponseBytes} />
       <details class="operator-scope-details"><summary>Conductor request IDs (advanced)</summary>
         <p>These are allowed names for Conductor requests, not profiles you create. At installation, an administrator selects one allowed ID. On every run, the requested session and storage must both name that same allowed ID or the run is denied. This does not create a session or configure storage; Codeflare builds those resources under its existing permissions. Dispatcher does not use these IDs.</p>
         <LineField label="Allowed request IDs" values={lines(resources())} onChange={values => setResources(values.join('\n'))} hint="One ID per line. Keep review-profile unless the package contract requires a different name; removing an ID can prevent installed runs." />
       </details>
-      <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!choices() || capabilities().some(value => !choices()?.capabilities.includes(value))}>Save management access</button></div>
+      <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!choices() || !validSourceBytes(sourceResponseBytes(), api.MAX_SOURCE_RESPONSE_BYTES) || capabilities().some(value => !choices()?.capabilities.includes(value))}>Save management access</button></div>
     </fieldset></form></Show>
   </section>;
 };

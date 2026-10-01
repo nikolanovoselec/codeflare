@@ -134,8 +134,8 @@ async function fixture(test: (f: {
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
   messages: (value: unknown[]) => void; input: unknown; revokeSession: () => void;
-  loaderEnv: () => Promise<Record<string, unknown>>; genericReadback: (value: unknown) => void;
-  files: (value: unknown[]) => void;
+  loaderEnv: () => Promise<Record<string, unknown>>; loaderOutbound: () => Promise<Fetcher | null>; genericReadback: (value: unknown) => void;
+  sourceBody: (value: string) => void; files: (value: unknown[]) => void;
   compose: (value: Record<string, unknown>) => void;
   release: (value: unknown, status?: number) => void;
   guide: (value: unknown) => void; tag: (value: unknown) => void;
@@ -144,7 +144,7 @@ async function fixture(test: (f: {
   moveHeadAfterRelease: () => void; expireAfterRead: () => void;
   moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string } = {}) {
+}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string; sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string } = {}) {
   callerSessionCurrent = true;
   const fixtureInvocation = options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -155,7 +155,8 @@ async function fixture(test: (f: {
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
-    const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null };
+    const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
+      ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: 'operator', revision: 1,
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
     operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] } },
@@ -171,6 +172,8 @@ async function fixture(test: (f: {
     const genericComments: Array<{ id: number; body: string; user: { id: number } }> = [];
     let genericReadback: unknown;
     let loadedEnvironment: Promise<Record<string, unknown>> | undefined;
+    let loadedOutbound: Promise<Fetcher | null> | undefined;
+    let sourceBody = options.sourceBody ?? 'Official migration guidance';
     let transportThrows = false;
     let emptyResponse = false;
     let upstreamConflict = false;
@@ -239,7 +242,7 @@ async function fixture(test: (f: {
             if (stage) deliveredTail.push({ ...props, stage });
           },
         }),
-        EgressController: () => ({ fetch: async () => new Response('Official migration guidance', {
+        EgressController: () => ({ fetch: async () => new Response(sourceBody, {
           headers: { 'content-type': 'text/plain', etag: 'guide-v3', 'set-cookie': 'private-session' },
         }) }),
         GitHubInterceptor: ({ props }: { props: { bucket: string } }) => ({ fetch: async (request: Request) => {
@@ -304,7 +307,7 @@ async function fixture(test: (f: {
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
-          return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+          return new Response(options.inferenceBody ?? 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
       waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
@@ -318,10 +321,11 @@ async function fixture(test: (f: {
     };
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
       OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
-      LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
+      LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; globalOutbound: Fetcher | null; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
         getDurableObjectClass: () => {
           const code = factory();
           loadedEnvironment = code.then(value => value.env);
+          loadedOutbound = code.then(value => value.globalOutbound);
           configuredTail = code.then(value => value.tails?.[0] as { tail(events: unknown): Promise<void> });
           return {};
         },
@@ -357,6 +361,7 @@ async function fixture(test: (f: {
         },
         input: fixtureInvocation, revokeSession: () => { callerSessionCurrent = false; },
         messages: value => { streamBatch++; messages = value; messagesSet = true; },
+        sourceBody: value => { sourceBody = value; },
         files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
         release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
         guide: value => { guideBody = value; }, tag: value => { tagRef = value; },
@@ -376,6 +381,7 @@ async function fixture(test: (f: {
         restoreTransport: () => { uncertain = false; transportThrows = false; },
         genericReadback: value => { genericReadback = value; },
         loaderEnv: async () => { if (!loadedEnvironment) throw new Error('Loader not started'); return loadedEnvironment; },
+        loaderOutbound: async () => { if (!loadedOutbound) throw new Error('Loader not started'); return loadedOutbound; },
         throwTransport: () => { transportThrows = true; },
         emptyResponse: () => { emptyResponse = true; },
         upstreamConflict: enabled => { upstreamConflict = enabled; },
@@ -1404,4 +1410,103 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
     await start(f);
     expect((await f.capability.fetch(sourceRead('legacy', 'https://docs.example.test/migration'))).status).toBe(403);
   }));
+});
+
+
+describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () => {
+  it.each([undefined, 131072])('REQ-OPERATOR-047: exposes source allowance %s only to repository Loader', async sourceResponseBytes => {
+    for (const repositoryOnly of [false, true]) await fixture(async f => {
+      await start(f);
+      expect((await f.loaderEnv()).OPERATOR_SOURCE_RESPONSE_BYTES)
+        .toBe(repositoryOnly ? String(sourceResponseBytes ?? 65536) : undefined);
+    }, { repositoryOnly, sourceResponseBytes });
+  });
+
+  it.each([undefined, 131072])('REQ-OPERATOR-047: enforces source allowance %s through Activity and immutable cache', sourceResponseBytes => fixture(async f => {
+    await start(f);
+    const request = () => sourceRead('large-source', 'https://docs.example.test/migration');
+    const response = await f.capability.fetch(request());
+    expect(response.status).toBe(sourceResponseBytes === undefined ? 422 : 200);
+    const body = await response.json();
+    expect(body).toEqual(sourceResponseBytes === undefined ? { code: 'OPERATOR_SOURCE_INCOMPLETE' } : {
+      url: 'https://docs.example.test/migration', status: 200,
+      headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'x'.repeat(100 * 1024),
+    });
+    f.sourceBody('Changed upstream content must not replace a completed receipt');
+    f.restart();
+    const cached = await f.capability.fetch(request());
+    expect(cached.status).toBe(response.status);
+    expect(await cached.json()).toEqual(body);
+  }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
+
+  it('REQ-OPERATOR-047: SQL-backed Activity journals and reloads an exact 1 MiB source envelope', async () => {
+    const url = 'https://docs.example.test/migration';
+    const headers = { 'content-type': 'text/plain', etag: 'guide-v3' };
+    const overhead = new TextEncoder().encode(JSON.stringify({ url, status: 200, headers, body: '' })).byteLength;
+    const sourceBody = 'x'.repeat(1024 * 1024 - overhead);
+    await fixture(async f => {
+      await start(f);
+      const request = () => sourceRead('near-max-source', url);
+      const response = await f.capability.fetch(request());
+      expect(response.status).toBe(200);
+      const serialized = await response.text();
+      expect(new TextEncoder().encode(serialized).byteLength).toBe(1024 * 1024);
+      expect(JSON.parse(serialized)).toEqual({ url, status: 200, headers, body: sourceBody });
+      f.sourceBody('Changed upstream content must not replace the near-max journal receipt');
+      f.restart();
+      const cached = await f.capability.fetch(request());
+      expect(cached.status).toBe(200);
+      expect(await cached.text()).toBe(serialized);
+    }, { repositoryOnly: true, sourceResponseBytes: 1024 * 1024, sourceBody });
+  });
+
+  it('REQ-OPERATOR-047: rejects escaped UTF-8 envelope overflow through Activity', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(sourceRead('escaped-source', 'https://docs.example.test/migration'));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, sourceBody: 'é\n'.repeat(33000) }));
+
+  it('REQ-OPERATOR-047: actual Loader outbound unwraps the approved large source without cookies', () => fixture(async f => {
+    await start(f);
+    const outbound = await f.loaderOutbound();
+    if (!outbound) throw new Error('Repository Loader outbound missing');
+    const response = await outbound.fetch(new Request('https://docs.example.test/migration', {
+      headers: { 'x-codeflare-operator-operation-id': 'large-outbound' },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toBe('guide-v3');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await response.text()).toBe('x'.repeat(100 * 1024));
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, sourceBody: 'x'.repeat(100 * 1024) }));
+
+  it.each(['source', 'inference'])('REQ-OPERATOR-047: raising source responses leaves %s request limit at 64 KiB', path => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(genericWire(path, path === 'source' ? {
+      operationId: 'oversized-source-request', method: 'POST',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: 'x'.repeat(65537),
+    } : { operationId: 'oversized-inference-request', input: { messages: [{ role: 'user', content: 'x'.repeat(65537) }] } }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
+
+  it('REQ-OPERATOR-047: raising source responses leaves inference response limit at 64 KiB', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(genericWire('inference', {
+      operationId: 'oversized-inference-response', input: { messages: [{ role: 'user', content: 'assess' }] },
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceBody: 'x'.repeat(65537) }));
+
+  it('REQ-OPERATOR-048: raising source responses does not admit oversized final result', () => fixture(async f => {
+    await start(f);
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: {
+      repository: 'another/service', results: [], padding: 'x'.repeat(65537),
+    } }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'interrupted', result: null });
+  }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
 });

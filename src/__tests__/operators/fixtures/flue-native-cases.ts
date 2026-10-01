@@ -19,8 +19,10 @@ type Assessment = NativeDelivery & {
 };
 type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
-  journeyOperations?: Record<string, { path: string; body: { url?: string; method?: string } }>;
+  journeyOperations?: Record<string, { path: string; body: { url?: string; method?: string; body?: string } }>;
   journeyReceiptCount?: number;
+  journeyResearchReads?: number;
+  journeyInferenceBytes?: number[];
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
   streamPhase: 'not-pulled' | 'prefix-enqueued' | 'error-injected';
@@ -171,12 +173,12 @@ export function registerNativeDispatcherCases(
 
   if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {
     beforeEach(() => harness.reset(), 60_000);
-    it('projects exact-submission completed bounded empty repository discovery through real SDK updates', async () => {
+    it.each([false, true])('REQ-OPERATOR-048: projects one exact empty discovery result through real SDK updates with oversized source metadata=%s', async oversizedSourceMetadata => {
       const pinned = await pinnedArtifact(true);
       const intent = await harness.queuedActivity();
       const id = intent.activityId;
       expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
-      expect(await command(id, { action: 'configure', ...pinned, journey: true })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, oversizedSourceMetadata })).toMatchObject({ ok: true });
       const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
         action: 'send', delivery: { repository: 'authorized/project' },
       });
@@ -196,7 +198,7 @@ export function registerNativeDispatcherCases(
       expect(operations.filter(item => item.path === '/v1/dispatcher/source').map(item => item.body.url)).toEqual([
         'https://api.github.com/repos/authorized/project',
         'https://api.github.com/users/renovate%5Bbot%5D',
-        'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=4&page=1',
+        'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=1&page=1',
       ]);
       expect(operations.filter(item => item.path === '/v1/dispatcher/inference')).toHaveLength(3);
       // Seal's receipt observes two actual inference reservations plus three GETs, not source-only accounting.
@@ -205,6 +207,86 @@ export function registerNativeDispatcherCases(
       expect(evidence.external).toEqual([]);
       expect(evidence.activity.sessionId).toBeNull();
     }, 30_000);
+  });
+
+  if (group === 'authority') describe('REQ-OPERATOR-047/048: native large research artifact windows', () => {
+    beforeEach(() => harness.reset(), 60_000);
+    it.each([131072, 262144, 1044480] as const)('REQ-OPERATOR-047/048: settles cited fresh and cached research from %s source bytes without widening inference', async researchBodyBytes => {
+      const pinned = await pinnedArtifact(true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, researchBodyBytes })).toMatchObject({ ok: true });
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      const end = Date.now() + 25_000;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        if (projection.outcome) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      const url = 'https://docs.example.test/large-migration';
+      const quote = 'Migration compatibility remains unverified.';
+      const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
+      const comment = `${quote} Source: ${url}`;
+      expect(projection).toMatchObject({ outcome: 'completed', writes: 1 });
+      expect(projection.result).toEqual({ repository: 'authorized/project', results: [{
+        ...target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
+      }] });
+      const evidence = await snapshot(id);
+      const operations = Object.values(evidence.journeyOperations ?? {});
+      const inference = operations.filter(item => item.path === '/v1/dispatcher/inference');
+      expect(inference).toHaveLength(7);
+      // These are actual SDK-to-parent request bytes; the unchanged parser also
+      // rejects oversized requests before our synthetic model can answer them.
+      expect(evidence.journeyInferenceBytes).toHaveLength(7);
+      for (const bytes of evidence.journeyInferenceBytes ?? []) expect(bytes).toBeLessThanOrEqual(65536);
+      expect(evidence.journeyResearchReads).toBe(1);
+      expect(operations.filter(item => item.path === '/v1/dispatcher/source' && item.body.url === url)).toHaveLength(1);
+      const comments = operations.filter(item => item.path === '/v1/dispatcher/source' && item.body.method === 'POST');
+      expect(comments).toHaveLength(1);
+      expect(comments[0].body).toMatchObject({
+        url: 'https://api.github.com/repos/authorized/project/issues/17/comments', body: JSON.stringify({ body: comment }),
+      });
+      expect(operations.filter(item => item.body.method === 'PUT')).toEqual([]);
+
+      // Inspect model-facing artifact wire values in actual next-inference
+      // messages, not package state or a mock return value. SDK tool messages
+      // may carry structured objects or JSON-serialized content.
+      type Window = { id: string; digest: string; body: string; bodyOffset: number; bodyLength: number;
+        bodyTruncated: boolean; receipt: unknown };
+      const windows: Window[] = [];
+      const visit = (value: unknown): void => {
+        if (typeof value === 'string') {
+          if (/^\s*[\[{]/.test(value)) {
+            try { visit(JSON.parse(value)); } catch { /* Ordinary untrusted text. */ }
+          }
+        } else if (Array.isArray(value)) {
+          for (const item of value) visit(item);
+        } else if (value && typeof value === 'object') {
+          const item = value as Record<string, unknown>;
+          if (item.bodyLength === researchBodyBytes && typeof item.bodyOffset === 'number') windows.push(item as unknown as Window);
+          for (const field of Object.values(item)) visit(field);
+        }
+      };
+      visit(inference.at(-1)?.body);
+      const fresh = windows.find(item => item.bodyOffset === 0);
+      const cached = windows.find(item => item.bodyOffset === researchBodyBytes - 2000);
+      const fullBody = 'x'.repeat(researchBodyBytes - 2000) + quote + 'y'.repeat(2000 - quote.length);
+      const artifactId = `artifact-${createHash('sha256').update(JSON.stringify({ target, url, kind: 'upstream' })).digest('hex').slice(0, 24)}`;
+      const digest = createHash('sha256').update(fullBody).digest('hex');
+      expect(fresh).toMatchObject({ id: artifactId, digest, body: 'x'.repeat(2000),
+        bodyOffset: 0, bodyLength: researchBodyBytes, bodyTruncated: true });
+      expect(cached).toMatchObject({ id: artifactId, digest, body: quote + 'y'.repeat(2000 - quote.length),
+        bodyOffset: researchBodyBytes - 2000, bodyLength: researchBodyBytes, bodyTruncated: true });
+      expect(cached?.receipt).toEqual(fresh?.receipt);
+      expect(cached?.receipt).toMatchObject({ generation: 1, requestDigest: expect.any(String), responseDigest: expect.any(String) });
+      expect(evidence.external).toEqual([]);
+      expect(evidence.activity.sessionId).toBeNull();
+    }, 45_000);
   });
 
   if (group === 'flue') describe('REQ-OPERATOR-048/051: pinned generated Flue in native workerd', () => {

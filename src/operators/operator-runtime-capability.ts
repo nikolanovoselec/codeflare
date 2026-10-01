@@ -4,6 +4,7 @@ import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
   resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
+import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
@@ -85,8 +86,9 @@ export async function parseDispatcherOperation(request: Request): Promise<Dispat
   return { operationId: body.operationId, path: url.pathname, body, signal: request.signal };
 }
 
-/** Shared byte ceiling for requests, child admission/status and persisted effect output. */
-export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal): Promise<string> {
+/** Default bound for requests/status/inference/results; only approved source-response readers select another bound. */
+export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal,
+  byteLimit = DEFAULT_SOURCE_RESPONSE_BYTES): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -101,7 +103,7 @@ export async function readDispatcherBody(message: Request | Response, signal?: A
       if (signal?.aborted) throw signal.reason;
       if (chunk.done) return value + decoder.decode();
       size += chunk.value.byteLength;
-      if (size > 64 * 1024) throw new Error('Dispatcher body exceeds limit');
+      if (size > byteLimit) throw new Error('Dispatcher body exceeds limit');
       value += decoder.decode(chunk.value, { stream: true });
     }
   } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }
@@ -178,6 +180,7 @@ export async function createDispatcherOperation(input: {
     };
     await sourceCurrent();
     const source = dispatcherSourceSchema.parse(operation.body);
+    const responseBytes = sourceResponseBytes(installationPolicy);
     const url = new URL(source.url);
     const method = source.method ?? 'GET';
     const github = interceptedGithubHosts(env).includes(url.hostname);
@@ -207,7 +210,7 @@ export async function createDispatcherOperation(input: {
         return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
       }
       let body: string;
-      try { body = response.body ? await readDispatcherBody(response, signal) : ''; }
+      try { body = response.body ? await readDispatcherBody(response, signal, responseBytes) : ''; }
       catch {
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation body unknown');
@@ -229,7 +232,7 @@ export async function createDispatcherOperation(input: {
         if (method !== 'GET') throw new Error('Mutation receipt unavailable');
         return Response.json({ code: 'OPERATOR_SOURCE_CREDENTIAL_REFLECTION' }, { status: 422 });
       }
-      if (new TextEncoder().encode(envelope).byteLength > 64 * 1024) {
+      if (new TextEncoder().encode(envelope).byteLength > responseBytes) {
         if (method !== 'GET') throw new Error('Mutation receipt incomplete');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
