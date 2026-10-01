@@ -54,7 +54,7 @@ async function fixture(test: (f: {
   moveHeadAfterRelease: () => void; expireAfterRead: () => void;
   moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[] } = {}) {
+}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[]; pagedStatus?: boolean } = {}) {
   callerSessionCurrent = true;
   const fixtureInvocation = options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -118,6 +118,15 @@ async function fixture(test: (f: {
             purpose: 'assistant', display: 'visible', ...value as object })) };
         const url = new URL(request.url);
         if (url.searchParams.get('view') === 'updates') {
+          if (options.pagedStatus && settlements.length) {
+            const pageOffset = '0000000000000000_0000000000000100';
+            if (url.searchParams.get('offset') !== pageOffset) return Response.json([{ type: 'conversation-reset',
+              conversationId: snapshot.conversationId, position: { batch: streamBatch, index: 0 },
+              snapshot: { ...snapshot, settlements: [] } }], { headers: { 'stream-next-offset': pageOffset } });
+            return Response.json(settlements.map((settlement, index) => ({ type: 'submission-settled',
+              conversationId: snapshot.conversationId, position: { batch: streamBatch + 1, index }, ...settlement as object })),
+            { headers: { 'stream-next-offset': '0000000000000000_0000000000000101', 'stream-up-to-date': 'true' } });
+          }
           const chunks = url.searchParams.get('offset') === streamOffset() ? [] : [{ type: 'conversation-reset',
             conversationId: snapshot.conversationId, position: { batch: streamBatch, index: 0 }, snapshot }];
           return Response.json(chunks, { headers: { 'stream-next-offset': streamOffset(), 'stream-up-to-date': 'true' } });
@@ -1238,6 +1247,25 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
       expect((await f.capability.fetch(sourceRead('forged', 'https://docs.example.test/migration', extra))).status).toBe(403);
     }
     expect((await f.capability.fetch(sourceRead('valid', 'https://docs.example.test/migration'))).status).toBe(200);
+  }, { repositoryOnly: true }));
+  it('collects only after the documented updates pages reach the durable head', () => fixture(async f => {
+    await start(f);
+    const output = { repository: 'another/service', results: [] };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: output }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: output });
+  }, { repositoryOnly: true, pagedStatus: true }));
+  it('collects compact output through the real Activity from a large SDK reset', () => fixture(async f => {
+    await start(f);
+    const output = { repository: 'another/service', results: [] };
+    f.messages([{ id: 'irrelevant', submissionId: 'foreign', parts: [{ type: 'text', text: 'x'.repeat(2 * 1024 * 1024) }] },
+      { submissionId: 'submission-1', parts: [{ type: 'text', text: 'y'.repeat(2 * 1024 * 1024) }, { type: 'data-result', data: output }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: output });
   }, { repositoryOnly: true }));
   it('reconciles concurrent identical reads without losing the generation or changing the stored receipt', () => fixture(async f => {
     await start(f);

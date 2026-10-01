@@ -4,7 +4,7 @@ import { readDispatcherUpdates, type DispatcherResultProjection } from '../../op
 const initial = (): DispatcherResultProjection => ({ offset: 'admission-offset', messageIds: [], writes: 0 });
 const event = (index: number, body: Record<string, unknown>) => ({ conversationId: 'conversation', position: { batch: 1, index }, ...body });
 const response = (events: unknown[], offset = 'next-offset') => new Response(JSON.stringify(events), {
-  headers: { 'content-type': 'application/json', 'stream-next-offset': offset },
+  headers: { 'content-type': 'application/json', 'stream-next-offset': offset, 'stream-up-to-date': 'true' },
 });
 const result = { repository: 'owner/project', results: [] };
 const start = event(0, { type: 'message-started', messageId: 'answer', submissionId: 'requested' });
@@ -37,11 +37,48 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
   });
   it('rebuilds only requested submission state at a documented compaction reset', async () => {
     const projection = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
-      messages: [{ id: 'foreign', submissionId: 'foreign', parts: [{ type: 'data-assessment', data: { private: true } }] },
+      conversationId: 'conversation', messages: [{ id: 'foreign', submissionId: 'foreign', parts: [{ type: 'data-assessment', data: { private: true } }] },
         { id: 'answer', submissionId: 'requested', parts: [{ type: 'data-assessment', data: result }] }],
       settlements: [{ submissionId: 'requested', outcome: 'completed' }],
     } })]), initial(), 'requested');
     expect(projection).toMatchObject({ messageIds: ['answer'], result, writes: 1, outcome: 'completed' });
+  });
+  it('projects a multi-megabyte compaction snapshot without retaining irrelevant SDK tool data', async () => {
+    const snapshot = { conversationId: 'conversation', messages: [
+      { id: 'foreign', submissionId: 'foreign', parts: [{ type: 'dynamic-tool', output: 'x'.repeat(2 * 1024 * 1024) }] },
+      { id: 'answer', submissionId: 'requested', parts: [
+        { type: 'text', text: 'y'.repeat(2 * 1024 * 1024) }, { type: 'data-result', data: result }] },
+    ], settlements: [{ submissionId: 'requested', outcome: 'completed' }] };
+    const projection = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot })]), initial(), 'requested');
+    expect(projection).toMatchObject({ result, outcome: 'completed', messageIds: ['answer'] });
+    expect(JSON.stringify(projection).length).toBeLessThan(1000);
+  });
+  it('rejects a changed conversation and contradictory terminal outcomes', async () => {
+    await expect(readDispatcherUpdates(response([start, { ...data, conversationId: 'foreign' }]), initial(), 'requested')).rejects.toThrow('conversation changed');
+    await expect(readDispatcherUpdates(response([start, data, settled,
+      event(5, { type: 'submission-settled', submissionId: 'requested', outcome: 'failed' })]), initial(), 'requested')).rejects.toThrow('terminal settlement changed');
+  });
+  it('keeps a nonterminal page resumable and refuses a stalled paging cursor', async () => {
+    const page = response([start, data], 'page-two');
+    page.headers.delete('stream-up-to-date');
+    const projection = await readDispatcherUpdates(page, initial(), 'requested');
+    expect(projection).toMatchObject({ upToDate: false, offset: 'page-two', result });
+    const last = await readDispatcherUpdates(response([settled], 'head'), projection, 'requested');
+    expect(last).toMatchObject({ upToDate: true, outcome: 'completed', result });
+    const stalled = response([], 'page-two');
+    stalled.headers.delete('stream-up-to-date');
+    await expect(readDispatcherUpdates(stalled, projection, 'requested')).rejects.toThrow('cursor stalled');
+  });
+  it('cancels a stalled updates reader rather than continuing after the parent deadline', async () => {
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode('[')); } });
+    const body = new Response(stream, { headers: { 'content-type': 'application/json', 'stream-next-offset': 'next' } });
+    const controller = new AbortController();
+    const pending = readDispatcherUpdates(body, initial(), 'requested', controller.signal);
+    controller.abort(new Error('Parent deadline expired'));
+    await expect(pending).rejects.toThrow('Parent deadline expired');
+    const reader = stream.getReader();
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    reader.releaseLock();
   });
   it('rejects duplicate final writes rather than choosing a fabricated last result', async () => {
     await expect(readDispatcherUpdates(response([start, data, { ...data, position: { batch: 1, index: 4 } }]), initial(), 'requested'))

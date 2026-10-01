@@ -1471,7 +1471,8 @@ export class OperatorActivity extends Agent {
           statusHttpStatus = response.status;
           if (!response.ok) throw new Error('Dispatcher status unavailable');
           statusStep = 'body';
-          return readDispatcherUpdates(response, lease.projection!, lease.submissionId!);
+          return readDispatcherUpdates(response, lease.projection!, lease.submissionId!,
+            AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now())));
         });
         const projectionSaved = await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -1485,12 +1486,12 @@ export class OperatorActivity extends Agent {
         });
         if (!projectionSaved) return;
         const settlement = value.outcome ? { outcome: value.outcome, error: value.error } : null;
-        if (!settlement) {
+        if (!settlement || !value.upToDate) {
           stage = 'recheck';
           // A child may settle just after this snapshot; the deadline alarm cannot
           // read it once the lease expires. Recheck within the original lease.
           const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
-          if (remainingSeconds > 0) await this.schedule(Math.min(5, remainingSeconds),
+          if (remainingSeconds > 0) await this.schedule(Math.min(value.upToDate ? 5 : 1, remainingSeconds),
             'reconcileDispatcherLease', { generation: lease.generation }, { idempotent: true });
           return;
         }
