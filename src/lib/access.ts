@@ -199,8 +199,11 @@ async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJ
     const record = identity as Record<string, unknown>;
     const subject = record.user_uuid ?? record.id;
     if (subject !== human.subject || (record.id !== undefined && record.id !== human.subject)
-      || typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)
-      || !Array.isArray(record.groups) || record.groups.length > 1024) return null;
+      || typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)) return null;
+    // Cloudflare's documented identity has no required groups field. A verified
+    // session without it asserts no memberships; malformed supplied groups still deny.
+    if (!Object.hasOwn(record, 'groups')) return [];
+    if (!Array.isArray(record.groups) || record.groups.length > 1024) return null;
     const groups: string[] = [];
     for (const value of record.groups) {
       // Names and bare strings are not stable identifiers in this transport.

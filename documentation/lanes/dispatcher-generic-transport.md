@@ -1,10 +1,12 @@
 # Repository-only Dispatcher transport (implementation candidate)
 
-Input remains `{ "repository": "owner/repository" }`. No context endpoint or new user setting exists. Host CI and pinned empty-discovery native compatibility passed at `31d57cc3`; installed v0.1.6 live acceptance remains unverified after an inference rejection. Native compatibility is not authenticated effects or terminal Activity collection proof.
+Input remains `{ "repository": "owner/repository" }`. No context endpoint or new user setting exists. Host CI passed at `7ed88105` and pinned empty-discovery native compatibility passed at `31d57cc3`. Corrected live Activity `2a530b42` produced four successful inference calls, then local source403 and assessment rejection; installed v0.1.6 full live acceptance remains unverified. Native compatibility is not authenticated effects or terminal Activity collection proof.
 
 ## Loader
 
 Repository-only generated code receives `env.OPERATOR` (generation-bound Fetcher) and `env.GITHUB_API_ORIGIN` (non-secret HTTPS origin derived from existing `GITHUB_API_HOST`, default `https://api.github.com`). Legacy single-PR Loader code receives only its existing OPERATOR binding. Credentials and original parent identity remain inside existing interceptors. Inference supplies the trusted stable Activity ID as the existing interceptor's `sessionId` replay namespace, not as a fabricated workspace session or additional authorization. This supports native Bedrock signed tool replay across turns while isolating replay from other Activities; user, groups, selected route, credential and expiry remain parent-owned. No interceptor behavior changes.
+
+Current Access identity verification retains issuer, expiry, matching subject/email, response and size checks. Cloudflare's documented identity without `groups` asserts no memberships: explicit user grants remain eligible, group-only grants do not. Present malformed groups still deny. This preserves authenticated source composition without JWT group substitution, anonymous modes or alternate credentials. The real Access-helper/source regression covers this contract; the correction is not yet live-verified. Reference: [Cloudflare User Identity](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/#user-identity).
 
 ## Explicit transport
 
