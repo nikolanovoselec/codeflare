@@ -13,6 +13,7 @@ import { loadOperatorDispatcherClass } from './loader';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody } from './operator-runtime-capability';
 import { z } from 'zod';
+import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
@@ -67,6 +68,7 @@ type DispatcherFacet = Fetcher & {
 interface DispatcherLease {
   generation: number; artifactDigest: string; inputDigest: string; expiresAt: number;
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
+  projection?: DispatcherResultProjection;
   status: 'admitting' | 'running' | 'settled' | 'unknown';
 }
 interface DispatcherOperationRecord {
@@ -1218,7 +1220,7 @@ export class OperatorActivity extends Agent {
           || Object.values(operations).some(operation => operation.phase !== 'completed')) {
           return { ok: false, reason: 'invalid-update' };
         }
-        await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' ? 'settled' : 'unknown' });
+        await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' || parsed.status === 'completed' ? 'settled' : 'unknown' });
       }
       const state: OperatorDriveState = {
         generation, status: parsed.status, checkpoint: parsed.checkpoint, result: parsed.result ?? null,
@@ -1342,7 +1344,9 @@ export class OperatorActivity extends Agent {
         if (typeof value?.submissionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.submissionId)) {
           throw new Error('Dispatcher admission receipt invalid');
         }
-        return value.submissionId as string;
+        const offset = response.headers.get('stream-next-offset') ?? value.offset;
+        if (typeof offset !== 'string' || !offset || offset.length > 2048) throw new Error('Dispatcher admission cursor invalid');
+        return { submissionId: value.submissionId as string, offset };
       });
       const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
         const record = await tx.get<AdmissionState>('admission');
@@ -1350,7 +1354,8 @@ export class OperatorActivity extends Agent {
         if (!this.#leaseMatches(record, current, generation) || current!.status !== 'admitting') {
           return { ok: false, reason: 'stale-drive' };
         }
-        await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, submissionId: admitted, status: 'running' });
+        await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, submissionId: admitted.submissionId,
+          projection: { offset: admitted.offset, messageIds: [], writes: 0 }, status: 'running' });
         return { ok: true, state: record!.drive! };
       });
       if (!result.ok) return this.interruptDrive(generation);
@@ -1443,7 +1448,8 @@ export class OperatorActivity extends Agent {
         await this.interruptDrive(lease.generation);
         return;
       }
-      if (lease.status !== 'running' || !lease.submissionId) return;
+      // Historical executions without an admission cursor are never re-read or replayed.
+      if (lease.status !== 'running' || !lease.submissionId || !lease.projection) return;
       let stage = 'status';
       let statusStep = 'plan';
       let activityId: string | undefined;
@@ -1456,17 +1462,28 @@ export class OperatorActivity extends Agent {
           statusStep = 'facet';
           const child = await this.#dispatcherFacet(lease);
           statusStep = 'fetch';
-          const response = await child.fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher'));
+          const url = new URL('https://flue.internal/agents/Dispatcher/dispatcher');
+          url.searchParams.set('view', 'updates');
+          url.searchParams.set('offset', lease.projection!.offset);
+          const response = await child.fetch(new Request(url));
           statusStep = 'http';
           statusHttpStatus = response.status;
           if (!response.ok) throw new Error('Dispatcher status unavailable');
           statusStep = 'body';
-          const body = await readDispatcherBody(response);
-          statusStep = 'json';
-          return JSON.parse(body);
+          return readDispatcherUpdates(response, lease.projection!, lease.submissionId!);
         });
-        const settlement = Array.isArray(value?.settlements)
-          ? value.settlements.find((item: { submissionId?: string }) => item.submissionId === lease.submissionId) : null;
+        const projectionSaved = await this.ctx.storage.transaction(async tx => {
+          const record = await tx.get<AdmissionState>('admission');
+          const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(record, current, lease.generation) || current!.submissionId !== lease.submissionId
+            || current!.projection?.offset !== lease.projection!.offset
+            || current!.projection?.position?.batch !== lease.projection!.position?.batch
+            || current!.projection?.position?.index !== lease.projection!.position?.index) return false;
+          await tx.put(DISPATCHER_LEASE, { ...current!, projection: value });
+          return true;
+        });
+        if (!projectionSaved) return;
+        const settlement = value.outcome ? { outcome: value.outcome, error: value.error } : null;
         if (!settlement) {
           stage = 'recheck';
           // A child may settle just after this snapshot; the deadline alarm cannot
@@ -1479,8 +1496,8 @@ export class OperatorActivity extends Agent {
         stage = 'authorize';
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
-          const errorType = settlement.error?.type;
-          const reason = typeof settlement.error?.meta?.reason === 'string' ? settlement.error.meta.reason : '';
+          const errorType = settlement.error?.type ?? '';
+          const reason = settlement.error?.meta?.reason ?? '';
           const label = settlement.error?.meta?.operation;
           const operation = errorType !== 'operation_failed' ? 'unknown'
             : label === 'prompt' ? 'prompt'
@@ -1507,10 +1524,7 @@ export class OperatorActivity extends Agent {
           await this.interruptDrive(lease.generation); return;
         }
         stage = 'assessment';
-        const assessmentParts = Array.isArray(value?.messages) ? value.messages.flatMap((message: {
-          submissionId?: unknown; parts?: unknown;
-        }) => message?.submissionId === lease.submissionId && Array.isArray(message.parts)
-          ? message.parts.filter((part: { type?: unknown }) => part?.type === 'data-assessment') : []) : [];
+        const assessmentParts = value.writes === 1 ? [{ data: value.result }] : [];
         if (assessmentParts.length !== 1 || !z.json().safeParse(assessmentParts[0].data).success
           || !assessmentParts[0].data || typeof assessmentParts[0].data !== 'object'
           || Array.isArray(assessmentParts[0].data)
@@ -1531,10 +1545,11 @@ export class OperatorActivity extends Agent {
           if (!this.#leaseMatches(record, current, lease.generation)
             || current!.submissionId !== lease.submissionId) throw new Error('Stale Dispatcher settlement');
           await tx.put(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease.submissionId });
+          await tx.put(`dispatcher:result:${lease.generation}`, assessmentParts[0].data);
         });
         stage = 'commit';
-        const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'waiting',
-          checkpoint: { submissionId: lease.submissionId, inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest } });
+        const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'completed',
+          checkpoint: null, result: assessmentParts[0].data });
         if (!committed.ok) {
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
           await this.interruptDrive(lease.generation);
@@ -1592,7 +1607,7 @@ export class OperatorActivity extends Agent {
     const deadline = (lease?: DispatcherLease) => !lease ? 'unavailable'
       : lease.expiresAt <= Date.now() ? 'expired' : 'current';
     const rejected = (stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'forwarded-upstream' | 'commit',
-      resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose',
+      resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' | 'comment' | 'merge',
       lease: DispatcherLease | undefined, status: number) => {
       dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status });
     };
@@ -1603,6 +1618,7 @@ export class OperatorActivity extends Agent {
     let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
     let perform: () => Promise<Response>;
     let lease: DispatcherLease | undefined;
+    let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
     try {
       lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease) {
@@ -1612,12 +1628,24 @@ export class OperatorActivity extends Agent {
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
-      perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation,
+      effectContext = { reconcileOnly: false, authorize: async () => {
+        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher effect session unavailable');
+        const rawUser = await this.#appEnv.KV.get(`user:${authority.human.email.toLowerCase()}`);
+        let user: unknown;
+        try { user = rawUser ? JSON.parse(rawUser) : null; } catch { throw new Error('Dispatcher effect role unavailable'); }
+        if (!user || typeof user !== 'object' || Array.isArray(user) || (user as { role?: unknown }).role !== 'admin'
+          || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher effect authority unavailable');
+      } };
+      if (operation.path === '/v1/dispatcher/github/comment' || operation.path === '/v1/dispatcher/github/merge') await effectContext.authorize();
+      perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext,
         current: () => this.dispatcherGenerationCurrent(generation),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch { return denied(); }
     const resource = operation.path === '/v1/dispatcher/inference' ? 'inference'
-      : (operation.body as { resource: 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' }).resource;
+      : operation.path === '/v1/dispatcher/github/comment' ? 'comment'
+        : operation.path === '/v1/dispatcher/github/merge' ? 'merge'
+          : (operation.body as { resource: 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' }).resource;
     const requestDigest = await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
     const reserved = await this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
@@ -1652,7 +1680,11 @@ export class OperatorActivity extends Agent {
     if (reserved.kind === 'completed') return response(reserved.response);
     let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
     try {
-      if (reserved.kind === 'unknown') throw new Error('Unknown protected operation');
+      if (reserved.kind === 'unknown') {
+        if ((resource !== 'comment' && resource !== 'merge') || !effectContext) throw new Error('Unknown protected operation');
+        // Reconciliation observes the original write; it never issues that write again.
+        effectContext.reconcileOnly = true;
+      }
       // Recheck after asynchronous capability construction/reservation, before external I/O.
       stage = 'authority';
       if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Stale protected operation');
@@ -1893,24 +1925,10 @@ export class OperatorActivity extends Agent {
     const [state, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
     if (!matches(state, lease)) return;
-    let assessment: unknown;
-    try {
-      const response = await (await this.#dispatcherFacet(lease!)).fetch(new Request(
-        'https://flue.internal/agents/Dispatcher/dispatcher', { signal: AbortSignal.timeout(5_000) }));
-      if (!response.ok) return;
-      const snapshot = JSON.parse(await readDispatcherBody(response));
-      const settlements = Array.isArray(snapshot?.settlements)
-        ? snapshot.settlements.filter((item: { submissionId?: unknown }) => item?.submissionId === lease!.submissionId) : [];
-      if (settlements.length !== 1 || settlements[0].outcome !== 'completed' || !Array.isArray(snapshot?.messages)) return;
-      const parts = snapshot.messages.flatMap((message: { submissionId?: unknown; parts?: unknown }) =>
-        message?.submissionId === lease!.submissionId && Array.isArray(message.parts)
-          ? message.parts.filter((part: { type?: unknown }) => part?.type === 'data-assessment') : []);
-      if (parts.length !== 1) return;
-      const value = parts[0].data;
-      if (!value || typeof value !== 'object' || Array.isArray(value) || !z.json().safeParse(value).success
-        || new TextEncoder().encode(JSON.stringify(value)).byteLength > 64 * 1024) return;
-      assessment = value;
-    } catch { return; }
+    const assessment = await this.ctx.storage.get<unknown>(`dispatcher:result:${lease!.generation}`);
+    if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)
+      || !z.json().safeParse(assessment).success
+      || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > 64 * 1024) return;
     const committed = await this.ctx.storage.transaction(async tx => {
       const [record, currentLease] = await Promise.all([tx.get<AdmissionState>('admission'),
         tx.get<DispatcherLease>(DISPATCHER_LEASE)]);

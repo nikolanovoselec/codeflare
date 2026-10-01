@@ -4,6 +4,41 @@ import { readDispatcherBody } from './operator-runtime-capability';
 import { parseOperatorPolicy } from './policy';
 
 const commit = z.string().regex(/^[0-9a-f]{40}$/);
+const discoveredPull = z.object({ number: z.number().safe().int().positive(), state: z.literal('open'),
+  created_at: z.string().datetime({ offset: true }),
+  user: z.object({ id: z.number().safe().int(), login: z.string(), type: z.string() }),
+  head: z.object({ sha: commit }), base: z.object({ repo: z.object({ full_name: z.string() }) }) });
+
+/** Fixed GitHub App account identity, not a model-supplied bot label. */
+export function eligibleRenovatePull(value: unknown, repository: string, now = Date.now()) {
+  const pr = discoveredPull.parse(value);
+  const created = Date.parse(pr.created_at);
+  if (pr.base.repo.full_name.toLowerCase() !== repository.toLowerCase()
+    || pr.user.id !== 29139614 || pr.user.login !== 'renovate[bot]' || pr.user.type !== 'Bot'
+    || created < now - 14 * 24 * 60 * 60 * 1000 || created > now) return null;
+  return { pullRequest: pr.number, headSha: pr.head.sha, createdAt: new Date(created).toISOString() };
+}
+
+/** Never follows GitHub-provided URLs; bounds pages and returns truthful incompleteness. */
+export async function discoverRenovatePulls(repository: string, get: (path: string) => Promise<Response>, now = Date.now()) {
+  const found: Array<NonNullable<ReturnType<typeof eligibleRenovatePull>>> = [];
+  const seen = new Set<number>();
+  for (let page = 1; page <= 10; page++) {
+    const response = await get(`/pulls?state=open&sort=created&direction=desc&per_page=10&page=${page}`);
+    if (response.status !== 200 || response.redirected) throw new Error('Pull request discovery unavailable');
+    const rows = z.array(discoveredPull).max(10).parse(JSON.parse(await readDispatcherBody(response)));
+    for (const row of rows) {
+      if (seen.has(row.number)) throw new Error('Pull request discovery changed');
+      seen.add(row.number);
+      const eligible = eligibleRenovatePull(row, repository, now);
+      if (eligible) found.push(eligible);
+    }
+    const more = /rel="next"/.test(response.headers.get('link') ?? '');
+    if (!more) return { repository, pullRequests: found, truncated: false };
+    if (rows.length !== 10) throw new Error('Pull request discovery incomplete');
+  }
+  return { repository, pullRequests: found, truncated: true };
+}
 const id = z.number().int().positive().safe();
 const citation = z.union([
   z.object({ kind: z.literal('release'), source: z.string().max(512), quote: z.string().max(1000) }),
@@ -37,7 +72,7 @@ export function parsePublishableAssessment(value: unknown, target?: { repository
 /** Parent-only, repository-scoped credentialed GitHub transport; never passed to the child. */
 export function renovateGithub(input: { env: Env; exports: Record<string, (input: { props: Record<string, unknown> }) => Fetcher>;
   user: string; bucket: string; repository: string; pullRequest: number; current: () => Promise<void>;
-  prospective: boolean; prospectiveCreatedAt?: string }) {
+  prospective: boolean; prospectiveCreatedAt?: string; repositoryDiscovery?: boolean }) {
   const { env, exports, repository, pullRequest, current } = input;
   if (!exports.GitHubInterceptor) throw new Error('GitHub transport unavailable');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !id.safeParse(pullRequest).success) {
@@ -80,13 +115,13 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
   }
   async function observe(assessment: RenovateAssessment, kind: 'comment' | 'approval' | 'merge'): Promise<void> {
     // One-off #1299 remains distinct; other targets need current Registry proof.
-    if (repository.toLowerCase() !== 'nikolanovoselec/komodo'
-      || (pullRequest !== 1299 && !input.prospective)) {
+    if (!input.repositoryDiscovery && (repository.toLowerCase() !== 'nikolanovoselec/komodo'
+      || (pullRequest !== 1299 && !input.prospective))) {
       throw new Error('Renovate publication not authorized for this target');
     }
     const repo = z.object({ id: id, full_name: z.string(), default_branch: z.string(),
       permissions: z.object({ admin: z.literal(true) }) }).parse(await json('/'));
-    if (repo.id !== 973175879 || repo.full_name.toLowerCase() !== repository.toLowerCase() || repo.default_branch !== 'main') {
+    if ((!input.repositoryDiscovery && repo.id !== 973175879) || repo.full_name.toLowerCase() !== repository.toLowerCase() || repo.default_branch !== 'main') {
       throw new Error('Repository identity changed');
     }
     const observePr = async () => {
@@ -95,6 +130,10 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
         mergeable_state: z.string(), user: z.object({ id, login: z.string(), type: z.string() }),
         head: z.object({ sha: commit }), base: z.object({ sha: commit, ref: z.literal('main') }) })
         .parse(await json(`/pulls/${pullRequest}`));
+      if (input.repositoryDiscovery && (!pr.created_at || Date.parse(pr.created_at) < Date.now() - 14 * 86400000
+        || Date.parse(pr.created_at) > Date.now() || !Number.isFinite(Date.parse(pr.created_at)))) {
+        throw new Error('Pull request outside discovery window');
+      }
       if (input.prospective && (!pr.created_at
         || new Date(pr.created_at).toISOString() !== input.prospectiveCreatedAt)) {
         throw new Error('Prospective pull request age changed');
@@ -167,4 +206,81 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     await current();
   }
   return { observe, request, json, publisherIdentity, pullRequest };
+}
+
+/** Separate durable operations; the merge phase verifies the paired comment, never publishes it. */
+export async function executeRenovateDecision(input: {
+  github: ReturnType<typeof renovateGithub>; activityId: string; reconcileOnly: boolean; phase: 'comment' | 'merge';
+  value: { operationId: string; target: { pullRequest: number; headSha: string };
+    decision: 'MERGE' | 'DO_NOT_MERGE'; comment: string };
+  observed: { base: { sha: string } };
+}): Promise<Response> {
+  const { github, value, phase } = input;
+  const { pullRequest, headSha } = value.target;
+  if (github.pullRequest !== pullRequest || !value.operationId.endsWith(`-${phase}`)
+    || value.operationId.length <= phase.length + 1 || (phase === 'merge' && value.decision !== 'MERGE')) {
+    throw new Error('Dispatcher effect binding denied');
+  }
+  const commentOperationId = phase === 'comment' ? value.operationId : value.operationId.slice(0, -6) + '-comment';
+  const marker = `<!-- Codeflare Dispatcher ${input.activityId}:${commentOperationId}:${pullRequest}:${headSha}:${value.decision} -->`;
+  const body = `${marker}\n${value.comment}`;
+  const result = { pullRequest, headSha, decision: value.decision, comment: value.comment };
+  const assessment: RenovateAssessment = { classification: value.decision === 'MERGE' ? 'safe' : 'unknown',
+    observedHead: headSha, baseSha: commit.parse(input.observed.base.sha), reasons: ['Agent decision'],
+    compatibility: value.comment, citations: [], gaps: [], checks: { state: 'unknown', observedHead: headSha } };
+  const readComment = async () => {
+    const publisher = await github.publisherIdentity();
+    const rows = z.array(z.object({ id, body: z.string(), user: z.object({ id, login: z.string() }) })).max(100)
+      .parse(await github.json(`/issues/${pullRequest}/comments?per_page=100`));
+    const matches = rows.filter(row => row.body === body && row.user.id === publisher.id && row.user.login === publisher.login);
+    if (matches.length > 1) throw new Error('Ambiguous comment receipt');
+    return matches[0]?.id ?? null;
+  };
+  if (phase === 'comment') {
+    if (!input.reconcileOnly) await github.observe(assessment, 'comment');
+    let commentId = await readComment();
+    if (!commentId && !input.reconcileOnly) {
+      // Revalidate after receipt discovery, immediately before the only attempted write.
+      await github.observe(assessment, 'comment');
+      try {
+        const response = await github.request(`/issues/${pullRequest}/comments`, 'POST', { body });
+        if (response.status === 201 && !response.redirected) {
+          z.object({ id, body: z.literal(body) }).parse(JSON.parse(await readDispatcherBody(response)));
+        } else { await response.body?.cancel(); }
+      } catch { /* Lost or ambiguous response: read back, never replay. */ }
+      commentId = await readComment();
+    }
+    if (!commentId) throw new Error('Dispatcher comment receipt unavailable');
+    return Response.json({ ...result, posted: true, commentId });
+  }
+  const failed = () => Response.json({ ...result, outcome: 'EXECUTION_FAILED' });
+  const merged = () => Response.json({ ...result, outcome: 'MERGED' });
+  const commentId = await readComment();
+  if (!commentId) return failed();
+  const mergeReceipt = async () => {
+    const response = await github.request(`/pulls/${pullRequest}/merge`);
+    if (response.status === 404 && !response.redirected) return false;
+    if (response.status !== 204 || response.redirected) throw new Error('Merge receipt unavailable');
+    // A merged status alone does not prove the exact expected head was merged.
+    const pr = z.object({ number: id, merged: z.literal(true), head: z.object({ sha: commit }) })
+      .parse(await github.json(`/pulls/${pullRequest}`));
+    if (pr.number !== pullRequest || pr.head.sha !== headSha) throw new Error('Merged revision unverified');
+    return true;
+  };
+  if (await mergeReceipt()) return merged();
+  if (input.reconcileOnly) return failed();
+  try {
+    await github.observe(assessment, 'merge');
+    if (await readComment() !== commentId) return failed();
+  } catch { return failed(); }
+  try {
+    // GitHub supplies head CAS, not base CAS; observe rechecks the base but cannot freeze it.
+    const response = await github.request(`/pulls/${pullRequest}/merge`, 'PUT', { sha: headSha });
+    if (response.status === 200 && !response.redirected) {
+      z.object({ merged: z.literal(true), sha: commit }).parse(JSON.parse(await readDispatcherBody(response)));
+      return merged();
+    }
+    await response.body?.cancel();
+  } catch { /* Uncertain merge is observed once, never retried. */ }
+  return await mergeReceipt() ? merged() : failed();
 }
