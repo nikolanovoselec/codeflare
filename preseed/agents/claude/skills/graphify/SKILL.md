@@ -10,6 +10,8 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 
 ## Graphify 0.9.73 compatibility
 
+The image and managed update wrappers set `GRAPHIFY_NO_AUTO_REFRESH=1`: signed curation, not an upstream CLI refresh, owns these skill files. Do not unset the guard to resolve a version warning.
+
 Verify the installed CLI version independently of plugin metadata. New enum `case_of` edges, inherited Java-call resolution and improved Astro parsing are additive extraction changes; preserve the official graph schema and existing consent requirements. A warning about the 20,000-character semantic file cap means incomplete coverage: read the remaining source in bounded chunks rather than treating the warning as successful full-file analysis. If `graphify hook status` reports older hooks, do not overwrite Codeflare-managed hooks with an upstream installer without an explicitly requested source change.
 
 ## Quick Reference

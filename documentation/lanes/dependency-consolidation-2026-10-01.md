@@ -95,6 +95,71 @@ Eight remote branches whose heads were already ancestors of `develop` were delet
 ## Verification status
 
 - Captured PR-head ancestry: all 59 present in the local consolidation history.
-- Eighteen obsolete/already-included Pi PRs closed with current-version evidence; their proposals cannot undo the 3.3.0 MCP migration.
+- Thirty-eight superseded/already-included PRs closed: eighteen Pi proposals, nineteen older image/CLI proposals and the already-included landing undici proposal. Twenty-one latest proposals remain tracked until the consolidation lands. Closure comments distinguish already-deployed baseline versions from newer consolidation-only versions.
 - Graphify skill-preservation local RED: both Claude and Pi wrappers fail without the upstream opt-out, while the six existing wrapper checks pass.
-- Final GREEN, exact-head PR review/CI, companion publication and the two consolidated rollouts: pending. No completion or live compatibility claim is made from these source merges alone.
+- Graphify wrapper local GREEN: 8/8, including both managed-skill preservation cases. Supplemental lock consistency passed for all nine changed/related npm inventories. A combined local wrapper/Herdr check timed out; no Herdr pass is claimed from that attempt.
+- Exact-head PR review/CI, companion publication and the two consolidated rollouts: pending. No completion or live compatibility claim is made from these source merges alone.
+
+## Captured PR disposition
+
+| PR | Captured proposal | Disposition |
+|---|---|---|
+| [#1129](https://github.com/nikolanovoselec/codeflare/pull/1129) | chore(deps): bump the npm-landing group across 1 directory with 3 updates | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1130](https://github.com/nikolanovoselec/codeflare/pull/1130) | chore(deps-dev): bump @types/node from 22.20.1 to 22.20.4 in /openvscode/agent-sidebar in the npm-agent-sidebar group across 1 directory | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1131](https://github.com/nikolanovoselec/codeflare/pull/1131) | chore(deps): bump oxlint from 1.81.0 to 1.85.0 in /image/oxlint in the npm-image-oxlint group across 1 directory | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1145](https://github.com/nikolanovoselec/codeflare/pull/1145) | chore(deps): bump silverbullet 2.10.0 -> 2.11.0 | Closed as superseded or already included; ancestry retained |
+| [#1146](https://github.com/nikolanovoselec/codeflare/pull/1146) | chore(deps): bump uv 0.12.10 -> 0.12.13 | Closed as superseded or already included; ancestry retained |
+| [#1147](https://github.com/nikolanovoselec/codeflare/pull/1147) | chore(deps): bump zizmor 1.29.0 -> 1.30.0 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1148](https://github.com/nikolanovoselec/codeflare/pull/1148) | chore: bump Claude VS Code extension 2.1.263 -> 2.1.270 | Closed as superseded or already included; ancestry retained |
+| [#1149](https://github.com/nikolanovoselec/codeflare/pull/1149) | chore(deps): bump Herdr 0.9.0 to 0.9.1 | Closed as superseded or already included; ancestry retained |
+| [#1150](https://github.com/nikolanovoselec/codeflare/pull/1150) | chore(deps): bump @openai/codex 0.153.4 -> 0.154.0 | Closed as superseded or already included; ancestry retained |
+| [#1151](https://github.com/nikolanovoselec/codeflare/pull/1151) | chore(deps): bump opencode-ai 1.18.29 -> 1.18.30 | Closed as superseded or already included; ancestry retained |
+| [#1152](https://github.com/nikolanovoselec/codeflare/pull/1152) | chore(deps): bump chrome-devtools-mcp 1.8.0 -> 1.9.0 | Closed as superseded or already included; ancestry retained |
+| [#1153](https://github.com/nikolanovoselec/codeflare/pull/1153) | chore(deps): bump graphify 0.9.61 -> 0.9.65 | Closed as superseded or already included; ancestry retained |
+| [#1154](https://github.com/nikolanovoselec/codeflare/pull/1154) | chore(deps): bump @anthropic-ai/claude-code 2.1.263 -> 2.1.270 | Closed as superseded or already included; ancestry retained |
+| [#1155](https://github.com/nikolanovoselec/codeflare/pull/1155) | chore(deps): bump code-server 4.137.0 -> 4.138.0 | Closed as superseded or already included; ancestry retained |
+| [#1156](https://github.com/nikolanovoselec/codeflare/pull/1156) | chore(deps): bump @narumitw/pi-usage 0.60.3 -> 0.60.8 | Closed as superseded or already included; ancestry retained |
+| [#1157](https://github.com/nikolanovoselec/codeflare/pull/1157) | chore(deps): bump @juicesharp/rpiv-ask-user-question 2.9.0 -> 2.10.1 | Closed as superseded or already included; ancestry retained |
+| [#1158](https://github.com/nikolanovoselec/codeflare/pull/1158) | chore(deps): bump @gotgenes/pi-subagents 21.4.5 -> 21.7.0 | Closed as superseded or already included; ancestry retained |
+| [#1159](https://github.com/nikolanovoselec/codeflare/pull/1159) | chore(deps): bump pi-web-access 0.28.0 -> 0.29.0 | Closed as superseded or already included; ancestry retained |
+| [#1160](https://github.com/nikolanovoselec/codeflare/pull/1160) | chore(deps): bump @juicesharp/rpiv-todo 2.9.0 -> 2.10.1 | Closed as superseded or already included; ancestry retained |
+| [#1161](https://github.com/nikolanovoselec/codeflare/pull/1161) | chore(deps): bump @juicesharp/rpiv-advisor 2.9.0 -> 2.10.1 | Closed as superseded or already included; ancestry retained |
+| [#1162](https://github.com/nikolanovoselec/codeflare/pull/1162) | chore(deps): bump pi-mcp-adapter 2.32.1 -> 2.33.0 | Closed as superseded or already included; ancestry retained |
+| [#1166](https://github.com/nikolanovoselec/codeflare/pull/1166) | chore(deps): bump the npm-root group across 1 directory with 10 updates | Incorporated with Agents 0.20.1 compatibility hold; other grouped updates retained |
+| [#1171](https://github.com/nikolanovoselec/codeflare/pull/1171) | chore(deps): bump the github-actions group across 1 directory with 6 updates | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1176](https://github.com/nikolanovoselec/codeflare/pull/1176) | chore(deps): bump uv 0.12.10 -> 0.12.17 | Closed as superseded or already included; ancestry retained |
+| [#1177](https://github.com/nikolanovoselec/codeflare/pull/1177) | chore(deps): bump silverbullet 2.10.0 -> 2.11.1 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1178](https://github.com/nikolanovoselec/codeflare/pull/1178) | chore(deps): bump @anthropic-ai/claude-code 2.1.263 -> 2.1.278 | Closed as superseded or already included; ancestry retained |
+| [#1179](https://github.com/nikolanovoselec/codeflare/pull/1179) | chore: bump Claude VS Code extension 2.1.263 -> 2.1.278 | Closed as superseded or already included; ancestry retained |
+| [#1180](https://github.com/nikolanovoselec/codeflare/pull/1180) | chore(deps): bump @openai/codex 0.153.4 -> 0.155.1 | Closed as superseded or already included; ancestry retained |
+| [#1181](https://github.com/nikolanovoselec/codeflare/pull/1181) | chore(deps): bump opencode-ai 1.18.29 -> 1.18.31 | Closed as superseded or already included; ancestry retained |
+| [#1182](https://github.com/nikolanovoselec/codeflare/pull/1182) | chore(deps): bump graphify 0.9.61 -> 0.9.71 | Closed as superseded or already included; ancestry retained |
+| [#1183](https://github.com/nikolanovoselec/codeflare/pull/1183) | chore(deps): bump code-server 4.137.0 -> 4.139.1 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1184](https://github.com/nikolanovoselec/codeflare/pull/1184) | chore(deps): bump pi-mcp-adapter 2.32.1 -> 2.35.0 | Closed as superseded or already included; ancestry retained |
+| [#1185](https://github.com/nikolanovoselec/codeflare/pull/1185) | chore(deps): bump @gotgenes/pi-subagents 21.4.5 -> 21.7.4 | Closed as superseded or already included; ancestry retained |
+| [#1186](https://github.com/nikolanovoselec/codeflare/pull/1186) | chore(deps): bump @narumitw/pi-usage 0.60.3 -> 0.60.10 | Closed as superseded or already included; ancestry retained |
+| [#1187](https://github.com/nikolanovoselec/codeflare/pull/1187) | chore(deps): bump pi-web-access 0.28.0 -> 0.30.0 | Closed as superseded or already included; ancestry retained |
+| [#1188](https://github.com/nikolanovoselec/codeflare/pull/1188) | chore(deps): bump undici from 8.10.0 to 8.11.2 in /landing in the npm_and_yarn group across 1 directory | Closed as superseded or already included; ancestry retained |
+| [#1189](https://github.com/nikolanovoselec/codeflare/pull/1189) | chore(deps-dev): bump the npm-host group across 1 directory with 3 updates | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1190](https://github.com/nikolanovoselec/codeflare/pull/1190) | chore(deps): bump the npm-web-ui group across 1 directory with 7 updates | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1191](https://github.com/nikolanovoselec/codeflare/pull/1191) | chore(deps): bump @github/copilot 1.0.86 -> 1.0.88 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1192](https://github.com/nikolanovoselec/codeflare/pull/1192) | chore(deps): bump uv 0.12.10 -> 0.12.18 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1193](https://github.com/nikolanovoselec/codeflare/pull/1193) | chore(deps): bump Herdr 0.9.0 to 0.9.3 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1194](https://github.com/nikolanovoselec/codeflare/pull/1194) | chore(deps): bump @openai/codex 0.153.4 -> 0.156.1 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1195](https://github.com/nikolanovoselec/codeflare/pull/1195) | chore(deps): bump @anthropic-ai/claude-code 2.1.263 -> 2.1.280 | Closed as superseded or already included; ancestry retained |
+| [#1196](https://github.com/nikolanovoselec/codeflare/pull/1196) | chore: bump Claude VS Code extension 2.1.263 -> 2.1.280 | Closed as superseded or already included; ancestry retained |
+| [#1197](https://github.com/nikolanovoselec/codeflare/pull/1197) | chore(deps): bump chrome-devtools-mcp 1.8.0 -> 1.10.1 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1198](https://github.com/nikolanovoselec/codeflare/pull/1198) | chore(deps): bump opencode-ai 1.18.29 -> 1.18.32 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1199](https://github.com/nikolanovoselec/codeflare/pull/1199) | chore(deps): bump @juicesharp/rpiv-ask-user-question 2.9.0 -> 2.11.0 | Closed as superseded or already included; ancestry retained |
+| [#1200](https://github.com/nikolanovoselec/codeflare/pull/1200) | chore(deps): bump @juicesharp/rpiv-advisor 2.9.0 -> 2.11.0 | Closed as superseded or already included; ancestry retained |
+| [#1201](https://github.com/nikolanovoselec/codeflare/pull/1201) | chore(deps): bump @gotgenes/pi-subagents 21.4.5 -> 21.7.6 | Closed as superseded or already included; ancestry retained |
+| [#1202](https://github.com/nikolanovoselec/codeflare/pull/1202) | chore(deps): bump graphify 0.9.61 -> 0.9.72 | Closed as superseded or already included; ancestry retained |
+| [#1203](https://github.com/nikolanovoselec/codeflare/pull/1203) | chore(deps): bump pi-web-access 0.28.0 -> 0.31.0 | Closed as superseded or already included; ancestry retained |
+| [#1204](https://github.com/nikolanovoselec/codeflare/pull/1204) | chore(deps): bump @narumitw/pi-usage 0.60.3 -> 0.61.0 | Closed as superseded or already included; ancestry retained |
+| [#1205](https://github.com/nikolanovoselec/codeflare/pull/1205) | chore(deps): bump @juicesharp/rpiv-todo 2.9.0 -> 2.11.0 | Closed as superseded or already included; ancestry retained |
+| [#1206](https://github.com/nikolanovoselec/codeflare/pull/1206) | chore(deps): bump pi-mcp-adapter 2.32.1 -> 2.37.0 | Closed as superseded or already included; ancestry retained |
+| [#1209](https://github.com/nikolanovoselec/codeflare/pull/1209) | chore(deps): bump library/node from 22.21.1-bookworm-slim to 26.10.0-bookworm-slim | Incorporated Node 26 digest; three embedded-IDE Node 22 stages retained |
+| [#1210](https://github.com/nikolanovoselec/codeflare/pull/1210) | chore: bump Claude VS Code extension 2.1.263 -> 2.1.281 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1211](https://github.com/nikolanovoselec/codeflare/pull/1211) | chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) 1.30.0 -> 1.30.1 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1212](https://github.com/nikolanovoselec/codeflare/pull/1212) | chore(deps): bump @anthropic-ai/claude-code 2.1.263 -> 2.1.282 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1213](https://github.com/nikolanovoselec/codeflare/pull/1213) | chore(deps): bump graphify 0.9.61 -> 0.9.73 | Incorporated; latest proposal remains open pending consolidation merge |
