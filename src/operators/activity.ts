@@ -1549,8 +1549,12 @@ export class OperatorActivity extends Agent {
           await tx.put(`dispatcher:result:${lease.generation}`, assessmentParts[0].data);
         });
         stage = 'commit';
-        const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'completed',
-          checkpoint: null, result: assessmentParts[0].data });
+        const legacy = JSON.parse(plan.invocationJson).pullRequest !== undefined;
+        const committed = await this.commitDrive(lease.generation, { schemaVersion: 1,
+          status: legacy ? 'waiting' : 'completed',
+          checkpoint: legacy ? { submissionId: lease.submissionId, inputDigest: lease.inputDigest,
+            artifactDigest: lease.artifactDigest } : null,
+          result: legacy ? null : assessmentParts[0].data });
         if (!committed.ok) {
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
           await this.interruptDrive(lease.generation);
@@ -1659,10 +1663,12 @@ export class OperatorActivity extends Agent {
         if (prior.requestDigest !== requestDigest) return { kind: 'conflict' } as const;
         if (prior.phase === 'completed') {
           const response = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${operation.operationId}`);
-          return response ? { kind: 'completed', response } as const : { kind: 'unknown' } as const;
+          if (response) return { kind: 'completed', response } as const;
+          await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
+          return { kind: 'unknown', lease: lease! } as const;
         }
         await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
-        return { kind: 'unknown' } as const;
+        return { kind: 'unknown', lease: lease! } as const;
       }
       if (Object.keys(operations).length >= 128) return { kind: 'denied' } as const;
       await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
@@ -1680,9 +1686,10 @@ export class OperatorActivity extends Agent {
     const response = (value: NonNullable<DispatcherOperationRecord['response']>) => new Response(value.body, {
       status: value.status, headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
     if (reserved.kind === 'completed') return response(reserved.response);
+    const readOnly = resource !== 'inference' && resource !== 'comment' && resource !== 'merge';
     let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
     try {
-      if (reserved.kind === 'unknown') {
+      if (reserved.kind === 'unknown' && !readOnly) {
         if ((resource !== 'comment' && resource !== 'merge') || !effectContext) throw new Error('Unknown protected operation');
         // Reconciliation observes the original write; it never issues that write again.
         effectContext.reconcileOnly = true;
@@ -1700,20 +1707,39 @@ export class OperatorActivity extends Agent {
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
           body: await readDispatcherBody(upstream) };
       });
+      let confirmedEffect = false;
+      if (resource === 'comment' || resource === 'merge') {
+        const receipt = JSON.parse(result.body);
+        const expected = operation.body as { target: { pullRequest: number; headSha: string }; decision: string; comment: string };
+        confirmedEffect = result.status === 200 && receipt?.pullRequest === expected.target.pullRequest
+          && receipt.headSha === expected.target.headSha && receipt.decision === expected.decision
+          && receipt.comment === expected.comment && (resource === 'comment'
+            ? receipt.posted === true && Number.isSafeInteger(receipt.commentId) && receipt.commentId > 0
+            : receipt.outcome === 'MERGED');
+      }
       stage = 'commit';
-      await this.ctx.storage.transaction(async tx => {
+      const committedResult = await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
         const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
         const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
         const prior = operations[operation.operationId];
-        if (!this.#leaseMatches(record, lease, generation) || prior?.phase !== 'reserved'
-          || prior.generation !== generation || prior.requestDigest !== requestDigest) throw new Error('Stale protected result');
+        if (!this.#leaseMatches(record, lease, generation)
+          || prior?.generation !== generation || prior.requestDigest !== requestDigest) throw new Error('Stale protected result');
+        if (prior.phase === 'completed') {
+          const cached = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${operation.operationId}`);
+          if (!cached) throw new Error('Protected receipt unavailable');
+          return cached;
+        }
+        if (prior.phase !== 'reserved' && !(prior.phase === 'unknown' && (readOnly || confirmedEffect))) {
+          throw new Error('Unresolved protected result');
+        }
         await tx.put(`dispatcher:response:${operation.operationId}`, result);
         await tx.put(DISPATCHER_OPERATIONS, { ...operations,
           [operation.operationId]: { ...prior, phase: 'completed' } });
+        return result;
       });
-      if (result.status >= 400) rejected('forwarded-upstream', resource, lease, result.status);
-      return response(result);
+      if (committedResult.status >= 400) rejected('forwarded-upstream', resource, lease, committedResult.status);
+      return response(committedResult);
     } catch {
       await this.ctx.storage.transaction(async tx => {
         const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
@@ -1721,7 +1747,11 @@ export class OperatorActivity extends Agent {
         if (prior?.phase === 'reserved') await tx.put(DISPATCHER_OPERATIONS, {
           ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
       });
-      await this.interruptDrive(generation);
+      // Leave a live write's unknown intent available for read-only reconciliation.
+      // Terminal SDK reconciliation still refuses collection while any intent remains unknown.
+      if ((resource !== 'comment' && resource !== 'merge') || !await this.dispatcherGenerationCurrent(generation)) {
+        await this.interruptDrive(generation);
+      }
       rejected(stage, resource, lease, 409);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     }

@@ -73,6 +73,8 @@ async function fixture(test: (f: {
     let revoked = false;
     let settlements: unknown[] = [];
     let messages: unknown[] = [];
+    let streamBatch = 0;
+    const streamOffset = () => `0000000000000000_${String(streamBatch).padStart(16, '0')}`;
     let messagesSet = false;
     let aborted: string | undefined;
     let uncertain = false;
@@ -109,8 +111,18 @@ async function fixture(test: (f: {
           aborted = (await activity.getBrowserDetail())?.executionStatus;
           return Response.json({ ok: true });
         }
-        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1', offset: 'admission-cursor' }, { status: 202 });
-        return Response.json({ settlements, messages });
+        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1', offset: streamOffset(),
+          uid: 'fixture-incarnation', streamUrl: request.url }, { status: 202, headers: { 'stream-next-offset': streamOffset() } });
+        const snapshot = { v: 1, conversationId: 'fixture-conversation', offset: streamOffset(), settlements,
+          messages: messages.map((value, index) => ({ id: `fixture-message-${index}`, role: 'assistant',
+            purpose: 'assistant', display: 'visible', ...value as object })) };
+        const url = new URL(request.url);
+        if (url.searchParams.get('view') === 'updates') {
+          const chunks = url.searchParams.get('offset') === streamOffset() ? [] : [{ type: 'conversation-reset',
+            conversationId: snapshot.conversationId, position: { batch: streamBatch, index: 0 }, snapshot }];
+          return Response.json(chunks, { headers: { 'stream-next-offset': streamOffset(), 'stream-up-to-date': 'true' } });
+        }
+        return Response.json(snapshot, { headers: { 'stream-next-offset': streamOffset(), 'stream-up-to-date': 'true' } });
       },
     };
     // Agent validates the native DurableObjectState brand and SQLite capability.
@@ -223,6 +235,7 @@ async function fixture(test: (f: {
         deliverTail: async events => { if (!configuredTail) throw new Error('No configured Dispatcher tail');
           await (await configuredTail).tail(events); }, sent,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
+          streamBatch++;
           settlements = [{ submissionId: id, outcome, error }];
           if (id === 'submission-1' && outcome === 'completed' && !messagesSet) {
             messages = [{ submissionId: id, parts: [{ type: 'data-assessment', data: {
@@ -232,7 +245,7 @@ async function fixture(test: (f: {
           }
         },
         input: fixtureInvocation, revokeSession: () => { callerSessionCurrent = false; },
-        messages: value => { messages = value; messagesSet = true; },
+        messages: value => { streamBatch++; messages = value; messagesSet = true; },
         files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
         release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
         guide: value => { guideBody = value; }, tag: value => { tagRef = value; },
@@ -1225,6 +1238,16 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
       expect((await f.capability.fetch(sourceRead('forged', 'https://docs.example.test/migration', extra))).status).toBe(403);
     }
     expect((await f.capability.fetch(sourceRead('valid', 'https://docs.example.test/migration'))).status).toBe(200);
+  }, { repositoryOnly: true }));
+  it('reconciles concurrent identical reads without losing the generation or changing the stored receipt', () => fixture(async f => {
+    await start(f);
+    const replies = await Promise.all([1, 2].map(() => f.capability.fetch(sourceRead('same-read', 'https://docs.example.test/migration'))));
+    expect(replies.map(response => response.status)).toEqual([200, 200]);
+    const receipts = await Promise.all(replies.map(response => response.json()));
+    expect(receipts[0]).toEqual(receipts[1]);
+    const cached = await f.capability.fetch(sourceRead('same-read', 'https://docs.example.test/migration'));
+    expect(cached.status).toBe(200);
+    expect(await cached.json()).toEqual(receipts[0]);
   }, { repositoryOnly: true }));
   it('denies a missing registered fetch capability', () => fixture(async f => {
     await start(f);
