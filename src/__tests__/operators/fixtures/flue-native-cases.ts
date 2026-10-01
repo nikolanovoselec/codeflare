@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
 import { createFlueCaseShard } from './flue-case-shard';
+import type { DispatcherResultProjection } from '../../../operators/dispatcher-result';
 // The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
 vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
   throw new Error('Unexpected Dispatcher body read in parser contract test');
@@ -18,6 +19,8 @@ type Assessment = NativeDelivery & {
 };
 type Snapshot = {
   instance: string; digest: string; alarmDeliveries: number; barrierReached: boolean; failure?: string;
+  journeyOperations?: Record<string, { path: string; body: { url?: string; method?: string } }>;
+  journeyReceiptCount?: number;
   external: ExternalReceipt[]; externalAttempts: ExternalAttempt[];
   productionCalls: Array<{ path: string; resource?: string; status?: number; modelTurn?: 'initial' | 'after-tool' }>;
   streamPhase: 'not-pulled' | 'prefix-enqueued' | 'error-injected';
@@ -107,10 +110,10 @@ export function registerNativeDispatcherCases(
     expect(predicate(value), JSON.stringify(value)).toBe(true);
     return value;
   }
-  async function pinnedArtifact() {
-    const path = process.env.DISPATCHER_NATIVE_ARTIFACT;
-    const expectedDigest = process.env.DISPATCHER_NATIVE_SHA256;
-    const expectedSource = process.env.DISPATCHER_NATIVE_SOURCE_SHA;
+  async function pinnedArtifact(journey = false) {
+    const path = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_ARTIFACT : process.env.DISPATCHER_NATIVE_ARTIFACT;
+    const expectedDigest = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SHA256 : process.env.DISPATCHER_NATIVE_SHA256;
+    const expectedSource = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA : process.env.DISPATCHER_NATIVE_SOURCE_SHA;
     expect(path, 'CI must supply the real profile-built artifact').toBeTruthy();
     expect(expectedDigest, 'CI must bind the approved artifact bytes, not calculate and trust a new pin').toMatch(/^[a-f0-9]{64}$/);
     expect(expectedSource, 'CI must pin the profile source revision').toMatch(/^[a-f0-9]{40}$/);
@@ -165,6 +168,44 @@ export function registerNativeDispatcherCases(
     expect(value.external).toMatchObject([{ activityId: id, generation: 1, path: '/v1/dispatcher/github/read', sequence: 1 }]);
     return { id, value };
   }
+
+  if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {
+    beforeEach(() => harness.reset(), 60_000);
+    it('projects exact-submission completed bounded empty repository discovery through real SDK updates', async () => {
+      const pinned = await pinnedArtifact(true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true })).toMatchObject({ ok: true });
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      const end = Date.now() + 15_000;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        if (projection.outcome) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      expect(projection).toMatchObject({ outcome: 'completed', writes: 1, result: { repository: 'authorized/project', results: [] } });
+      expect(projection.result).toEqual({ repository: 'authorized/project', results: [] });
+      expect(new TextEncoder().encode(JSON.stringify(projection.result)).byteLength).toBeLessThanOrEqual(48 * 1024);
+      const evidence = await snapshot(id);
+      const operations = Object.values(evidence.journeyOperations ?? {});
+      expect(operations.filter(item => item.path === '/v1/dispatcher/source').map(item => item.body.url)).toEqual([
+        'https://api.github.com/repos/authorized/project',
+        'https://api.github.com/users/renovate%5Bbot%5D',
+        'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=4&page=1',
+      ]);
+      expect(operations.filter(item => item.path === '/v1/dispatcher/inference')).toHaveLength(3);
+      // Seal's receipt observes two actual inference reservations plus three GETs, not source-only accounting.
+      expect(evidence.journeyReceiptCount).toBe(5);
+      expect(operations).toHaveLength(6);
+      expect(evidence.external).toEqual([]);
+      expect(evidence.activity.sessionId).toBeNull();
+    }, 30_000);
+  });
 
   if (group === 'flue') describe('REQ-OPERATOR-048/051: pinned generated Flue in native workerd', () => {
     beforeEach(() => harness.reset(), 60_000);
