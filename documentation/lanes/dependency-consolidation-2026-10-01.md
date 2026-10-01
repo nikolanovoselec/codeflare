@@ -163,3 +163,20 @@ Eight remote branches whose heads were already ancestors of `develop` were delet
 | [#1211](https://github.com/nikolanovoselec/codeflare/pull/1211) | chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) 1.30.0 -> 1.30.1 | Incorporated; latest proposal remains open pending consolidation merge |
 | [#1212](https://github.com/nikolanovoselec/codeflare/pull/1212) | chore(deps): bump @anthropic-ai/claude-code 2.1.263 -> 2.1.282 | Incorporated; latest proposal remains open pending consolidation merge |
 | [#1213](https://github.com/nikolanovoselec/codeflare/pull/1213) | chore(deps): bump graphify 0.9.61 -> 0.9.73 | Incorporated; latest proposal remains open pending consolidation merge |
+
+## Skill payload and activation evidence
+
+Existing domain skills are retained; no new skill, description trigger or runtime document is added. Changes are confined to version/migration guidance and managed-source protection. Should-activate cases remain SDK upgrade work, explicit graph work and Browser Run tasks; near-misses such as ordinary static fetches or unrequested graph rebuilds remain outside those workflows. No metered baseline-vs-model evaluation was run or is claimed. Script behavior has separate RED/GREEN evidence.
+
+| Existing managed source | Before bytes | After bytes | Delta |
+|---|---:|---:|---:|
+| `claude/skills/agents-sdk/SKILL.md` | 11945 | 13267 | +1322 |
+| `claude/skills/agents-sdk/references/queue-retries.md` | 2228 | 2960 | +732 |
+| `claude/skills/agents-sdk/references/state-scheduling.md` | 4047 | 4853 | +806 |
+| `claude/skills/agents-sdk/references/think.md` | 2929 | 3625 | +696 |
+| `claude/skills/browser-run/SKILL.md` | 3547 | 4104 | +557 |
+| `claude/skills/graphify/SKILL.md` | 18290 | 19130 | +840 |
+| `pi/skills/browser-run/SKILL.md` | 3489 | 4177 | +688 |
+| `pi/skills/graphify/SKILL.md` | 13339 | 14290 | +951 |
+
+The increase is justified by specific observed breaking changes: private RPC removal, queue/memory migration contracts, auto-refresh overwrites, truncated extraction coverage and current browser-tool discovery. Canonical Claude SDK guidance keeps its existing compiler fan-out; native Pi Graphify/Browser Run implementations keep their existing mode selections. Exact compressed seed bytes and signed publication identity remain protected-CI release evidence, not local estimates.
