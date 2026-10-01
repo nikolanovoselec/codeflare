@@ -5,6 +5,7 @@ import { Tokenizer, TokenParser, TokenType } from '@streamparser/json';
 export interface DispatcherResultProjection {
   offset: string;
   conversationId?: string;
+  incarnation?: string;
   upToDate?: boolean;
   messageIds: string[];
   result?: unknown;
@@ -31,6 +32,13 @@ function captureResult(state: DispatcherResultProjection, value: unknown): void 
 function project(state: DispatcherResultProjection, value: unknown, submissionId: string): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Dispatcher update unavailable');
   const chunk = value as Record<string, unknown>;
+  // The pinned SDK prefixes every updates page with stream identity, not a conversation event.
+  if (chunk.type === 'stream-checkpoint') {
+    if (typeof chunk.incarnation !== 'string' || !chunk.incarnation || chunk.incarnation.length > 512
+      || (state.incarnation !== undefined && state.incarnation !== chunk.incarnation)) throw new Error('Dispatcher stream incarnation changed');
+    state.incarnation = chunk.incarnation;
+    return;
+  }
   if (typeof chunk.conversationId !== 'string' || !chunk.conversationId || chunk.conversationId.length > 512
     || (state.conversationId !== undefined && state.conversationId !== chunk.conversationId)) {
     throw new Error('Dispatcher conversation changed');
@@ -93,7 +101,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
   const state = structuredClone(previous);
   const reader = response.body.getReader();
   const tokenizer = new Tokenizer();
-  const fields = ['type', 'conversationId', 'position', 'messageId', 'submissionId', 'name', 'data', 'outcome', 'error'];
+  const fields = ['type', 'incarnation', 'conversationId', 'position', 'messageId', 'submissionId', 'name', 'data', 'outcome', 'error'];
   const parser = new TokenParser({ keepStack: false, paths: [
     ...fields.map(field => `$.*.${field}`), '$.*.snapshot.conversationId',
     '$.*.snapshot.messages.*.id', '$.*.snapshot.messages.*.submissionId',

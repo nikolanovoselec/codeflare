@@ -12,6 +12,18 @@ const data = event(3, { type: 'data-part', messageId: 'answer', name: 'assessmen
 const settled = event(4, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' });
 
 describe('Dispatcher exact-submission public Flue updates contract', () => {
+  it('accepts pinned SDK page checkpoints and retains immutable stream identity across reads', async () => {
+    const checkpoint = { type: 'stream-checkpoint', incarnation: 'original-stream' };
+    const first = await readDispatcherUpdates(response([checkpoint, start, data]), initial(), 'requested');
+    const second = await readDispatcherUpdates(response([checkpoint, settled]), first, 'requested');
+    expect(second).toMatchObject({ incarnation: 'original-stream', result, writes: 1, outcome: 'completed' });
+    await expect(readDispatcherUpdates(response([{ ...checkpoint, incarnation: 'replacement-stream' }]), first, 'requested'))
+      .rejects.toThrow('Dispatcher stream incarnation changed');
+    for (const incarnation of ['', 42, 'x'.repeat(513)]) {
+      await expect(readDispatcherUpdates(response([{ ...checkpoint, incarnation }]), initial(), 'requested'))
+        .rejects.toThrow('Dispatcher stream incarnation changed');
+    }
+  });
   it('collects compact result despite more than 64 KiB of unrelated SDK tool history', async () => {
     const projection = await readDispatcherUpdates(response([start,
       event(1, { type: 'tool-output', messageId: 'answer', output: 'x'.repeat(45000) }),
