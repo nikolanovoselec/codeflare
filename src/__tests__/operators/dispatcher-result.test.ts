@@ -99,8 +99,14 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     const projection = await readDispatcherUpdates(new Response(stream, { headers: { 'content-type': 'application/json', 'stream-next-offset': 'next' } }), initial(), 'requested');
     expect(projection.result).toEqual(special);
   });
-  it('rejects oversized individual SDK records and oversized final results', async () => {
-    await expect(readDispatcherUpdates(response([event(0, { type: 'tool-output', output: 'x'.repeat(1024 * 1024) })]), initial(), 'requested')).rejects.toThrow('Dispatcher update exceeds limit');
-    await expect(readDispatcherUpdates(response([start, { ...data, data: { text: 'x'.repeat(65536) } }]), initial(), 'requested')).rejects.toThrow('Dispatcher result unavailable');
+  it('discards large irrelevant records rather than buffering SDK history', async () => {
+    const projection = await readDispatcherUpdates(response([start,
+      event(1, { type: 'tool-output', output: 'x'.repeat(1024 * 1024) }), data, settled]), initial(), 'requested');
+    expect(projection).toMatchObject({ result, outcome: 'completed' });
+    expect(JSON.stringify(projection).length).toBeLessThan(1000);
+  });
+  it('rejects aggregate pages and final results beyond their distinct byte contracts', async () => {
+    await expect(readDispatcherUpdates(response([event(0, { type: 'tool-output', output: 'x'.repeat(16 * 1024 * 1024) })]), initial(), 'requested')).rejects.toThrow('Dispatcher update page exceeds limit');
+    await expect(readDispatcherUpdates(response([start, { ...data, data: { text: 'x'.repeat(65536) } }]), initial(), 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
   });
 });
