@@ -19,8 +19,12 @@ function extractFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
   const start = lines.findIndex((line) => new RegExp(`^${name}\\(\\) \\{`).test(line));
   if (start === -1) throw new Error(`Could not locate ${name}() in entrypoint.sh`);
+  let inNodeHeredoc = false;
   const end = lines.findIndex((line, index) => {
-    if (index <= start || line !== '}') return false;
+    if (index <= start) return false;
+    if (line.includes("<<'NODE'")) { inNodeHeredoc = true; return false; }
+    if (line === 'NODE') { inNodeHeredoc = false; return false; }
+    if (inNodeHeredoc || line !== '}') return false;
     if (name !== 'warm_pi_npm_dependencies') return true;
     return lines[index + 2] === 'update_pi_and_codex_when_fast_start_disabled() {';
   });
@@ -72,6 +76,38 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
 };
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-subagent-settings-'));
+    try {
+      const path = join(home, '.pi/agent/subagents.json');
+      const fresh = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+      assert.equal(fresh.status, 0, fresh.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { midRunUpdates: false });
+      const restored = { midRunUpdates: true, maxConcurrent: 3, graceTurns: 8, abortAllOnInterrupt: false, custom: { keep: true } };
+      writeFileSync(path, JSON.stringify(restored));
+      for (let i = 0; i < 2; i++) {
+        const result = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+        assert.equal(result.status, 0, result.stderr);
+        assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { ...restored, midRunUpdates: false });
+      }
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-216: invalid subagent preferences are preserved without exposing their contents', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-subagent-invalid-'));
+    try {
+      const path = join(home, '.pi/agent/subagents.json');
+      mkdirSync(dirname(path), { recursive: true });
+      for (const bytes of ['{invalid-synthetic-secret', '[]', 'null']) {
+        writeFileSync(path, bytes);
+        const result = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /existing preferences preserved/);
+        assert.equal(readFileSync(path, 'utf8'), bytes);
+        assert.doesNotMatch(`${result.stdout}${result.stderr}`, /synthetic-secret/);
+      }
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
   it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');

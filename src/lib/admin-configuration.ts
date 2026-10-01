@@ -116,6 +116,7 @@ const aiRoutingSchema = z.object({
   fallbackRouting: fallbackRoutingSchema.optional().default({ enabled: false }),
   groupRouting: z.array(z.object({
     accessGroup: name,
+    allowPersonalPiProviders: z.boolean().optional(),
     routes: z.array(policyTargetSchema),
     defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
@@ -758,6 +759,7 @@ function same(left: unknown, right: unknown): boolean {
 function aiRoutingComparison(values: ConfigurationValues): ConfigurationValues {
   const policy = (value: Record<string, unknown>) => ({
     routes: value.routes ?? [], defaultRoute: value.defaultRoute ?? '', reasoning: value.reasoning ?? 'off',
+    ...(value.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }),
   });
   const groups = Array.isArray(values.groupRouting)
     ? values.groupRouting as Array<Record<string, unknown>>
@@ -979,6 +981,7 @@ export async function executeConfigurationTask(
         ? Object.fromEntries((submittedGroups as Array<Record<string, unknown>>).map((group) => [
             group.accessGroup as string,
             { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning,
+              ...(typeof group.allowPersonalPiProviders === 'boolean' && { allowPersonalPiProviders: group.allowPersonalPiProviders }),
               ...(Array.isArray(group.targets) ? { targets: group.targets } : {}), ...(group.defaultTarget ? { defaultTarget: group.defaultTarget } : {}) },
           ]))
         : submittedGroups as Record<string, unknown>;

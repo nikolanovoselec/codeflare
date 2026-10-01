@@ -5569,6 +5569,29 @@ None.
 
 ---
 
+### REQ-AGENT-216: Quiet Pi Subagent Defaults
+
+**Intent:** Workspace startup disables unsolicited Pi subagent mid-run messages without discarding unrelated preferences.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every startup writes `midRunUpdates: false` to the global Pi Subagents configuration for new and restored homes, preserving other valid preferences. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences) -->
+2. Invalid configuration remains unchanged; startup warns without disclosing configuration contents. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: invalid subagent preferences are preserved without exposing their contents) -->
+
+**Constraints:** Native completion results and parent questions remain available. Explicit project overrides retain upstream precedence.
+
+**Priority:** P1
+
+**Dependencies:** None
+
+**Verification:** Automated tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-215: Managed Graphify Skill Ownership
 
 **Intent:** Upstream Graphify upgrades preserve deployment-managed skill guidance.

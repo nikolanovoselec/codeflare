@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
 import { createAgentSession, DefaultPackageManager, DefaultResourceLoader, initTheme, ModelRuntime, SessionManager, SettingsManager, ThinkingSelectorComponent } from '@earendil-works/pi-coding-agent';
 import { streamSimple } from '@earendil-works/pi-ai/compat';
+import { isPersonalPiDestination } from '../../../../src/lib/personal-pi-destinations.ts';
 import { authorizedRoutes, enterpriseStartup, nativeHandle } from '../../../../host/__fixtures__/enterprise-pi-startup.mjs';
 
 // Client choices are not backend supportedLevels: provider-default routes retain
@@ -219,4 +220,25 @@ describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtim
       else assert.equal(sent.reasoning_effort, 'max');
     }
   });
+});
+
+
+it('REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models', async t => {
+  const fixture = enterpriseStartup({ personalProviders: true, auth: { anthropic: { type: 'api_key', key: 'synthetic-personal-key' } } });
+  t.after(fixture.cleanup);
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const runtime = await ModelRuntime.create({ modelsPath: fixture.modelsPath, authPath: join(fixture.agentDir, 'auth.json'),
+    modelsStorePath: join(fixture.agentDir, 'models-store.json'), allowModelNetwork: false });
+  const available = await runtime.getAvailable();
+  assert.ok(available.some(model => model.provider === 'anthropic'));
+  assert.deepEqual(available.filter(model => model.provider === 'codeflare-gateway').map(model => model.id).sort(), [...authorizedRoutes].sort());
+  assert.ok(runtime.getProvider('anthropic').auth.apiKey);
+  assert.ok(runtime.getProvider('openai-codex').auth.oauth);
+  // Security allowlist contract: bundled native HTTPS model destinations must
+  // reach the policy boundary after SDK/catalog upgrades too.
+  for (const model of runtime.getModels()) {
+    if (['codeflare-gateway', 'unrelated-provider'].includes(model.provider) || !model.baseUrl?.startsWith('https://')) continue;
+    const endpoint = new URL(model.baseUrl.replace(/\{[^}]+\}/g, 'fixture'));
+    assert.ok(isPersonalPiDestination(endpoint), `native ${model.provider} destination is gated: ${endpoint.hostname}`);
+  }
 });

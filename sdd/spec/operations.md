@@ -859,7 +859,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - The fingerprint appears after every passing run of the Workers pool, so it can never be the sole condition for tolerating a non-zero exit.
 - `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
 - Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
-- Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence.
+- Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence. Generated TypeScript and `__tests__` fixture trees are excluded before Git diff buffering, so large ignored fixtures cannot exhaust the production-diff budget; uncovered production lines still fail the existing floor. <!-- @impl: scripts/ci/check-coverage-result.mjs::changedCoverageFromGit --> <!-- @test: host/__tests__/changed-coverage-fixtures.test.js (REQ-OPS-022 AC6: ignored large test fixtures preserve covered production coverage enforcement) --> <!-- @test: host/__tests__/changed-coverage-fixtures.test.js (REQ-OPS-022 AC6: ignored large test fixtures preserve uncovered production coverage enforcement) -->
 - Manual-validation exceptions do not extend to backend contracts, shared frontend infrastructure, or non-Administration production code.
 
 **Priority:** P1

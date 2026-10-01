@@ -46,6 +46,7 @@
  * (mode 2, the `cloudflareOauthApi` registry entry). Otherwise unreached.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import type { Env } from './types';
 import { createLogger } from './lib/logger';
 import { getValidCloudflareToken } from './lib/cloudflare-token';
@@ -70,7 +71,7 @@ const AI_GATEWAY_HOST = 'gateway.ai.cloudflare.com';
 export const INTERCEPTED_CF_OAUTH_HOSTS: readonly string[] = ['api.cloudflare.com', AI_GATEWAY_HOST];
 
 /** Per-session props attached when the DO instantiates this entrypoint (bound at wiring). */
-interface BrowserInterceptorProps {
+interface BrowserInterceptorProps extends PersonalPiProps {
   /** The wizard-configured Browser Rendering account id; ONLY this account's path is trusted. */
   browserAccountId?: string;
   /** The real admin "Browser Rendering - Edit" token, resolved worker-side at wiring. */
@@ -134,6 +135,8 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const props = (this.ctx as unknown as { props?: BrowserInterceptorProps }).props;
+    const personal = await forwardPersonalPi(request, this.env, props);
+    if (personal) return personal;
 
     // NON-enterprise OAuth mode (REQ-AGENT-078): stamp a fresh, refreshed token on EVERY
     // api.cloudflare.com path. Keyed on the bound bucket; `bucket` is never set in enterprise

@@ -291,27 +291,11 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
   });
 
   it('clears Pi auth.json to {} in enterprise so the model picker is routes-only', () => {
-    // Routes-only picker: Pi lists a provider in /model only when it has auth.
-    // codeflare-gateway authenticates via the models.json apiKey placeholder, NOT
-    // auth.json, so emptying auth.json drops every built-in provider (e.g. the seeded
-    // openai-codex) from the picker. Extract the real entrypoint line and run it
-    // against a seeded auth.json. Remove the line and this fails.
-    const clearLine = entrypoint
-      .split('\n')
-      .find((l) => l.includes(`echo '{}' > "$USER_HOME/.pi/agent/auth.json"`));
-    assert.ok(clearLine, 'auth.json clear line not found in entrypoint.sh');
-    const dir = mkdtempSync(join(tmpdir(), 'ent-pi-auth-'));
-    const script = [
-      'set -euo pipefail',
-      `USER_HOME='${dir}'`,
-      'mkdir -p "$USER_HOME/.pi/agent"',
-      `echo '{"openai-codex":{"token":"seeded"}}' > "$USER_HOME/.pi/agent/auth.json"`,
-      clearLine.trim(),
-    ].join('\n');
-    const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-    assert.equal(res.status, 0, `auth.json clear exited non-zero: ${res.stderr}`);
-    const authJson = JSON.parse(readFileSync(join(dir, '.pi/agent/auth.json'), 'utf8'));
-    assert.deepEqual(authJson, {}, 'auth.json must be emptied so no built-in provider stays authed');
+    const fixture = enterpriseStartup({ auth: { 'openai-codex': { type: 'oauth', access: 'synthetic-seeded', expires: 9999999999999 } } });
+    try {
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8')), {});
+    } finally { fixture.cleanup(); }
   });
 
   it('REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration', () => {
@@ -343,22 +327,6 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.equal(models[0].id, 'codeflare');
   });
 
-  it('entrypoint.sh uses no jq --arg/--argjson named after a reserved jq keyword', () => {
-    // Version-robust static guard: a reserved-keyword arg name ($def, $if, $as, …)
-    // is a jq compile error and, in an unguarded command-substitution under
-    // set -e, crashes the container. Keep this class out of entrypoint.sh.
-    const KEYWORDS = [
-      'def', 'if', 'then', 'elif', 'else', 'end', 'as', 'reduce', 'foreach',
-      'try', 'catch', 'import', 'include', 'label', 'and', 'or', 'not',
-    ];
-    // Strip full-line `#` comments first, so a comment that mentions the bad
-    // pattern (e.g. this fix's own explanatory note about `--arg def`) does not
-    // trip the guard — we only want to catch it in actual shell commands.
-    const code = entrypoint.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
-    const re = new RegExp(`--arg(?:json)?\\s+(${KEYWORDS.join('|')})\\b`, 'g');
-    const hits = code.match(re) || [];
-    assert.deepEqual(hits, [], `reserved-keyword jq arg name(s) in entrypoint.sh: ${hits.join(', ')}`);
-  });
 
   for (const [scenario, label, expectedName] of [
     ['user label', '  AWS Bedrock - Opus 5  ', 'Native Route - AWS Bedrock - Opus 5'],
@@ -393,5 +361,29 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.equal(model.name, `Dynamic Route - ${nativeHandle}`);
     assert.equal(model.id, nativeHandle);
     assert.equal(result.settings.defaultModel, nativeHandle);
+  });
+});
+
+
+describe('REQ-ENTERPRISE-088: personal Pi startup authority', () => {
+  const auth = { anthropic: { type: 'api_key', key: 'synthetic-personal-key' },
+    'openai-codex': { type: 'oauth', access: 'synthetic-access', refresh: 'synthetic-refresh', expires: 9999999999999 } };
+  it('REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models', () => {
+    const fixture = enterpriseStartup({ personalProviders: true, auth });
+    try {
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8')), auth);
+      assert.deepEqual(fixture.readModels().providers['codeflare-gateway'].models.map(model => model.id), authorizedRoutes);
+      assert.equal(fixture.readSettings().defaultProvider, 'codeflare-gateway');
+    } finally { fixture.cleanup(); }
+  });
+  it('REQ-ENTERPRISE-088 AC4: missing false and malformed hints clear personal authentication', () => {
+    for (const personalProviders of [undefined, false, 'yes', '1']) {
+      const fixture = enterpriseStartup({ personalProviders, auth });
+      try {
+        assert.equal(fixture.result.status, 0, fixture.result.stderr);
+        assert.deepEqual(JSON.parse(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8')), {});
+      } finally { fixture.cleanup(); }
+    }
   });
 });

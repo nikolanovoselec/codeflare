@@ -186,6 +186,24 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Synthetic component fixtures; CI reruns the locally verified behavior.
 describe('Structured AI routing', () => {
+  if (partition === 2) it('REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions', async () => {
+    const view = mount({ ...checkedCurrent(), fallbackRouting: { enabled: true, routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'off' } });
+    await view.findByText('Connected · 3 routes readable');
+    await openGroup(view, 'developers');
+    const checkbox = view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' });
+    expect(checkbox).not.toBeChecked();
+    await fireEvent.click(checkbox);
+    expect(formValues(view.container).groupRouting[0]).toMatchObject({ allowPersonalPiProviders: true, defaultRoute: 'development' });
+    expect(formValues(view.container).groupRouting[1].allowPersonalPiProviders === true).toBe(false);
+    const fallback = view.getByRole('checkbox', { name: 'Fallback allow Pi built-in providers and models' });
+    expect(fallback).not.toBeChecked();
+    await fireEvent.click(fallback);
+    expect(formValues(view.container).fallbackRouting).toMatchObject({ enabled: true, allowPersonalPiProviders: true, defaultRoute: 'general_usage' });
+    await fireEvent.click(checkbox);
+    expect(formValues(view.container).groupRouting[0].allowPersonalPiProviders === true).toBe(false);
+    expect(formValues(view.container).fallbackRouting.allowPersonalPiProviders).toBe(true);
+  });
+
   if (partition === 1) {
   it('REQ-ENTERPRISE-034: shows only live Gateway routes and drops deleted route settings after a successful inventory', async () => {
     const deleted = ['bedrock_opus', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'development', 'documentation', 'freestyler', 'general_usage'];

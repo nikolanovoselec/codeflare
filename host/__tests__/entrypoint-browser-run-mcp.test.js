@@ -77,6 +77,27 @@ describe('entrypoint Browser Run MCP registration', () => {
     assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy');
   });
 
+  function checkManagedBrowser(location, keepAlive = '600000') {
+    const initial = { mcpServers: {
+      'chrome-devtools': { command: 'chrome-devtools-mcp', args: [
+        `--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=${keepAlive}&custom=keep`,
+        '--wsHeaders={"Authorization":"Bearer synthetic-user-token"}',
+      ], lifecycle: 'lazy' }, custom: { command: 'custom', env: { TOKEN: 'synthetic-secret' } },
+    }, settings: { custom: true } };
+    const { pi } = generatedBrowserConfigs({ [location]: initial });
+    const endpoint = new URL(wsEndpoint(pi));
+    assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['180000']);
+    assert.equal(endpoint.searchParams.get('custom'), 'keep');
+    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), initial.mcpServers['chrome-devtools'].args.slice(1));
+    assert.deepEqual(pi.mcpServers.custom, initial.mcpServers.custom);
+    assert.deepEqual(pi.settings, initial.settings);
+  }
+
+  it('REQ-BROWSER-006 AC5: legacy Cloudflare browser configuration is limited to three minutes without changing credentials', () => checkManagedBrowser('legacy'));
+  it('REQ-BROWSER-006 AC5: target Cloudflare browser configuration is limited to three minutes without changing credentials', () => checkManagedBrowser('target'));
+
+  it('REQ-BROWSER-006 AC5: duplicate retention parameters cannot retain a ten-minute browser', () => checkManagedBrowser('target', '180000&keep_alive=600000'));
+
   it('REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials', () => {
     const legacy = { mcpServers: {
       'chrome-devtools': { command: 'custom-browser', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'], lifecycle: 'lazy' },

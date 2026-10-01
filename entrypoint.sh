@@ -3260,6 +3260,37 @@ release_agent_pty_after_fast_start_updates() {
 # Dependency warm-up remains non-fatal: aborting before the init-complete flag
 # leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
 # keep that established degradation policy.
+# Pi Subagents: disable the upstream notify_parent / <subagent-update> channel.
+# Completion results and ask_parent remain available; only mid-run chatter is off.
+# Apply after home restore and before Pi loads its extensions, on EVERY startup:
+# a restored midRunUpdates:true must not re-enable the channel. This is the
+# image-owned default for all workspaces, not a change to just the current Pi.
+# Merge only this setting so concurrency, retention and other user preferences
+# survive. Invalid files are left intact and produce a content-free warning.
+# Upstream explicit per-project overrides still take precedence over this global
+# default; do not rewrite users' repository-local configuration files.
+configure_pi_subagent_defaults() {
+    local subagent_config="$USER_HOME/.pi/agent/subagents.json"
+    mkdir -p "$(dirname "$subagent_config")" || return 1
+    node - "$subagent_config" <<'NODE'
+const fs = require('node:fs');
+const path = process.argv[2];
+try {
+  let settings = {};
+  if (fs.existsSync(path)) {
+    const stat = fs.lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('invalid configuration');
+    settings = JSON.parse(fs.readFileSync(path, 'utf8'));
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('invalid configuration');
+  }
+  fs.writeFileSync(path, JSON.stringify({ ...settings, midRunUpdates: false }, null, 2) + '\n', { mode: 0o600 });
+} catch {
+  // Never print preference contents or credential-bearing parse errors.
+  process.exitCode = 1;
+}
+NODE
+}
+configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: Pi dependency warm-up failed; continuing startup"
@@ -3861,8 +3892,15 @@ COPILOT_BYOK_EOF
     # auth.json leaves the dynamic routes as the only selectable models. Authoritative on
     # every enterprise start so a restored/synced home dir cannot reintroduce a built-in
     # provider's stored token (e.g. the seeded openai-codex entry).
-    echo '{}' > "$USER_HOME/.pi/agent/auth.json"
-    echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
+    ENTERPRISE_PI_PERSONAL_PROVIDERS="${ENTERPRISE_PI_PERSONAL_PROVIDERS:-false}"
+    if [ "$ENTERPRISE_PI_PERSONAL_PROVIDERS" = "true" ] && [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
+        [ ! -f "$USER_HOME/.pi/agent/auth.json" ] || chmod 0600 "$USER_HOME/.pi/agent/auth.json"
+        echo "[entrypoint] Enterprise Mode: native Pi authentication retained under group policy"
+    else
+        echo '{}' > "$USER_HOME/.pi/agent/auth.json"
+        chmod 0600 "$USER_HOME/.pi/agent/auth.json"
+        echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
+    fi
 fi
 
 # --- TLS: trust the Cloudflare containers CA for NON-ENTERPRISE OAuth sessions ---
@@ -4144,7 +4182,33 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
         mkdir -p "$USER_HOME/.pi/agent"
         if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
-            : # Existing adapter browser settings (including retention/auth) win.
+            # Keep custom server settings and credentials, but cap Codeflare's
+            # Cloudflare Browser Run inactivity window at THREE MINUTES. This
+            # also repairs restored/migrated ten-minute endpoints without
+            # rewriting unrelated browser services or authorization headers.
+            node - "$PI_MCP_JSON" <<'NODE'
+const fs = require('node:fs');
+const path = process.argv[2];
+const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+const browser = config.mcpServers['chrome-devtools'];
+let changed = false;
+if (Array.isArray(browser?.args)) {
+  browser.args = browser.args.map(arg => {
+    if (typeof arg !== 'string' || !arg.startsWith('--wsEndpoint=')) return arg;
+    try {
+      const url = new URL(arg.slice('--wsEndpoint='.length));
+      if (url.protocol !== 'wss:' || url.hostname !== 'api.cloudflare.com'
+        || url.port || url.username || url.password
+        || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
+      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '180000') return arg;
+      url.searchParams.set('keep_alive', '180000');
+      changed = true;
+      return '--wsEndpoint=' + url.toString();
+    } catch { return arg; }
+  });
+}
+if (changed) fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+NODE
         elif [ -f "$PI_MCP_JSON" ]; then
             TMP_JSON=$(mktemp)
             if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -4672,12 +4736,19 @@ NODE
     )
     install -d -m 0700 "$operator_root" "$operator_root/work" "$operator_root/agent" \
         "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare" "$USER_HOME/Operators"
-    for trusted_file in models.json settings.json auth.json; do
+    # Only managed routing is copied: user-authenticated built-in/custom provider
+    # entries may carry inline secrets even when auth.json is kept separate.
+    if [ -f "$USER_HOME/.pi/agent/models.json" ]; then
+        jq '{providers: {"codeflare-gateway": .providers["codeflare-gateway"]}}' "$USER_HOME/.pi/agent/models.json" > "$operator_root/agent/models.json"
+        chmod 0600 "$operator_root/agent/models.json"
+    fi
+    for trusted_file in settings.json; do
         if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
             install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"
         fi
     done
-    [ -f "$operator_root/agent/auth.json" ] || printf '{}\n' > "$operator_root/agent/auth.json"
+    # Personal human credentials never enter an Operator activity root.
+    printf '{}\n' > "$operator_root/agent/auth.json"
     chmod 0600 "$operator_root/agent/auth.json"
     # Verified parent-owned inputs must reach the restricted tool root before readiness.
     node /opt/codeflare/scripts/materialize-operator-inputs.mjs

@@ -27,6 +27,7 @@
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import type { Env } from './types';
 import { getValidGithubToken } from './lib/github-token';
 import { decideOperatorGithub } from './operators/interception-policy';
@@ -116,7 +117,7 @@ interface BoundarySession {
     head: string }): Promise<ReadyBoundary | null>;
 }
 
-interface GithubInterceptorProps {
+interface GithubInterceptorProps extends PersonalPiProps {
   /** The user's email — for the per-user audit line; never used to resolve the token. */
   user: string;
   /** The per-session bucket — the ONLY identity used to resolve the user's token. */
@@ -190,6 +191,8 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
 
     // Identity is the BOUND per-session bucket only — never read from the request.
     const props = (this.ctx as unknown as { props?: GithubInterceptorProps }).props;
+    const personal = await forwardPersonalPi(request, this.env, props);
+    if (personal) return personal;
     if (props?.operatorPolicy) {
       const decision = decideOperatorGithub(props.operatorPolicy, request,
         { apiHost, webHost: gitWebHost(this.env) });

@@ -55,6 +55,7 @@ import {
   readVerifiedManagedR2Policy,
 } from './lib/managed-r2-policy';
 import { createLogger } from './lib/logger';
+import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import { interceptedGithubHosts } from './github-interceptor';
 import { decideOperatorNetwork, decideOperatorStorage, type OperatorStorageOperation } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
@@ -64,7 +65,7 @@ const logger = createLogger('egress-controller');
 const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 
 /** Props the container DO passes at wiring time (resolved once, never per-request). */
-interface EgressProps {
+interface EgressProps extends PersonalPiProps {
   /** This deployment's own Cloudflare account id; selects the account-scoped exemption. */
   accountId?: string;
   /** User bucket bound to this container session. */
@@ -189,6 +190,8 @@ export class EgressController extends WorkerEntrypoint<Env> {
       return jsonError(503, 'EGRESS_NOT_CONFIGURED', 'Strict Gateway egress is not enabled');
     }
 
+    const personal = await forwardPersonalPi(request, this.env, props);
+    if (personal) return personal;
     const url = new URL(request.url);
     if (isDisallowedEgressHost(url.hostname)) {
       // Reject SSRF targets BEFORE any upstream send.

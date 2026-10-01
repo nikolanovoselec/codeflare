@@ -50,6 +50,7 @@ const policySchema = z.object({
   routes: z.array(dynamicRouteSchema).max(256),
   defaultRoute: z.union([dynamicRouteSchema, z.literal('')]),
   reasoning: levelSchema,
+  allowPersonalPiProviders: z.boolean().optional(),
   targets: z.array(targetSchema).max(256).optional(),
   defaultTarget: targetSchema.optional(),
 }).strict();
@@ -118,7 +119,7 @@ export async function prepareSavedRoutingReconciliation(env: Env) {
     const routes = policy.routes.filter((route) => !removed(route));
     const targets = policy.targets?.filter((target) => !removedTarget(target));
     const effective = targets ? targets.map(handle) : routes;
-    if (effective.length === 0) return emptyPolicy();
+    if (effective.length === 0) return { ...emptyPolicy(), ...(policy.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: policy.allowPersonalPiProviders }) };
     const priorDefault = policy.defaultTarget ? handle(policy.defaultTarget) : policy.defaultRoute;
     if (effective.includes(priorDefault) && !removed(policy.defaultRoute)) {
       return { ...policy, routes, ...(targets && { targets }) };
@@ -132,7 +133,7 @@ export async function prepareSavedRoutingReconciliation(env: Env) {
   };
   const fallback = configuration.fallbackRouting;
   const prunedFallback = fallback?.enabled ? prunePolicy({ routes: fallback.routes, defaultRoute: fallback.defaultRoute,
-    reasoning: fallback.reasoning, ...(fallback.targets && { targets: fallback.targets }), ...(fallback.defaultTarget && { defaultTarget: fallback.defaultTarget }) }) : undefined;
+    reasoning: fallback.reasoning, ...(fallback.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: fallback.allowPersonalPiProviders }), ...(fallback.targets && { targets: fallback.targets }), ...(fallback.defaultTarget && { defaultTarget: fallback.defaultTarget }) }) : undefined;
   const nextReasoning: ReasoningConfiguration = {
     ...configuration,
     routeAssignments: Object.fromEntries(Object.entries(configuration.routeAssignments).filter(([route]) => !removedDynamic.has(route))),

@@ -54,6 +54,7 @@ export interface ContainerEnvState {
   _userGroups: string[];
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
   _routeCatalog: string[];
+  _allowPersonalPiProviders?: boolean;
   /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
   _defaultRoute: string | null;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
@@ -86,6 +87,7 @@ interface RestartPrefsInput {
   userEmail?: string;
   userGroups?: string[];
   routeCatalog?: string[];
+  allowPersonalPiProviders?: boolean;
   defaultRoute?: string;
   defaultReasoning?: string;
   routeContextWindows?: Record<string, number>;
@@ -128,6 +130,7 @@ export interface SetBucketNameCreds {
   userEmail?: string;
   userGroups?: string[];
   routeCatalog?: string[];
+  allowPersonalPiProviders?: boolean;
   defaultRoute?: string;
   defaultReasoning?: string;
   routeContextWindows?: Record<string, number>;
@@ -482,6 +485,7 @@ export function buildEnvVars(
     // maps the slash-free handle to dynamic/<route> on egress. Emitted only when
     // enterprise AND present, so a non-enterprise (or unconfigured) container's env
     // is byte-identical to today.
+    ...(isEnterpriseMode(env) && !restrictedOperator && state._allowPersonalPiProviders === true && { ENTERPRISE_PI_PERSONAL_PROVIDERS: 'true' }),
     ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
     ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
     ...(isEnterpriseMode(env) && state._defaultReasoning !== null && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
@@ -528,6 +532,8 @@ export async function applyBucketName(
     await storage.put('userGroups', state._userGroups);
   }
   if (r2Creds?.routeCatalog !== undefined) {
+    state._allowPersonalPiProviders = r2Creds.allowPersonalPiProviders === true;
+    await storage.put('allowPersonalPiProviders', state._allowPersonalPiProviders);
     state._routeCatalog = [...r2Creds.routeCatalog];
     state._defaultRoute = r2Creds.defaultRoute ?? null;
     state._defaultReasoning = r2Creds.defaultReasoning ?? null;
@@ -843,6 +849,11 @@ export async function applyPrefsOnRestart(
   // shapes interceptor props), so they set `changed` to regenerate the env. Value
   // equality (JSON.stringify) on the catalog array — a reference !== compare is
   // always true and would churn storage every restart.
+  if (input.allowPersonalPiProviders !== undefined && input.allowPersonalPiProviders !== state._allowPersonalPiProviders) {
+    state._allowPersonalPiProviders = input.allowPersonalPiProviders;
+    await storage.put('allowPersonalPiProviders', input.allowPersonalPiProviders);
+    changed = true;
+  }
   if (input.routeCatalog !== undefined && JSON.stringify(input.routeCatalog) !== JSON.stringify(state._routeCatalog)) {
     state._routeCatalog = input.routeCatalog;
     await storage.put('routeCatalog', input.routeCatalog);

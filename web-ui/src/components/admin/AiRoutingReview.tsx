@@ -187,6 +187,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
         <div class="ai-routing-review-groups"><For each={groups()}>{(group) => <article aria-label={safe()(text(group.accessGroup))}>
           <h4>{safe()(text(group.accessGroup))}</h4>
           <dl class="ai-routing-review-values">
+            <div><dt>Native Pi providers</dt><dd>{group.allowPersonalPiProviders === true ? 'Allowed with personal authentication' : 'Not allowed'}</dd></div>
             <div><dt>Allowed routes</dt><dd>{routeList(list(group.routes))}</dd></div>
             <div><dt>Default route</dt><dd>{routeName(text(group.defaultRoute))}</dd></div>
             <div><dt>Default reasoning</dt><dd>{policyReasoning(group.defaultRoute, group.reasoning)}</dd></div>
@@ -199,6 +200,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
       <Show when={fallbackEnabled()} fallback={<><strong>No fallback access</strong><p>Users without a matching group policy cannot use these routes.</p></>}>
         <p>Applies to users without a matching group policy.</p>
         <dl class="ai-routing-review-values">
+          <div><dt>Native Pi providers</dt><dd>{fallback().allowPersonalPiProviders === true ? 'Allowed with personal authentication' : 'Not allowed'}</dd></div>
           <div><dt>Allowed routes</dt><dd>{routeList(fallbackRoutes())}</dd></div>
           <div><dt>Default route</dt><dd>{routeName(text(fallbackDefault()))}</dd></div>
           <div><dt>Default reasoning</dt><dd>{policyReasoning(fallbackDefault(), fallback().reasoning)}</dd></div>

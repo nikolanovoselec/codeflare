@@ -35,7 +35,7 @@ export function extractEnterpriseBlock(entrypoint) {
 
 // Run the real outer startup boundary, including environment initialization, against
 // restored files. No agent is launched and no provider/network request is made.
-export function enterpriseStartup({ reasoning, levels = { bedrock_opus: [], [nativeHandle]: nativeLevels } } = {}) {
+export function enterpriseStartup({ reasoning, personalProviders, auth, levels = { bedrock_opus: [], [nativeHandle]: nativeLevels } } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'enterprise-pi-startup-'));
   const agentDir = join(home, '.pi/agent');
   mkdirSync(agentDir, { recursive: true });
@@ -47,6 +47,7 @@ export function enterpriseStartup({ reasoning, levels = { bedrock_opus: [], [nat
     'unrelated-provider': siblingProvider,
   } }));
   writeFileSync(settingsPath, JSON.stringify({ defaultProvider: 'codeflare-gateway', defaultModel: 'development', defaultThinkingLevel: 'high', theme: 'dark' }));
+  if (auth !== undefined) writeFileSync(join(agentDir, 'auth.json'), JSON.stringify(auth), { mode: 0o600 });
   const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
   const env = {
     PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, USER_HOME: home,
@@ -54,6 +55,7 @@ export function enterpriseStartup({ reasoning, levels = { bedrock_opus: [], [nat
     ENTERPRISE_DEFAULT_ROUTE: 'bedrock_opus', ENTERPRISE_ROUTE_REASONING_LEVELS: JSON.stringify(levels),
     ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify({ bedrock_opus: 1048576, [nativeHandle]: 200000 }),
     ENTERPRISE_MODEL_DISPLAY_NAMES: JSON.stringify({ [nativeHandle]: 'bedrock-opus-5' }),
+    ...(personalProviders !== undefined && { ENTERPRISE_PI_PERSONAL_PROVIDERS: String(personalProviders) }),
     ...(reasoning !== undefined && { ENTERPRISE_DEFAULT_REASONING: reasoning }),
   };
   const result = spawnSync('bash', ['-c', `set -euo pipefail\n${systemTrustIsolation}\n${extractEnterpriseBlock(entrypoint)}`], { encoding: 'utf8', env });

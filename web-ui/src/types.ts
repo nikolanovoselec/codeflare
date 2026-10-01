@@ -158,6 +158,7 @@ export interface ReasoningRouteVerification {
 
 export type FallbackRouting = { enabled: false } | {
   enabled: true;
+  allowPersonalPiProviders?: boolean;
   routes: string[];
   defaultRoute: string;
   reasoning: PiReasoningLevel;

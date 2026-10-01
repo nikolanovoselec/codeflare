@@ -9,7 +9,7 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { canonicalHash, selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { canonicalHash, isPiReasoningLevel, selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
@@ -873,6 +873,24 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
  * Returns empty fields when not enterprise so a non-enterprise body is unchanged.
  * REQ-ENTERPRISE-005 (revised: the route name + reasoning grade ARE fanned now).
  */
+/** REQ-ENTERPRISE-088: permission selection is independent of model eligibility. */
+export async function resolvePersonalPiPermission(kv: KVNamespace, groups: string[] = []): Promise<boolean> {
+  try {
+    const [rawGroups, rawConfiguration] = await Promise.all([kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.REASONING_CONFIGURATION)]);
+    const policies: unknown = JSON.parse(rawGroups ?? '{}');
+    if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return false;
+    const configuration = parseReasoningConfiguration(rawConfiguration);
+    const first = groups.find(group => Object.hasOwn(policies, group));
+    const policy = first !== undefined ? (policies as Record<string, unknown>)[first] : configuration.fallbackRouting?.enabled ? configuration.fallbackRouting : undefined;
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return false;
+    const entry = policy as GroupRoutingEntry & { allowPersonalPiProviders?: unknown };
+    return Array.isArray(entry.routes) && entry.routes.every(route => typeof route === 'string')
+      && typeof entry.defaultRoute === 'string' && isPiReasoningLevel(entry.reasoning)
+      && (entry.routes.length ? entry.routes.includes(entry.defaultRoute) : entry.defaultRoute === '' && entry.reasoning === 'off')
+      && entry.allowPersonalPiProviders === true;
+  } catch { return false; }
+}
+
 export async function loadEnterpriseRouteConfig(
   env: Env,
   groups?: string[],
@@ -884,12 +902,15 @@ export async function loadEnterpriseRouteConfig(
   routeReasoningLevels: Record<string, PiReasoningLevel[]>;
   modelDisplayNames: Record<string, string>;
   promptCacheTargets?: string[];
+  allowPersonalPiProviders?: boolean;
 }> {
   if (!isEnterpriseMode(env)) {
     return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   }
+  const permission = await resolvePersonalPiPermission(env.KV, groups);
+  const personal = permission ? { allowPersonalPiProviders: true as const } : {};
   const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env));
-  if (resolved.routeCatalog.length === 0) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
+  if (resolved.routeCatalog.length === 0) return { ...personal, routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
     env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
     env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
@@ -922,7 +943,7 @@ export async function loadEnterpriseRouteConfig(
   // Publish capability only, never provider/model/credential coordinates. Compat
   // and Dynamic Routes have no certified block-level cache forwarding contract.
   const promptCacheTargets = resolved.routeCatalog.filter((handle) => resolved.nativeTargets[handle]?.promptCacheSupported === true);
-  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
+  return { ...personal, routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
     ...(promptCacheTargets.length && { promptCacheTargets }) };
 }
 

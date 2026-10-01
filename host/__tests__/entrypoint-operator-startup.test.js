@@ -107,3 +107,37 @@ test('REQ-OPERATOR-052: failed attachment restore cannot open readiness', () => 
   assert.equal(failed.status, 7, failed.stderr);
   assert.equal(failed.stdout, 'ready-absent');
 });
+
+test('REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authentication and inline provider secrets', () => {
+  const home = mkdtempSync(join(tmpdir(), 'operator-personal-auth-'));
+  try {
+    const agentDir = join(home, '.pi/agent');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'auth.json'), JSON.stringify({ anthropic: { type: 'api_key', key: 'synthetic-owner-secret' } }));
+    const gateway = { apiKey: 'codeflare-enterprise', models: [{ id: 'sanctioned' }] };
+    writeFileSync(join(agentDir, 'models.json'), JSON.stringify({ providers: { 'codeflare-gateway': gateway, openai: { apiKey: 'synthetic-inline-secret' } } }));
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ theme: 'dark' }));
+    // System materialization is unrelated platform I/O. Remap the validated
+    // absolute Operator namespace into this temporary filesystem, retaining the
+    // real configuration validator, install/copy and authentication behavior.
+    const script = `set -euo pipefail
+validate_coding_agent_selection() { :; }
+update_sync_status() { :; }
+run_post_restore_startup() { :; }
+node() {
+  if [ "$1" = /opt/codeflare/scripts/materialize-operator-inputs.mjs ]; then return 0; fi
+  command node "$@" | sed "s|/home/user/.codeflare/operators|$USER_HOME/.codeflare/operators|"
+}
+${extract('run_operator_startup')}
+run_operator_startup`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, USER_HOME: home,
+      CODEFLARE_INIT_FLAG_FILE: join(home, 'initialized'),
+      CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/.codeflare/operators/activity' }),
+      CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/Operators' }) } });
+    assert.equal(result.status, 0, result.stderr);
+    const isolated = join(home, '.codeflare/operators/activity/agent');
+    assert.deepEqual(JSON.parse(readFileSync(join(isolated, 'auth.json'), 'utf8')), {});
+    assert.deepEqual(JSON.parse(readFileSync(join(isolated, 'models.json'), 'utf8')), { providers: { 'codeflare-gateway': gateway } });
+    assert.deepEqual(JSON.parse(readFileSync(join(agentDir, 'auth.json'), 'utf8')), { anthropic: { type: 'api_key', key: 'synthetic-owner-secret' } });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

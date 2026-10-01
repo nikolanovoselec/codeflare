@@ -23,6 +23,7 @@ import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
 import { getAigConfig } from '../lib/aig-config';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
+import { PERSONAL_PI_HOST_PATTERNS } from '../lib/personal-pi-destinations';
 import { interceptedGithubHosts } from '../github-interceptor';
 import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
@@ -62,6 +63,14 @@ export interface InterceptionHost {
 }
 
 /** One resolved outbound-interception transport, ready to register. */
+function personalPiProps(host: InterceptionHost): Record<string, unknown> {
+  return host._bucketName && host._sessionId && host._userEmail ? {
+    personalPi: { bucket: host._bucketName, sessionId: host._sessionId, user: host._userEmail },
+    strict: host._strictEgress === true,
+    ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+  } : {};
+}
+
 function jwtProps(host: InterceptionHost): Record<string, unknown> {
   return host._jwtStamping ? {
     jwtStamping: host._jwtStamping,
@@ -144,6 +153,7 @@ const llm: InterceptorSpec = {
     return {
       entrypoint: 'LlmInterceptor',
       props: {
+        ...personalPiProps(host),
         user,
         ...(host._sessionId ? { sessionId: host._sessionId } : {}),
         ...(host._userGroups.length > 0 ? { groups: host._userGroups } : {}),
@@ -159,7 +169,7 @@ const llm: InterceptorSpec = {
         } } : {}),
         ...jwtProps(host),
       },
-      hosts: INTERCEPTED_LLM_HOSTS,
+      hosts: [...new Set([...INTERCEPTED_LLM_HOSTS, ...PERSONAL_PI_HOST_PATTERNS.filter(pattern => !host._operatorPolicy || !pattern.startsWith('*'))])],
       mandatory: true,
       wiredLog: 'Enterprise LLM interception wired',
       wiredLogData: { hostCount: INTERCEPTED_LLM_HOSTS.length },
@@ -199,6 +209,7 @@ const github: InterceptorSpec = {
     return {
       entrypoint: 'GitHubInterceptor',
       props: {
+        ...personalPiProps(host),
         user, bucket,
         ...(host._sessionId && !host._operatorPolicy ? { sessionId: host._sessionId } : {}),
         ...(lifecycleGeneration ? { lifecycleGeneration } : {}),
@@ -236,7 +247,7 @@ const browserRendering: InterceptorSpec = {
       }
       return {
         entrypoint: 'CloudflareBrowserInterceptor',
-        props: { browserAccountId: accountId, browserToken: token, strict: host._strictEgress,
+        props: { ...personalPiProps(host), browserAccountId: accountId, browserToken: token, strict: host._strictEgress,
           ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
         hosts: INTERCEPTED_CF_BROWSER_HOSTS,
         wiredLog: 'Enterprise Browser Rendering interception wired',
@@ -286,6 +297,7 @@ function resolveStrictEgress(
   return {
     entrypoint: 'EgressController',
     props: {
+      ...personalPiProps(host),
       accountId: host._r2AccountId ?? undefined,
       ...security,
       strict: true,

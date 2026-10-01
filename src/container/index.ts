@@ -215,6 +215,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * ENTERPRISE_ROUTE_CATALOG / ENTERPRISE_DEFAULT_ROUTE / ENTERPRISE_DEFAULT_REASONING.
    */
   _routeCatalog: string[] = [];
+  _allowPersonalPiProviders = false;
   _defaultRoute: string | null = null;
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
@@ -391,6 +392,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // REQ-ENTERPRISE-005 (revised): restore the dynamic-route config so a DO wake
       // re-emits the entrypoint env (matches the userGroups / userEmail pattern).
       this._routeCatalog = await this.ctx.storage.get<string[]>('routeCatalog') || [];
+      this._allowPersonalPiProviders = await this.ctx.storage.get<boolean>('allowPersonalPiProviders') === true;
       this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};

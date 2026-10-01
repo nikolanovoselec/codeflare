@@ -31,7 +31,7 @@ export interface RouteVerification {
 type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'native-target'; targetId: string };
 export type FallbackRouting = { enabled: false } | {
   enabled: true; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel;
-  targets?: RoutingTargetRef[]; defaultTarget?: RoutingTargetRef;
+  targets?: RoutingTargetRef[]; defaultTarget?: RoutingTargetRef; allowPersonalPiProviders?: boolean;
 };
 
 const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
@@ -177,8 +177,9 @@ export function parseFallbackRouting(value: unknown): FallbackRouting {
     assertOnly(record, ['enabled'], 'fallback routing');
     return { enabled: false };
   }
-  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning', 'targets', 'defaultTarget'], 'fallback routing');
+  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning', 'targets', 'defaultTarget', 'allowPersonalPiProviders'], 'fallback routing');
   if (record.enabled !== true || !Array.isArray(record.routes) || record.routes.length > 256) throw new Error('fallback routing is invalid');
+  if (record.allowPersonalPiProviders !== undefined && typeof record.allowPersonalPiProviders !== 'boolean') throw new Error('personal Pi permission must be boolean');
   const parseRoute = (value: unknown): string => {
     if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) throw new Error('fallback route is invalid');
     return routeName(value);
@@ -193,7 +194,7 @@ export function parseFallbackRouting(value: unknown): FallbackRouting {
     throw new Error('fallback default must belong to its allowed models with a valid reasoning level');
   }
   if (targets?.some((target) => target.kind === 'native-target') && !defaultTarget && routes.length === 0) throw new Error('fallback native default is required');
-  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning, ...(targets && { targets }), ...(defaultTarget && { defaultTarget }) };
+  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning, ...(record.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: record.allowPersonalPiProviders as boolean }), ...(targets && { targets }), ...(defaultTarget && { defaultTarget }) };
 }
 
 function parseWrites(value: unknown, label: string): ScalarWrite[] {

@@ -502,3 +502,16 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(host._defaultReasoning).toBe('');
   });
 });
+
+
+it('REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint', async () => {
+  const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any, _bucketName: 'b', _sessionMode: 'advanced', _userGroups: [] });
+  for (const enabled of [true, false]) {
+    const response = await dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bucketName: 'b', routeCatalog: [], allowPersonalPiProviders: enabled }),
+    }))!;
+    expect(response.status).toBe(409);
+    expect(host.envVars.ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe(enabled ? 'true' : undefined);
+  }
+});

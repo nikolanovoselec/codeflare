@@ -230,7 +230,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await instance.startAndWaitForPorts(8080);
 
       // Native replay isolation carries both the authenticated user and bound session.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', sessionId: 'session-1', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: expect.objectContaining({ user: 'nikola@novoselec.ch', sessionId: 'session-1', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' }) });
     });
 
     it('passes the matched Access groups as the interceptor groups prop when set', async () => {

@@ -483,6 +483,7 @@ export interface ContainerConfigPayload {
   userGroups?: string[];
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
   routeCatalog?: string[];
+  allowPersonalPiProviders?: boolean;
   /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
   defaultRoute?: string;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
