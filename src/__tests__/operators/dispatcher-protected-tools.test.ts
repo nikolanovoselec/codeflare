@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { discoverRenovatePulls, eligibleRenovatePull, executeRenovateDecision, renovateGithub } from '../../operators/renovate-publication';
-import { parseDispatcherOperation } from '../../operators/operator-runtime-capability';
+import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import type { Env } from '../../types';
 
 const head = 'a'.repeat(40);
@@ -13,6 +13,21 @@ const wire = (path: string, body: unknown) => new Request(`https://operator.inte
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const target = { pullRequest: 1, headSha: head };
+
+describe('REQ-OPERATOR-047: bounded source body lifecycle', () => {
+  it('cancels a stalled source body and releases the stream when the caller deadline aborts', async () => {
+    const response = new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('incomplete evidence'));
+    } }));
+    const controller = new AbortController();
+    const body = readDispatcherBody(response, controller.signal);
+    controller.abort(new Error('Caller deadline expired'));
+    await expect(body).rejects.toThrow('Caller deadline expired');
+    const reader = response.body!.getReader();
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    reader.releaseLock();
+  });
+});
 
 describe('REQ-OPERATOR-051: repository-only protected Dispatcher tools', () => {
   it('accepts nested exact-head targets and legacy reads but rejects arbitrary destinations and atomic execution', async () => {
