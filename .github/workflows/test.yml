@@ -327,11 +327,11 @@ jobs:
           git diff --exit-code src/lib/agent-seed.generated.ts \
             || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
@@ -379,11 +379,11 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
@@ -442,7 +442,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
 
@@ -450,7 +450,7 @@ jobs:
         run: mkdir -p web-ui/dist
 
       - name: Run suite (fail-closed gate)
-        uses: $/.github/actions/vitest-suite
+        uses: ./.github/actions/vitest-suite
         with:
           balance-group: ${{ matrix.balance-group }}
           script: ${{ matrix.script }}
@@ -502,7 +502,7 @@ jobs:
           echo 'eba1de279d506003d897e4dd8a82a90e2fb659c5f66b0061c61c0862b765e266  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
           grep -qF '"sourceCommit":"5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
 
@@ -510,7 +510,7 @@ jobs:
         run: mkdir -p web-ui/dist
 
       - name: Run suite (fail-closed gate)
-        uses: $/.github/actions/vitest-suite
+        uses: ./.github/actions/vitest-suite
         with:
           script: test:node
           artifact-name: backend-node-${{ matrix.slug }}
@@ -655,7 +655,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
 
@@ -704,7 +704,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/merge-coverage
+      - uses: ./.github/actions/merge-coverage
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
@@ -734,7 +734,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/merge-coverage
+      - uses: ./.github/actions/merge-coverage
         with:
           artifact-pattern: 'frontend-shard-*'
           artifact-prefix: 'frontend-shard'
@@ -775,7 +775,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
@@ -817,13 +817,13 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
 
       - name: Run suite (fail-closed gate)
-        uses: $/.github/actions/vitest-suite
+        uses: ./.github/actions/vitest-suite
         with:
           working-directory: web-ui
           balance-group: ${{ matrix.group }}
@@ -848,7 +848,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: landing
           key-prefix: landing
@@ -865,7 +865,7 @@ jobs:
 
       - name: Run suite (fail-closed gate)
         # Container-API render tests + pure-logic unit tests (landing/README.md)
-        uses: $/.github/actions/vitest-suite
+        uses: ./.github/actions/vitest-suite
         with:
           working-directory: landing
           artifact-name: landing
@@ -887,11 +887,11 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: preseed/agents/pi
           key-prefix: pi-prompt
@@ -993,13 +993,13 @@ jobs:
         with:
           node-version: '26.8.1'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
         # node_modules (module lookup walks up from host/__tests__).
         with:
           key-prefix: root
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: host
           key-prefix: host
@@ -1163,7 +1163,7 @@ jobs:
         with:
           node-version: '22.21.1'
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: openvscode/agent-sidebar
           key-prefix: browser-ide
@@ -1196,7 +1196,7 @@ jobs:
           diff -u "$RUNNER_TEMP/sidebar-dist-first.sha256" "$RUNNER_TEMP/sidebar-dist-second.sha256"
 
       - name: Run Browser IDE agent suite (fail-closed gate)
-        uses: $/.github/actions/vitest-suite
+        uses: ./.github/actions/vitest-suite
         with:
           working-directory: openvscode/agent-sidebar
           artifact-name: browser-ide

@@ -55,6 +55,14 @@ The proposal also replaces three Node 22 IDE stages with Node 26.10.0 while leav
 
 The new jsdom 30.1.1 engine range is `^22.22.2 || ^24.15.0 || >=26.0.0`. Host checks use the separate Node 26 lane; CI must confirm every consuming lane satisfies the engine requirement. Do not loosen engine checks or change the embedded IDE pin to accommodate an unrelated test dependency.
 
+### Workflow auditor: owner-approved compatibility hold
+
+Retain the previously shipped zizmor 1.29.0 and its approved SHA-256 `dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839`, together with existing `./.github/...` references. The owner explicitly approved this hold after mutation-free joint triage. PR #1147 is accounted for in ancestry but its 1.30.0 update does not ship.
+
+GitHub supports `$/` for same-repository actions and reusable workflows. Zizmor 1.30 requires it, but the latest stable actionlint 1.7.12 rejects it. There is no compatible released parser upgrade to pin. Preserve the existing audit gates, checksums and action versions; do not fork an auditor, normalize its input or suppress diagnostics. Revisit the deferred update when compatible released tooling exists.
+
+Sources: [GitHub syntax announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/), [zizmor audit](https://docs.zizmor.sh/audits/#self-repository), [latest stable actionlint](https://github.com/rhysd/actionlint/releases/tag/v1.7.12).
+
 ### Graphify 0.9.61 to 0.9.73: preserve managed source ownership
 
 The complete 0.9.62 through 0.9.73 release interval was inspected. Important changes include Terraform credential redaction, Fortran include-file disclosure prevention, quoted watcher-path handling, preservation of incremental cross-file edges, JSX/enum call relationships, Astro parsing and inherited Java-call resolution. These are desirable extraction/security fixes, not authorization to rebuild existing graphs.
@@ -138,7 +146,7 @@ Eight remote branches whose heads were already ancestors of `develop` were delet
 | [#1131](https://github.com/nikolanovoselec/codeflare/pull/1131) | chore(deps): bump oxlint from 1.81.0 to 1.85.0 in /image/oxlint in the npm-image-oxlint group across 1 directory | Incorporated; latest proposal remains open pending consolidation merge |
 | [#1145](https://github.com/nikolanovoselec/codeflare/pull/1145) | chore(deps): bump silverbullet 2.10.0 -> 2.11.0 | Closed as superseded or already included; ancestry retained |
 | [#1146](https://github.com/nikolanovoselec/codeflare/pull/1146) | chore(deps): bump uv 0.12.10 -> 0.12.13 | Closed as superseded or already included; ancestry retained |
-| [#1147](https://github.com/nikolanovoselec/codeflare/pull/1147) | chore(deps): bump zizmor 1.29.0 -> 1.30.0 | Incorporated; latest proposal remains open pending consolidation merge |
+| [#1147](https://github.com/nikolanovoselec/codeflare/pull/1147) | chore(deps): bump zizmor 1.29.0 -> 1.30.0 | Ancestry retained; owner-approved compatibility hold at 1.29.0 |
 | [#1148](https://github.com/nikolanovoselec/codeflare/pull/1148) | chore: bump Claude VS Code extension 2.1.263 -> 2.1.270 | Closed as superseded or already included; ancestry retained |
 | [#1149](https://github.com/nikolanovoselec/codeflare/pull/1149) | chore(deps): bump Herdr 0.9.0 to 0.9.1 | Closed as superseded or already included; ancestry retained |
 | [#1150](https://github.com/nikolanovoselec/codeflare/pull/1150) | chore(deps): bump @openai/codex 0.153.4 -> 0.154.0 | Closed as superseded or already included; ancestry retained |
@@ -223,10 +231,12 @@ Exact-head review and [PR Checks 36903949057](https://github.com/nikolanovoselec
 
 The Node 26 mirror index and Linux amd64 child `0a992e1420e2d70611578f1844a6f10a9d11fe6bb535aabf72efe3007f13d79b`, its config and all four layers were retrieved or checked successfully before synchronizing the immutable allowlist. The seven missing Pi 0.99.1 integrity records were restored from exact authoritative registry versions; package tarball URLs were cross-checked.
 
-Zizmor 1.30 requires dedicated same-repository action references. Forty-two affected workflow references use the supported `$/` syntax; no audit is suppressed. [GitHub's syntax announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/) explains immutable workflow-commit resolution instead of mutable checkout contents.
+The first correction used supported `$/` syntax for forty-two same-repository references to satisfy zizmor 1.30. It exposed incompatibility with the released actionlint parser; the owner-approved compatibility hold below supersedes that candidate. No audit is suppressed. [GitHub's syntax announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/) explains immutable workflow-commit resolution instead of mutable checkout contents.
 
 The separate shadow review failed because its configured origin was unavailable. It remains unresolved; no origin, credential, branch protection or Operator activation is fabricated. Required product checks and all review corrections still need corrected-head verification. Documentation inventories, evidence anchors, lane indexing and requirement traceability are synchronized without rewriting historical acceptance.
 
 Supplemental corrected-source checks passed nine Graphify/Node-pin cases and five served-worker parse/recovery/logout cases. TypeScript syntax parsing passed. Two additional focused Host suites could not load the absent local `yaml` dependency; no local installation was attempted, and their verification remains with CI.
 
-The correction-head round [PR Checks 36908574285](https://github.com/nikolanovoselec/codeflare/actions/runs/36908574285) eliminated the broad startup failures but still failed audit and stale route/workflow expectations. Restore startup-log/message behavioral coverage and reconcile those expectations; retain the existing duplicate-binding negative control. GitHub supports `$/`, but the latest stable actionlint 1.7.12 rejects it. The auditor compatibility decision remains unresolved pending explicit owner approval; this correction does not change auditor pins, suppress findings or fabricate shadow-origin configuration. Corrected-head review and CI remain required.
+The correction-head round [PR Checks 36908574285](https://github.com/nikolanovoselec/codeflare/actions/runs/36908574285) eliminated the broad startup failures but still failed audit and stale route/workflow expectations. Restore startup-log/message behavioral coverage and reconcile those expectations; retain the existing duplicate-binding negative control. GitHub supports `$/`, but the latest stable actionlint 1.7.12 rejects it. That round left the auditor decision pending; the later owner-approved hold above now resolves it without suppressing audits or fabricating shadow-origin configuration. Corrected-head review and CI remain required.
+
+At `dd0917c8277b2a4b9690e5cca856190f513ec6de`, [PR Checks 36911629719](https://github.com/nikolanovoselec/codeflare/actions/runs/36911629719) passed every backend, host and frontend shard, native Flue, Browser IDE agents, quality and typecheck. Workflow audit still failed because the pinned latest actionlint rejected supported self-repository syntax. The owner then approved the compatibility hold above. Fresh exact-head review and CI remain required. The separate shadow-origin failure remains unresolved and no configuration or Operator activation is introduced.

@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 22
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: .
           key-prefix: fuzz-root
@@ -41,7 +41,7 @@ jobs:
           FAST_CHECK_NUM_RUNS: '50000'
         run: npx vitest run src/__tests__/fuzz/ --reporter=verbose
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: fuzz-web-ui
@@ -51,7 +51,7 @@ jobs:
           FAST_CHECK_NUM_RUNS: '50000'
         run: cd web-ui && npx vitest run src/__tests__/fuzz/ --reporter=verbose
 
-      - uses: $/.github/actions/install-deps
+      - uses: ./.github/actions/install-deps
         with:
           directory: host
           key-prefix: fuzz-host

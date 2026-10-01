@@ -119,7 +119,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/install-k6
+      - uses: ./.github/actions/install-k6
 
       - name: Run API throughput test
         env:
@@ -154,7 +154,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/install-k6
+      - uses: ./.github/actions/install-k6
 
       - name: Run session lifecycle test
         env:
@@ -189,7 +189,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/install-k6
+      - uses: ./.github/actions/install-k6
 
       - name: Run storage operations test
         env:
@@ -227,7 +227,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/install-k6
+      - uses: ./.github/actions/install-k6
 
       - name: Validate rate limits are enforced
         run: |

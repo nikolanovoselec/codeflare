@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   full-matrix:
-    uses: $/.github/workflows/test.yml
+    uses: ./.github/workflows/test.yml
