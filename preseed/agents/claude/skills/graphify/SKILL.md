@@ -8,6 +8,10 @@ trigger: /graphify
 
 This skill drives `/graphify` knowledge-graph extraction inside the Codeflare container. The `graphifyy` Python tool is pre-installed at build time (`uv tool install graphifyy[mcp,sql,pdf]`); the `graphify` CLI is on PATH at `/root/.local/bin/graphify` and the MCP server is pre-registered in `~/.claude.json` as `/root/.local/share/uv/tools/graphifyy/bin/python -m graphify.serve`. You do not need to install or wire anything.
 
+## Graphify 0.9.73 compatibility
+
+Verify the installed CLI version independently of plugin metadata. New enum `case_of` edges, inherited Java-call resolution and improved Astro parsing are additive extraction changes; preserve the official graph schema and existing consent requirements. A warning about the 20,000-character semantic file cap means incomplete coverage: read the remaining source in bounded chunks rather than treating the warning as successful full-file analysis. If `graphify hook status` reports older hooks, do not overwrite Codeflare-managed hooks with an upstream installer without an explicitly requested source change.
+
 ## Quick Reference
 
 **Python interpreter:** All `python3` code blocks in this skill must use graphify's own interpreter: `/root/.local/share/uv/tools/graphifyy/bin/python`. System `python3` cannot import graphify. The CLI at `/root/.local/bin/graphify` is on PATH.

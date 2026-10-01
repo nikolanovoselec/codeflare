@@ -93,6 +93,10 @@ const items = this.sql<{ id: string; name: string }>`
 
 ## Scheduling
 
+**Upgrade boundaries:** Agents 0.22+ passes the parsed `Schedule` as the callback's second argument; do not parse its payload again as a legacy raw row. Private facet scheduling RPCs are replaced by `_cf_routeLifecycle`, so a mixed-version Worker Loader child/parent bridge needs explicit compatibility verification. Public `Agent.schedule()` and `scheduleEvery()` remain available.
+
+Agents 0.23+ migrates legacy schedule rows into the Lifecycle job queue and drops the old table. Lifecycle capability `getNextAlarm()`/`onAlarm()`, `LifecycleServices.alarms`, and `AlarmContribution` are removed; use the version's job capability API for a standalone host rather than overriding obsolete hooks. Agent's public scheduling API remains the compatibility surface. Verify stored-job migration before rollback.
+
 ### Schedule Types
 
 | Mode | Syntax | Use Case |

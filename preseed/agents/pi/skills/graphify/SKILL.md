@@ -18,6 +18,10 @@ Hard rules:
 - **Use official Graphify flows** for AST detection/extraction, graph build/merge, clustering, report generation, HTML generation, query/path/explain, global merge, and callflow export.
 - **Do not hand-edit graph output JSON.** Do not add Codeflare-specific AST allowlists, import rewrites, or graph normalization.
 
+## Graphify 0.9.73 compatibility
+
+The image pin comes from the managed Graphify plugin metadata; verify the installed CLI version separately before relying on newly added language extraction. This release adds enum `case_of` edges and improves inherited Java calls and Astro parsing; these are additive graph semantics, not permission to rewrite stored graph schemas or refresh graphs automatically. A semantic extraction warning about the 20,000-character file cap means coverage is incomplete: read the remaining source in bounded chunks rather than claiming the tail was analyzed. `graphify hook status` can flag older generated hooks; do not overwrite Codeflare-managed hooks with an upstream installer without an explicitly requested source change.
+
 ## Graph paths
 
 ```text

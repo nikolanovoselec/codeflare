@@ -6,11 +6,13 @@ Fetch https://developers.cloudflare.com/agents/api-reference/queue-tasks/ and ht
 
 FIFO queue persisted in SQLite. Sequential processing, one item at a time.
 
+**Version boundary:** in Agents 0.24+, queue work runs as Lifecycle alarm jobs, not in the enqueuing request. Persist the authorized input needed by the callback; do not rely on that request's `connection` or `request` context. `getQueue`, `getQueues`, `dequeue`, `dequeueAll`, and `dequeueAllByCallback` are asynchronous; await them. `QueueItem.created_at` is renamed `createdAt`. Legacy `cf_agents_queues` rows migrate on startup, and the temporary migration is scheduled for removal in the next minor release. Verify migration before upgrading further or attempting rollback.
+
 ```typescript
 export class MyAgent extends Agent<Env, State> {
   async onRequest(request: Request) {
-    this.queue("processItem", { id: "abc", data: "..." });
-    this.queue("processItem", { id: "def", data: "..." }, { retry: { maxAttempts: 5 } });
+    await this.queue("processItem", { id: "abc", data: "..." });
+    await this.queue("processItem", { id: "def", data: "..." }, { retry: { maxAttempts: 5 } });
     return new Response("Queued");
   }
 
@@ -23,11 +25,11 @@ export class MyAgent extends Agent<Env, State> {
 ### Queue Management
 
 ```typescript
-const items = this.getQueue();
-const byCallback = this.getQueues("processItem");
-this.dequeue(itemId);
-this.dequeueAll();
-this.dequeueAllByCallback("processItem");
+const item = await this.getQueue(itemId);
+const matchingPayloads = await this.getQueues("id", "abc");
+await this.dequeue(itemId);
+await this.dequeueAll();
+await this.dequeueAllByCallback("processItem");
 ```
 
 ## Retries
@@ -59,7 +61,7 @@ const result = await this.retry(
 ```typescript
 await this.schedule(60, "task", payload, { retry: { maxAttempts: 3 } });
 await this.scheduleEvery(30, "poll", undefined, { retry: { maxAttempts: 2 } });
-this.queue("handler", payload, { retry: { maxAttempts: 5 } });
+await this.queue("handler", payload, { retry: { maxAttempts: 5 } });
 ```
 
 ### Class-level Defaults
@@ -75,5 +77,5 @@ export class MyAgent extends Agent<Env, State> {
 ## Important
 
 - `shouldRetry` only works on `this.retry()` — not on schedule/queue (callbacks aren't serializable)
-- Queue retries block head-of-line; long delays keep the DO awake — use `schedule` for long waits instead
+- Queue retries are sequential. Before 0.24, long in-isolate retry delays can keep the DO awake; 0.24+ delegates them to the Lifecycle alarm queue. Use the installed version's scheduling/retry contract.
 - No dead-letter queue — failed items are removed after retries exhausted
