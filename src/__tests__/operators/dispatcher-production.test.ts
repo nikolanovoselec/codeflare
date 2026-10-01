@@ -26,6 +26,83 @@ const bundle: DispatcherBundle = { schemaVersion: 1, sourceCommit: 'a'.repeat(40
   modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } } };
 const bytes = new TextEncoder().encode(JSON.stringify(bundle));
 const invocation = { repository: 'owner/repo', pullRequest: 17 };
+const genericWire = (path: string, body: unknown) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+
+describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
+  it('exposes the configured API origin only to repository-only Loader code', async () => {
+    for (const repositoryOnly of [false, true]) await fixture(async f => {
+      await start(f);
+      expect((await f.loaderEnv()).GITHUB_API_ORIGIN).toBe(repositoryOnly ? 'https://github.enterprise.test' : undefined);
+      if (repositoryOnly) {
+        for (const body of [
+          { operationId: 'wrong-host', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{}' },
+          { operationId: 'wrong-body', method: 'GET', url: 'https://github.enterprise.test/repos/another/service', body: '{}' },
+          { operationId: 'credential-selector', url: 'https://github.enterprise.test/user', headers: { authorization: 'forged' } },
+        ]) expect((await f.capability.fetch(genericWire('source', body))).status).toBe(403);
+        const controller = new AbortController(); controller.abort();
+        expect((await f.capability.fetch(new Request(genericWire('source', { operationId: 'cancelled-mutation', method: 'POST',
+          url: 'https://github.enterprise.test/repos/another/service/issues/17/comments', body: '{}' }), { signal: controller.signal }))).status).toBe(403);
+        expect(f.sent).toEqual([]);
+        const request = () => genericWire('source', { operationId: 'merge-cas', method: 'PUT',
+          url: 'https://github.enterprise.test/repos/another/service/pulls/17/merge', body: '{"sha":"expected-head"}' });
+        expect((await f.capability.fetch(request())).status).toBe(200);
+        expect((await f.capability.fetch(request())).status).toBe(200);
+        expect(f.sent.filter(value => value.method === 'PUT')).toHaveLength(1);
+        expect(await f.sent.filter(value => value.method === 'PUT')[0].json()).toEqual({ sha: 'expected-head' });
+      }
+    }, { repositoryOnly, githubApiHost: 'github.enterprise.test' });
+  });
+  it('keeps missing or ambiguous package readback unknown and fences revoked installation', async () => {
+    for (const evidence of [[], [{ id: 1 }, { id: 2 }]]) await fixture(async f => {
+      await start(f);
+      const mutation = { operationId: 'ambiguous-comment', method: 'POST',
+        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"judgment"}' };
+      f.loseResponse();
+      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      f.restoreTransport(); f.genericReadback(evidence);
+      const readback = await (await f.capability.fetch(genericWire('source', { operationId: 'ambiguous-read', url: mutation.url }))).json() as { body: string };
+      expect(JSON.parse(readback.body)).toEqual(evidence);
+      // No unique package-validated domain receipt exists: do not call resolve.
+      expect((await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).status).toBe(200);
+      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      f.revoke();
+      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(403);
+      expect(f.sent.filter(value => value.method === 'POST')).toHaveLength(1);
+    }, { repositoryOnly: true });
+  });
+  it('never repeats an uncertain mutation; permits readback and immutable resolution', async () => {
+    await fixture(async f => {
+      await start(f);
+      const mutation = { operationId: 'comment-once', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"judgment"}' };
+      f.loseResponse();
+      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(f.sent.filter(request => request.method === 'POST')).toHaveLength(1);
+      expect(await (await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      const original = await (await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).json() as { requestDigest: string };
+      const unresolved = { operationId: mutation.operationId, requestDigest: original.requestDigest, readbacks: [] };
+      expect((await f.capability.fetch(genericWire('resolve', unresolved))).status).toBe(403);
+      const absent = { operationId: 'missing', requestDigest: 'a'.repeat(64), responseDigest: 'b'.repeat(64) };
+      expect(await (await f.capability.fetch(genericWire('resolve', { ...unresolved, readbacks: [absent] }))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      f.restoreTransport();
+      const readback = { operationId: 'read-comment', url: mutation.url };
+      const evidence = await (await f.capability.fetch(genericWire('source', readback))).json() as { body: string };
+      // Package code validates the remote actor/target/text before asking the generic parent to seal references.
+      expect(JSON.parse(evidence.body)).toEqual([{ id: 91, body: 'judgment', user: { id: 42 } }]);
+      const reference = await (await f.capability.fetch(genericWire('receipt', { operationId: readback.operationId }))).json() as { operationId: string; requestDigest: string; responseDigest: string };
+      const resolution = { ...unresolved, readbacks: [{ operationId: reference.operationId,
+        requestDigest: reference.requestDigest, responseDigest: reference.responseDigest }] };
+      expect(await (await f.capability.fetch(genericWire('resolve', { ...resolution, readbacks: [resolution.readbacks[0], resolution.readbacks[0]] }))).json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      expect(f.sent.filter(request => request.method === 'POST')).toHaveLength(1);
+      f.revokeSession();
+      expect((await f.capability.fetch(genericWire('resolve', resolution))).status).toBe(403);
+    }, { repositoryOnly: true });
+  });
+});
 const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
 const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 async function digest(value: string | Uint8Array) {
@@ -41,10 +118,11 @@ async function fixture(test: (f: {
   settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
-  restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void;
+  restart: () => OperatorActivity; loseResponse: () => void; restoreTransport: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
   messages: (value: unknown[]) => void; input: unknown; revokeSession: () => void;
+  loaderEnv: () => Promise<Record<string, unknown>>; genericReadback: (value: unknown) => void;
   files: (value: unknown[]) => void;
   compose: (value: Record<string, unknown>) => void;
   release: (value: unknown, status?: number) => void;
@@ -54,7 +132,7 @@ async function fixture(test: (f: {
   moveHeadAfterRelease: () => void; expireAfterRead: () => void;
   moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[]; pagedStatus?: boolean } = {}) {
+}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string } = {}) {
   callerSessionCurrent = true;
   const fixtureInvocation = options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -78,6 +156,9 @@ async function fixture(test: (f: {
     let messagesSet = false;
     let aborted: string | undefined;
     let uncertain = false;
+    const genericComments: Array<{ id: number; body: string; user: { id: number } }> = [];
+    let genericReadback: unknown;
+    let loadedEnvironment: Promise<Record<string, unknown>> | undefined;
     let transportThrows = false;
     let emptyResponse = false;
     let upstreamConflict = false;
@@ -154,6 +235,13 @@ async function fixture(test: (f: {
             tag_name: 'v3.2.1', guidance: props.bucket === 'owner-bucket' ? 'Owned authenticated research' : 'Foreign private data',
           });
           sent.push(request);
+          if (request.url.endsWith('/issues/17/comments') && request.method === 'POST') {
+            const data = await request.json() as { body: string };
+            genericComments.push({ id: 91, body: data.body, user: { id: 42 } });
+            if (uncertain) throw new Error('Lost mutation response');
+            return Response.json(genericComments[0], { status: 201 });
+          }
+          if (request.url.endsWith('/issues/17/comments') && request.method === 'GET') return Response.json(genericReadback ?? genericComments);
           if (transportThrows) throw new Error('private transport failure');
           if (emptyResponse) return new Response(null, { status: 200 });
           if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
@@ -216,11 +304,13 @@ async function fixture(test: (f: {
       admitManagement: async (input: unknown) => ({ ok: true, value: { ...input as object, admittedAt: now, selection } }),
       upsertOwnedActivity: async () => {},
     };
-    const environment = { ...encryption, ENTERPRISE_MODE: 'active',
+    const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
       OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
-      LOADER: { get: (_key: string, factory: () => Promise<{ tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
+      LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
         getDurableObjectClass: () => {
-          configuredTail = factory().then(code => code.tails?.[0] as { tail(events: unknown): Promise<void> });
+          const code = factory();
+          loadedEnvironment = code.then(value => value.env);
+          configuredTail = code.then(value => value.tails?.[0] as { tail(events: unknown): Promise<void> });
           return {};
         },
       }) },
@@ -271,6 +361,9 @@ async function fixture(test: (f: {
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; },
+        restoreTransport: () => { uncertain = false; transportThrows = false; },
+        genericReadback: value => { genericReadback = value; },
+        loaderEnv: async () => { if (!loadedEnvironment) throw new Error('Loader not started'); return loadedEnvironment; },
         throwTransport: () => { transportThrows = true; },
         emptyResponse: () => { emptyResponse = true; },
         upstreamConflict: enabled => { upstreamConflict = enabled; },

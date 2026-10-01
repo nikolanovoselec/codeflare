@@ -11,7 +11,7 @@ import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody } from './operator-runtime-capability';
+  readDispatcherBody, dispatcherGithubApiOrigin } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
@@ -73,6 +73,10 @@ interface DispatcherLease {
 }
 interface DispatcherOperationRecord {
   generation: number; requestDigest: string; phase: 'reserved' | 'completed' | 'unknown';
+  request?: { method: 'GET' | 'POST' | 'PUT'; url: string };
+  responseDigest?: string;
+  ordinal?: number;
+  resolution?: { readbacks: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
   response?: { status: number; contentType: string; body: string };
 }
 const DISPATCHER_LEASE = 'dispatcher:lease';
@@ -1428,7 +1432,8 @@ export class OperatorActivity extends Agent {
       const tail = context.exports.OperatorDispatcherTail({ props });
       const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
         plan.activityId, lease.generation, capability, tail,
-        JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null);
+        JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
+        JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined);
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -1634,6 +1639,47 @@ export class OperatorActivity extends Agent {
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
+      if (operation.path === '/v1/dispatcher/receipt' || operation.path === '/v1/dispatcher/resolve') {
+        const { authority, policy } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (!policy.capabilities.includes('fetch') || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+          || JSON.parse(plan.invocationJson).pullRequest !== undefined) return denied();
+        const value = operation.body as { operationId: string; requestDigest?: string;
+          readbacks?: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
+        return await this.ctx.storage.transaction(async tx => {
+          const record = await tx.get<AdmissionState>('admission');
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(record, live, generation)) return denied();
+          const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
+          const original = Object.hasOwn(operations, value.operationId) ? operations[value.operationId] : undefined;
+          if (!original?.request || original.generation !== generation) return denied();
+          if (operation.path.endsWith('/receipt')) return Response.json({ operationId: value.operationId,
+            generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
+            ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}) });
+          if (original.requestDigest !== value.requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+          const readbacks = value.readbacks!;
+          if (original.request.method === 'GET' || new Set(readbacks.map(item => item.operationId)).size !== readbacks.length) return denied();
+          if (original.resolution) return JSON.stringify(original.resolution.readbacks) === JSON.stringify(readbacks)
+            ? Response.json({ resolved: true, operationId: value.operationId, requestDigest: original.requestDigest })
+            : Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+          if (original.phase !== 'unknown') return denied();
+          for (const reference of readbacks) {
+            const readback = Object.hasOwn(operations, reference.operationId) ? operations[reference.operationId] : undefined;
+            if (!readback || readback.generation !== generation || readback.phase !== 'completed'
+              || readback.request?.method !== 'GET' || original.ordinal === undefined || readback.ordinal === undefined
+              || readback.ordinal <= original.ordinal || readback.requestDigest !== reference.requestDigest
+              || readback.responseDigest !== reference.responseDigest) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+            const receipt = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${reference.operationId}`);
+            if (!receipt || receipt.status !== 200 || JSON.parse(receipt.body).status < 200
+              || JSON.parse(receipt.body).status >= 300) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+          }
+          const resolved = { resolved: true, operationId: value.operationId, requestDigest: original.requestDigest };
+          const response = { status: 200, contentType: 'application/json', body: JSON.stringify(resolved) };
+          await tx.put(`dispatcher:response:${value.operationId}`, response);
+          await tx.put(DISPATCHER_OPERATIONS, { ...operations, [value.operationId]: { ...original,
+            phase: 'completed', resolution: { readbacks }, responseDigest: await sha256(response.body) } });
+          return Response.json(resolved);
+        });
+      }
       effectContext = { reconcileOnly: false, authorize: async () => {
         const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher effect session unavailable');
@@ -1673,7 +1719,9 @@ export class OperatorActivity extends Agent {
       }
       if (Object.keys(operations).length >= 128) return { kind: 'denied' } as const;
       await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
-        generation, requestDigest, phase: 'reserved' } satisfies DispatcherOperationRecord });
+        generation, requestDigest, phase: 'reserved', ordinal: Object.keys(operations).length, ...(operation.path === '/v1/dispatcher/source'
+          ? { request: { method: (operation.body as { method?: 'GET' | 'POST' | 'PUT' }).method ?? 'GET',
+            url: (operation.body as { url: string }).url } } : {}) } satisfies DispatcherOperationRecord });
       return { kind: 'reserved', lease: lease! } as const;
     });
     if (reserved.kind === 'denied') {
@@ -1687,7 +1735,9 @@ export class OperatorActivity extends Agent {
     const response = (value: NonNullable<DispatcherOperationRecord['response']>) => new Response(value.body, {
       status: value.status, headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
     if (reserved.kind === 'completed') return response(reserved.response);
-    const readOnly = resource !== 'inference' && resource !== 'comment' && resource !== 'merge';
+    const genericMutation = resource === 'source' && ((operation.body as { method?: string }).method ?? 'GET') !== 'GET';
+    const readOnly = resource !== 'inference' && resource !== 'comment' && resource !== 'merge' && !genericMutation;
+    if (reserved.kind === 'unknown' && genericMutation) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
     try {
       if (reserved.kind === 'unknown' && !readOnly) {
@@ -1736,7 +1786,7 @@ export class OperatorActivity extends Agent {
         }
         await tx.put(`dispatcher:response:${operation.operationId}`, result);
         await tx.put(DISPATCHER_OPERATIONS, { ...operations,
-          [operation.operationId]: { ...prior, phase: 'completed' } });
+          [operation.operationId]: { ...prior, phase: 'completed', responseDigest: await sha256(result.body) } });
         return result;
       });
       if (committedResult.status >= 400) rejected('forwarded-upstream', resource, lease, committedResult.status);
@@ -1750,7 +1800,7 @@ export class OperatorActivity extends Agent {
       });
       // Leave a live write's unknown intent available for read-only reconciliation.
       // Terminal SDK reconciliation still refuses collection while any intent remains unknown.
-      if ((resource !== 'comment' && resource !== 'merge') || !await this.dispatcherGenerationCurrent(generation)) {
+      if ((!genericMutation && resource !== 'comment' && resource !== 'merge') || !await this.dispatcherGenerationCurrent(generation)) {
         await this.interruptDrive(generation);
       }
       rejected(stage, resource, lease, 409);
@@ -2285,13 +2335,14 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
       if (new URL(request.url).origin !== 'https://operator.internal') {
         // The same generation-bound capability services Loader outbound; identity never comes from HTTP headers.
         const operationId = request.headers.get('x-codeflare-operator-operation-id');
-        if (request.method !== 'GET' || !operationId || !/^[A-Za-z0-9_-]{1,128}$/.test(operationId)
+        if (!['GET', 'POST', 'PUT'].includes(request.method) || !operationId || !/^[A-Za-z0-9_-]{1,128}$/.test(operationId)
           || ['authorization', 'cookie', 'cf-access-jwt-assertion', 'x-api-key'].some(name => request.headers.has(name))) {
           return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
         }
         const result = await activity.dispatcherOperation(generation, new Request('https://operator.internal/v1/dispatcher/source', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ operationId, url: request.url }),
+          method: 'POST', signal: request.signal, headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operationId, url: request.url,
+            ...(request.method !== 'GET' ? { method: request.method, body: await readDispatcherBody(request, request.signal) } : {}) }),
         }));
         if (!result.ok) return result;
         const source = JSON.parse(await readDispatcherBody(result));

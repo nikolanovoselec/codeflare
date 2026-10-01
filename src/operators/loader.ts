@@ -13,7 +13,7 @@ interface OperatorLoaderCode {
   compatibilityFlags: string[];
   mainModule: string;
   modules: OperatorBundle['modules'];
-  env: { OPERATOR: Fetcher };
+  env: { OPERATOR: Fetcher; GITHUB_API_ORIGIN?: string };
   globalOutbound: Fetcher | null;
   tails?: Array<{ tail(events: unknown): Promise<void> }>;
 }
@@ -65,6 +65,7 @@ export function loadOperatorDispatcherClass(
   capability: Fetcher,
   tail: { tail(events: unknown): Promise<void> },
   outbound: Fetcher | null = null,
+  githubApiOrigin?: string,
 ): unknown {
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1) {
@@ -75,7 +76,7 @@ export function loadOperatorDispatcherClass(
     compatibilityFlags: bundle.compatibilityFlags,
     mainModule: bundle.mainModule,
     modules: bundle.modules,
-    env: { OPERATOR: capability },
+    env: { OPERATOR: capability, ...(githubApiOrigin ? { GITHUB_API_ORIGIN: githubApiOrigin } : {}) },
     globalOutbound: outbound,
     tails: [tail],
   })).getDurableObjectClass(bundle.className);

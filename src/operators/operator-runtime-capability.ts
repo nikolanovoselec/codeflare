@@ -17,6 +17,7 @@ import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './reg
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherSourceSchema = z.strictObject({ operationId: dispatcherOperationId,
+  method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().max(64 * 1024).optional(),
   url: z.string().max(4096).refine(value => {
     try {
       const url = new URL(value);
@@ -42,22 +43,46 @@ const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperat
     stream_options: z.strictObject({ include_usage: z.literal(true) }).optional(),
   }) });
 
-export type DispatcherOperation = { operationId: string; path: string; body: unknown };
+const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId });
+const dispatcherResolutionSchema = z.strictObject({ operationId: dispatcherOperationId,
+  requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  readbacks: z.array(z.strictObject({ operationId: dispatcherOperationId,
+    requestDigest: z.string().regex(/^[0-9a-f]{64}$/), responseDigest: z.string().regex(/^[0-9a-f]{64}$/) })).min(1).max(16),
+});
+
+export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): string {
+  const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
+  const origin = `https://${host}`;
+  if (new URL(origin).hostname !== host || host.split('.').some(label => !label || label.startsWith('-') || label.endsWith('-'))) {
+    throw new Error('GitHub host invalid');
+  }
+  return origin;
+}
+
+export type DispatcherOperation = { operationId: string; path: string; body: unknown; signal?: AbortSignal };
 
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request): Promise<DispatcherOperation> {
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
-  const value = JSON.parse(await readDispatcherBody(request));
+  const value = JSON.parse(await readDispatcherBody(request, request.signal));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema
     : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema
-    : url.pathname === '/v1/dispatcher/source' ? dispatcherSourceSchema : null;
+    : url.pathname === '/v1/dispatcher/source' ? dispatcherSourceSchema
+    : url.pathname === '/v1/dispatcher/receipt' ? dispatcherReceiptSchema
+    : url.pathname === '/v1/dispatcher/resolve' ? dispatcherResolutionSchema : null;
   if (!schema) throw new Error('Dispatcher route denied');
   const body = schema.parse(value);
-  return { operationId: body.operationId, path: url.pathname, body };
+  if (url.pathname === '/v1/dispatcher/source') {
+    const source = dispatcherSourceSchema.parse(body);
+    if ((source.method ?? 'GET') === 'GET' && source.body !== undefined) throw new Error('GET body denied');
+    if ((source.method ?? 'GET') !== 'GET' && source.body === undefined) throw new Error('Mutation body required');
+  }
+  return { operationId: body.operationId, path: url.pathname, body, signal: request.signal };
 }
 
 /** Shared byte ceiling for requests, child admission/status and persisted effect output. */
@@ -145,6 +170,7 @@ export async function createDispatcherOperation(input: {
     // Repository-only packages own source selection. Legacy single-PR profiles retain their fixed reads.
     if (parent.pullRequest !== undefined) throw new Error('Legacy Dispatcher source selection denied');
     const sourceCurrent = async () => {
+      if (operation.signal?.aborted) throw new Error('Dispatcher caller cancelled');
       await current();
       if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
         throw new Error('Dispatcher caller session expired');
@@ -153,7 +179,11 @@ export async function createDispatcherOperation(input: {
     await sourceCurrent();
     const source = dispatcherSourceSchema.parse(operation.body);
     const url = new URL(source.url);
+    const method = source.method ?? 'GET';
     const github = interceptedGithubHosts(env).includes(url.hostname);
+    if (method !== 'GET' && (!github || url.origin !== dispatcherGithubApiOrigin(env))) {
+      throw new Error('Mutation transport denied');
+    }
     const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
     if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
     const bucket = await resolveBucketName(env, authority.human.email);
@@ -164,22 +194,29 @@ export async function createDispatcherOperation(input: {
       : { bucket, strict: true } });
     return async () => {
       await sourceCurrent();
-      const signal = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
+      const timeout = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
+      const signal = operation.signal ? AbortSignal.any([timeout, operation.signal]) : timeout;
       let response: Response;
       try {
-        response = await transport.fetch(new Request(url, { redirect: 'manual', signal,
-          headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher' } }));
+        response = await transport.fetch(new Request(url, { method, body: source.body, redirect: 'manual', signal,
+          headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher',
+            ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}) } }));
       } catch {
         await sourceCurrent();
+        if (method !== 'GET') throw new Error('Mutation response unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
       }
       let body: string;
       try { body = response.body ? await readDispatcherBody(response, signal) : ''; }
       catch {
         await sourceCurrent();
+        if (method !== 'GET') throw new Error('Mutation body unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
       await sourceCurrent();
+      if (method !== 'GET' && (signal.aborted || response.status >= 500 || (response.status >= 300 && response.status < 400))) {
+        throw new Error('Mutation outcome unknown');
+      }
       if (signal.aborted) return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
       // Only response metadata needed for provenance, paging and explicit redirects crosses the boundary.
       const headers: Record<string, string> = {};
@@ -189,9 +226,11 @@ export async function createDispatcherOperation(input: {
       }
       const envelope = JSON.stringify({ url: url.href, status: response.status, headers, body });
       if (envelope.includes(authority.accessJwt)) {
+        if (method !== 'GET') throw new Error('Mutation receipt unavailable');
         return Response.json({ code: 'OPERATOR_SOURCE_CREDENTIAL_REFLECTION' }, { status: 422 });
       }
       if (new TextEncoder().encode(envelope).byteLength > 64 * 1024) {
+        if (method !== 'GET') throw new Error('Mutation receipt incomplete');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
       return new Response(envelope, { headers: { 'content-type': 'application/json' } });

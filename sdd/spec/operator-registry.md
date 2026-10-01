@@ -128,7 +128,11 @@ This release extends the existing Operator foundation with GitHub package instal
 5. Completed output is bounded and durable before delivery; unknown completion is fenced. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 6. Parent-composed profiles confine independent SDK task sessions to finite parent-approved input references, exact filesystem reads and outputs, immutable report staging, and no candidate extension or broader Host access. <!-- @impl: src/operators/session-initialization.ts::parseOperatorPiInitialization --> <!-- @impl: host/src/operator-pi-isolated.ts::createIsolatedPiTools --> <!-- @impl: host/src/operator-pi-isolated-runner.ts::runApprovedTasks --> <!-- @test: src/__tests__/operators/session-initialization.test.ts (REQ-OPERATOR-021: finite parent-approved Pi initialization) --> <!-- @test: host/__tests__/operator-pi-review.test.js (REQ-OPERATOR-021: Review composition exposes only fixed sandboxed read and write tools) --> <!-- @test: host/__tests__/operator-pi-isolated.test.js (REQ-OPERATOR-021: each SDK child sees only its declared inputs and can stage one immutable bounded output) --> <!-- @test: host/__tests__/operator-pi-isolated-runner.test.js (REQ-OPERATOR-021: one structured task creates independently isolated SDK sessions and durable identities) -->
 
-**Notes:** The isolated child-session candidate and restored-input tests are local and unverified by exact-head CI or the real protected Action; do not claim live acceptance from these anchors.
+7. Repository-only Dispatcher source transport accepts bounded GET/POST/PUT operations with immutable IDs and bodies; mutations use only the original parent's configured authenticated GitHub API transport. Unknown mutations preserve the generation for readbacks and never replay. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) -->
+8. Approved package code validates domain readback semantics before requesting generic resolution. The parent seals only original request-digest and immutable later completed GET receipt references in the same authorized Activity/generation; missing references, conflicts and revoked authority cannot resolve. The unresolved completion fence remains. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) -->
+9. Repository-only Loader code receives the validated non-secret configured GitHub API origin; legacy bindings remain unchanged. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) -->
+
+**Notes:** The isolated child-session candidate, restored-input tests and generic mutation/resolution candidate are local and unverified by exact-head CI or the real protected Action; do not claim live acceptance from these anchors. Generic wire: [Dispatcher transport](../../documentation/lanes/dispatcher-generic-transport.md).
 
 **Constraints:** Profile admission can only narrow verified human authority.
 
@@ -136,9 +140,9 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-003](operators.md#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Adjacent admission and production-composition tests cover the delivered behavior; exact-head CI remains outstanding.
+**Verification:** Adjacent admission and production-composition tests cover the implemented candidate behavior; generic mutation/resolution tests have not been executed. Exact-head CI remains outstanding.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
