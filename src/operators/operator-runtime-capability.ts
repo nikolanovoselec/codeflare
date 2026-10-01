@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
   resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
@@ -15,6 +16,14 @@ import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const dispatcherSourceSchema = z.strictObject({ operationId: dispatcherOperationId,
+  url: z.string().max(4096).refine(value => {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password && !url.hash
+        && !url.port && url.hostname !== 'operator.internal';
+    } catch { return false; }
+  }) });
 const dispatcherTargetSchema = z.strictObject({ pullRequest: z.number().safe().int().positive(),
   headSha: z.string().regex(/^[0-9a-f]{40}$/) });
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
@@ -35,7 +44,7 @@ const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperat
 
 export type DispatcherOperation = { operationId: string; path: string; body: unknown };
 
-/** Bounded transport wire: no arbitrary destination, headers, identity, model or resource selection. */
+/** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request): Promise<DispatcherOperation> {
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
@@ -44,28 +53,33 @@ export async function parseDispatcherOperation(request: Request): Promise<Dispat
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema
-    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema : null;
+    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema
+    : url.pathname === '/v1/dispatcher/source' ? dispatcherSourceSchema : null;
   if (!schema) throw new Error('Dispatcher route denied');
   const body = schema.parse(value);
   return { operationId: body.operationId, path: url.pathname, body };
 }
 
 /** Shared byte ceiling for requests, child admission/status and persisted effect output. */
-export async function readDispatcherBody(message: Request | Response): Promise<string> {
+export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let size = 0;
   let value = '';
+  const abort = () => { void reader.cancel(signal?.reason).catch(() => {}); };
+  signal?.addEventListener('abort', abort, { once: true });
   try {
     for (;;) {
+      if (signal?.aborted) throw signal.reason;
       const chunk = await reader.read();
+      if (signal?.aborted) throw signal.reason;
       if (chunk.done) return value + decoder.decode();
       size += chunk.value.byteLength;
       if (size > 64 * 1024) throw new Error('Dispatcher body exceeds limit');
       value += decoder.decode(chunk.value, { stream: true });
     }
-  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
 /** Current management authority is re-opened for each effect; receipt pins are never refreshed. */
@@ -127,6 +141,62 @@ export async function createDispatcherOperation(input: {
   };
   const inference = operation.path === '/v1/dispatcher/inference';
   if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
+  if (operation.path === '/v1/dispatcher/source') {
+    // Repository-only packages own source selection. Legacy single-PR profiles retain their fixed reads.
+    if (parent.pullRequest !== undefined) throw new Error('Legacy Dispatcher source selection denied');
+    const sourceCurrent = async () => {
+      await current();
+      if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
+        throw new Error('Dispatcher caller session expired');
+      }
+    };
+    await sourceCurrent();
+    const source = dispatcherSourceSchema.parse(operation.body);
+    const url = new URL(source.url);
+    const github = interceptedGithubHosts(env).includes(url.hostname);
+    const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
+    if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
+    const bucket = await resolveBucketName(env, authority.human.email);
+    // Managed installations grant capabilities, not a manufactured legacy OperatorPolicy.
+    // No resource credentials or account-scoped Gateway exemption are granted by fetch.
+    const transport = entrypoint({ props: github
+      ? { user: authority.human.email, bucket, strict: true }
+      : { bucket, strict: true, resourcePolicy: 'mutable' } });
+    return async () => {
+      await sourceCurrent();
+      const signal = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
+      let response: Response;
+      try {
+        response = await transport.fetch(new Request(url, { redirect: 'manual', signal,
+          headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher' } }));
+      } catch {
+        await sourceCurrent();
+        return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
+      }
+      let body: string;
+      try { body = response.body ? await readDispatcherBody(response, signal) : ''; }
+      catch {
+        await sourceCurrent();
+        return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
+      }
+      await sourceCurrent();
+      if (signal.aborted) return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
+      // Only response metadata needed for provenance, paging and explicit redirects crosses the boundary.
+      const headers: Record<string, string> = {};
+      for (const name of ['content-type', 'etag', 'last-modified', 'date', 'link', 'location']) {
+        const value = response.headers.get(name);
+        if (value !== null) headers[name] = value;
+      }
+      const envelope = JSON.stringify({ url: url.href, status: response.status, headers, body });
+      if (envelope.includes(authority.accessJwt)) {
+        return Response.json({ code: 'OPERATOR_SOURCE_CREDENTIAL_REFLECTION' }, { status: 422 });
+      }
+      if (new TextEncoder().encode(envelope).byteLength > 64 * 1024) {
+        return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
+      }
+      return new Response(envelope, { headers: { 'content-type': 'application/json' } });
+    };
+  }
   const phase = operation.path === '/v1/dispatcher/github/comment' ? 'comment'
     : operation.path === '/v1/dispatcher/github/merge' ? 'merge' : undefined;
   const effect = phase === 'comment' ? dispatcherCommentSchema.parse(operation.body)

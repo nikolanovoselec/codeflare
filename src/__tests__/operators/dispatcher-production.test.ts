@@ -10,10 +10,12 @@ import { setLogLevel } from '../../lib/logger';
 import type { DispatcherBundle } from '../../operators/distribution';
 import type { Env } from '../../types';
 
+let callerSessionCurrent = true;
 vi.mock('../../lib/access', async original => ({ ...await original<typeof import('../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
+  operatorAccessSessionCurrent: async () => callerSessionCurrent,
   loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['approved'], defaultRoute: 'approved', defaultReasoning: 'off' }),
 }));
 vi.mock('../../lib/aig-config', () => ({ getAigConfig: async () => ({ gatewayUrl: 'https://gateway.example.test', token: 'parent-only' }) }));
@@ -42,7 +44,7 @@ async function fixture(test: (f: {
   restart: () => OperatorActivity; loseResponse: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
-  messages: (value: unknown[]) => void;
+  messages: (value: unknown[]) => void; input: unknown; revokeSession: () => void;
   files: (value: unknown[]) => void;
   compose: (value: Record<string, unknown>) => void;
   release: (value: unknown, status?: number) => void;
@@ -52,7 +54,9 @@ async function fixture(test: (f: {
   moveHeadAfterRelease: () => void; expireAfterRead: () => void;
   moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number } = {}) {
+}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[] } = {}) {
+  callerSessionCurrent = true;
+  const fixtureInvocation = options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
@@ -61,7 +65,7 @@ async function fixture(test: (f: {
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
-    const policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null };
+    const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null };
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: 'operator', revision: 1,
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
     operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] } },
@@ -105,7 +109,7 @@ async function fixture(test: (f: {
           aborted = (await activity.getBrowserDetail())?.executionStatus;
           return Response.json({ ok: true });
         }
-        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1' }, { status: 202 });
+        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1', offset: 'admission-cursor' }, { status: 202 });
         return Response.json({ settlements, messages });
       },
     };
@@ -121,7 +125,13 @@ async function fixture(test: (f: {
             if (stage) deliveredTail.push({ ...props, stage });
           },
         }),
-        GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+        EgressController: () => ({ fetch: async () => new Response('Official migration guidance', {
+          headers: { 'content-type': 'text/plain', etag: 'guide-v3', 'set-cookie': 'private-session' },
+        }) }),
+        GitHubInterceptor: ({ props }: { props: { bucket: string } }) => ({ fetch: async (request: Request) => {
+          if (request.url.includes('/repos/community/compiler')) return Response.json({
+            tag_name: 'v3.2.1', guidance: props.bucket === 'owner-bucket' ? 'Owned authenticated research' : 'Foreign private data',
+          });
           sent.push(request);
           if (transportThrows) throw new Error('private transport failure');
           if (emptyResponse) return new Response(null, { status: 200 });
@@ -196,7 +206,7 @@ async function fixture(test: (f: {
     } as unknown as Env;
     const activityEnvironment = environment as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     activity = new OperatorActivity(context, activityEnvironment);
-    const invocationJson = JSON.stringify(invocation);
+    const invocationJson = JSON.stringify(fixtureInvocation);
     const execution = await createOperatorExecutionContext({ activityId, operatorId: 'operator', artifactDigest,
       policyDigest: await digest(JSON.stringify(policy)), human, accessJwt: 'private.jwt' }, encryption);
     await activity.prepareAuthorized({ activityId, operatorId: 'operator', installationId: 'installation',
@@ -221,6 +231,7 @@ async function fixture(test: (f: {
             } }] }];
           }
         },
+        input: fixtureInvocation, revokeSession: () => { callerSessionCurrent = false; },
         messages: value => { messages = value; messagesSet = true; },
         files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
         release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
@@ -288,7 +299,7 @@ function read(operationId = 'read-1', extra = {}) {
 }
 async function start(f: Parameters<Parameters<typeof fixture>[0]>[0]) {
   return driveDispatcherRuntime({ activity: f.activity, deadline: Date.now() + 25_000,
-    bundle, artifactDigest: f.artifactDigest, invocation });
+    bundle, artifactDigest: f.artifactDigest, invocation: f.input });
 }
 
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
@@ -1166,5 +1177,47 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const plan = await f.activity.getRuntimePlan();
     await runOperatorActivity(plan!.activityId, f.environment, () => { throw new Error('default capability must not be selected'); });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+});
+
+function sourceRead(operationId: string, url: string, extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/source', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, url, ...extra }) });
+}
+describe('REQ-OPERATOR-047: package-selected research under managed parent authority', () => {
+  it('reads an independently selected GitHub repository with the original owner, without a Dozzle allowlist', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(sourceRead('source-gh', 'https://api.github.com/repos/community/compiler/releases/tags/v3.2.1'));
+    expect(response.status).toBe(200);
+    const receipt = await response.json() as { status: number; body: string };
+    expect(receipt.status).toBe(200);
+    expect(JSON.parse(receipt.body)).toEqual({ tag_name: 'v3.2.1', guidance: 'Owned authenticated research' });
+  }, { repositoryOnly: true }));
+  it('returns bounded Internet content and provenance without upstream session cookies', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(sourceRead('source-web', 'https://docs.example.test/migration'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: 'https://docs.example.test/migration', status: 200,
+      headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
+  }, { repositoryOnly: true }));
+  it('denies identity, credential and write substitution while allowing the legitimate source read', () => fixture(async f => {
+    await start(f);
+    for (const extra of [{ user: 'foreign@example.test' }, { headers: { authorization: 'foreign' } }, { method: 'POST' }]) {
+      expect((await f.capability.fetch(sourceRead('forged', 'https://docs.example.test/migration', extra))).status).toBe(403);
+    }
+    expect((await f.capability.fetch(sourceRead('valid', 'https://docs.example.test/migration'))).status).toBe(200);
+  }, { repositoryOnly: true }));
+  it('denies a missing registered fetch capability', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(sourceRead('denied', 'https://docs.example.test/migration'))).status).toBe(403);
+  }, { repositoryOnly: true, capabilities: ['inference'] }));
+  it('denies research after the original caller session is revoked', () => fixture(async f => {
+    await start(f);
+    f.revokeSession();
+    expect((await f.capability.fetch(sourceRead('revoked', 'https://docs.example.test/migration'))).status).toBe(403);
+  }, { repositoryOnly: true }));
+  it('keeps the legacy single-PR package confined to its original interface', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(sourceRead('legacy', 'https://docs.example.test/migration'))).status).toBe(403);
   }));
 });
