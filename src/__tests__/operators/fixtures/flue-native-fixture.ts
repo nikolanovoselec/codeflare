@@ -685,7 +685,7 @@ export class FlueDispatcherAgent extends Pinned {
     const operations = await this.ctx.storage.get<Record<string, { path: string; body: unknown }>>('fixture:journey-operations') ?? {};
     if (operation.path === '/v1/dispatcher/receipt') {
       const prior = operations[operation.operationId];
-      if (!prior || prior.path !== '/v1/dispatcher/source') return new Response(null, { status: 403 });
+      if (!prior || prior.path !== '/v1/dispatcher/source') return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
       const source = prior.body as { url: string; method?: string };
       await this.ctx.storage.put('fixture:journey-receipt-count', Object.keys(operations).length);
       return Response.json({ operationId: operation.operationId, generation: 1, requestDigest: 'a'.repeat(64),
