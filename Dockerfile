@@ -276,8 +276,8 @@ RUN LAZYGIT_VERSION="0.65.1" && \
 #
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.10.0" && \
-    SILVERBULLET_SHA256="ca33f7de3bae2f2e7d95cdd2cca1a023e51267388c9dbc8ff5acc33b1cbd5a7d" && \
+RUN SILVERBULLET_VERSION="2.11.1" && \
+    SILVERBULLET_SHA256="82af0d5d008c377cdb4b49dbd21db0d21f8d14619efa40b0fdeae1dce778d018" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
