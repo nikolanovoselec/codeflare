@@ -271,6 +271,8 @@ export async function createDispatcherOperation(input: {
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
     const aig = await getAigConfig(env);
     const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
+      // Existing native replay storage needs a stable owner-scoped namespace, not a workspace session.
+      sessionId: plan.activityId,
       gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
       operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted } } });
     const value = dispatcherInferenceSchema.parse(operation.body);

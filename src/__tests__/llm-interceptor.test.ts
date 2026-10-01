@@ -36,6 +36,10 @@ import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import type { OperatorPolicy } from '../operators/policy';
+import { createDispatcherOperation, parseDispatcherOperation } from '../operators/operator-runtime-capability';
+import { createOperatorExecutionContext } from '../operators/execution-context';
+import type { OperatorRuntimePlan } from '../operators/activity';
+import * as access from '../lib/access';
 import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
@@ -947,6 +951,63 @@ describe('native provider authorization and compat dispatch', () => {
       'setup:native_ai_targets': serializeNativeAiTargets({ schemaVersion: 1, targets: includeTarget ? [{ ...target, verification }] : [] }),
     } };
   }
+
+  it('REQ-OPERATOR-048: Dispatcher uses real native inference with stable Activity-isolated signed tool replay', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v5' });
+    const kv = fixture.kv as Record<string, string>;
+    const encryption = Buffer.alloc(32, 7).toString('base64');
+    const installationPolicy = { capabilities: ['inference', 'fetch'], resourceProfileId: null };
+    const selection = { controlsRevision: 1, installation: { id: 'installation', revision: 1, policy: installationPolicy },
+      operator: { profile: 'dispatcher', revision: 1, invokers: { users: [SESSION_USER], groups: [] } },
+      release: { bundleDigest: 'a'.repeat(64) } };
+    const environment = { ENCRYPTION_KEY: encryption, AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN,
+      KV: { get: async (key: string, type?: string) => type === 'json' && kv[key] ? JSON.parse(kv[key]) : kv[key] ?? null },
+      OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
+    } as unknown as Env;
+    vi.spyOn(access, 'resolveOperatorGroupIdentity').mockImplementation(async human => human);
+    vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue(['engineering']);
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: [fixture.handle], defaultRoute: fixture.handle, defaultReasoning: 'medium',
+      routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
+    const parentExports = { LlmInterceptor: ({ props }: { props: any }) => makeInterceptor(
+      { __kv: kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props, (key, value) => { kv[key] = value; }),
+    } as unknown as Parameters<typeof createDispatcherOperation>[0]['exports'];
+    const inference = async (activityId: string, messages: unknown[]) => {
+      const now = Math.floor(Date.now() / 1000);
+      const executionContext = await createOperatorExecutionContext({ activityId, operatorId: 'operator', artifactDigest: 'a'.repeat(64),
+        policyDigest: 'b'.repeat(64), human: { ...jwtAuthority.human, issuedAt: now - 1, expiresAt: now + 300 }, accessJwt: jwtAuthority.accessJwt }, environment);
+      const plan = { activityId, deadline: (now + 300) * 1000, invocationJson: JSON.stringify({ repository: 'authorized/project' }),
+        executionContext, receipt: { selection } } as unknown as OperatorRuntimePlan;
+      const operation = await parseDispatcherOperation(new Request('https://operator.internal/v1/dispatcher/inference', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId: crypto.randomUUID(),
+          input: { stream: true, messages, tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] } }),
+      }));
+      return (await createDispatcherOperation({ plan, env: environment, operation, exports: parentExports, current: async () => true }))();
+    };
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => bedrockToolResponse([
+      { type: 'thinking', thinking: 'Plan', signature: 'signed-native-replay' },
+      { type: 'tool_use', id: 'call_dispatcher', name: 'lookup', input: {} },
+    ], 'eventstream'));
+    const first = await inference('activity-one', [{ role: 'user', content: 'Research' }]);
+    expect(first.status).toBe(200);
+    const turn = await readOpenAiToolTurn(first);
+    expect(turn.message.tool_calls[0].function.name).toBe('lookup');
+    expect(turn.wire).not.toContain('signed-native-replay');
+    const continuation = [{ role: 'user', content: 'Research' }, turn.message,
+      { role: 'tool', tool_call_id: turn.message.tool_calls[0].id, content: 'Found' }];
+    let replayBody: unknown;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      replayBody = await (input as Request).json();
+      return bedrockToolResponse([{ type: 'text', text: 'Verified answer' }], 'eventstream');
+    });
+    const second = await inference('activity-one', continuation);
+    expect(second.status).toBe(200);
+    expect(await second.text()).toContain('Verified answer');
+    expect(JSON.stringify(replayBody)).toContain('signed-native-replay');
+    const foreign = await inference('activity-two', continuation);
+    expect(foreign.status).toBe(400);
+    expect(await foreign.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+  });
 
   it('REQ-ENTERPRISE-050: dispatches an authorized native handle once through compat with its Worker-only model selector', async () => {
     const fixture = nativeFixture();
