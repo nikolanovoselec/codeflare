@@ -76,7 +76,7 @@ describe('manual deploys cannot skip tests', () => {
 
   it('runs PR Checks inline only when automatic exact-tree resolution finds no reusable run', () => {
     const verify = deployWorkflow.jobs.verify;
-    assert.equal(verify.uses, './.github/workflows/test.yml');
+    assert.equal(verify.uses, '$/.github/workflows/test.yml');
     assert.equal(verify.needs, 'verify-existing');
     const gate = condition('verify');
     const base = {

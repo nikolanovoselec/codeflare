@@ -108,6 +108,52 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(await queryRecoveredKey({ configure: true, expire: true })).toBeUndefined();
   });
 
+  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', async () => {
+    const worker = VAULT_NATIVE_SERVICE_WORKER_JS;
+    const logs: string[] = [];
+    const output = {
+      info: () => logs.push('info'),
+      error: () => logs.push('error'),
+      warn: () => logs.push('warn'),
+    };
+    const received: unknown[] = [];
+    const clients: Array<{ postMessage(value: unknown): void }> = [];
+    const start = worker.indexOf('function b(o){');
+    const end = worker.indexOf('var Ei=', start);
+    const broadcast = new Function('self', 'console', `${worker.slice(start, end)}return b;`)(
+      { clients: { matchAll: async () => clients } }, output,
+    );
+    broadcast({ type: 'auth-error', message: 'AUTH_GATE', actionOrRedirectHeader: '.auth' });
+    await Promise.resolve();
+    expect(logs).toEqual([]);
+
+    clients.push({ postMessage(value) { received.push(value); } });
+    const callbackStart = worker.indexOf('(f,y)=>{') + '(f,y)=>{'.length;
+    const callbackEnd = worker.indexOf('},void 0,d,"sync")', callbackStart);
+    for (const [error, expectedLevel, configured] of [
+      ['AUTH_GATE', 'info', false], ['UNEXPECTED_FAILURE', 'error', true],
+    ] as const) {
+      logs.length = 0;
+      received.length = 0;
+      const router = { configured: true, reset() { this.configured = false; } };
+      const proxyError = new Function('console', 'se', 'g', 'b', `return (f,y)=>{${worker.slice(callbackStart, callbackEnd)}};`)(
+        output, { message: 'AUTH_GATE' }, router, broadcast,
+      );
+      proxyError(error, '.auth');
+      await Promise.resolve();
+      expect(logs).toEqual([expectedLevel]);
+      expect(router.configured).toBe(configured);
+      // Intentional auth-error wire envelope is preserved through the real broadcaster.
+      expect(received).toEqual([{ type: 'auth-error', message: error, actionOrRedirectHeader: '.auth' }]);
+    }
+    logs.length = 0;
+    const syncStart = worker.indexOf('console.warn("Sync space error",');
+    const syncEnd = worker.indexOf('}', syncStart);
+    new Function('console', 'n', worker.slice(syncStart, syncEnd))(output, new Error('retry'));
+    expect(logs).toEqual(['warn']);
+    expect(() => graftVaultKeyRecovery('invalid upstream artifact')).toThrow(/anchor/);
+  });
+
   // REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the graft NEUTERS the upstream proactive
   // 5s "no window clients" key flush so the in-memory AES key `y` is retained while
   // the worker lives. Upstream wiped `y` during the bootstrap-hop -> editor 0-client
