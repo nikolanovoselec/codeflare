@@ -721,9 +721,10 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
     // WebSocket responses cannot cross the DO RPC serialization boundary.
-    // Stub.fetch has native WebSocket response transport; keep the terminal
-    // path on the same no-start private-port forwarding used for health probes.
-    if (new URL(request.url).pathname === '/terminal' &&
+    // Stub.fetch has native WebSocket response transport; keep terminal and IDE
+    // sockets on the same no-start private-port forwarding used for health probes.
+    const pathname = new URL(request.url).pathname;
+    if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
         request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       return this.forwardExisting(request);
     }

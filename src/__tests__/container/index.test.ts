@@ -1426,25 +1426,87 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(response.status).toBe(503);
     });
 
-    it('REQ-SESSION-012 AC4: native terminal fetch probes only the existing port when SDK state is stale', async () => {
-      mockContainerRuntime.running = false;
-      mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? 'existing-token' : null);
-      mockTcpPortFetch.mockResolvedValue(new Response('surviving terminal', { status: 200 }));
-      mockContainerRuntime.start.mockImplementation(() => { throw new Error('replacement started'); });
+    async function assertNativeUpgrade(path: string, running: boolean) {
+      mockContainerRuntime.running = running;
+      const token = 'existing-token';
+      const persisted = new Map<string, unknown>([['containerAuthToken', token], ['lifecycleGeneration', 7]]);
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; throw new Error('replacement started'); });
+      mockTcpPortFetch.mockImplementation(async (request: Request) => {
+        const url = new URL(request.url);
+        if (url.protocol !== 'http:' || url.hostname !== 'container' || url.pathname !== path
+          || url.search !== '?reconnect=a%2Fb&empty=&bare'
+          || request.headers.get('Authorization') !== `Bearer ${token}`
+          || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+          return new Response('Invalid private-port identity', { status: 401 });
+        }
+        const pair = new WebSocketPair();
+        pair[1].accept();
+        pair[1].addEventListener('message', event => pair[1].send(event.data));
+        pair[1].addEventListener('close', () => pair[1].close(1000));
+        return new Response(null, { status: 101, webSocket: pair[0] });
+      });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
-      const superFetchSpy = vi.spyOn(proto, 'fetch');
+      // Reuse the existing native DO harness namespace (no Docker startup).
+      // Dispatch the actual container override through Stub.fetch; only the
+      // private port/SDK platform collaborators are fixtures, not fetch().
+      const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+      const nativeStub = namespace.get(namespace.newUniqueId());
+      await runInDurableObject(nativeStub, async (nativeInstance: any) => {
+        nativeInstance.fetch = (request: Request) => instance.fetch(request);
+      });
+      const response = await nativeStub.fetch(new Request(`https://codeflare.ch${path}?reconnect=a%2Fb&empty=&bare`, {
+        headers: { Upgrade: 'websocket', Authorization: 'Bearer forged' },
+      }));
+      expect(response.status).toBe(101);
+      const socket = response.webSocket!;
+      expect(socket).not.toBeNull();
+      socket.accept();
       try {
-        const response = await instance.fetch(new Request('https://example.com/terminal?tab=1', {
-          headers: { Upgrade: 'websocket' },
-        }));
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe('surviving terminal');
-        expect(mockTcpPortFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET' }));
-        expect(superFetchSpy).not.toHaveBeenCalled();
-      } finally {
-        superFetchSpy.mockRestore();
-      }
+        const payload = Uint8Array.from({ length: 256 * 1024 }, (_, index) => index % 251);
+        const reply = new Promise<unknown>((resolve, reject) => {
+          socket.addEventListener('message', event => resolve(event.data), { once: true });
+          socket.addEventListener('close', () => reject(new Error('Closed before protocol echo')), { once: true });
+        });
+        socket.send(payload);
+        expect(new Uint8Array(await reply as ArrayBuffer)).toEqual(payload);
+        expect(started).toBe(false);
+        expect(persisted.get('lifecycleGeneration')).toBe(7);
+      } finally { socket.close(1000); }
+    }
+
+    it('REQ-SESSION-012 AC4: native terminal fetch probes only the existing port when SDK state is stale', async () => {
+      await assertNativeUpgrade('/terminal', false);
+    });
+
+    it.each([
+      ['/terminal', true],
+      ['/api/vscode/abcdef1234567890/ws', true],
+      ['/api/vscode/abcdef1234567890/ws', false],
+    ] as const)('REQ-IDE-001 AC3/AC6 / REQ-SESSION-012 AC4: native %s upgrade survives SDK running=%s without restarting', async (path, running) => {
+      await assertNativeUpgrade(path, running);
+    });
+
+    it.each(['missing token', 'absent port'])('REQ-IDE-001 AC5 / REQ-SESSION-012 AC4: native editor %s returns 503 without a replacement generation', async reason => {
+      mockContainerRuntime.running = false;
+      const persisted = new Map<string, unknown>([['lifecycleGeneration', 7]]);
+      if (reason === 'absent port') persisted.set('containerAuthToken', 'existing-token');
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      mockTcpPortFetch.mockRejectedValue(new Error('no existing process'));
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; mockContainerRuntime.running = true; });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const response = await instance.fetch(new Request('https://codeflare.ch/api/vscode/abcdef1234567890/ws', {
+        headers: { Upgrade: 'websocket' },
+      }));
+      expect(response.status).toBe(503);
+      expect(await response.text()).toBe('Existing container unavailable');
+      expect(started).toBe(false);
+      expect(mockContainerRuntime.running).toBe(false);
+      expect(persisted.get('lifecycleGeneration')).toBe(7);
     });
 
     it('should allow internal routes when container is not running', async () => {
