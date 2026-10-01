@@ -56,7 +56,8 @@ const mockContainerFetch = vi.fn().mockResolvedValue(new Response('ide', { statu
 const mockNativeFetch = vi.fn(async (_request: Request): Promise<Response> => {
   throw new Error('Native transport unavailable');
 });
-vi.mock('@cloudflare/containers', () => ({
+vi.mock('@cloudflare/containers', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@cloudflare/containers')>(),
   getContainer: vi.fn(() => ({ fetch: mockNativeFetch, forwardExisting: mockContainerFetch })),
 }));
 
@@ -422,7 +423,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     const nativeStub = namespace.get(namespace.newUniqueId());
     // Reuse the existing native DO harness; a toy endpoint avoids Docker and
     // code-server startup. The real route/guards and Stub.fetch run unchanged.
-    await runInDurableObject(nativeStub, async (instance: any) => {
+    await runInDurableObject<DurableObject, void>(nativeStub as DurableObjectStub<DurableObject>, async instance => {
       instance.fetch = async (forwarded: Request) => {
         const url = new URL(forwarded.url);
         if (url.pathname !== `/api/vscode/${SID}/ws` || url.search !== query

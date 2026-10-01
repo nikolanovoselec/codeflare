@@ -1454,7 +1454,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // private port/SDK platform collaborators are fixtures, not fetch().
       const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
       const nativeStub = namespace.get(namespace.newUniqueId());
-      await runInDurableObject(nativeStub, async (nativeInstance: any) => {
+      await runInDurableObject<DurableObject, void>(nativeStub as DurableObjectStub<DurableObject>, async nativeInstance => {
         nativeInstance.fetch = (request: Request) => instance.fetch(request);
       });
       const response = await nativeStub.fetch(new Request(`https://codeflare.ch${path}?reconnect=a%2Fb&empty=&bare`, {
