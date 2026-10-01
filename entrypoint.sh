@@ -4736,12 +4736,15 @@ NODE
     )
     install -d -m 0700 "$operator_root" "$operator_root/work" "$operator_root/agent" \
         "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare" "$USER_HOME/Operators"
-    # Only managed routing is copied: user-authenticated built-in/custom provider
-    # entries may carry inline secrets even when auth.json is kept separate.
-    if [ -f "$USER_HOME/.pi/agent/models.json" ]; then
-        jq '{providers: {"codeflare-gateway": .providers["codeflare-gateway"]}}' "$USER_HOME/.pi/agent/models.json" > "$operator_root/agent/models.json"
-        chmod 0600 "$operator_root/agent/models.json"
+    # Use the image-owned routing publication, never a user-editable provider
+    # document: even the managed provider alias may contain personal inline keys.
+    local operator_routing="${PI_PROVIDER_CONFIG:-}"
+    if [ -z "${operator_routing//[[:space:]]/}" ]; then
+        echo "[entrypoint] Managed Operator routing unavailable" >&2
+        return 1
     fi
+    printf '%s\n' "$operator_routing" | jq -e '{providers: {"codeflare-gateway": (.providers["codeflare-gateway"] // error("managed Operator routing unavailable"))}}' > "$operator_root/agent/models.json"
+    chmod 0600 "$operator_root/agent/models.json"
     for trusted_file in settings.json; do
         if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
             install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"

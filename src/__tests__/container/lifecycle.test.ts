@@ -885,13 +885,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.cloudflare.com', expect.anything());
     });
 
-    it('does NOT wire in enterprise mode even with an oauth placeholder + bucket (never claims the enterprise host)', async () => {
-      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+    it('does not bind the OAuth credential injector in Enterprise mode when native provider interception claims the host)', async () => {
+      const { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor } = makeWiringCtx();
       const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' });
       (instance as any)._cloudflareApiToken = 'codeflare-oauth';
       (instance as any)._bucketName = 'user-bucket';
       await instance.startAndWaitForPorts(8080);
-      expect(interceptOutboundHttps).not.toHaveBeenCalledWith('api.cloudflare.com', expect.anything());
+      expect(CloudflareBrowserInterceptor).not.toHaveBeenCalledWith({ props: { bucket: 'user-bucket' } });
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', expect.anything());
     });
 

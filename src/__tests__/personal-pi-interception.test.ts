@@ -1,17 +1,18 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { LlmInterceptor } from '../llm-interceptor';
+import { wireContainerInterception, type InterceptionHost } from '../container/container-interception';
 import { createMockKV } from './helpers/mock-kv';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import type { Env } from '../types';
 
-const owner = { bucket: 'owner-bucket', sessionId: 'owner-session', user: 'owner@example.test' };
+const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test' };
 const issuer = 'https://personal-pi.cloudflareaccess.com';
 afterEach(() => vi.restoreAllMocks());
 function fixture(strict = false, operator = false) {
   const kv = createMockKV();
   const policy = (permission: boolean) => kv._set(SETUP_KEYS.GROUP_ROUTING, { Engineering: { routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: permission } });
   policy(true);
-  kv._set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, ['Engineering']);
+  kv._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'Engineering');
   kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } });
   const requests: Request[] = [];
   let identity: unknown = { user_uuid: 'owner-id', email: owner.user, groups: [{ id: 'group-id', name: 'Engineering' }] };
@@ -29,7 +30,7 @@ function fixture(strict = false, operator = false) {
   } }) }, EGRESS: strict ? { fetch: async (request: Request) => { egressRequests.push(request); return new Response('inspected-response'); } } : undefined } as unknown as Env;
   const props = { user: owner.user, sessionId: owner.sessionId, personalPi: owner, strict, ...(operator ? { operatorInference: { activityId: 'operator' } } : {}) };
   const interceptor = new LlmInterceptor({ props } as unknown as ExecutionContext, env);
-  const send = (url = 'https://api.anthropic.com/v1/messages') => interceptor.fetch(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key', 'cf-aig-authorization': 'must-not-forward' }, body: JSON.stringify({ model: 'native-personal-model', messages: [] }) }));
+  const send = (url = 'https://api.anthropic.com/v1/messages') => interceptor.fetch(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key', 'cf-aig-authorization': 'must-not-forward', 'x-codeflare-context': 'private-platform-context', 'x-codeflare-session': 'private-platform-session' }, body: JSON.stringify({ model: 'native-personal-model', messages: [] }) }));
   return { send, requests, egressRequests, policy, env, human, identity: (value: unknown) => { identity = value; } };
 }
 it('REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm revocation prevents provider I/O', async () => {
@@ -38,6 +39,8 @@ it('REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm re
   expect(f.requests.map(request => request.url)).toEqual(['https://api.anthropic.com/v1/messages']);
   expect(f.requests[0].headers.get('authorization')).toBe('Bearer synthetic-personal-key');
   expect(f.requests[0].headers.has('cf-aig-authorization')).toBe(false);
+  expect(f.requests[0].headers.has('x-codeflare-context')).toBe(false);
+  expect(f.requests[0].headers.has('x-codeflare-session')).toBe(false);
   expect(await f.requests[0].text()).toBe(JSON.stringify({ model: 'native-personal-model', messages: [] }));
   f.policy(false);
   expect((await f.send()).status).toBe(403);
@@ -132,14 +135,81 @@ it('REQ-ENTERPRISE-088 AC5: reused native WebSockets deny frames after warm poli
 it('REQ-ENTERPRISE-088 AC6: warm strict activation cannot use a stale direct transport hint', async () => {
   const f = fixture();
   expect((await f.send()).status).toBe(200);
-  (f.env.KV as unknown as ReturnType<typeof createMockKV>)._set(SETUP_KEYS.STRICT_EGRESS, 'active');
+  (f.env.KV as unknown as ReturnType<typeof createMockKV>)._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
   expect((await f.send()).status).toBe(503);
   expect(f.requests.map(request => request.url)).toEqual(['https://api.anthropic.com/v1/messages']);
+  f.env.EGRESS = { fetch: async (request: Request) => { f.egressRequests.push(request); return new Response('warm-inspected'); } } as unknown as Fetcher;
+  expect(await (await f.send()).text()).toBe('warm-inspected');
+  expect(f.egressRequests.map(request => request.url)).toEqual(['https://api.anthropic.com/v1/messages']);
+  expect(f.requests).toHaveLength(1);
 });
 
 it('REQ-ENTERPRISE-088 AC6: malformed live transport policy denies personal provider I/O', async () => {
   const f = fixture();
-  (f.env.KV as unknown as ReturnType<typeof createMockKV>)._set(SETUP_KEYS.STRICT_EGRESS, 'malformed');
+  (f.env.KV as unknown as ReturnType<typeof createMockKV>)._store.set(SETUP_KEYS.STRICT_EGRESS, 'malformed');
   expect((await f.send()).status).toBe(503);
   expect(f.requests).toEqual([]);
+});
+
+
+it('REQ-ENTERPRISE-088 AC5: token-derived Copilot service hosts remain policy gated', async () => {
+  const f = fixture();
+  const url = 'https://api.regional.githubcopilot.com/chat/completions';
+  expect((await f.send(url)).status).toBe(200);
+  f.policy(false);
+  expect((await f.send(url)).status).toBe(403);
+  expect(f.requests.map(request => request.url)).toEqual([url]);
+});
+
+it('REQ-ENTERPRISE-088 AC5: deployment-bound Copilot enterprise hosts use native credentials', async () => {
+  const f = fixture();
+  f.env.GITHUB_HOST = 'github.enterprise.example';
+  const url = 'https://copilot-api.github.enterprise.example/chat/completions';
+  expect((await f.send(url)).status).toBe(200);
+  f.policy(false);
+  expect((await f.send(url)).status).toBe(403);
+  expect(f.requests.map(request => request.url)).toEqual([url]);
+});
+
+it('REQ-ENTERPRISE-088 AC5: an unbound native request cannot borrow the legacy gateway path', async () => {
+  const f = fixture();
+  const interceptor = new LlmInterceptor({ props: { user: owner.user } } as unknown as ExecutionContext, f.env);
+  expect((await interceptor.fetch(new Request('https://api.anthropic.com/v1/messages', { method: 'POST', body: '{}' }))).status).toBe(403);
+  expect(f.requests).toEqual([]);
+});
+
+
+it('REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies unbound and Operator paths', async () => {
+  for (const mode of ['human', 'unbound', 'operator']) {
+    const f = fixture();
+    const handlers = new Map<string, Fetcher>();
+    const host = {
+      env: f.env, logger: { info() {}, warn() {}, error() {} },
+      ctx: { exports: { LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
+        container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
+      _bucketName: owner.bucket, _sessionId: mode === 'unbound' ? null : owner.sessionId,
+      _userEmail: owner.user, _userGroups: [], _strictEgress: false,
+      ...(mode === 'operator' ? { _operatorContainerProfile: { activityId: 'operator-activity', operatorId: 'operator',
+        policy: { capabilities: ['inference'] }, piProfile: { model: 'sanctioned-route', thinkingLevel: 'off' } } } : {}),
+    } as unknown as InterceptionHost;
+    await wireContainerInterception(host);
+    for (const url of ['https://api.anthropic.com/v1/messages', 'https://api.openai.com/v1/chat/completions']) {
+      const handler = handlers.get(new URL(url).hostname);
+      if (!handler) throw Error('Native interception was not installed');
+      const response = await handler.fetch(new Request(url, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key' },
+        body: JSON.stringify({ model: 'native-personal-model', messages: [] }),
+      }));
+      if (mode === 'human') expect(response.status).toBe(200);
+      else expect(response.status).toBeGreaterThanOrEqual(400);
+    }
+    expect(f.requests.map(request => request.url)).toEqual(mode === 'human'
+      ? ['https://api.anthropic.com/v1/messages', 'https://api.openai.com/v1/chat/completions'] : []);
+    const handler = handlers.get('api.anthropic.com')!;
+    if (mode === 'human') {
+      f.policy(false);
+      expect((await handler.fetch(new Request('https://api.anthropic.com/v1/messages'))).status).toBe(403);
+      expect(f.requests.map(request => request.url)).toEqual(['https://api.anthropic.com/v1/messages', 'https://api.openai.com/v1/chat/completions']);
+    }
+  }
 });

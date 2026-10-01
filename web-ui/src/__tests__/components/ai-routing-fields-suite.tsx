@@ -199,7 +199,10 @@ describe('Structured AI routing', () => {
     expect(fallback).not.toBeChecked();
     await fireEvent.click(fallback);
     expect(formValues(view.container).fallbackRouting).toMatchObject({ enabled: true, allowPersonalPiProviders: true, defaultRoute: 'general_usage' });
-    await fireEvent.click(checkbox);
+    const currentCheckbox = view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' });
+    expect(currentCheckbox).toBeChecked();
+    await fireEvent.click(currentCheckbox);
+    expect(view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' })).not.toBeChecked();
     expect(formValues(view.container).groupRouting[0].allowPersonalPiProviders === true).toBe(false);
     expect(formValues(view.container).fallbackRouting.allowPersonalPiProviders).toBe(true);
   });

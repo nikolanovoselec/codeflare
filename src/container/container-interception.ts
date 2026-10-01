@@ -23,7 +23,7 @@ import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
 import { getAigConfig } from '../lib/aig-config';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
-import { PERSONAL_PI_HOST_PATTERNS } from '../lib/personal-pi-destinations';
+import { PERSONAL_PI_HOST_PATTERNS, personalPiConfiguredGithubHosts } from '../lib/personal-pi-destinations';
 import { interceptedGithubHosts } from '../github-interceptor';
 import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
@@ -68,6 +68,7 @@ function personalPiProps(host: InterceptionHost): Record<string, unknown> {
     personalPi: { bucket: host._bucketName, sessionId: host._sessionId, user: host._userEmail },
     strict: host._strictEgress === true,
     ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+    ...(host._operatorContainerProfile ? { operatorInference: { activityId: host._operatorContainerProfile.activityId } } : {}),
   } : {};
 }
 
@@ -169,7 +170,7 @@ const llm: InterceptorSpec = {
         } } : {}),
         ...jwtProps(host),
       },
-      hosts: [...new Set([...INTERCEPTED_LLM_HOSTS, ...PERSONAL_PI_HOST_PATTERNS.filter(pattern => !host._operatorPolicy || !pattern.startsWith('*'))])],
+      hosts: [...new Set([...INTERCEPTED_LLM_HOSTS, ...PERSONAL_PI_HOST_PATTERNS.filter(pattern => !(host._operatorPolicy || host._operatorContainerProfile) || !pattern.startsWith('*')), ...personalPiConfiguredGithubHosts(host.env)])],
       mandatory: true,
       wiredLog: 'Enterprise LLM interception wired',
       wiredLogData: { hostCount: INTERCEPTED_LLM_HOSTS.length },

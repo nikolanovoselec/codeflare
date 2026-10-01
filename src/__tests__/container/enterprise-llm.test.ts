@@ -187,7 +187,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await instance.startAndWaitForPorts(8080);
 
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', fetcher);
-      expect(callOrder).toEqual(['interceptOutboundHttps', 'super.startAndWaitForPorts']);
+      expect(callOrder.at(-1)).toBe('super.startAndWaitForPorts');
+      expect(callOrder.slice(0, -1).every(step => step === 'interceptOutboundHttps')).toBe(true);
     });
 
     it('does NOT wire interception on a non-enterprise start (SaaS start path byte-identical)', async () => {

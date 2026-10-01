@@ -1,7 +1,7 @@
 /** REQ-OPERATOR-022: restricted startup cannot enter whole-home restore/baseline paths. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
@@ -115,7 +115,8 @@ test('REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authenticatio
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, 'auth.json'), JSON.stringify({ anthropic: { type: 'api_key', key: 'synthetic-owner-secret' } }));
     const gateway = { apiKey: 'codeflare-enterprise', models: [{ id: 'sanctioned' }] };
-    writeFileSync(join(agentDir, 'models.json'), JSON.stringify({ providers: { 'codeflare-gateway': gateway, openai: { apiKey: 'synthetic-inline-secret' } } }));
+    const humanGateway = { ...gateway, apiKey: 'synthetic-managed-alias-secret', headers: { authorization: 'synthetic-header-secret' } };
+    writeFileSync(join(agentDir, 'models.json'), JSON.stringify({ providers: { 'codeflare-gateway': humanGateway, openai: { apiKey: 'synthetic-inline-secret' } } }));
     writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ theme: 'dark' }));
     // System materialization is unrelated platform I/O. Remap the validated
     // absolute Operator namespace into this temporary filesystem, retaining the
@@ -130,11 +131,21 @@ node() {
 }
 ${extract('run_operator_startup')}
 run_operator_startup`;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, USER_HOME: home,
+    const start = routing => spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, USER_HOME: home,
       CODEFLARE_INIT_FLAG_FILE: join(home, 'initialized'),
+      PI_PROVIDER_CONFIG: routing,
       CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/.codeflare/operators/activity' }),
       CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/Operators' }) } });
+    // Readiness is the startup contract: absent/malformed trusted publication
+    // cannot use the human's existing managed alias as a credential fallback.
+    for (const unavailable of ['', ' ', '{}', 'null', '{malformed']) {
+      const failed = start(unavailable);
+      assert.notEqual(failed.status, 0, `Unavailable routing ${JSON.stringify(unavailable)}: ${failed.stderr}`);
+      assert.equal(existsSync(join(home, 'initialized')), false);
+    }
+    const result = start(JSON.stringify({ providers: { 'codeflare-gateway': gateway } }));
     assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(home, 'initialized')), true);
     const isolated = join(home, '.codeflare/operators/activity/agent');
     assert.deepEqual(JSON.parse(readFileSync(join(isolated, 'auth.json'), 'utf8')), {});
     assert.deepEqual(JSON.parse(readFileSync(join(isolated, 'models.json'), 'utf8')), { providers: { 'codeflare-gateway': gateway } });

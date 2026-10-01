@@ -57,6 +57,7 @@ async function fixture(test: (f: {
       release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: '{}' };
     const state: Record<string, unknown> = { current: true, admin: true, sessionState: 'running', sessionGeneration: 3,
       head: HEAD, base: BASE, checks: [{ name: 'test', status: 'completed', conclusion: 'success' }],
+      statuses: [], approvalBlocked: false, requiredApprovals: 1,
       reviews: [{ state: 'APPROVED', commit_id: HEAD, user: { login: 'reviewer' } }], requiredChecks: ['test'], mergeable: true,
       permission: 'admin', author: 'renovate[bot]', ambiguity: false, paginated: false, loggedOut: false,
       advanceBaseOnApproval: false, stopOnApproval: false, revokeOnApproval: false,
@@ -101,12 +102,12 @@ async function fixture(test: (f: {
           full_name: 'nikolanovoselec/komodo', default_branch: 'main', permissions: { admin: state.permission === 'admin' } });
         if (url.pathname.endsWith(`/pulls/${selected.pullRequest}`)) return Response.json({ number: selected.pullRequest, state: state.prState, mergeable: state.mergeable,
           created_at: prospective === 'old' ? '2026-09-28T00:00:00.000Z' : '2026-09-28T00:00:00.001Z',
-          mergeable_state: state.mergeable ? 'clean' : 'unknown',
+          mergeable_state: state.mergeable ? (state.approvalBlocked && !writes.some(write => write.url.endsWith('/reviews')) ? 'blocked' : 'clean') : 'unknown',
           user: { id: 29139614, login: state.author, type: 'Bot' }, head: { sha: state.head },
           base: { sha: state.base, ref: 'main' } });
         if (url.pathname.endsWith('/branches/main/protection')) return Response.json({
           required_status_checks: { contexts: state.requiredChecks },
-          required_pull_request_reviews: { required_approving_review_count: 1 },
+          required_pull_request_reviews: { required_approving_review_count: state.requiredApprovals },
         });
         if (url.pathname.endsWith('/rulesets')) return Response.json([{ id: 5212225, enforcement: 'active', target: 'branch' }]);
         if (url.pathname.endsWith('/rulesets/5212225')) return Response.json({ enforcement: 'active',
@@ -117,7 +118,7 @@ async function fixture(test: (f: {
           return Response.json({ total_count: state.paginated ? 101 : (state.checks as unknown[]).length,
             check_runs: state.checks }, { headers: state.paginated ? { link: '<https://api.github.com/next>; rel="next"' } : {} });
         }
-        if (url.pathname.includes('/commits/') && url.pathname.endsWith('/status')) return Response.json({ statuses: [] });
+        if (url.pathname.includes('/commits/') && url.pathname.endsWith('/status')) return Response.json({ statuses: state.statuses });
         if (url.pathname.includes('/reviews')) return Response.json([...(state.reviews as object[]),
           ...writes.filter(w => w.url.endsWith('/reviews')).map(w => ({ id: 9001, body: (w.body as { body: string }).body,
             state: 'APPROVED', commit_id: HEAD, user: state.forgedReadback
@@ -231,6 +232,7 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
 
   it('satisfies a required review through its own approval before rechecking merge readiness', () => fixture(async f => {
     f.change('reviews', []);
+    f.change('approvalBlocked', true);
     expect(await f.publish()).toMatchObject({ ok: true, effect: 'merge' });
     expect(f.writes.map(write => write.url)).toEqual([
       '/repos/nikolanovoselec/komodo/pulls/1299/reviews',
@@ -374,5 +376,36 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     expect(JSON.stringify(f.writes)).toBe(effects);
     expect(f.writes.every(write => !write.url.endsWith('/merge')
       || (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
+  }));
+});
+
+
+describe('REQ-OPERATOR-060: publication policy regressions', () => {
+  it('accepts successful required status-only contexts without requiring a Check Run', () => fixture(async f => {
+    f.change('requiredChecks', ['external-ci']);
+    f.change('statuses', [{ context: 'external-ci', state: 'success' }]);
+    expect(await f.publish()).toMatchObject({ ok: true, effect: 'merge' });
+  }));
+  it.each(['pending', 'failure'])('rejects a required status-only context that is %s without writes', state => fixture(async f => {
+    f.change('requiredChecks', ['external-ci']);
+    f.change('statuses', [{ context: 'external-ci', state }]);
+    await f.publish().catch(() => undefined);
+    expect(f.writes).toEqual([]);
+  }));
+  it('preserves requested changes across a later comment-only review', () => fixture(async f => {
+    f.change('reviews', [{ state: 'CHANGES_REQUESTED', user: { login: 'reviewer' } }, { state: 'COMMENTED', user: { login: 'reviewer' } }]);
+    await f.publish().catch(() => undefined);
+    expect(f.writes).toEqual([]);
+  }));
+  it('preserves another reviewer approval across a later comment-only review', () => fixture(async f => {
+    f.change('requiredApprovals', 2);
+    f.change('reviews', [{ state: 'APPROVED', user: { login: 'reviewer' } }, { state: 'COMMENTED', user: { login: 'reviewer' } }]);
+    expect(await f.publish()).toMatchObject({ ok: true, effect: 'merge' });
+  }));
+  it('does not approve a blocked PR with an outstanding requested change', () => fixture(async f => {
+    f.change('approvalBlocked', true);
+    f.change('reviews', [{ state: 'CHANGES_REQUESTED', user: { login: 'reviewer' } }]);
+    await f.publish().catch(() => undefined);
+    expect(f.writes).toEqual([]);
   }));
 });

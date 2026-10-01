@@ -16,6 +16,23 @@ const unavailableEvidence = 'Content unavailable (not safely readable)';
 function resultView(result: unknown) {
   const data = record(result);
   if (!data) return <p>Result format unavailable. Check the activity status before acting.</p>;
+  if (readable(data.repository) && Array.isArray(data.results) && data.results.length <= 1024) {
+    return <div class="operator-activity-reports">
+      <h5>Dispatcher discovery</h5><p>Repository: {readable(data.repository)}</p>
+      <Show when={data.results.length} fallback={<p>No eligible pull requests discovered.</p>}>
+        <For each={data.results}>{value => {
+          const item = record(value);
+          return <article>
+            <p>{typeof item?.pullRequest === 'number' && Number.isSafeInteger(item.pullRequest) && item.pullRequest > 0
+              ? `PR #${item.pullRequest}` : unavailableEvidence}</p>
+            <p>Decision: {readable(item?.decision) || unavailableEvidence}</p>
+            <p>Outcome: {readable(item?.outcome) || unavailableEvidence}</p>
+            <Show when={item?.comment !== undefined}><p>{readable(item?.comment) || unavailableEvidence}</p></Show>
+          </article>;
+        }}</For>
+      </Show>
+    </div>;
+  }
   // Published Review packages retain their original lane reports under originalReports;
   // the older native Conductor fixture returns reports directly. Both are terminal bytes.
   const reportBytes = Array.isArray(data.originalReports) ? data.originalReports : data.reports;

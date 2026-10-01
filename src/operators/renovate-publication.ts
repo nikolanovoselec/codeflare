@@ -146,7 +146,7 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     };
     const pr = await observePr();
     if (kind === 'comment') { await observePr(); await current(); return; }
-    if (pr.mergeable !== true || pr.mergeable_state !== 'clean') throw new Error('Pull request mergeability unavailable');
+    if (pr.mergeable !== true || (pr.mergeable_state !== 'clean' && !(kind === 'approval' && pr.mergeable_state === 'blocked'))) throw new Error('Pull request mergeability unavailable');
     const branch = await request('/branches/main/protection');
     let requiredChecks: string[] = [];
     let requiredApprovals = 0;
@@ -177,8 +177,7 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
       name: z.string(), status: z.string(), conclusion: z.string().nullable(),
     })).max(100) }).parse(await json(`/commits/${pr.head.sha}/check-runs?per_page=100`));
     if (checks.check_runs.length !== checks.total_count || checks.check_runs.some(run =>
-      run.status !== 'completed' || !['success', 'neutral', 'skipped'].includes(run.conclusion ?? ''))
-      || requiredChecks.some(name => !checks.check_runs.some(run => run.name === name && run.conclusion === 'success'))) {
+      run.status !== 'completed' || !['success', 'neutral', 'skipped'].includes(run.conclusion ?? ''))) {
       throw new Error('Checks incomplete or failing');
     }
     const statuses = z.object({ statuses: z.array(z.object({ context: z.string(), state: z.string() })).max(100) })
@@ -193,16 +192,20 @@ export function renovateGithub(input: { env: Env; exports: Record<string, (input
     const latest = new Map<string, string>();
     for (const review of reviews) {
       if (!review.user?.login) throw new Error('Review identity unavailable');
-      latest.set(review.user.login.toLowerCase(), review.state);
+      if (['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)) latest.set(review.user.login.toLowerCase(), review.state);
+      else if (!['COMMENTED', 'PENDING'].includes(review.state)) throw new Error('Review state unavailable');
     }
     if ([...latest.values()].some(value => value === 'CHANGES_REQUESTED')
       || (kind === 'merge' && [...latest.values()].filter(value => value === 'APPROVED').length < requiredApprovals)) {
       throw new Error('Required review unavailable');
     }
+    const missingApprovals = [...latest.values()].filter(value => value === 'APPROVED').length < requiredApprovals;
+    if (pr.mergeable_state === 'blocked' && !(kind === 'approval' && requiredApprovals > 0 && missingApprovals)) throw new Error('Pull request mergeability unavailable');
     // The intervening policy/check/review reads may race the PR. GitHub has
     // no base-sha CAS; reread both revisions immediately before each effect.
     const last = await observePr();
-    if (last.mergeable !== true || last.mergeable_state !== 'clean') throw new Error('Pull request mergeability changed');
+    if (last.mergeable !== true || (last.mergeable_state !== 'clean'
+      && !(kind === 'approval' && last.mergeable_state === 'blocked' && requiredApprovals > 0 && missingApprovals))) throw new Error('Pull request mergeability changed');
     await current();
   }
   return { observe, request, json, publisherIdentity, pullRequest };

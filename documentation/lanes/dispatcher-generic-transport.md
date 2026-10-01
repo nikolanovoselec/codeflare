@@ -1,4 +1,19 @@
-# Repository-only Dispatcher transport (implementation candidate)
+# Repository-only Dispatcher transport
+
+**Audience:** Platform developers and Dispatcher package authors
+
+**Owns:** Generic parent transport, immutable operation receipts, response bounds and recovery fences.
+
+**Does not own:** Package prompts, Renovate decisions, permission grants, credentials, deployment configuration or Operator activation.
+
+## Contents
+
+- [Loader](#loader)
+- [Request ownership and meaning of transport](#request-ownership-and-meaning-of-transport)
+- [Explicit transport](#explicit-transport)
+- [Receipt and resolution](#receipt-and-resolution-approved-package-code-only)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 Input remains `{ "repository": "owner/repository" }`. No context endpoint or new user setting exists. Host CI passed at `7ed88105` and pinned empty-discovery native compatibility passed at `31d57cc3`. Corrected live Activity `2a530b42` produced four successful inference calls, then local source403 and assessment rejection; installed v0.1.6 full live acceptance remains unverified. Native compatibility is not authenticated effects or terminal Activity collection proof.
 
@@ -6,7 +21,7 @@ Input remains `{ "repository": "owner/repository" }`. No context endpoint or new
 
 Repository-only generated code receives `env.OPERATOR` (generation-bound Fetcher) and `env.GITHUB_API_ORIGIN` (non-secret HTTPS origin derived from existing `GITHUB_API_HOST`, default `https://api.github.com`). Legacy single-PR Loader code receives only its existing OPERATOR binding. Credentials and original parent identity remain inside existing interceptors. Inference supplies the trusted stable Activity ID as the existing interceptor's `sessionId` replay namespace, not as a fabricated workspace session or additional authorization. This supports native Bedrock signed tool replay across turns while isolating replay from other Activities; user, groups, selected route, credential and expiry remain parent-owned. No interceptor behavior changes.
 
-Current Access identity verification retains issuer, expiry, matching subject/email, response and size checks. Cloudflare's documented identity without `groups` asserts no memberships: explicit user grants remain eligible, group-only grants do not. Present malformed groups still deny. This preserves authenticated source composition without JWT group substitution, anonymous modes or alternate credentials. The real Access-helper/source regression covers this contract; the correction is not yet live-verified. Reference: [Cloudflare User Identity](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/#user-identity).
+Current Access identity verification retains issuer, expiry, matching subject/email, response and size checks. Cloudflare's documented identity without `groups` asserts no memberships: explicit user grants remain eligible, group-only grants do not. Present malformed groups still deny. This preserves authenticated source composition without JWT group substitution, anonymous modes or alternate credentials. The real Access-helper/source regression covers this contract; the historical corrected Activity 47aa5357 confirmed source HTTP 200, while full journey acceptance remained unverified. Reference: [Cloudflare User Identity](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/#user-identity).
 
 ## Request ownership and meaning of transport
 
@@ -67,3 +82,20 @@ Package-owned deterministic code must first validate positive, unique remote dom
 There must be 1–16 unique references. Parent verifies the original unknown mutation/digest and each immutable completed successful GET receipt, reserved later than the original mutation, within the same currently authorized Activity/generation. It durably records those references and caches resolution. Identical resolution is idempotent; changed resolution references conflict. Invalid/unavailable references stay unknown; authority loss denies. The parent does not interpret GitHub/Dozzle/branch semantics or assert remote success. The resolved mutation's cached response is the resolution object, not a fabricated original upstream response: consumer code uses the resolve receipt for recovery rather than unwrapping it as a source response.
 
 Legacy GitHub read/comment/merge and publisher contracts remain separate. This generic path does not invoke them, convert POST to GET, require blanket admin authority, add anonymous routing, or modify existing interceptor authentication. The package owns its GitHub safeguards and must account for protection/head/base races honestly.
+
+
+## Requirement and Source Map
+
+| Contract | Owner and evidence |
+|---|---|
+| [Generic transport](../../sdd/spec/operator-registry.md#req-operator-062-repository-only-dispatcher-transport) | `src/operators/operator-runtime-capability.ts::createDispatcherOperation`, `src/operators/activity.ts::OperatorActivity`; `src/__tests__/operators/dispatcher-production.test.ts` |
+| [Exact settlement](../../sdd/spec/operator-registry.md#req-operator-048-dispatcher-execution) | `src/operators/dispatcher-result.ts::readDispatcherUpdates`; compiled native fixtures and exact-submission tests |
+| [Loader projection](../../sdd/spec/operators.md#req-operator-015-isolated-approved-worker-loading) | `src/operators/loader.ts::loadOperatorDispatcherClass`; `src/__tests__/operators/dispatcher-native.test.ts` |
+
+## Related Documentation
+
+- [Operator Interface](operators.md)
+- [Registry contract](../../sdd/spec/operator-registry-contract.md)
+- [Reusable Dispatcher package](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/develop/documentation/reusable-dispatcher.md)
+
+Publication, installation, activation, deployment, settlement, effects and physical cleanup remain separate evidence gates. This document neither authorizes Operator activation nor certifies a complete live journey.
