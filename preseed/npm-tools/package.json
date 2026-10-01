@@ -1,11 +1,9 @@
 {
-  "name": "codeflare-image-npm-tools",
-  "private": true,
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.263",
     "@earendil-works/pi-coding-agent": "0.99.1",
     "@github/copilot": "1.0.88",
-    "@openai/codex": "0.153.4",
+    "@openai/codex": "0.156.1",
     "bun": "1.4.2",
     "chrome-devtools-mcp": "1.8.0",
     "consult-llm-mcp": "2.13.4",
@@ -18,6 +16,7 @@
     "@earendil-works/pi-ai": "0.87.1",
     "@earendil-works/pi-tui": "0.87.1"
   },
+  "name": "codeflare-image-npm-tools",
   "overrides": {
     "@hono/node-server": "2.0.12",
     "brace-expansion": "5.0.12",
@@ -25,5 +24,6 @@
     "undici": "8.11.2",
     "ip-address": "10.7.2",
     "ws": "8.21.1"
-  }
+  },
+  "private": true
 }
