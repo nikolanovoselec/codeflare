@@ -1198,6 +1198,13 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
         f.loseResponse(); return f.capability.fetch(read('diagnostic-upstream'));
       } },
+    { name: 'inference upstream non-success response', stage: 'upstream', resource: 'inference', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.loseResponse(); return f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operationId: 'diagnostic-inference', input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT_NOT_LOGGED' }] } }),
+        }));
+      } },
     { name: 'forwarded upstream HTTP 409', stage: 'forwarded-upstream', resource: 'pull-request', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
         f.upstreamConflict(true); return f.capability.fetch(read('diagnostic-forwarded'));
@@ -1222,8 +1229,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         && event.message === 'Dispatcher operation rejected');
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ data: { stage, resource, deadline, status } });
-      expect(Object.keys(events[0].data ?? {}).sort()).toEqual(['deadline', 'resource', 'stage', 'status']);
-      expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-empty|diagnostic-expired|diagnostic-stale|diagnostic-upstream|diagnostic-forwarded|diagnostic-commit|private\.jwt|inline-secret/);
+      expect(Object.keys(events[0].data ?? {}).sort()).toEqual(stage === 'upstream'
+        ? ['deadline', 'resource', 'stage', 'status', 'upstreamStatus'] : ['deadline', 'resource', 'stage', 'status']);
+      if (stage === 'upstream') expect(events[0].data?.upstreamStatus).toBe(502);
+      expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-empty|diagnostic-expired|diagnostic-stale|diagnostic-upstream|diagnostic-forwarded|diagnostic-commit|diagnostic-inference|PRIVATE_PROMPT_NOT_LOGGED|private\.jwt|inline-secret/);
       if (name === 'forwarded upstream HTTP 409') {
         expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
         f.upstreamConflict(false);

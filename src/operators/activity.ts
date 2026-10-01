@@ -1619,8 +1619,9 @@ export class OperatorActivity extends Agent {
       : lease.expiresAt <= Date.now() ? 'expired' : 'current';
     const rejected = (stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'forwarded-upstream' | 'commit',
       resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' | 'comment' | 'merge' | 'source',
-      lease: DispatcherLease | undefined, status: number) => {
-      dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status });
+      lease: DispatcherLease | undefined, status: number, upstreamStatus?: number) => {
+      dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status,
+        ...(upstreamStatus === undefined ? {} : { upstreamStatus }) });
     };
     if (!await this.dispatcherGenerationCurrent(generation)) {
       rejected('authority', 'unparsed', await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined), 403);
@@ -1740,6 +1741,7 @@ export class OperatorActivity extends Agent {
     const readOnly = resource !== 'inference' && resource !== 'comment' && resource !== 'merge' && !genericMutation;
     if (reserved.kind === 'unknown' && genericMutation) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
+    let upstreamStatus: number | undefined;
     try {
       if (reserved.kind === 'unknown' && !readOnly) {
         if ((resource !== 'comment' && resource !== 'merge') || !effectContext) throw new Error('Unknown protected operation');
@@ -1753,6 +1755,7 @@ export class OperatorActivity extends Agent {
       const result = await this.#boundedDispatcher(reserved.lease, async () => {
         const upstream = await perform();
         if (upstream.status >= 500 || upstream.status < 200 || (upstream.status >= 300 && upstream.status < 400)) {
+          upstreamStatus = upstream.status;
           stage = 'upstream';
           throw new Error('Protected operation did not complete');
         }
@@ -1804,7 +1807,7 @@ export class OperatorActivity extends Agent {
       if ((!genericMutation && resource !== 'comment' && resource !== 'merge') || !await this.dispatcherGenerationCurrent(generation)) {
         await this.interruptDrive(generation);
       }
-      rejected(stage, resource, lease, 409);
+      rejected(stage, resource, lease, 409, upstreamStatus);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     }
   }
