@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-01
+
+- **Use ordinary task wording for discovery's tool canary** ([REQ-ENTERPRISE-033](enterprise-mode.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)). Planning's Opus 5 canary returned `refusal / reasoning_extraction` with HTTP 200 and no tool call. A contemporaneous original-wording probe failed the valid-tool contract on both Planning and Review. Changing only the system instruction completed valid streamed tool calls and exact tool-result continuations on both routes: four HTTP 200 responses, initial `tool_calls`, replay `stop`, usage and `[DONE]`. Preserve tool names/schema, all qualification gates, profiles and the existing wire-envelope revision; this does not issue new receipts or establish cache reuse. The request-contract test precedes the one-instruction correction. GitHub Actions verification and Integration deployment are separate gates.
+
 ## 2026-09-30
 
 - **Accept one observed exact Actions archive host without widening trust** ([REQ-OPERATOR-044](operator-registry.md#req-operator-044-github-immutable-package-acquisition) AC2/3). Permit `productionresultssa2.blob.core.windows.net` only; reject adjacent and suffix-lookalike hosts, strip acquisition credentials before CDN I/O, and preserve artifact-byte/digest, provenance, size and deadline fences. The complete behavioral test-only batch precedes implementation. A rejected observed redirect is an acquisition incompatibility, not proof of the internal stage of an opaque live error. Remove the touched requirement's stale release-version status text; installation and live assessment remain separate receipts.
