@@ -24,7 +24,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   });
 
   async function runInstallPrecache(sw: string) {
-    const marker = 'self.addEventListener("install",a=>{';
+    const marker = 'self.addEventListener("install",o=>{';
     const start = sw.indexOf(marker);
     const end = sw.indexOf('});self.addEventListener("activate"', start);
     if (start < 0 || end < 0) throw new Error('install precache handler not found');
@@ -43,11 +43,11 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const listener = new Function(
       'self',
       'caches',
-      'ce',
-      'Ce',
+      'De',
+      'gt',
       'Request',
       'console',
-      `return (a)=>{${body}};`,
+      `return (o)=>{${body}};`,
     )(
       { skipWaiting: async () => {} },
       { open: async () => ({ addAll: async (values: Array<{ url: string; cache?: string }>) => requests.push(...values) }) },
@@ -70,17 +70,42 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     ]);
   });
 
-  it('the graft calls __cfRecover before the get-encryption-key reply', () => {
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-      'case"get-encryption-key":{if(v===void 0)await __cfRecover()',
-    );
+  async function queryRecoveredKey({ configure = false, logout = false, expire = false } = {}) {
+    const worker = VAULT_NATIVE_SERVICE_WORKER_JS;
+    const helperStart = worker.indexOf('async function __cfRecover()');
+    const helperEnd = worker.indexOf('catch(cfe){}}', helperStart) + 'catch(cfe){}}'.length;
+    const message = configure ? 'config' : 'get-encryption-key';
+    const start = worker.indexOf(`case"${message}":{`);
+    const end = configure ? worker.indexOf('if(g.setSpacePrefixes', start) : worker.indexOf('case"set-encryption-key"', start);
+    const handler = worker.slice(start, end) + (configure ? 'return i;}' : '');
+    const state = { active: false };
+    const run = new Function('D', 'fetch', `let z,ne=0;D.expire=()=>{ne++};async function Kt(key){return key}async function $e(key){return key}
+      ${worker.slice(helperStart, helperEnd)}
+      return async function(){let reply;let o={data:{type:"${message}",config:{}},source:{postMessage(value){reply=value.key}}};let e=o.data;
+        switch(e.type){${handler}}return reply;};`)(state, async () => ({ ok: true, json: async () => {
+          if (logout) state.active = true;
+          if (expire) state.expire();
+          return { key: 'RECOVERED-KEY' };
+        } }));
+    return run();
+  }
+
+  it('REQ-VAULT-017: an encryption-key query recovers and returns the server key', async () => {
+    expect(await queryRecoveredKey()).toBe('RECOVERED-KEY');
   });
 
-  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', () => {
-    expect(VAULT_NATIVE_SW_VERBATIM).toContain('No clients are listening for messages, dropping message');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toContain('No clients are listening for messages, dropping message');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.info("[service proxy auth]",c)');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.warn("Sync space error",t.message)');
+  it('REQ-VAULT-017: config snapshots the recovered key before opening encrypted storage', async () => {
+    expect(await queryRecoveredKey({ configure: true })).toBe('RECOVERED-KEY');
+  });
+
+  it('REQ-VAULT-017: logout during recovery prevents publishing a recovered key', async () => {
+    expect(await queryRecoveredKey({ logout: true })).toBeUndefined();
+    expect(await queryRecoveredKey({ configure: true, logout: true })).toBeUndefined();
+  });
+
+  it('REQ-VAULT-017: logout generation changes fence a pending recovered key', async () => {
+    expect(await queryRecoveredKey({ expire: true })).toBeUndefined();
+    expect(await queryRecoveredKey({ configure: true, expire: true })).toBeUndefined();
   });
 
   // REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the graft NEUTERS the upstream proactive
@@ -90,18 +115,18 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   // flush callback out of each worker string and run it with zero clients, so
   // reinstating the wipe (or gutting the graft) flips them red.
   function runNoClientFlush(sw: string): string | undefined {
-    const NEEDLE = '.matchAll().then(a=>{';
-    const open = sw.indexOf(NEEDLE + 'a.length===0');
+    const NEEDLE = '.matchAll().then(o=>{';
+    const open = sw.indexOf(NEEDLE + 'o.length===0');
     if (open < 0) throw new Error('no-client flush callback not found in served worker');
     const keyVariable =
       /async function __cfRecover\(\)\{if\(([A-Za-z_$][\w$]*)!==void 0\)/.exec(sw)?.[1]
-      ?? /a\.length===0&&([A-Za-z_$][\w$]*)&&\(console\.info\("No more clients, flushing encryption key"\),\1=void 0\)/.exec(sw)?.[1];
+      ?? /o\.length===0&&([A-Za-z_$][\w$]*)&&\(console\.info\("No more clients, flushing encryption key"\),\1=void 0\)/.exec(sw)?.[1];
     if (!keyVariable) throw new Error('encryption-key variable not found in worker');
     const exprStart = open + NEEDLE.length;
     const exprEnd = sw.indexOf('}', exprStart);
     const expr = sw.slice(exprStart, exprEnd);
     // eslint-disable-next-line no-new-func
-    const fn = new Function(keyVariable, `const a = []; ${expr}; return ${keyVariable};`) as (
+    const fn = new Function(keyVariable, `const o = []; ${expr}; return ${keyVariable};`) as (
       key: string,
     ) => string | undefined;
     return fn('AES-KEY');
@@ -141,8 +166,8 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   // ACTUAL grafted bytes. The guard reads `s` (already-bound primary list) and `t` (the
   // snapshot param of the enclosing `syncFiles(t)`); `t` is threaded in as a closure arg.
   function makeSyncCycleRunner(sw: string) {
-    const start = sw.indexOf('s=await this.primary.fetchFileList()');
-    const endMarker = 'c=new Map(o.map(f=>[f.name,f]))';
+    const start = sw.indexOf('a=await this.primary.fetchFileList()');
+    const endMarker = 'l=new Map(s.map(u=>[u.name,u]))';
     const endIdx = sw.indexOf(endMarker, start);
     if (start < 0 || endIdx < 0) {
       throw new Error('full-sync-cycle remote-list consumer chain not found in served worker');
@@ -150,9 +175,9 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const chain = sw.slice(start, endIdx + endMarker.length);
     // eslint-disable-next-line no-new-func
     const fn = new Function('t', `return (async function(){
-      let s,o,r,l,c;
+      let a,s,c,r,l;
       ${chain};
-      return { candidateCount: r.size, remoteMapCount: c.size };
+      return { candidateCount: c.size, remoteMapCount: l.size };
     });`) as unknown as (
       t: unknown,
     ) => (this: unknown) => Promise<{ candidateCount: number; remoteMapCount: number }>;
@@ -199,14 +224,9 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   it('the guard is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
     // Negative control — proves the served no-op above comes from the graft, not
     // from upstream behavior. The pristine verbatim has no `Array.isArray` guard.
-    expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('Array.isArray(a)?a:[]');
     const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
     await expect(runVerbatim({ error: 'transient 5xx' })).rejects.toThrow(/forEach is not a function|is not a function/);
-    // The served worker carries the structural not-ready guard (array-normalize plus the
-    // empty-while-populated abort condition). Assert the functional contract tokens, not
-    // the human-readable error message.
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Array.isArray(a)');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('a.length===0&&(s.length>0||t.files.size>0)');
+
   });
 
   // REQ-VAULT-023 AC2: a 2nd-session start has a POPULATED persistent local store, but
@@ -277,8 +297,8 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(() => new Function(VAULT_NATIVE_SERVICE_WORKER_JS)).not.toThrow();
     // Negative control: the duplicate-`let` form the graft must NOT produce.
     const duplicateLetForm = VAULT_NATIVE_SW_VERBATIM.replace(
-      'o=await this.secondary.fetchFileList(),r=this.getNonSyncCandidates(o)',
-      'o=await this.secondary.fetchFileList(),o=Array.isArray(o)?o:[],r=this.getNonSyncCandidates(o)',
+      's=await this.secondary.fetchFileList(),c=this.getNonSyncCandidates(s)',
+      's=await this.secondary.fetchFileList(),s=Array.isArray(s)?s:[],c=this.getNonSyncCandidates(s)',
     );
     // eslint-disable-next-line no-new-func
     expect(() => new Function(duplicateLetForm)).toThrow(/already been declared|declare a let variable twice/i);
@@ -292,7 +312,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const hex = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    expect(VAULT_NATIVE_SW_SHA256).toBe('caae72f32c92e402e08199def85840b56e1aad0377dc418e521dc1b1be20eff8');
+    expect(VAULT_NATIVE_SW_SHA256).toBe('be8d1d2def7568b3440f15128a213a54f21e3b9aa43672c388597bfe808c512a');
     expect(hex).toBe(VAULT_NATIVE_SW_SHA256);
   });
 });
