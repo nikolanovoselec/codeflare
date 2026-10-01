@@ -5,17 +5,54 @@ const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionS
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 let serve: (url: URL, init?: RequestInit) => Response;
-let preview: { name: string; version: string; guidedAssessment: boolean };
+let preview: { name: string; version: string; guidedAssessment: boolean; guidedMode: 'repository' | 'legacy-pull-request' | null };
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators?view=activity');
   serve = () => json({ items: [summary] });
-  preview = { name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true };
+  preview = { name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' };
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => Promise.resolve(
     new URL(url).pathname.endsWith('/preview') ? json(preview) : serve(new URL(url), init))));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
+  it('uses the installed repository-only contract, discloses effects, and ignores PR query input until explicit start', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=owner%2Frepo&pullRequest=42');
+    preview.guidedMode = 'repository';
+    const admissions: unknown[] = [];
+    serve = (url, init) => {
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') {
+        admissions.push(JSON.parse(String(init.body)));
+        return json({ activityId: 'activity-1', startCapability: 's'.repeat(43), startExpiresAt: Date.now() + 30000 });
+      }
+      if (url.pathname.endsWith('/start')) return json({ ok: true });
+      if (url.pathname.endsWith('/activity-1')) return json({ ...summary, checkpoint: null, result: null });
+      return json({ items: [] });
+    };
+    render(() => <OperatorManagement />);
+    const repository = await screen.findByRole('textbox', { name: 'Repository' });
+    expect(repository).toHaveAttribute('maxlength', '201');
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(screen.getByText(/discovers recent Renovate pull requests/)).toHaveTextContent(/researches.*comments.*conditionally merge/);
+    expect(admissions).toEqual([]);
+    fireEvent.input(repository, { target: { value: 'a'.repeat(198) + '/repo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Repository must/);
+    expect(admissions).toEqual([]);
+    fireEvent.input(repository, { target: { value: 'owner/repo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
+    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+    expect(admissions).toEqual([{ installationId: 'installation-1', invocation: { repository: 'owner/repo' } }]);
+  });
+
+  it('preserves legacy read-only disclosure and rejects nonpositive PR input', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=owner%2Frepo&pullRequest=0');
+    render(() => <OperatorManagement />);
+    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveAttribute('maxlength', '256');
+    expect(screen.getByText(/real read-only assessment/)).toHaveTextContent(/will not merge or change/);
+    fireEvent.submit(screen.getByRole('button', { name: 'Start assessment' }).closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a positive pull request number.');
+  });
   it('returns from the guided form to the catalog without starting an activity', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
     let admissions = 0;
@@ -48,7 +85,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   });
   it('does not offer a Renovate form for an unsupported installed package', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
-    preview = { name: 'Another Dispatcher', version: 'v2', guidedAssessment: false };
+    preview = { name: 'Another Dispatcher', version: 'v2', guidedAssessment: false, guidedMode: null };
     render(() => <OperatorManagement />);
     expect(await screen.findByText(/No guided assessment is available for Another Dispatcher/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start assessment' })).not.toBeInTheDocument();

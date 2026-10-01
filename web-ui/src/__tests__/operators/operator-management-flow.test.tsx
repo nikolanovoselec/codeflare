@@ -118,7 +118,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: dispatcher,
       releases: [{ ...release, name: 'Renovate Dispatcher' }],
       installations: [{ ...installation, enabled: true, releaseId: release.id }] })
-      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true })
+      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' })
       : url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${dispatcher.repositoryUrl}` }));

@@ -112,7 +112,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     let preparations = 0;
     serve = (url, init) => {
       if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations++;
-      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true });
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' });
       if (url.pathname.endsWith('/operator-1')) return json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } });
       return json({ items: [dispatcher], cursor: null });
     };
@@ -135,7 +135,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
     serve = url => url.pathname.endsWith('/operator-1')
       ? json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
-      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true })
+      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' })
       : json({ items: [dispatcher], cursor: null });
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));

@@ -72,18 +72,19 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     finally { if (active) setBusy(false); }
   }
   function invoke() {
-    if (!preview()?.guidedAssessment) return;
+    const mode = preview()?.guidedMode;
+    if (!preview()?.guidedAssessment || !mode) return;
     const target = repository().trim();
     const number = Number(pullRequest());
-    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(target) || target.length > 256) {
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(target) || target.length > (mode === 'repository' ? 201 : 256)) {
       setError('Repository must be an owner/repository name you can read.'); return;
     }
-    if (!/^[1-9]\d*$/.test(pullRequest()) || !Number.isSafeInteger(number)) {
+    if (mode === 'legacy-pull-request' && (!/^[1-9]\d*$/.test(pullRequest()) || !Number.isSafeInteger(number))) {
       setError('Enter a positive pull request number.'); return;
     }
     let attemptedStartId = '';
     void perform(async () => {
-      const input = { repository: target, pullRequest: number };
+      const input = mode === 'repository' ? { repository: target } : { repository: target, pullRequest: number };
       const prepared = await api.prepareInstallationActivity(props.installationId!, input);
       if (!active) return;
       attemptedStartId = prepared.activityId;
@@ -104,13 +105,15 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
       <section class="admin-panel operator-panel" aria-label="Prepare assessment">
         <Show when={previewLoading()}><p role="status">Checking your invocation access and installed package…</p></Show>
         <Show when={previewError()}><p role="alert">The installation is unavailable or you cannot invoke it. Return to Operators and review your access.</p></Show>
-        <Show when={preview()}>{value => <Show when={value().guidedAssessment} fallback={<p>No guided assessment is available for {value().name} ({value().version}). This page does not start unsupported packages.</p>}>
-          <h2>Assess a Renovate pull request</h2><p>{value().name} · {value().version}</p>
-          <p>This starts a real read-only assessment using your own invocation grant, repository read access and inference route. It will not merge or change the pull request. Nothing runs until you start it.</p>
+        <Show when={preview()}>{value => <Show when={value().guidedAssessment && value().guidedMode} fallback={<p>No guided assessment is available for {value().name} ({value().version}). This page does not start unsupported packages.</p>}>
+          <h2>{value().guidedMode === 'repository' ? 'Assess recent Renovate pull requests' : 'Assess a Renovate pull request'}</h2><p>{value().name} · {value().version}</p>
+          <p>{value().guidedMode === 'repository'
+            ? 'This discovers recent Renovate pull requests, researches dependency changes, and may post comments and conditionally merge eligible pull requests using your own invocation grant, repository access and inference route. Nothing runs until you start it.'
+            : 'This starts a real read-only assessment using your own invocation grant, repository read access and inference route. It will not merge or change the pull request. Nothing runs until you start it.'}</p>
           <form onSubmit={event => { event.preventDefault(); invoke(); }}><fieldset disabled={busy() || uncertain()}>
             <div class="admin-form-grid">
-              <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength="256" autocomplete="off" placeholder="owner/repository" value={repository()} onInput={event => setRepository(event.currentTarget.value)} /><small>Enter a repository you can read, in owner/repository format.</small></label>
-              <label class="admin-form-field"><span>Pull request number</span><input aria-label="Pull request number" type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label>
+              <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength={value().guidedMode === 'repository' ? 201 : 256} autocomplete="off" placeholder="owner/repository" value={repository()} onInput={event => setRepository(event.currentTarget.value)} /><small>Enter a repository you can read, in owner/repository format.</small></label>
+              <Show when={value().guidedMode === 'legacy-pull-request'}><label class="admin-form-field"><span>Pull request number</span><input aria-label="Pull request number" type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label></Show>
             </div>
             <div class="operator-actions"><button type="submit" class="admin-primary-button">Start assessment</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
         </Show>}</Show>

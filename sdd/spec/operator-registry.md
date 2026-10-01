@@ -208,7 +208,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 ### REQ-OPERATOR-058: Guided Dispatcher invocation
 
-**Intent:** Authorized owners select an editable Renovate target and start only an explicitly prepared Dispatcher assessment.
+**Intent:** Authorized owners select an editable Renovate repository and explicitly start the installed package's approved journey or legacy single-PR assessment.
 
 **Applies To:** User
 
@@ -216,7 +216,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 1. Only authorized pinned Dispatcher installations expose a guided launcher; other packages have none. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (binds invocation to the selected installation and never renders its single-use start capability) -->
 2. Selected repository and PR values prefill editable fields without a global default or an Activity start on opening. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (REQ-OPERATOR-058: carries a user-chosen editable repository and PR to the guided Dispatcher form without preparing activity) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (REQ-OPERATOR-058: never supplies a universal repository or PR when no target was selected) -->
-3. Submission validates the target and prepares read-only input before starting. <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (prefills a user-chosen read-only Renovate demo without starting it, and rejects invalid targets before preparation) -->
+3. Submission follows the approved installed manifest input contract. Repository journeys submit only `{repository}` and disclose discovery, research, comments and conditional merges; explicit legacy single-PR assessments retain `{repository,pullRequest}` and read-only disclosure. Unsupported schemas have no guided launcher. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (uses the installed repository-only contract, discloses effects, and ignores PR query input until explicit start) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (preserves legacy read-only disclosure and rejects nonpositive PR input) -->
 4. An uncertain start blocks another start until the exact prepared activity is reconciled by its owner. <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (does not allow another start after an uncertain response until the prepared activity is reconciled) -->
 5. Failed preparation cannot be reconciled against a previous activity. <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (does not reconcile failed preparation against an earlier accepted activity) -->
 
@@ -226,9 +226,9 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation)
 
-**Verification:** Exact-head PR Checks 36363151786 failed; responsive Enterprise Integration acceptance remains pending.
+**Verification:** Schema-derived journey/legacy guidance and behavioral wire/copy tests are implemented locally but have not run at this correction head. The earlier failed PR Checks 36363151786 is historical, not verification of this candidate. Exact-head CI and responsive Enterprise Integration acceptance remain pending.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

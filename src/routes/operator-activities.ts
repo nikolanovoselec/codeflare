@@ -98,11 +98,27 @@ app.get('/installations/:installationId/preview', async c => {
   if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
   const { operator, release, manifestJson } = selected.value;
   let name: unknown;
-  try { name = (JSON.parse(manifestJson) as { name?: unknown }).name; } catch { return c.notFound(); }
+  let inputSchema: unknown;
+  try { ({ name, inputSchema } = JSON.parse(manifestJson)); } catch { return c.notFound(); }
   if (typeof name !== 'string' || !name.trim()) return c.notFound();
+  // Recognize only the two approved input contracts; extra constraints fail closed.
+  const repositoryOnly = z.strictObject({ type: z.literal('object'), additionalProperties: z.literal(false),
+    required: z.array(z.literal('repository')).length(1), properties: z.strictObject({
+      repository: z.strictObject({ type: z.literal('string'), maxLength: z.literal(201),
+        pattern: z.literal('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') }),
+    }) });
+  const legacy = z.strictObject({ type: z.literal('object'), additionalProperties: z.literal(false),
+    required: z.array(z.enum(['repository', 'pullRequest'])).length(2)
+      .refine(fields => new Set(fields).size === 2), properties: z.strictObject({
+      repository: z.strictObject({ type: z.literal('string') }),
+      pullRequest: z.strictObject({ type: z.literal('integer'), minimum: z.literal(1) }),
+    }) });
+  const official = operator.profile === 'dispatcher' && name === 'Renovate Dispatcher'
+    && operator.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
+  const guidedMode = !official ? null : repositoryOnly.safeParse(inputSchema).success ? 'repository'
+    : legacy.safeParse(inputSchema).success ? 'legacy-pull-request' : null;
   return c.json({ name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
-    guidedAssessment: operator.profile === 'dispatcher' && name === 'Renovate Dispatcher'
-      && operator.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher' });
+    guidedAssessment: guidedMode !== null, guidedMode });
 });
 app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);

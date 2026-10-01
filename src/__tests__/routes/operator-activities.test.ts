@@ -96,12 +96,27 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const { request, registry, activity } = fixture();
     const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
       invokers: { users: [claims.email], groups: [] } },
-      release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher' }),
+      release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: { type: 'object', additionalProperties: false,
+        required: ['repository', 'pullRequest'], properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
       installation: { id: 'installation-1', releaseId: 'release-1' } };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
     const preview = await request('/installations/installation-1/preview');
     expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true });
+    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' });
+    const schema = { type: 'object', additionalProperties: false, required: ['repository'],
+      properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
+    const installed = (inputSchema: unknown) => ({ ...selection,
+      manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema }) });
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(schema) });
+    expect(await (await request('/installations/installation-1/preview?guidedMode=legacy-pull-request')).json())
+      .toMatchObject({ guidedAssessment: true, guidedMode: 'repository', version: 'v0.1.2' });
+    for (const unsupportedSchema of [undefined, { ...schema, additionalProperties: true },
+      { ...schema, required: [] }, { ...schema, properties: { ...schema.properties, surprise: { type: 'string' } } },
+      { ...schema, properties: { repository: { ...schema.properties.repository, maxLength: 256 } } }]) {
+      registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(unsupportedSchema) });
+      expect(await (await request('/installations/installation-1/preview')).json())
+        .toMatchObject({ guidedAssessment: false, guidedMode: null });
+    }
     expect(activity.start).not.toHaveBeenCalled();
     expect(orchestration.prepare).not.toHaveBeenCalled();
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, operator: { ...selection.operator, invokers: { users: [], groups: [] } } } });

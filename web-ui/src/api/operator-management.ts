@@ -84,7 +84,8 @@ function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown
 }
 export const getOwnedActivities = () => activityRequest('', z.object({ items: z.array(operatorActivitySummarySchema).max(100) }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
-  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean() }));
+  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
+    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
 export const startInstallationActivity = (activityId: string, capability: string) =>
