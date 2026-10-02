@@ -53,7 +53,7 @@ ${extractBrowserRunBlock()}
   return {
     claude: JSON.parse(readFileSync(claudeJsonPath, 'utf8')),
     pi: JSON.parse(readFileSync(targetPath, 'utf8')),
-    legacyBytes: target === undefined || legacy === undefined ? undefined : readFileSync(legacyPath, 'utf8'),
+    legacyBytes: target === undefined || legacy === undefined ? undefined : readFileSync(join(userHome, '.pi', 'agent', 'mcp.json.migrated'), 'utf8'),
   };
 }
 
@@ -107,7 +107,7 @@ describe('entrypoint Browser Run MCP registration', () => {
     assert.deepEqual(pi, legacy);
   });
 
-  it('REQ-BROWSER-006: adapter destination wins without merging or deleting legacy settings', () => {
+  it('REQ-BROWSER-006: adapter destination wins without merging or losing archived legacy settings', () => {
     const legacy = { mcpServers: { old: { command: 'old' } } };
     const target = { mcpServers: { 'chrome-devtools': { command: 'preferred', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'] } } };
     const { pi, legacyBytes } = generatedBrowserConfigs({ legacy, target });

@@ -12,7 +12,7 @@ async function fixture(t) {
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, '.pi', 'agent');
   mkdirSync(directory, { recursive: true });
-  return { home, directory, legacy: join(directory, 'mcp.json'), target: join(directory, 'mcp-adapter.json'),
+  return { home, directory, legacy: join(directory, 'mcp.json'), target: join(directory, 'mcp-adapter.json'), backup: join(directory, 'mcp.json.migrated'),
     migrate: () => migratePiMcpAdapterConfig(directory),
     load: () => register({}, { HOME: home }),
   };
@@ -45,14 +45,27 @@ test('managed extension loading migrates existing users without image startup or
   assert.equal(existsSync(f.legacy), false);
 });
 
-test('existing adapter target wins and retains legacy bytes when both files exist', async (t) => {
+test('existing adapter target wins and archives legacy bytes without leaving the deprecated filename', async (t) => {
   const f = await fixture(t);
   const target = '{"mcpServers":{"preferred":{"command":"preferred"}},"settings":{"custom":false}}';
   writeFileSync(f.legacy, legacyConfig);
   writeFileSync(f.target, target);
   assert.equal(f.migrate(), true);
   assert.equal(readFileSync(f.target, 'utf8'), target);
+  assert.equal(readFileSync(f.backup, 'utf8'), legacyConfig);
+  assert.equal(existsSync(f.legacy), false);
+  assert.equal(f.migrate(), true);
+});
+
+test('existing migration backup is never overwritten or used to discard legacy credentials', async (t) => {
+  const f = await fixture(t);
+  writeFileSync(f.legacy, legacyConfig);
+  writeFileSync(f.target, '{}');
+  writeFileSync(f.backup, 'preserved backup');
+  assert.equal(f.migrate(), false);
   assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+  assert.equal(readFileSync(f.backup, 'utf8'), 'preserved backup');
+  assert.equal(readFileSync(f.target, 'utf8'), '{}');
 });
 
 for (const [name, content] of [['malformed', '{invalid'], ['array', '[]'], ['invalid servers', '{"mcpServers":[]}']]) {
@@ -146,7 +159,8 @@ test('REQ-AGENT-069: startup retains existing consult credentials and both-file 
   const result = startConsult(f.home);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(f.target, 'utf8'), target);
-  assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+  assert.equal(readFileSync(f.backup, 'utf8'), legacyConfig);
+  assert.equal(existsSync(f.legacy), false);
 });
 
 test('REQ-AGENT-069: startup blocks Pi bootstrap on malformed legacy without aborting Claude configuration', async (t) => {

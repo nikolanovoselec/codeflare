@@ -398,8 +398,9 @@ Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 Adapter 3.3.0 retains the config schema but, since 3.0.0, no longer reads Pi's
 `mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
 migrate a valid legacy file byte-for-byte only when the destination is absent.
-Existing adapter files win; both files remain when both exist. Invalid or
-nonregular paths block bootstrap changes. The legacy path is not retired.
+Existing adapter files win; valid legacy bytes move to `mcp.json.migrated`
+without leaving the deprecated filename or overwriting an existing backup.
+Invalid or nonregular paths block bootstrap changes. The legacy path is not retired.
 Managed delivery reaches existing images on the next Pi load or `/reload`, not
 merely when the release is published or refreshed.
 
@@ -1520,7 +1521,7 @@ Exhaustive Agents and Memory status remains in the active SDD; section-local lin
 
 - Pi reads `consult-llm` from `~/.pi/agent/mcp-adapter.json` through the pi-mcp-adapter `mcp` proxy.
 - Startup and the signed managed migration extension move a valid legacy `mcp.json` byte-for-byte only when the adapter destination is absent.
-- Existing destinations win and retain the legacy file.
+- Existing destinations win; valid legacy bytes are archived as `mcp.json.migrated` without overwriting a backup.
 - Malformed or nonregular paths fail closed without deleting user data.
 
 ## Related Documentation

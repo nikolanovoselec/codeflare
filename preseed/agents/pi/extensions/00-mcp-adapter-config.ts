@@ -33,7 +33,9 @@ export function migratePiMcpAdapterConfig(directory: string): boolean {
     if (targetStat) {
       if (!targetStat.isFile() || targetStat.isSymbolicLink()) return false;
       fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
-      return validConfig(readFileSync(fd));
+      if (!validConfig(readFileSync(fd))) return false;
+      closeSync(fd);
+      fd = undefined;
     }
     const legacyStat = stat(legacy);
     if (!legacyStat) return true;
@@ -43,9 +45,15 @@ export function migratePiMcpAdapterConfig(directory: string): boolean {
     const bytes = readFileSync(fd);
     if (!validConfig(bytes)) return false;
     // Exclusive creation is the no-clobber boundary, including concurrent loads.
-    writeFileSync(target, bytes, { flag: "wx", mode: opened.mode & 0o777 });
+    // Preserve both configurations without leaving the adapter's deprecated
+    // filename active. An existing backup is never overwritten.
+    const destination = targetStat ? join(directory, "mcp.json.migrated") : target;
+    writeFileSync(destination, bytes, { flag: "wx", mode: opened.mode & 0o777 });
     const current = stat(legacy);
-    if (current?.isFile() && current.dev === opened.dev && current.ino === opened.ino) unlinkSync(legacy);
+    if (!current?.isFile() || current.dev !== opened.dev || current.ino !== opened.ino
+      || current.size !== opened.size || current.mtimeMs !== opened.mtimeMs
+      || current.ctimeMs !== opened.ctimeMs) return false;
+    unlinkSync(legacy);
     return true;
   } catch {
     // No config contents or credential-bearing parse errors reach notifications.
