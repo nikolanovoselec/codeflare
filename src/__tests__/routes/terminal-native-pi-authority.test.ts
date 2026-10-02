@@ -32,6 +32,10 @@ vi.mock('@cloudflare/containers', () => ({
 import { handleWebSocketUpgrade, validateWebSocketRoute } from '../../routes/terminal';
 import { resetAuthConfigCache } from '../../lib/access';
 import { bindReviewSessionHuman, discardReviewSessionHuman, openReviewSessionHuman } from '../../container/review-session-human';
+import { confirmMonitoredExit, destroy, onStart, type LifecycleHost } from '../../container/container-lifecycle';
+import { setBucketName } from '../../container/container-config';
+import { SHUTDOWN_REQUESTED_KEY } from '../../container/container-metrics';
+import { createLogger, setLogLevel } from '../../lib/logger';
 import { LlmInterceptor } from '../../llm-interceptor';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { D1SessionRepository } from '../../lib/session-repository';
@@ -47,12 +51,27 @@ const issuer = `https://${domain}`;
 const oldJwt = 'synthetic-old-human-access-jwt';
 const freshJwt = 'synthetic-fresh-human-access-jwt';
 const providerCredential = 'synthetic-personal-provider-token';
+const bindingTransportError = `Synthetic binding transport unavailable: ${freshJwt} ${providerCredential} ${owner.bucket}/${owner.sessionId} ${owner.user}`;
 // Native OpenAI OAuth/device login and Codex, plus the legacy GitHub device-code path.
 const destinations = [
   'https://auth.openai.com/oauth/token',
+  'https://auth.openai.com/api/accounts/oauth/token',
   'https://auth.openai.com/api/accounts/deviceauth/usercode',
   'https://chatgpt.com/backend-api/codex/responses',
   'https://github.com/login/device/code',
+];
+
+// Pinned Pi 0.99.1 OAuth and legacy device initialization are unauthenticated
+// native login wires; neither carries the personal provider Bearer token.
+const nativeLogins: { url: string; headers: Record<string, string>; body: string }[] = [
+  { url: 'https://auth.openai.com/api/accounts/oauth/token',
+    headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code: 'synthetic-oauth-code',
+      code_verifier: 'synthetic-pkce-verifier', client_id: 'synthetic-client-id',
+      redirect_uri: 'http://127.0.0.1:1455/auth/callback', resource: 'https://api.openai.com/v1' }).toString() },
+  { url: 'https://auth.openai.com/api/accounts/deviceauth/usercode',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ client_id: 'synthetic-client-id' }) },
 ];
 
 beforeEach(() => {
@@ -65,6 +84,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  setLogLevel('silent');
   vi.useRealTimers();
   resetAuthConfigCache();
 });
@@ -103,14 +123,60 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
   const actions = {
     get: async (key: string) => records.get(key),
     put: async (key: string, value: unknown) => { records.set(key, value); },
-    delete: async (key: string) => { records.delete(key); },
+    delete: async (key: string | string[]) => {
+      for (const name of Array.isArray(key) ? key : [key]) records.delete(name);
+    },
   };
   const storage = { ...actions,
     transaction: async <T>(work: (tx: typeof actions) => Promise<T>) => work(actions),
   };
-  const host = {
+  const env = {
+    ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)), KV: kv,
+    USAGE_DB: createMockSessionD1(kv),
+    CONTAINER: { getByName: (name: string) => {
+      if (name !== `${owner.bucket}-${owner.sessionId}`) throw Error('Foreign container');
+      return container;
+    } },
+  } as unknown as Env;
+  // Only the process transport and SDK callbacks are synthetic. Lifecycle,
+  // reconfiguration, authority sealing and repository mutations remain real.
+  const process = {
+    running: true,
+    getTcpPort: () => ({ fetch: async (url: string) => {
+      if (url.endsWith('/internal/agent-events/drain')) return Response.json({ hostNow: Date.now(), events: [] });
+      if (url.endsWith('/internal/final-sync')) return Response.json({ synced: true });
+      throw Error('Unexpected process request');
+    } }),
+  };
+  const host: LifecycleHost = {
     _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user,
-    env: { ENCRYPTION_KEY: btoa('a'.repeat(32)) }, ctx: { storage },
+    _r2AccountId: null, _r2Endpoint: null, _r2AccessKeyId: null, _r2SecretAccessKey: null,
+    _workspaceSyncEnabled: false, _fastStartEnabled: false, _tabConfig: null,
+    _openaiApiKey: null, _geminiApiKey: null, _githubToken: null,
+    _cloudflareApiToken: null, _cloudflareAccountId: null, _encryptionKey: null,
+    _sessionMode: 'default', _sessionWorkspace: 'terminal', _terminalMode: 'classic',
+    _containerAuthToken: 'synthetic-container-token', _vaultKey: null,
+    _userGroups: [], _routeCatalog: [], _defaultRoute: null, _defaultReasoning: null,
+    _routeContextWindows: {}, _routeReasoningLevels: {}, _modelDisplayNames: {},
+    _userTimezone: null, _gitCloneRepo: null, _gitCloneRef: null,
+    containerStartedAt: Date.now(), lastSeenInputAt: null, _usageSeconds: 0, _shutdownStartedAt: 0,
+    idleTimeoutPref: '4h', envVars: {}, logger: createLogger('native-authority-test'), env,
+    ctx: { storage, container: process, waitUntil: () => {} } as unknown as LifecycleHost['ctx'],
+    stop: async () => { process.running = false; },
+    superDestroy: async () => { process.running = false; },
+    schedule: async () => {}, deleteSchedules: () => {},
+  };
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const startReplacement = async () => {
+    const claimed = await repository.start(owner.bucket, owner.sessionId, new Date().toISOString());
+    if (!claimed) throw Error('Replacement Start not claimed');
+    await setBucketName(host, owner.bucket, { sessionId: owner.sessionId, userEmail: owner.user,
+      userGroups: ['Engineering'], routeCatalog: [], allowPersonalPiProviders: true,
+      r2AccountId: 'synthetic-account', r2Endpoint: 'https://synthetic-account.r2.cloudflarestorage.com',
+      workspaceSyncEnabled: false, fastStartEnabled: false, sessionWorkspace: 'terminal', terminalMode: 'classic' });
+    process.running = true;
+    bootId = 'restarted-compute';
+    await onStart(host);
   };
   if (initial !== 'missing') {
     await bindReviewSessionHuman(host, { bucket: owner.bucket, sessionId: owner.sessionId,
@@ -139,19 +205,12 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
     start: restart, startAndWait: restart, destroy: restart,
     bindReviewHuman: (input: Parameters<typeof bindReviewSessionHuman>[1], expected?: Parameters<typeof bindReviewSessionHuman>[2]) => {
       if ((input && bindingFailure === 'renew') || (!input && bindingFailure === 'revoke')) {
-        throw Error('Synthetic binding transport unavailable');
+        throw Error(bindingTransportError);
       }
       return bindReviewSessionHuman(host, input, expected);
     },
     openReviewHuman: (input: typeof ref) => openReviewSessionHuman(host, input),
   };
-  const env = {
-    ENTERPRISE_MODE: 'active', KV: kv, USAGE_DB: createMockSessionD1(kv),
-    CONTAINER: { getByName: (name: string) => {
-      if (name !== `${owner.bucket}-${owner.sessionId}`) throw Error('Foreign container');
-      return container;
-    } },
-  } as unknown as Env;
   const providerRequests: Request[] = [];
   let identity: unknown = { user_uuid: oldHuman.subject, email: owner.user,
     groups: [{ id: 'engineering-id', name: 'Engineering' }] };
@@ -180,18 +239,18 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
     return response;
   };
   const body = JSON.stringify({ model: 'native-personal-model', messages: [], device_code: 'synthetic-device-code' });
-  const send = (url = destinations[0], props: Record<string, unknown> = {}) => {
+  const send = (url = destinations[0], props: Record<string, unknown> = {}, native?: { headers: Record<string, string>; body: string }) => {
     const interceptor = new LlmInterceptor({ props: { user: owner.user, sessionId: owner.sessionId,
       personalPi: owner, ...props } } as unknown as ExecutionContext, env);
     return interceptor.fetch(new Request(url, { method: 'POST', headers: {
-      authorization: `Bearer ${providerCredential}`, 'content-type': 'application/json',
+      ...(native?.headers ?? { authorization: `Bearer ${providerCredential}`, 'content-type': 'application/json' }),
       'cf-access-jwt-assertion': 'must-not-forward-human-assertion',
       'cf-aig-authorization': 'must-not-forward-gateway-key',
       'x-codeflare-context': 'must-not-forward-platform-context',
       'x-codeflare-session': 'must-not-forward-platform-session',
-    }, body }));
+    }, body: native?.body ?? body }));
   };
-  return { kv, env, host, records, oldHuman, freshHuman, verifiedHuman, policy, reconnect, send, body,
+  return { kv, env, host, storage, repository, startReplacement, records, oldHuman, freshHuman, verifiedHuman, policy, reconnect, send, body,
     providerRequests, identity: (value: unknown) => { identity = value; },
     readiness: (ready: boolean) => { terminalReady = ready; },
     bindingFailure: (failure: 'renew' | 'revoke') => { bindingFailure = failure; },
@@ -201,6 +260,48 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
 async function expectDenied(response: Response) {
   expect(response.status).toBe(403);
   expect(await response.json()).toEqual({ code: 'PERSONAL_PI_DENIED', error: 'Native Pi provider access is not permitted' });
+}
+function captureRenewalDiagnostics() {
+  const entries: Record<string, unknown>[] = [];
+  setLogLevel('warn');
+  vi.spyOn(console, 'warn').mockImplementation((output: string) => { entries.push(JSON.parse(output)); });
+  return entries;
+}
+function expectRenewalDiagnostic(entries: Record<string, unknown>[], stage: 'human-context' | 'parent-bind',
+  reason: 'principal-mismatch' | 'shutdown' | 'unclassified') {
+  const diagnostics = entries.filter(entry => entry.message === 'Native Pi human authority unavailable on terminal reconnect');
+  // Intentional closed audit wire/security allowlist: never emit arbitrary
+  // errors, claims or owner identifiers in this existing warning entry.
+  expect(diagnostics).toEqual([{ timestamp: new Date().toISOString(), level: 'warn', module: 'terminal',
+    message: 'Native Pi human authority unavailable on terminal reconnect', data: { stage, reason } }]);
+  const wire = JSON.stringify(diagnostics);
+  for (const secret of [oldJwt, freshJwt, providerCredential, owner.bucket, owner.sessionId, owner.user,
+    'owner-subject', 'different-human', 'engineering-id', issuer, 'Synthetic binding transport unavailable']) {
+    expect(wire).not.toContain(secret);
+  }
+}
+async function expectReplacementAuthority(f: Awaited<ReturnType<typeof fixture>>) {
+  expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.freshHuman, accessJwt: freshJwt, generation: 2 });
+  for (const url of destinations) {
+    const response = await f.send(url, {}, nativeLogins.find(login => login.url === url));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ upstream: 'native-provider-ok' });
+  }
+  expect(f.providerRequests.map(request => request.url)).toEqual(destinations);
+  for (const request of f.providerRequests) {
+    const login = nativeLogins.find(login => login.url === request.url);
+    expect(request.method).toBe('POST');
+    expect(request.headers.get('authorization')).toBe(login ? null : `Bearer ${providerCredential}`);
+    expect(await request.text()).toBe(login?.body ?? f.body);
+    if (login) {
+      for (const [name, value] of Object.entries(login.headers)) expect(request.headers.get(name)).toBe(value);
+    }
+    expect(request.redirect).toBe('manual');
+    for (const header of ['cf-access-jwt-assertion', 'cf-aig-authorization', 'x-codeflare-context', 'x-codeflare-session']) {
+      expect(request.headers.has(header)).toBe(false);
+    }
+  }
+  for (const jwt of [oldJwt, freshJwt]) expect(JSON.stringify([...f.records])).not.toContain(jwt);
 }
 async function closeCode(response: Response) {
   const socket = response.webSocket!;
@@ -239,9 +340,94 @@ describe('warm terminal native Pi authority', () => {
     },
   );
 
+  it('REQ-TERM-002: monitored exit permits next-generation reconnect and native OAuth/device forwarding without manual authority discard', async () => {
+    const f = await fixture('valid');
+    expect(await confirmMonitoredExit(f.host.ctx, f.env, owner.bucket, owner.sessionId, 1)).toBe(true);
+    await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+    await expectDenied(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    await f.startReplacement();
+    const terminal = await f.reconnect();
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'restarted-compute', generation: 2 });
+    expect(await f.repository.getSession(owner.bucket, owner.sessionId)).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 2 });
+    await expectReplacementAuthority(f);
+  });
+
+  it('REQ-TERM-002: actual destroy and fresh Start on the surviving host permit same-owner native provider renewal', async () => {
+    const f = await fixture('valid');
+    await f.repository.claimStop(owner.bucket, owner.sessionId, 'deliberate-stop', new Date().toISOString(), 1);
+    await destroy(f.host);
+    expect(await f.repository.confirmStopped(owner.bucket, owner.sessionId, 1, 'deliberate-stop', new Date().toISOString())).toBe(true);
+    await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+    await expectDenied(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    await f.startReplacement();
+    const terminal = await f.reconnect();
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'restarted-compute', generation: 2 });
+    await expectReplacementAuthority(f);
+  });
+
+  it('REQ-SESSION-018: delayed old-exit cleanup preserves replacement-generation sealed authority and provider access', async () => {
+    const f = await fixture('valid');
+    let entered!: () => void;
+    let release!: () => void;
+    const cleanupEntered = new Promise<void>(resolve => { entered = resolve; });
+    const cleanupReleased = new Promise<void>(resolve => { release = resolve; });
+    const transaction = f.storage.transaction;
+    // Delay only the platform storage boundary after D1 confirms exit. The
+    // replacement can be destroyed/reconfigured before old cleanup resumes.
+    f.storage.transaction = async work => {
+      f.storage.transaction = transaction;
+      entered();
+      await cleanupReleased;
+      return transaction(work);
+    };
+    const oldExit = confirmMonitoredExit(f.host.ctx, f.env, owner.bucket, owner.sessionId, 1);
+    await cleanupEntered;
+    try {
+      // Real teardown retires generation 1 while its monitor cleanup is delayed.
+      await destroy(f.host);
+      await f.startReplacement();
+      expect((await f.reconnect()).status).toBe(200);
+      expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.freshHuman, accessJwt: freshJwt, generation: 2 });
+    } finally {
+      release();
+      await oldExit;
+    }
+    await expectReplacementAuthority(f);
+  });
+
+  it.each([
+    ['running-replay', 'durable'], ['running-replay', 'memory'],
+    ['stale-replay', 'durable'], ['stale-replay', 'memory'],
+    ['stopping', 'durable'], ['stopping', 'memory'],
+  ] as const)('REQ-SESSION-033: %s onStart preserves the %s shutdown fence and sealed principal', async (callback, fence) => {
+    const f = await fixture('valid');
+    if (fence === 'durable') await f.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now());
+    else f.host._shutdownStartedAt = Date.now();
+    if (callback === 'stale-replay') f.records.set('lifecycleGeneration', 2);
+    if (callback === 'stopping') await f.repository.claimStop(owner.bucket, owner.sessionId, 'pending-stop', new Date().toISOString(), 1);
+    if (callback === 'running-replay') await onStart(f.host);
+    else await expect(onStart(f.host)).rejects.toThrow();
+    await expect(bindReviewSessionHuman(f.host, { bucket: owner.bucket, sessionId: owner.sessionId,
+      generation: 1, human: f.freshHuman, accessJwt: freshJwt })).rejects.toThrow();
+    await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+    await expectDenied(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    // Inspect the original sealed authority after lifting only the synthetic
+    // test fence; neither replay nor rejection may have replaced its principal.
+    await f.storage.delete(SHUTDOWN_REQUESTED_KEY);
+    f.host._shutdownStartedAt = 0;
+    f.records.set('lifecycleGeneration', 1);
+    expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.oldHuman, accessJwt: oldJwt, generation: 1 });
+  });
+
   it.each(['missing-assertion', 'unverified', 'expired', 'foreign-email', 'identity-outage'] as const)(
     'REQ-ENTERPRISE-090: %s human reconnect cannot retain a previously valid sealed credential', async invalid => {
       const f = await fixture('valid');
+      const diagnostics = captureRenewalDiagnostics();
       let assertion: string | null = freshJwt;
       if (invalid === 'missing-assertion') assertion = null;
       if (invalid === 'unverified') authentication.verified.delete(freshJwt);
@@ -255,16 +441,34 @@ describe('warm terminal native Pi authority', () => {
       await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
       await expectDenied(await f.send());
       expect(f.providerRequests.map(request => request.url)).toEqual([]);
+      expectRenewalDiagnostic(diagnostics, 'human-context', 'unclassified');
     },
   );
 
   it('REQ-ENTERPRISE-090: failed renewal revokes old authority while ordinary terminal remains usable', async () => {
     const f = await fixture('valid');
+    const diagnostics = captureRenewalDiagnostics();
     f.bindingFailure('renew');
-    expect((await f.reconnect()).status).toBe(200);
+    const terminal = await f.reconnect();
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'already-running-compute', generation: 1 });
     await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
     await expectDenied(await f.send());
     expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    expectRenewalDiagnostic(diagnostics, 'parent-bind', 'unclassified');
+  });
+
+  it('REQ-ENTERPRISE-090: shutdown renewal retains denial and emits only the closed parent-bind diagnostic', async () => {
+    const f = await fixture('valid');
+    const diagnostics = captureRenewalDiagnostics();
+    f.host._shutdownStartedAt = Date.now();
+    const terminal = await f.reconnect();
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'already-running-compute', generation: 1 });
+    await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+    await expectDenied(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    expectRenewalDiagnostic(diagnostics, 'parent-bind', 'shutdown');
   });
 
   it('REQ-ENTERPRISE-090: unconfirmed credential revocation rejects the reconnect rather than forwarding it', async () => {
@@ -291,12 +495,16 @@ describe('warm terminal native Pi authority', () => {
 
   it('REQ-ENTERPRISE-090: a changed human subject cannot replace the immutable same-email session principal', async () => {
     const f = await fixture('expired');
+    const diagnostics = captureRenewalDiagnostics();
     authentication.verified.set(freshJwt, { ...f.verifiedHuman, subject: 'different-human' });
     f.identity({ user_uuid: 'different-human', email: owner.user, groups: [{ id: 'engineering-id', name: 'Engineering' }] });
-    await f.reconnect();
+    const terminal = await f.reconnect();
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'already-running-compute', generation: 1 });
     await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
     await expectDenied(await f.send());
     expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    expectRenewalDiagnostic(diagnostics, 'parent-bind', 'principal-mismatch');
   });
 
   it('REQ-ENTERPRISE-090: matching-group revocation survives fresh reconnect despite an allowed fallback', async () => {
@@ -322,8 +530,8 @@ describe('warm terminal native Pi authority', () => {
 
   it('REQ-ENTERPRISE-090: stale D1 generation cannot bind fresh authority to replaced compute', async () => {
     const f = await fixture('expired');
-    // Real lifecycle replacement discards both credential and old principal;
-    // only generation comparison may reject this delayed generation-1 reconnect.
+    // Isolate the stale-generation check from principal mismatch. This is a
+    // synthetic race setup, not evidence that monitored exit retires authority.
     await discardReviewSessionHuman(f.host);
     f.records.set('lifecycleGeneration', 2);
     await f.reconnect();
