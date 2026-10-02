@@ -462,7 +462,7 @@ describe('warm terminal native Pi authority', () => {
     const f = await fixture('valid');
     const key = `session:${owner.bucket}:${owner.sessionId}`;
     const session = await f.kv.get(key, 'json') as Record<string, unknown>;
-    f.kv._set(key, { ...session, status: 'initializing' });
+    f.kv._set(key, { ...session, status: 'starting' });
     let projected!: () => void;
     let releaseProjection!: () => void;
     let cleanupEntered!: () => void;
@@ -494,22 +494,26 @@ describe('warm terminal native Pi authority', () => {
       return statement;
     };
     const starting = onStart(f.host);
-    await projectionCommitted;
-    const put = f.storage.put;
-    const remove = f.storage.delete;
-    f.storage.put = async (name, value) => {
-      if (name === SHUTDOWN_REQUESTED_KEY) throw Error('Synthetic shutdown storage unavailable');
-      await put(name, value);
-    };
-    f.storage.delete = async name => {
-      if (name === 'review:session-human') {
-        cleanupEntered();
-        await cleanupReleased;
-      }
-      await remove(name);
-    };
-    const stopping = destroy(f.host);
+    let stopping: Promise<void> | undefined;
     try {
+      await projectionCommitted;
+      expect(await f.repository.getSession(owner.bucket, owner.sessionId)).toMatchObject({
+        lifecycleState: 'running', lifecycleGeneration: 1,
+      });
+      const put = f.storage.put;
+      const remove = f.storage.delete;
+      f.storage.put = async (name, value) => {
+        if (name === SHUTDOWN_REQUESTED_KEY) throw Error('Synthetic shutdown storage unavailable');
+        await put(name, value);
+      };
+      f.storage.delete = async name => {
+        if (name === 'review:session-human') {
+          cleanupEntered();
+          await cleanupReleased;
+        }
+        await remove(name);
+      };
+      stopping = destroy(f.host);
       await cleanupWaiting;
       releaseProjection();
       await starting;
