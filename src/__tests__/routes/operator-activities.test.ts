@@ -259,13 +259,19 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
       workingCount: 3, unreadCount: 2, latestSequence: 5 });
     activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Other name',
       context: 'owner/repo · PR #42' });
-    expect(await firstItem()).toMatchObject({
-      operatorName: 'Pinned name', context: 'owner/repo · PR #42' });
+    expect(await firstItem()).toEqual(nameOnly);
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Pinned name',
+      context: 'owner/repo · PR #42' });
+    expect(await firstItem()).toMatchObject({ operatorName: 'Pinned name', context: 'owner/repo · PR #42' });
     const contextOnly = { ...summary, context: 'pinned/repo · PR #7' };
     registry.listOwnedActivityPage.mockResolvedValue({ items: [contextOnly], nextCursor: null,
       workingCount: 3, unreadCount: 2, latestSequence: 5 });
-    expect(await firstItem()).toMatchObject({
-      operatorName: 'Other name', context: 'pinned/repo · PR #7' });
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Other name',
+      context: 'owner/repo · PR #42' });
+    expect(await firstItem()).toEqual(contextOnly);
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, operatorName: 'Other name',
+      context: 'pinned/repo · PR #7' });
+    expect(await firstItem()).toMatchObject({ operatorName: 'Other name', context: 'pinned/repo · PR #7' });
   });
 
   it('REQ-OPERATOR-027: exposes five owner-scoped entries and all-working count using a validated stable cursor', async () => {

@@ -55,6 +55,34 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     } })]), initial(), 'requested');
     expect(projection).toMatchObject({ messageIds: ['answer'], result, writes: 1, outcome: 'completed' });
   });
+  it.each([[], [{ type: 'data-result', data: { repository: 'replacement/project', results: [] } }]])(
+    'preserves the observed result fence when an advancing reset omits or replaces it (%j)', async parts => {
+      const observed = await readDispatcherUpdates(response([start, data], 'observed-page'), initial(), 'requested');
+      const reset = event(5, { type: 'conversation-reset', snapshot: {
+        conversationId: 'conversation',
+        messages: [{ id: 'answer', submissionId: 'requested', parts }], settlements: [],
+      } });
+      await expect(readDispatcherUpdates(response([reset], 'reset-page'), observed, 'requested'))
+        .rejects.toThrow('Dispatcher immutable result changed');
+      expect(observed).toMatchObject({ offset: 'observed-page', result, writes: 1 });
+      const completed = await readDispatcherUpdates(response([settled], 'settled-page'), observed, 'requested');
+      expect(completed).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    },
+  );
+  it('reconstructs an identical observed result once across advancing pages and refuses a later replacement', async () => {
+    const observed = await readDispatcherUpdates(response([start, data], 'observed-page'), initial(), 'requested');
+    const reset = event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested',
+        parts: [{ type: 'data-result', data: result }] }], settlements: [],
+    } });
+    const reconstructed = await readDispatcherUpdates(response([reset], 'reset-page'), observed, 'requested');
+    await expect(readDispatcherUpdates(response([event(6, { type: 'data-part', messageId: 'answer',
+      name: 'result', data: { repository: 'replacement/project', results: [] } })], 'replacement-page'), reconstructed, 'requested'))
+      .rejects.toThrow('Dispatcher result duplicated');
+    const completed = await readDispatcherUpdates(response([event(7, { type: 'submission-settled',
+      submissionId: 'requested', outcome: 'completed' })], 'settled-page'), reconstructed, 'requested');
+    expect(completed).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
   it('projects a multi-megabyte compaction snapshot without retaining irrelevant SDK tool data', async () => {
     const snapshot = { conversationId: 'conversation', messages: [
       { id: 'foreign', submissionId: 'foreign', parts: [{ type: 'dynamic-tool', output: 'x'.repeat(2 * 1024 * 1024) }] },

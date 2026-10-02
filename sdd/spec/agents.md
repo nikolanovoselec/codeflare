@@ -275,7 +275,7 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Startup makes one exact-pinned `@narumitw/pi-plan-mode` package available in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly) -->
-2. The preseed integrity-locks the reviewed Plan Mode release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Plan mode package preseed (REQ-AGENT-152)) -->
+2. The preseed integrity-locks the reviewed Plan Mode release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152 AC2: reviewed Plan Mode archive matches the declared release and SHA-512 lock) -->
 3. A new image loads Plan Mode from its prewarmed path-correct cache. <!-- @impl: Dockerfile::plan_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 4. Image construction fails when Plan Mode's expected cache artifact is absent. <!-- @impl: Dockerfile::plan_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 5. Every container start atomically replaces Plan Mode configuration with inherited thinking, retained implementation-plan context, and the exact Codeflare discovery-tool profile. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
@@ -2326,7 +2326,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The preseed generation script computes a deterministic content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime. <!-- @impl: src/lib/agent-seed.generated.ts::PRESEED_CONTENT_HASH --> <!-- @manual -->
+1. The preseed generation script computes a deterministic content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: src/lib/agent-seed.generated.ts::PRESEED_CONTENT_HASH --> <!-- @manual -->
 2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
 3. Initial dashboard load requests an upgrade decision comparing stored preseed identity and enterprise mode with the desired environment. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @manual -->
 4. The frontend automatically reconciles each advertised pending target at most once until status reports no upgrade needed. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: attempts a changed baked target without managed status after target A %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (posts a successful upgrade once while stale true status keeps being observed) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (attempts target B without an intervening false after target A %s, but does not repeat either target) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (allows a later automatic upgrade after false/current, including the same target (%s)) --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
@@ -2509,7 +2509,7 @@ None.
 1. Component extraction follows ownership, coupling, state, reuse, testability, and maintenance rather than a repetition count. <!-- @impl: preseed/agents/claude/skills/frontend-components/SKILL.md::Extract only real repetition --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 2. Shared component and operational references preserve the applicable platform design owner's art direction. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Keep ownership explicit --> <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Operate surfaces and dashboards --> <!-- @manual -->
 3. No managed `frontend-patterns` skill imposes generic React or Next.js performance guidance. <!-- @manual: Inspect the source manifests and generated skill indexes. -->
-4. Protected or input-dependent I/O starts only after input validation and authorization; safe independent I/O may begin earlier. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Security --> <!-- @manual -->
+4. Protected or input-dependent I/O starts only after input validation and authorization; safe independent I/O may begin earlier. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 5. A runtime without `frontend-components` receives compact fallback boundaries instead of an instruction to invoke an unavailable skill. <!-- @impl: preseed/agents/claude/rules/frontend-components.md::Frontend component routing --> <!-- @manual: Inspect the generated Copilot instructions. -->
 
 **Constraints:** Component guidance cannot choose art direction, require an optional runtime capability, or create a second shared methodology.
@@ -2970,15 +2970,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. Seed compilation delivers the constitution to every supported runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+1. Seed compilation delivers the constitution to every supported runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 2. Repository evidence and explicit constraints outrank generic patterns, and implementation stays within the smallest coherent change. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 3. Every changed behavior starts with failing behavioral proof and passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 4. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-7. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+7. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
-**Constraints:** Claude and Pi preseed rules are authored sources; transformed files are downstream artifacts. Both sources remain substantively aligned, while prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
+**Constraints:** The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts. Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
 
 **Priority:** P1
 
@@ -3149,14 +3149,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi exposes consult-llm through its managed MCP proxy. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
-2. The Pi `consult-llm` entry uses `lifecycle:"lazy"`, so `consult-llm-mcp` starts on proxy use rather than session start. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
-3. Container startup adds the lazy Pi `mcpServers["consult-llm"]` object only when absent, preserving an existing adapter entry and its user configuration. Claude's existing owned-entry replacement remains unchanged. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
+1. Pi exposes consult-llm through its managed MCP proxy. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) -->
+2. Fresh managed Pi configuration defers missing-metadata startup and uses a `lifecycle:"lazy"` consult entry, so `consult-llm-mcp` starts on proxy use rather than session start; existing user entries and startup-setting precedence are preserved. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers) -->
+3. Container startup adds the lazy Pi `mcpServers["consult-llm"]` object only when absent, preserving an existing adapter entry and its user configuration. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
-5. Malformed or nonregular migration paths deny migration without deleting user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination blocks bootstrap and leaves both files untouched) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
-
-6. Valid legacy configuration migrates without changing bytes; an existing destination wins and retains the legacy file. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and retains legacy bytes when both files exist) -->
+5. Claude's existing owned-entry replacement remains unchanged. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
 **Constraints:**
 
@@ -3167,7 +3165,31 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity), [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior)
 
-**Verification:** Automated test: [MCP migration tests](../../host/__tests__/pi-mcp-adapter-config.test.js); manual verification remains on AC2–4.
+**Verification:** Automated bootstrap and actual locked-adapter proxy/start-on-use regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Manual verification remains on AC3–5.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-217: Lossless Pi MCP adapter migration
+
+**Intent:** Adapter filename migration preserves user configuration without clobbering existing destinations.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Valid legacy configuration migrates to an absent destination without changing bytes, credentials, custom servers or retention settings. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
+2. An existing destination wins and retains the legacy file. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and retains legacy bytes when both files exist) -->
+3. Malformed or nonregular paths deny migration without deleting user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination blocks bootstrap and leaves both files untouched) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
+
+**Constraints:** User entries are not rewritten to force a lazy lifecycle; managed bootstrap and Claude replacement remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring)
+
+**Verification:** Automated test: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Current-head CI remains pending.
 
 **Status:** Implemented
 
@@ -4040,8 +4062,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. The pinned `@juicesharp/rpiv-todo` release ships session-keyed task state upstream (the reviewed equivalent of the retired [AD100](../../documentation/decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override), and every runtime pin surface names that exact release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (rpiv-todo upstream session isolation (REQ-AGENT-081)) -->
-2. No Codeflare source override of rpiv-todo remains: no postinstall guard, no payload files, no manifest entries. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (rpiv-todo upstream session isolation (REQ-AGENT-081)) -->
+1. The pinned `@juicesharp/rpiv-todo` release ships session-keyed task state upstream (the reviewed equivalent of the retired [AD100](../../documentation/decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override), and every runtime pin surface names that exact release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: entrypoint.sh::required --> <!-- @test: preseed/agents/pi/test/todo-isolation.test.mjs (REQ-AGENT-081 AC1: pinned rpiv-todo isolates foreground tasks through child/background lifecycles and switching back) -->
+2. No Codeflare source override of rpiv-todo remains: no postinstall guard, no payload files, no manifest entries. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-AGENT-081 AC2: generated seed delivers no retired todo source override or install hook) -->
 
 **Constraints:**
 
@@ -4053,7 +4075,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated test ([Pi settings/packages tests](../../host/__tests__/pi-settings-packages.test.js))
+**Verification:** Generated-artifact retirement covers AC2. AC1 has a whole pinned-extension regression using real SDK session managers for foreground/child/background task retention and switching back. Lifecycle delivery is host-dispatched, not subprocess acceptance; execution remains subject to exact-head CI.
 
 **Status:** Implemented
 

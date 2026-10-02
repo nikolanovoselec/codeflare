@@ -55,15 +55,32 @@ export async function listProspectiveRenovatePrs(input: { env: Env;
       },
     }));
     if (response.status !== 200 || response.redirected) throw Error('Incomplete Komodo scan');
-    return JSON.parse(await readScanPage(response)) as unknown;
+    return { value: JSON.parse(await readScanPage(response)) as unknown, link: response.headers.get('link') };
   }
   const repository = z.object({ id: z.literal(REPOSITORY_ID), full_name: z.literal(KOMODO),
-    default_branch: z.literal('main') }).parse(await get(''));
+    default_branch: z.literal('main') }).parse((await get('')).value);
   if (repository.id !== REPOSITORY_ID) throw Error('Komodo identity changed');
   const found: Array<{ repositoryId: number; pullRequest: number; head: string; createdAt: string }> = [];
   let complete = false;
   for (let page = 1; page <= 10; page++) {
-    const rows = z.array(pr).max(100).parse(await get(`/pulls?state=open&per_page=100&page=${page}`));
+    const result = await get(`/pulls?state=open&per_page=100&page=${page}`);
+    const rows = z.array(pr).max(100).parse(result.value);
+    if (result.link) {
+      if (result.link.length > 8192) throw Error('Incomplete Komodo scan');
+      const links = result.link.split(',').map(value => value.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/));
+      if (links.some(value => !value)) throw Error('Incomplete Komodo scan');
+      const nextLinks = links.filter(value => value![2].split(/\s+/).includes('next'));
+      if (nextLinks.length > 1 || nextLinks.length && rows.length < 100) throw Error('Incomplete Komodo scan');
+      if (nextLinks[0]) {
+        const next = new URL(nextLinks[0][1]);
+        const expected = new URL(`${root}/pulls?state=open&per_page=100&page=${page + 1}`);
+        if (next.origin !== expected.origin || next.pathname !== expected.pathname || next.username || next.password || next.hash
+          || [...next.searchParams].length !== 3
+          || ['state', 'per_page', 'page'].some(key => next.searchParams.get(key) !== expected.searchParams.get(key))) {
+          throw Error('Incomplete Komodo scan');
+        }
+      }
+    }
     for (const row of rows) {
       if (row.base.ref !== 'main' || row.user.id !== 29139614 || row.user.login !== 'renovate[bot]'
         || row.user.type !== 'Bot') continue;

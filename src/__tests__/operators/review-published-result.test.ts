@@ -22,6 +22,8 @@ function fixture(change: { artifact?: (artifact: any) => void; comment?: (commen
   check?: (check: any) => void; run?: (run: any) => void; list?: (items: any[]) => void;
   identity?: { commentAuthorId: number; checkAppId: number }; current?: boolean;
   extraFindings?: number; longEvidence?: string;
+  checkPages?: (page: number, check: any) => unknown;
+  commentPages?: (page: number, comment: any) => unknown;
   published?: { artifact: any; comment: any; check: any } } = {}) {
   const result = { status: 'complete', activityId: 'review-activity', generation: 2,
     activityGeneration: 4, repositoryId: 138, pullRequest: 34, head,
@@ -61,10 +63,10 @@ function fixture(change: { artifact?: (artifact: any) => void; comment?: (commen
       'pr-context': { number: 34, state: 'open', head: { sha: currentHead, repo: { id: 138 } },
         base: { sha: base, repo: { id: 138 } } },
       'head-association': { head, pullRequest: 34 },
-      'comments-page': request.page === 1 ? [comment] : [], comment,
+      'comments-page': change.commentPages?.(request.page, comment) ?? (request.page === 1 ? [comment] : []), comment,
       'artifact-list': request.page === 1 ? artifacts : [],
       artifact: { id: 701, runId: 7, bytes: Buffer.from(JSON.stringify(artifact)).toString('base64') },
-      run, 'checks-page': { total_count: 1, check_runs: [check] }, check,
+      run, 'checks-page': change.checkPages?.(request.page, check) ?? { total_count: 1, check_runs: [check] }, check,
     };
     return request.operation in values ? { complete: true, value: values[request.operation] } : { complete: false };
   } };
@@ -76,6 +78,47 @@ function fixture(change: { artifact?: (artifact: any) => void; comment?: (commen
 }
 
 describe('REQ-OPERATOR-053/056: independently published original Review evidence', () => {
+  it.each(['copied', 'malformed'])(
+    'REQ-OPERATOR-056: an unauthenticated %s comment cannot suppress authentic publication', async kind => {
+      const { read } = fixture({ commentPages: (page, comment) => page === 1 ? [
+        { ...comment, id: 502, user: { id: 999 },
+          body: kind === 'copied' ? comment.body : '<!-- codeflare-review:review-138-34-review-activity-generation-invalid' }, comment,
+      ] : [] });
+      expect(await read()).toMatchObject({ status: 'published', findings: [{ id: finding.id }] });
+    },
+  );
+  it('REQ-OPERATOR-056: conflicting authenticated publisher comments remain unavailable', async () => {
+    const { read } = fixture({ commentPages: (page, comment) => page === 1 ? [comment,
+      { ...comment, id: 502 }] : [] });
+    expect(await read()).toEqual({ status: 'unavailable' });
+  });
+  const unrelatedChecks = (page: number) => Array.from({ length: 100 }, (_, index) => ({
+    id: page * 1000 + index, external_id: `unrelated-${page}-${index}`,
+  }));
+  it('REQ-OPERATOR-056: authenticates a published Review check beyond the first page', async () => {
+    const { read } = fixture({ checkPages: (page, check) => ({ total_count: 101,
+      check_runs: page === 1 ? unrelatedChecks(page) : [check] }) });
+    expect(await read()).toMatchObject({ status: 'published', findings: [{ id: finding.id }] });
+  });
+  it('REQ-OPERATOR-056: rejects duplicate published Review markers on later pages', async () => {
+    const { read } = fixture({ checkPages: (page, check) => ({ total_count: 101,
+      check_runs: page === 1 ? [check, ...unrelatedChecks(page).slice(1)] : [{ ...check, id: 602 }] }) });
+    expect(await read()).toEqual({ status: 'unavailable' });
+  });
+  for (const failure of ['short', 'changed-total', 'overlap', 'over-limit', 'invalid-id', 'missing-total']) {
+    it(`REQ-OPERATOR-056: incomplete ${failure} check pagination cannot authenticate publication`, async () => {
+      const { read } = fixture({ checkPages: (page, check) => {
+        const first = [check, ...unrelatedChecks(1).slice(1)];
+        if (failure === 'short') return { total_count: 101, check_runs: [check] };
+        if (failure === 'over-limit') return { total_count: 2001, check_runs: first };
+        if (failure === 'invalid-id') return { total_count: 1, check_runs: [{ ...check, id: 0 }] };
+        if (failure === 'missing-total') return { check_runs: [check] };
+        return { total_count: failure === 'changed-total' && page > 1 ? 102 : 101,
+          check_runs: page === 1 ? first : failure === 'overlap' ? [first[1]] : [{ id: 9999 }] };
+      } });
+      expect(await read()).toEqual({ status: 'unavailable' });
+    });
+  }
   it('REQ-OPERATOR-053/056: carries actual published three-lane evidence through authenticated history into the Pi branch after exact-head CI', async () => {
     const result = { status: 'complete', activityId: admission.activityId, generation: admission.generation,
       activityGeneration: 4, repositoryId: 138, pullRequest: 34, head,

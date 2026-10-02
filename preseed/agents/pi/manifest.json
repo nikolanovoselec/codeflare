@@ -419,6 +419,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/component-review.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/craft-floor.md": {
     "modes": [
       "advanced"
@@ -475,6 +480,11 @@
     ]
   },
   "skills/impeccable/reference/extract.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/generate.md": {
     "modes": [
       "advanced"
     ]
@@ -545,6 +555,11 @@
     ]
   },
   "skills/impeccable/reference/quieter.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/region-map.md": {
     "modes": [
       "advanced"
     ]

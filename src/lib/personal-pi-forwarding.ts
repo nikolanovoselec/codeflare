@@ -20,9 +20,13 @@ export interface PersonalPiProps {
 async function authorizePersonalPi(env: Env, ref: PersonalPiReference): Promise<boolean> {
   try {
     const session = env.CONTAINER.getByName(getContainerId(ref.bucket, ref.sessionId)) as unknown as {
-      openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string }>;
+      openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string; generation: number }>;
     };
     const authority = await session.openReviewHuman({ bucket: ref.bucket, sessionId: ref.sessionId, email: ref.user });
+    const fingerprint = (value: typeof authority) => JSON.stringify([value.accessJwt, value.generation,
+      value.human.subject, value.human.email, value.human.issuer, value.human.audiences,
+      value.human.issuedAt, value.human.expiresAt, value.human.groups]);
+    const evaluatedAuthority = fingerprint(authority);
     const human = authority.human;
     if (human.email.toLowerCase() !== ref.user.toLowerCase() || human.expiresAt * 1000 <= Date.now()
       || !/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)) return false;
@@ -60,8 +64,8 @@ async function authorizePersonalPi(env: Env, ref: PersonalPiReference): Promise<
     if (!await resolvePersonalPiPermission(env.KV, groups)) return false;
     // Reopen immediately before forwarding: shutdown, owner/session revocation or
     // a lifecycle-generation change while identity/policy I/O was pending denies.
-    await session.openReviewHuman({ bucket: ref.bucket, sessionId: ref.sessionId, email: ref.user });
-    return true;
+    const currentAuthority = await session.openReviewHuman({ bucket: ref.bucket, sessionId: ref.sessionId, email: ref.user });
+    return fingerprint(currentAuthority) === evaluatedAuthority;
   } catch { return false; }
 }
 
@@ -83,10 +87,11 @@ export async function forwardPersonalPi(request: Request, env: Env, props?: Pers
   if (native) try {
     // Gateway names/opaque native handles remain authoritative even when personal
     // credentials are supplied. A revoked handle cannot become a direct request.
-    if (url.hostname === 'api.openai.com' && request.body && request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    if (url.hostname === 'api.openai.com' && request.body) {
       const bytes = await readBoundedResponse(new Response(request.clone().body), 8 * 1024 * 1024, 'Native request');
       const payload = JSON.parse(new TextDecoder().decode(bytes)) as { model?: unknown };
-      const model = payload?.model;
+      const rawModel = payload?.model;
+      const model = typeof rawModel === 'string' && rawModel.startsWith('dynamic/') ? rawModel.slice(8) : rawModel;
       const routes: unknown = JSON.parse(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES) ?? '[]');
       if (typeof model === 'string' && (model.startsWith('cf-native-') || model === 'codeflare-enterprise'
         || (Array.isArray(routes) && routes.includes(model)))) return null;

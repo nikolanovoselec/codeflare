@@ -1,41 +1,50 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { GitHubInterceptor } from '../../github-interceptor';
+import { resetAuthConfigCache } from '../../lib/access';
+import { resetJWKSCache } from '../../lib/jwt';
+import { storeGithubConnection } from '../../lib/github-token';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+import { createMockKV } from '../helpers/mock-kv';
+import { createReviewPublicationGitHubFixture, reviewPublicationFaults,
+  type ReviewPublicationFault } from '../helpers/review-publication-github-fixture';
 
-vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'human-token' }));
-vi.mock('../../lib/access', async (original) => {
-  const access = await original<typeof import('../../lib/access')>();
-  return { ...access, requireOperatorHumanContext: async (request: Request) => {
-    const bob = request.headers.get('cf-access-jwt-assertion') === 'bob.jwt';
-    return { human: { subject: bob ? 'bob' : 'alice', email: bob ? 'bob@example.test' : 'alice@example.test',
-      issuer: 'https://team.cloudflareaccess.com', audiences: ['aud'], issuedAt: 1,
-      expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: bob ? 'bob.jwt' : 'alice.jwt' };
-  } };
+let keys: CryptoKeyPair;
+let publicJwk: JsonWebKey;
+beforeAll(async () => {
+  keys = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']) as CryptoKeyPair;
+  publicJwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
 });
-vi.mock('../../operators/review-history-transport', async (original) => ({
-  ...await original<typeof import('../../operators/review-history-transport')>(),
-  readPublishedReview: async (input: any) =>
-  input.repositoryId === 138 && input.pullRequest === 34 && input.activityId === 'review-activity'
-    && input.currentHead === 'b'.repeat(40)
-    ? { schemaVersion: 1, status: 'published', repository: 'owner/repo', repositoryId: 138,
-      pullRequest: 34, activityId: 'review-activity', head: 'a'.repeat(40), round: 2,
-      artifactDigest: 'f'.repeat(64), findings: [{ id: 'code-reviewer-guard', lane: 'code-reviewer',
-        severity: 'HIGH', path: 'src/guard.ts', line: 12, message: 'Missing authorization check',
-        evidence: 'Write occurs before the guard.' }] }
-    : { status: 'unavailable' } }));
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => { resetAuthConfigCache(); resetJWKSCache(); });
+afterEach(() => { vi.restoreAllMocks(); resetAuthConfigCache(); resetJWKSCache(); });
 
 const currentHead = 'b'.repeat(40), priorHead = 'a'.repeat(40);
-function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean;
-  denied?: boolean; wrongPublisher?: boolean } = {}) {
+const finding = { id: 'code-reviewer-guard', severity: 'HIGH', path: 'src/guard.ts', line: 12,
+  message: 'Missing authorization check', evidence: 'Write occurs before the guard.' };
+const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean;
+  invalidJwt?: boolean; revokedIdentity?: boolean; fault?: ReviewPublicationFault } = {}) {
   const user = options.user ?? 'alice';
-  const email = `${user}@example.test`;
+  const email = `${user}@example.test`, issuer = 'https://team.cloudflareaccess.com';
+  const now = Math.floor(Date.now() / 1000);
+  const human = { subject: user, email, issuer, audiences: ['aud'], issuedAt: now - 10, expiresAt: now + 300 };
+  const header = encode(new TextEncoder().encode(JSON.stringify({ alg: 'RS256', kid: 'review-key', typ: 'JWT' })));
+  const payload = encode(new TextEncoder().encode(JSON.stringify({ type: 'app', sub: user, email,
+    iss: issuer, aud: ['aud'], iat: human.issuedAt, exp: human.expiresAt })));
+  const signature = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keys.privateKey,
+    new TextEncoder().encode(`${header}.${payload}`)));
+  if (options.invalidJwt) signature[0] ^= 1;
+  const accessJwt = `${header}.${payload}.${encode(signature)}`;
   const session = { getReviewLifecycleGeneration: async () => options.lifecycleChange ? 2 : 1,
-    openReviewHuman: async () => ({ human: { subject: user, email,
-      issuer: 'https://team.cloudflareaccess.com', audiences: ['aud'], issuedAt: 1,
-      expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: `${user}.jwt` }),
+    openReviewHuman: async () => ({ human, accessJwt }),
     stageBoundaryInput: async () => { throw Error('Read-only request staged boundary input'); } };
-  const env = { ENTERPRISE_MODE: 'active', CONTAINER: { getByName: () => session },
+  const kv = createMockKV();
+  kv._store.set(SETUP_KEYS.AUTH_DOMAIN, 'team.cloudflareaccess.com');
+  kv._store.set(SETUP_KEYS.ACCESS_AUD, 'aud');
+  const env = { ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('r'.repeat(32)), KV: kv,
+    CONTAINER: { getByName: () => session },
     OPERATOR_ACTIVITY: { getByName: () => { throw Error('Read-only request opened a private Activity'); } },
     OPERATOR_REGISTRY: { getByName: () => ({
       getBoundaryAction: async (id: number, ref: string) => id === 138 && ref === 'refs/heads/main'
@@ -44,54 +53,78 @@ function fixture(options: { user?: 'alice' | 'bob'; lifecycleChange?: boolean;
       reserveBoundaryPreparation: async () => { throw Error('Read-only request reserved a Review'); },
     }) },
   } as unknown as Env;
+  await storeGithubConnection(env, 'review-owner', { accessToken: 'human-token', source: 'pat' });
+  const github = createReviewPublicationGitHubFixture({ currentHead, priorHead,
+    activityId: 'review-activity', round: 2, token: 'human-token', finding });
+  github.setFault(options.fault);
   const client = new GitHubInterceptor({ props: { user: email, bucket: 'review-owner',
     sessionId: 'review1234', lifecycleGeneration: 1 } } as unknown as ExecutionContext, env);
-  const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async request => {
-    const path = new URL((request as Request).url).pathname;
-    if (options.denied) return Response.json({ message: 'Forbidden' }, { status: 403 });
-    if (path === '/users/github-actions%5Bbot%5D') return Response.json({ login: 'github-actions[bot]', type: 'Bot', id: 777 });
-    if (path === '/apps/github-actions') return Response.json({
-      slug: options.wrongPublisher ? 'untrusted' : 'github-actions', id: 888 });
-    if (path === '/repos/owner/repo') return Response.json({ id: 138, permissions: { pull: true } });
-    if (path === '/repos/owner/repo/pulls/34') return Response.json({ number: 34, state: 'open',
-      head: { sha: currentHead, repo: { id: 138 } }, base: { sha: 'c'.repeat(40), ref: 'main', repo: { id: 138 } } });
-    return new Response('missing', { status: 404 });
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const request = new Request(input, init), url = new URL(request.url);
+    if (url.href === `${issuer}/cdn-cgi/access/certs`) return Response.json({ keys: [{ ...publicJwk,
+      kid: 'review-key', alg: 'RS256', use: 'sig' }] });
+    if (url.href === `${issuer}/cdn-cgi/access/get-identity`) {
+      if (options.revokedIdentity || request.headers.get('cookie') !== `CF_Authorization=${accessJwt}`)
+        return new Response(null, { status: 401 });
+      return Response.json({ id: user, email, groups: [] });
+    }
+    return github.fetcher(request);
   });
   const read = (path = '/repos/owner/repo/pulls/34', activity = 'review-activity') => client.fetch(new Request(
-    `https://api.github.com${path}`, { headers: { 'x-codeflare-operator-boundary-result': activity } }));
-  return { read, upstream };
+    `https://api.github.com${path}`, { headers: { 'x-codeflare-operator-boundary-result': activity,
+      'cf-access-jwt-assertion': 'must-not-leak', 'x-codeflare-operator-boundary-input': 'must-not-stage' } }));
+  return { read, github, accessJwt };
 }
 
+// Q14 maps to REQ-OPERATOR-065 AC1/2 (authentic read-only evidence), with
+// OPERATOR-053/056's original published artifact/comment/check contracts retained.
 describe('REQ-OPERATOR-053/056: read-only authenticated Review publication projection', () => {
-  it('returns a bounded published prior round from the actual intercepted GitHub PR read without staging or starting a Review', async () => {
-    const { read, upstream } = fixture();
+  it('REQ-OPERATOR-065: returns a bounded published prior round from the actual intercepted GitHub PR read without staging or starting a Review', async () => {
+    const { read, github, accessJwt } = await fixture();
     const response = await read();
-    expect(await response.json()).toMatchObject({ schemaVersion: 1, status: 'published',
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const body = await response.json();
+    expect(body).toEqual({ schemaVersion: 1, status: 'published', repository: 'owner/repo',
       repositoryId: 138, pullRequest: 34, head: priorHead, activityId: 'review-activity',
-      findings: [{ id: 'code-reviewer-guard' }] });
-    for (const [request] of upstream.mock.calls) {
-      expect((request as Request).headers.has('x-codeflare-operator-boundary-result')).toBe(false);
-      expect((request as Request).headers.has('cf-access-jwt-assertion')).toBe(false);
+      round: 2, artifactDigest: github.digest, omittedFindings: 0,
+      findings: [{ ...finding, lane: 'code-reviewer' }] });
+    expect(JSON.stringify(body)).not.toContain(accessJwt);
+    expect(JSON.stringify(body)).not.toContain('human-token');
+    // External header/privacy contract applies to every API and signed archive request.
+    for (const request of github.requests) {
+      expect(request.headers.has('x-codeflare-operator-boundary-result')).toBe(false);
+      expect(request.headers.has('x-codeflare-operator-boundary-input')).toBe(false);
+      expect(request.headers.has('cf-access-jwt-assertion')).toBe(false);
+      expect(request.headers.has('cookie')).toBe(false);
+      if (new URL(request.url).hostname === 'objects.actions.githubusercontent.com')
+        expect(request.headers.has('authorization')).toBe(false);
     }
   });
 
-  it('permits Bob to inspect the PR-wide published report with his own authorized session, not Alice private Activity', async () => {
-    expect(await (await fixture({ user: 'bob' }).read()).json()).toMatchObject({ status: 'published',
-      findings: [{ id: 'code-reviewer-guard' }] });
+  it('REQ-OPERATOR-065: permits Bob to inspect the PR-wide published report with his own authorized session, not Alice private Activity', async () => {
+    const { read } = await fixture({ user: 'bob' });
+    expect(await (await read()).json()).toMatchObject({ status: 'published',
+      findings: [{ ...finding, lane: 'code-reviewer' }] });
   });
 
   it.each([
     ['foreign PR', '/repos/owner/repo/pulls/35', 'review-activity'],
     ['foreign repository', '/repos/other/repo/pulls/34', 'review-activity'],
     ['wrong activity', '/repos/owner/repo/pulls/34', 'foreign-activity'],
-  ])('returns no private finding for %s', async (_name, path, activity) => {
-    const response = await fixture().read(path, activity);
-    expect(await response.json()).not.toMatchObject({ status: 'published' });
+  ])('REQ-OPERATOR-065: returns no private finding for %s', async (_name, path, activity) => {
+    const { read } = await fixture();
+    expect(await (await read(path, activity)).json()).toEqual({ status: 'unavailable' });
   });
-  it('does not treat expired session generation or denied GitHub repository access as published evidence', async () => {
-    for (const options of [{ lifecycleChange: true }, { denied: true }, { wrongPublisher: true }]) {
-      const response = await fixture(options).read();
-      expect(await response.json()).not.toMatchObject({ status: 'published' });
-    }
+
+  it.each(reviewPublicationFaults)('REQ-OPERATOR-065: forged or unavailable %s publication cannot expose findings', async fault => {
+    const { read } = await fixture({ fault });
+    expect(await (await read()).json()).toEqual({ status: 'unavailable' });
+  });
+  it.each([
+    { lifecycleChange: true }, { invalidJwt: true }, { revokedIdentity: true },
+  ])('REQ-OPERATOR-065: denies expired session generation or invalid live human authority (%j)', async options => {
+    const { read } = await fixture(options);
+    expect(await (await read()).json()).toEqual({ status: 'unavailable' });
   });
 });

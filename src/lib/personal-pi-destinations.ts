@@ -54,7 +54,7 @@ const PERSONAL_PI_HOSTS: readonly string[] = [
 // not a permission to send credentials to an arbitrary origin.
 export const PERSONAL_PI_HOST_PATTERNS: readonly string[] = [...PERSONAL_PI_HOSTS,
   '*.openai.azure.com', '*.ai.azure.com', '*.cognitiveservices.azure.com',
-  '*.aiplatform.googleapis.com', '*.amazonaws.com', '*.amazonaws.com.cn', '*.githubcopilot.com'];
+  '*.aiplatform.googleapis.com', '*-aiplatform.googleapis.com', '*.amazonaws.com', '*.amazonaws.com.cn', '*.githubcopilot.com'];
 
 /** Only the already trusted deployment GitHub domain supplies enterprise endpoints. */
 export function personalPiConfiguredGithubHosts(env?: Pick<Env, 'GITHUB_HOST'>): string[] {
@@ -88,5 +88,5 @@ export function isPersonalPiDestination(url: URL, env?: Pick<Env, 'GITHUB_HOST'>
 /** Hosts claimed by provider-family wildcards but not necessarily inference. */
 export function isPersonalPiCloudFamily(url: URL): boolean {
   return url.protocol === 'https:' && !url.username && !url.password && !url.port
-    && /(?:\.amazonaws\.com(?:\.cn)?|\.openai\.azure\.com|\.ai\.azure\.com|\.cognitiveservices\.azure\.com|\.aiplatform\.googleapis\.com)$/.test(url.hostname);
+    && /(?:\.amazonaws\.com(?:\.cn)?|\.openai\.azure\.com|\.ai\.azure\.com|\.cognitiveservices\.azure\.com|[.-]aiplatform\.googleapis\.com)$/.test(url.hostname);
 }

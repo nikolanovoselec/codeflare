@@ -173,7 +173,11 @@ export async function requireOperatorHumanContext(
   for (const audience of config.accessAudList) {
     const human = await verifyHumanAccessJWT(accessJwt, config.authDomain, audience);
     if (human && human.email.trim().toLowerCase() === authenticatedEmail.trim().toLowerCase()
-      && human.expiresAt * 1000 > Date.now()) return { human: await resolveOperatorGroupIdentity(human, accessJwt), accessJwt };
+      && human.expiresAt * 1000 > Date.now()) {
+      const groups = await currentOperatorIdentity(human, accessJwt);
+      if (groups === null) throw new ForbiddenError('Human Access authentication required');
+      return { human: { ...human, groups }, accessJwt };
+    }
   }
   throw new ForbiddenError('Human Access authentication required');
 }
@@ -881,7 +885,9 @@ export async function resolvePersonalPiPermission(kv: KVNamespace, groups: strin
     if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return false;
     const configuration = parseReasoningConfiguration(rawConfiguration);
     const first = groups.find(group => Object.hasOwn(policies, group));
-    const policy = first !== undefined ? (policies as Record<string, unknown>)[first] : configuration.fallbackRouting?.enabled ? configuration.fallbackRouting : undefined;
+    if (first === undefined) return configuration.fallbackRouting?.enabled === true
+      && configuration.fallbackRouting.allowPersonalPiProviders === true;
+    const policy = (policies as Record<string, unknown>)[first];
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return false;
     const entry = policy as GroupRoutingEntry & { allowPersonalPiProviders?: unknown };
     return Array.isArray(entry.routes) && entry.routes.every(route => typeof route === 'string')

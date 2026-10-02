@@ -141,7 +141,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
     catch { setLoadError(true); return null; }
   });
   const [selected, setSelected] = createSignal<string | null>(null);
-  const [detail] = createResource(selected, async id => id ? getOperatorActivity(id) : null);
+  const [detail, { refetch: refetchDetail }] = createResource(selected, async id => id ? getOperatorActivity(id) : null);
   const nextPage = () => {
     const next = activities()?.nextCursor;
     if (!next) return;
@@ -208,7 +208,12 @@ const OperatorActivityButton: Component<Props> = (props) => {
     document.removeEventListener('mousedown', clickOutside);
     window.removeEventListener('resize', closeOnResize);
   });
-  const interval = setInterval(() => { if (props.enabled) void refetch(); }, 15_000);
+  const interval = setInterval(() => {
+    if (props.enabled) {
+      void refetch();
+      if (selected()) void refetchDetail();
+    }
+  }, 15_000);
   onCleanup(() => clearInterval(interval));
   const updatedDate = (updatedAt: string | number) => typeof updatedAt === 'number'
     ? new Date(updatedAt) : new Date(updatedAt);
@@ -272,6 +277,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
                   <p>Execution: {value().executionStatus}</p>
                   <p>Cleanup: {value().cleanupStatus}</p>
                   <p>Collection: {value().collectionStatus}</p>
+                  <Show when={value().attention}><span class="operator-activity-attention">Needs attention</span></Show>
                   <Show when={value().progress}><p>Progress: {value().progress}</p></Show>
                   <Show when={value().checkpoint != null}><p>Checkpoint saved. Work may still be in progress.</p></Show>
                   <h4>Result</h4>
@@ -279,7 +285,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
                     : value().executionStatus === 'failed' ? 'Activity failed without a result'
                     : value().executionStatus === 'completed' ? 'Result unavailable'
                     : 'Result pending'}</p>}>{resultView(value().result)}</Show>
-                  <small>Updated {updatedDate(value().updatedAt).toLocaleString()}</small>
+                  <small>Updated {updatedDate(value().updatedAt).toLocaleString()}<Show when={stale(value().updatedAt) && workingStates.has(value().executionStatus)}> · Last observation may be stale</Show></small>
                 </div>}
               </Show>
             </Show>

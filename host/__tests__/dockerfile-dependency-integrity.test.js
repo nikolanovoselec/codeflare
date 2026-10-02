@@ -220,8 +220,10 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
         versions.every((version) => version.startsWith('10.') && atLeast(version, '10.5.1')),
         `ip-address versions ${versions.join(', ')} must all be patched for NAT64 local-use classification`,
       );
-      assert.ok(manifest.overrides['ip-address'].startsWith('10.') &&
-        atLeast(manifest.overrides['ip-address'], '10.5.1'), 'the runtime override must not restore vulnerable ip-address');
+      assert.equal(manifest.overrides['ip-address'], '10.7.3',
+        'the reviewed runtime version pin must survive lock regeneration');
+      assert.ok(versions.every(version => version === manifest.overrides['ip-address']),
+        'committed runtime packages must agree with the regeneration override');
     }
 
     for (const [lockfile, manifest] of [[rootLock, rootPackage], [wranglerLock, wranglerPackage]]) {

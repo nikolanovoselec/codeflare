@@ -285,7 +285,7 @@ export async function readPublishedReview(input: {
       const comments = await read({ schemaVersion: 1, operation: 'comments-page', page });
       if (!Array.isArray(comments) || comments.length > 100) throw Error('Published comments unavailable');
       for (const item of comments) {
-        if (!positive(item?.id) || typeof item?.body !== 'string'
+        if (item?.user?.id !== input.publisher.commentAuthorId || !positive(item?.id) || typeof item?.body !== 'string'
           || !item.body.startsWith(`<!-- codeflare-review:${prefix}`)) continue;
         const marker = item.body.match(/^<!-- codeflare-review:(review-[0-9]+-[0-9]+-[A-Za-z0-9_-]+-generation-([1-9][0-9]*):([a-f0-9]{64})) -->\n/);
         if (!marker || !marker[1].startsWith(prefix) || !positive(Number(marker[2]))
@@ -368,9 +368,25 @@ export async function readPublishedReview(input: {
       || run.event !== 'pull_request_target' || !run.pull_requests?.some((pull: any) => pull.number === input.pullRequest)
       || binding.runId && binding.runId !== admission.runId
       || binding.runAttempt && binding.runAttempt !== admission.runAttempt) throw Error('Published run altered');
-    const checks = await read({ schemaVersion: 1, operation: 'checks-page', head: selected.head, page: 1 });
-    const matching = checks?.check_runs?.filter((check: any) => check?.external_id === selected.marker);
-    if (!Array.isArray(matching) || matching.length !== 1 || !positive(matching[0].id))
+    const matching: Array<{ id: number }> = [];
+    const checkIds = new Set<number>();
+    let checkTotal: number | undefined;
+    for (let page = 1; page <= 20; page++) {
+      const checks = await read({ schemaVersion: 1, operation: 'checks-page', head: selected.head, page });
+      if (!Number.isSafeInteger(checks?.total_count) || checks.total_count < 0 || checks.total_count > 2000
+        || !Array.isArray(checks.check_runs) || checks.check_runs.length > 100
+        || checkTotal !== undefined && checks.total_count !== checkTotal) throw Error('Published check pagination unavailable');
+      checkTotal = checks.total_count;
+      for (const row of checks.check_runs) {
+        if (!positive(row?.id) || checkIds.has(row.id)) throw Error('Published check pagination altered');
+        checkIds.add(row.id);
+        if (row.external_id === selected.marker) matching.push({ id: row.id });
+      }
+      if (checkIds.size > checks.total_count) throw Error('Published check pagination altered');
+      if (checkIds.size === checks.total_count) break;
+      if (checks.check_runs.length < 100 || page === 20) throw Error('Published check pagination incomplete');
+    }
+    if (matching.length !== 1 || !positive(matching[0].id))
       throw Error('Published check unavailable');
     const check = await read({ schemaVersion: 1, operation: 'check', id: matching[0].id });
     const expected = result.presentation?.check;

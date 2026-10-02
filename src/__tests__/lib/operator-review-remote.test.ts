@@ -1,5 +1,8 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { registerOperatorReviewRemote, selectOperatorBoundary } from '../../../preseed/agents/pi/extensions/operator-review-remote';
+import { currentOperatorBoundary, registerOperatorReviewRemote, selectOperatorBoundary } from '../../../preseed/agents/pi/extensions/operator-review-remote';
 
 const head = 'a'.repeat(40);
 const published = { schemaVersion: 1 as const, status: 'published' as const,
@@ -11,8 +14,9 @@ const published = { schemaVersion: 1 as const, status: 'published' as const,
 function harness(result: unknown = published,
   selection: (_boundary: unknown, readOnly?: boolean) => ReturnType<typeof selectOperatorBoundary>
     = async () => ({ mode: 'remote', activityId: 'activity-1' }),
-  inspectBoundary?: (currentHead: string) => Promise<{ repository: string; repositoryId: number;
-    pullRequest: number; head: string; repo: string }>) {
+  inspectBoundary?: (currentHead: string, event: unknown, ctx: unknown) => Promise<{ repository: string; repositoryId: number;
+    pullRequest: number; head: string; repo: string } | undefined>,
+  runtime: { cwd?: string; onFollowUp?: (message: Record<string, any>) => void } = {}) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => Promise<void> | void>>();
   const branch: Record<string, any>[] = [];
   const messages: Array<{ customType: string; content?: string; details?: Record<string, any> }> = [];
@@ -23,20 +27,22 @@ function harness(result: unknown = published,
       handlers.set(event, [...handlers.get(event) ?? [], handler]);
       return () => { handlers.set(event, (handlers.get(event) ?? []).filter(item => item !== handler)); };
     },
-    sendMessage: (message: (typeof messages)[number]) => {
+    sendMessage: (message: (typeof messages)[number], options?: { triggerTurn?: boolean; deliverAs?: string }) => {
       messages.push(message);
       branch.push({ type: 'custom_message', ...message });
+      // Public Pi delivery contract: idle append alone does not run the agent.
+      if (options?.triggerTurn && options.deliverAs === 'followUp') runtime.onFollowUp?.(message);
     },
     appendEntry: (customType: string, data: unknown) => branch.push({ type: 'custom', customType, data }),
   };
   registerOperatorReviewRemote(pi as never, {
-    currentBoundary: async () => inspectBoundary ? inspectBoundary(observedHead) : ({ repository: 'owner/repo',
+    currentBoundary: async (event, ctx) => inspectBoundary ? inspectBoundary(observedHead, event, ctx) : ({ repository: 'owner/repo',
       repositoryId: 138, pullRequest: 42, head: observedHead, repo: '/workspace/repo' }),
     selectBoundary: selection,
     readPublishedResult: async (boundary, activityId) => typeof result === 'function'
       ? (result as (boundary: { head: string }, activityId: string) => unknown)(boundary, activityId) : result,
   });
-  const ctx = { cwd: '/workspace/repo', sessionManager: { getBranch: () => branch,
+  const ctx = { cwd: runtime.cwd ?? '/workspace/repo', sessionManager: { getBranch: () => branch,
     getSessionFile: () => sessionFile } };
   const reportCi = (reportHead = head, callId = 'ci-launch-1') => {
     branch.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: callId,
@@ -55,6 +61,120 @@ function harness(result: unknown = published,
     for (const handler of handlers.get(type) ?? []) await handler({ type, ...data }, ctx);
   } };
 }
+
+function boundaryFixture(overrides: { branch?: string; localHead?: string; remoteHead?: string;
+  prBranch?: string; remoteUrl?: string; state?: string; base?: string; prNumber?: number } = {}) {
+  const repo = mkdtempSync(join(tmpdir(), 'remote-review-boundary-'));
+  mkdirSync(join(repo, '.git'));
+  const submitted: any[] = [];
+  const runner = (async (program: string, args: string[]) => {
+    if (program === 'git') {
+      if (args[0] === 'symbolic-ref') return { stdout: overrides.branch ?? 'feature' };
+      if (args[0] === 'rev-parse') return { stdout: overrides.localHead ?? head };
+      if (args[0] === 'remote') return { stdout: overrides.remoteUrl ?? 'git@github.com:owner/repo.git' };
+      if (args[0] === 'config') return { stdout: 'origin' };
+      throw new Error(`Unexpected Git request: ${args.join(' ')}`);
+    }
+    if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
+      url: 'https://github.com/owner/repo' }) };
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: overrides.prNumber ?? 42,
+      state: overrides.state ?? 'OPEN', baseRefName: overrides.base ?? 'develop',
+      headRefName: overrides.prBranch ?? 'feature', headRefOid: overrides.remoteHead ?? head,
+      headRepository: { nameWithOwner: 'owner/repo' } }) };
+    if (!args.includes('--include')) return { stdout: '138' };
+    const header = args.find(argument => argument.startsWith('x-codeflare-operator-boundary-input: '));
+    submitted.push(JSON.parse(Buffer.from(header!.split(': ')[1], 'base64').toString()));
+    return { stdout: 'HTTP/2 200\nx-codeflare-operator-boundary-selection: remote\n'
+      + 'x-codeflare-operator-boundary-activity: activity-1\n\n'
+      + JSON.stringify({ number: 42, head: { sha: head } }) };
+  }) as never;
+  const app = harness(published, async (boundary, readOnly) =>
+    selectOperatorBoundary(boundary as never, readOnly, runner),
+  async (_head, event, ctx) => currentOperatorBoundary(event, ctx, runner), { cwd: repo });
+  return { ...app, repo, submitted, dispose: () => rmSync(repo, { recursive: true, force: true }) };
+}
+
+describe('remote Review concrete operation and exact checkout applicability', () => {
+  it.each([
+    ['foreign push source', 'git push origin unrelated', {}],
+    ['foreign push destination', 'git push origin HEAD:unrelated', {}],
+    ['mixed push refspecs', 'git push origin feature unrelated', {}],
+    ['deleted branch', 'git push origin :feature', {}],
+    ['foreign push repository', 'git push mirror feature', { remoteUrl: 'git@github.com:foreign/repo.git' }],
+    ['foreign reopen number', 'gh pr reopen 99', {}],
+    ['foreign reopen URL', 'gh pr reopen https://github.com/other/repo/pull/42', {}],
+    ['foreign reopen host', 'gh pr reopen https://foreign.example/owner/repo/pull/42', {}],
+    ['foreign global repository', 'gh -R other/repo pr reopen 42', {}],
+    ['foreign trailing repository', 'gh pr reopen 42 --repo other/repo', {}],
+    ['foreign create repository', 'gh pr create --repo other/repo --head feature', {}],
+    ['foreign create head', 'gh pr create --head unrelated', {}],
+    ['foreign qualified create head', 'gh pr create --head other:feature', {}],
+    ['stale local HEAD', 'git push origin feature', { localHead: 'b'.repeat(40) }],
+    ['stale remote HEAD', 'git push origin feature', { remoteHead: 'b'.repeat(40) }],
+    ['foreign PR branch', 'git push origin feature', { prBranch: 'unrelated' }],
+    ['detached checkout', 'git push origin HEAD:feature', { branch: '' }],
+    ['closed PR', 'gh pr reopen 42', { state: 'CLOSED' }],
+    ['unprotected base', 'git push origin feature', { base: 'feature' }],
+  ] as const)('leaves %s inert without staging or a CI plan', async (_scenario, command, overrides) => {
+    const app = boundaryFixture(overrides);
+    try {
+      await app.emit('tool_result', { toolName: 'bash', input: { command }, result: { isError: false,
+        content: [{ type: 'text', text: 'https://github.com/owner/repo/pull/42' }] } });
+      expect(app.submitted).toEqual([]);
+      expect(app.messages).toEqual([]);
+    } finally { await app.emit('session_shutdown'); app.dispose(); }
+  });
+
+  it.each(['git push origin feature', 'git push origin +HEAD:refs/heads/feature',
+    'git push origin refs/heads/feature:feature', 'gh pr reopen 42',
+    'gh -R owner/repo pr reopen 42', 'gh pr reopen https://github.com/owner/repo/pull/42',
+    'gh pr create --head feature', 'gh pr create --head owner:feature',
+    'git checkout feature && git push origin feature'])('admits the matching concrete operation %s', async command => {
+    const app = boundaryFixture();
+    try {
+      await app.emit('tool_result', { toolName: 'bash', input: { command }, result: { isError: false,
+        content: [{ type: 'text', text: 'https://github.com/owner/repo/pull/42' }] } });
+      expect(app.submitted).toEqual([{ repositoryId: 138, pullRequest: 42,
+        acknowledgedHead: null, targetHead: head,
+        payload: { range: null, rejectedFindingsStatus: 'unavailable' } }]);
+      expect(app.messages[0]).toMatchObject({ customType: 'pr-boundary-remote-plan',
+        details: { repository: 'owner/repo', pr: 42, head, activityId: 'activity-1' } });
+    } finally { await app.emit('session_shutdown'); app.dispose(); }
+  });
+
+  it.each(['https://github.com/owner/repo/pull/99', 'https://github.com/other/repo/pull/42',
+    'https://foreign.example/owner/repo/pull/42'])(
+    'does not substitute current PR for the concrete created PR %s', async url => {
+      const app = boundaryFixture();
+      try {
+        await app.emit('tool_result', { toolName: 'bash', input: { command: 'gh pr create --head feature' },
+          result: { content: [{ type: 'text', text: url }] } });
+        expect(app.submitted).toEqual([]);
+        expect(app.messages).toEqual([]);
+      } finally { await app.emit('session_shutdown'); app.dispose(); }
+    });
+
+  it('resolves the push invocation repository rather than an earlier checkout invocation', async () => {
+    const app = boundaryFixture();
+    try {
+      await app.emit('tool_result', { toolName: 'bash', input: {
+        command: `git -C /missing checkout feature && git -C ${app.repo} push origin feature`,
+      } });
+      expect(app.messages[0]).toMatchObject({ customType: 'pr-boundary-remote-plan',
+        details: { repository: 'owner/repo', pr: 42, head } });
+    } finally { await app.emit('session_shutdown'); app.dispose(); }
+  });
+
+  it('leaves failed transitions inert', async () => {
+    const app = boundaryFixture();
+    try {
+      await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' },
+        result: { isError: true } });
+      expect(app.submitted).toEqual([]);
+      expect(app.messages).toEqual([]);
+    } finally { await app.emit('session_shutdown'); app.dispose(); }
+  });
+});
 
 describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', () => {
   it('never stages Operator Review on checkout, switch, pull, clone, or startup exposure', async () => {
@@ -124,6 +244,59 @@ describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', (
         .toEqual(['pr-boundary-remote-pending', 'pr-boundary-remote-plan']);
     } finally { vi.useRealTimers(); }
   });
+
+  it('starts required exact-head CI follow-up when asynchronous admission arrives on idle Pi', async () => {
+    vi.useFakeTimers();
+    try {
+      let admitted = false;
+      const ciLaunches: unknown[] = [];
+      const app = harness(published, async () => admitted
+        ? { mode: 'remote', activityId: 'activity-1' } : { mode: 'remote' }, undefined,
+      { onFollowUp: message => {
+        if (message.customType !== 'pr-boundary-remote-plan') return;
+        const request = /ci-monitor for (\{[^\n]+\}) with/.exec(message.content)?.[1];
+        ciLaunches.push(JSON.parse(request!));
+        app.reportCi();
+      } });
+      await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' } });
+      await app.emit('agent_end');
+      expect(ciLaunches).toEqual([]);
+      admitted = true;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(ciLaunches).toEqual([{ repo: 'owner/repo', pr: 42, head, cwd: '/workspace/repo' }]);
+      expect(app.messages.map(message => message.customType)).toEqual([
+        'pr-boundary-remote-pending', 'pr-boundary-remote-plan', 'pr-boundary-original-findings',
+      ]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(ciLaunches).toHaveLength(1);
+      await app.emit('session_shutdown');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['head', 'repositoryId', 'session'] as const)(
+    'does not wake idle Pi for pending admission superseded by %s', async change => {
+      vi.useFakeTimers();
+      try {
+        let admitted = false;
+        let repositoryId = 138;
+        const launches: unknown[] = [];
+        const app = harness(published, async () => admitted
+          ? { mode: 'remote', activityId: 'activity-1' } : { mode: 'remote' },
+        async currentHead => ({ repository: 'owner/repo', repositoryId, pullRequest: 42,
+          head: currentHead, repo: '/workspace/repo' }),
+        { onFollowUp: message => launches.push(message) });
+        await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' } });
+        await app.emit('agent_end');
+        admitted = true;
+        if (change === 'head') app.moveHead('b'.repeat(40));
+        if (change === 'repositoryId') repositoryId = 139;
+        if (change === 'session') app.moveSession('/owned/other.jsonl');
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(launches).toEqual([]);
+        expect(app.messages.map(message => message.customType)).toEqual(['pr-boundary-remote-pending']);
+        await app.emit('session_shutdown');
+      } finally { vi.useRealTimers(); }
+    });
 
   it('cancels a pending remote monitor on deselection or session shutdown', async () => {
     vi.useFakeTimers();

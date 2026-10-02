@@ -137,7 +137,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
-**Intent:** Enterprise deployments route all agent LLM traffic to the customer's AI Gateway via platform outbound-HTTPS interception, so the gateway credentials never reach the container, nothing is exposed over a public route, and all usage is attributable.
+**Intent:** Enterprise deployments route sanctioned agent LLM traffic to the customer's AI Gateway via platform outbound-HTTPS interception, so gateway credentials never reach the container, nothing is exposed over a public route, and all sanctioned usage is attributable. Independently permitted personal providers remain governed by [REQ-ENTERPRISE-090](#req-enterprise-090-current-human-native-provider-authority).
 
 **Applies To:** User
 
@@ -148,7 +148,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. Streaming responses are preserved end-to-end. A streamed chat-completions response whose terminal `finish_reason` chunk is missing as the AI Gateway dynamic-route wrapper omits it on the wire. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route finish_reason fix)) -->
 4. Forwarded requests stamp gateway ID plus user email or bucket fallback; up to four matched groups become deterministic metadata tags, and the session's first configured matching group controls route restrictions. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @impl: src/lib/access.ts::resolveSessionAccessGroup --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: placeholder-auth stripping) -->
-6. The interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards) -->
+6. For sanctioned Gateway routing, the interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards) -->
 7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior. <!-- @impl: src/container/index.ts::startAndWaitForPorts --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016 / AD86: AI Gateway is platform-native — always direct egress, never cf1:network) -->
 
 **Constraints:**
@@ -180,9 +180,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Enterprise containers receive the active flag plus configured non-secret catalog, default, reasoning (including explicit empty reasoning), and context-window hints resolved from the session's first matching group or global fallback; gateway coordinates, credentials, and resolved model IDs remain absent. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: emits an explicit empty reasoning hint for a provider-default enterprise snapshot) -->
 2. When `ENTERPRISE_MODE=active`, the Cloudflare containers CA is installed into the system trust store and the Node/Python CA env vars are prepended to `.bashrc` so the PTY-spawned agent shells inherit them and all agent HTTPS clients trust the intercepted (TLS-terminated) connections. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC2: NODE_EXTRA_CA_CERTS in .bashrc points at the CF_CA_SRC path) -->
 3. Enterprise Copilot receives persistent-shell BYOK base URL, placeholder, default route, and prompt/output limits; startup overwrites stale defaults. It exposes only the default dynamic route, which maps on egress, and route changes require relaunch. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC3: COPILOT_MODEL in .bashrc equals the ENTERPRISE_DEFAULT_ROUTE value) -->
-4. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
+4. The container never receives the AI Gateway URL, gateway token or mediated Gateway per-session secrets; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
 5. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-005 AC5: outer Enterprise gate skips Pi provider config when mode is unset) -->
-6. No mode receives AWS credentials. Enterprise R2/Browser credentials follow mediation rules; deploy tokens remain excluded. Pi authentication survives only for permitted human sessions under REQ-ENTERPRISE-088. Non-enterprise retains owner-configured Cloudflare/provider credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (container secret hygiene: no AWS_* anywhere, CF token placeholder-only in enterprise) -->
+6. No mode receives AWS credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (never emits AWS_* in enterprise; R2_* still emitted (rclone reads creds from rclone.conf)) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (never emits AWS_* in non-enterprise either (dropped everywhere — no consumer); R2_* still emitted) -->
+7. Pi authentication survives only for permitted human sessions under [REQ-ENTERPRISE-089](#req-enterprise-089-human-native-pi-startup); Operator isolation remains under [REQ-ENTERPRISE-091](#req-enterprise-091-operator-personal-provider-isolation). <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) -->
 
 **Constraints:**
 
@@ -195,7 +196,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Automated test ([env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC4/AC5 env injection; AC6 secret hygiene — no AWS_* in either mode, enterprise CLOUDFLARE_API_TOKEN placeholder-only); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — per-route contextWindow; AC5 — inactive gate skips Pi provider config; AC6 — default-off auth clearing; REQ-ENTERPRISE-088 — permitted human auth retention); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). All acceptance criteria are covered by automated tests.)
+**Verification:** Automated test ([env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC4/AC5 env injection; AC6 — no AWS_* in either mode; Enterprise credential mediation now belongs to REQ-ENTERPRISE-092); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — per-route contextWindow; AC5 — inactive gate skips Pi provider config; AC7 — default-off auth clearing and permitted human auth retention under REQ-ENTERPRISE-089); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). Named evidence is not final current-head execution.)
 
 **Status:** Implemented
 
@@ -250,7 +251,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 4. For authorized requests, existing Chat Completions fallback, Responses passthrough, parsing, replay, and stream repair behavior remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC1: replays a model-routable request to the compat path when the REST API returns 404) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (injects a finish_reason:"stop" chunk before [DONE] when the upstream omits it (dynamic-route bug)) -->
 5. Without an atomic configuration containing server-owned verification, legacy assignments grant no runtime routes. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (does not silently grandfather legacy %s evidence into authority) -->
 
-6. An empty or ineligible runtime catalog denies inference before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (denies an empty catalog on %s before any upstream I/O) -->
+6. An empty or ineligible sanctioned runtime catalog denies sanctioned inference before upstream I/O; personal permission remains independently current-human authorized under [REQ-ENTERPRISE-090](#req-enterprise-090-current-human-native-provider-authority). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (denies an empty catalog on %s before any upstream I/O) -->
 
 7. An eligible unowned native-shaped Dynamic Route dispatches under its exact route selector and assigned profile, including when prefixed with `dynamic/`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: dispatches an authorized unowned native-shaped Dynamic Route with %s prefix and its assigned reasoning) -->
 
@@ -290,7 +291,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- The canary retains its validated Pi 0.84.4 streaming-envelope baseline; the separately pinned installed runtime is Pi 0.87.1. Its system instruction is an ordinary task instruction, with unchanged function schema and replay requirements. <!-- @impl: src/lib/reasoning-discovery.ts::basePiMessages --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) -->
+- The canary retains its validated Pi 0.84.4 streaming-envelope baseline, distinct from the installed runtime pinned in [Pi dependencies](../../preseed/agents/pi/package.json).
+- Its system instruction is an ordinary task instruction, with unchanged function schema and replay requirements. <!-- @impl: src/lib/reasoning-discovery.ts::basePiMessages --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) -->
 - Logical probes are counted separately from HTTP attempts.
 - Each attempt deadline includes response-body consumption and cancels stalled reads before any fallback or further probe.
 - Missing replay terminators may be repaired, but an empty, non-SSE, or error-only response cannot prove final assistant completion.
@@ -1755,6 +1757,30 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 
 <a id="req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var"></a>
+### REQ-ENTERPRISE-092: Mode-scoped platform credential delivery
+
+**Intent:** Credential mediation and personal human authentication are distinct from mode-specific owner credential delivery.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Enterprise R2 and Browser credentials follow existing mediation rules rather than delivering real platform credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-BROWSER-008: in enterprise emits ONLY the placeholder CLOUDFLARE_API_TOKEN, never a real token) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-016/021: strict egress + Governed Mode leaves CONTAINER_AUTH_TOKEN as the ONLY real secret) -->
+2. Deployment tokens remain excluded from container delivery. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @manual -->
+3. Non-enterprise retains owner-configured Cloudflare and provider credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (non-enterprise emits the real Connect-to-Cloudflare token + account id (byte-identical regression)) --> <!-- @manual -->
+
+**Constraints:** The historical strict-egress/Governed fixture concerns mediated environment variables, not all human Pi authentication storage. Explicit personal permission remains default off and current-human only under [REQ-ENTERPRISE-090](#req-enterprise-090-current-human-native-provider-authority); no platform credential exception or Operator privilege is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-089](#req-enterprise-089-human-native-pi-startup), [REQ-ENTERPRISE-091](#req-enterprise-091-operator-personal-provider-isolation)
+
+**Verification:** Adjacent environment-output tests prove the respective R2/Browser/owner-Cloudflare contracts. Deployment-token exclusion and owner-provider outcomes retain manual verification; current-head CI is pending. The historical capstone title is not universal human-auth evidence.
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.
@@ -1766,7 +1792,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. `AIG_GATEWAY_URL` and `AIG_TOKEN` may be configured as Worker secrets so they are not stored in plaintext config or exposed to the container. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual: Inspect the deployed Worker bindings and a running container environment; confirm the values are secret bindings and absent from the container. -->
 2. Enterprise mode is a non-secret deployment setting; dynamic route catalog and default remain wizard-managed KV configuration. <!-- @impl: wrangler.toml::binding --> <!-- @manual -->
 3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (REQ-ENTERPRISE-001 AC1 / REQ-ENTERPRISE-006 AC3: isEnterpriseMode) -->
-4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the resolved AI Gateway URL (wizard KV or deploy-secret fallback, [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)) is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) --> <!-- @impl: src/container/container-interception.ts::llm -->
+4. When `ENTERPRISE_MODE` is enabled, sanctioned Gateway requests fail closed (503) if the resolved AI Gateway URL (wizard KV or deploy-secret fallback, [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)) is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) --> <!-- @impl: src/container/container-interception.ts::llm -->
 5. When `ENTERPRISE_MODE` is configured, the CF Access application created by the setup wizard is host-scoped (bare custom domain, no path suffix) so the session cookie covers all paths uniformly; non-enterprise deployments retain the path-scoped (`/app/*`) application. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (enterprise mode creates a host-scoped app (bare host domain + whole-host destination)) -->
 6. Enterprise setup best-effort provisions a higher-priority public service-worker bypass. It never aborts host setup, stores the app ID only after policy success, and rolls back a new app on policy failure; non-enterprise creates none. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (Setup Access) -->
 7. The deployment workflow exposes `enterprise` and `enterprise integration` as manual-dispatch environments deployable from any branch, separate from production and integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
@@ -1798,7 +1824,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. On model-routable requests, catalog handles, including allowed pre-prefixed dynamic/<route> handles, map to dynamic/<route>; absent or unknown handles resolve to the eligible scope default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (assigns the eligible scope default when a JSON inference body omits model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (retains an allowed pre-prefixed route distinct from the default on %s) -->
-2. Model-routable requests without an eligible catalog or valid JSON body are rejected before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (denies an empty catalog without forwarding an agent model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (rejects non-JSON inference bodies that cannot be assigned an eligible route) -->
+2. Sanctioned model-routable requests without an eligible catalog or valid JSON body are rejected before upstream I/O; the separately granted current-human personal path cannot rescue stale sanctioned selectors. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (denies an empty catalog without forwarding an agent model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (rejects non-JSON inference bodies that cannot be assigned an eligible route) -->
 
 **Constraints:**
 
@@ -2655,19 +2681,15 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-088: Group-scoped native Pi providers
 
-**Intent:** An explicit policy permission adds native Pi login/API-key providers alongside sanctioned Gateway routes without granting Operators personal credentials or bypassing current human authority.
+**Intent:** Administrators explicitly grant or revoke personal Pi provider permission independently of sanctioned Gateway defaults.
 
-**Applies To:** User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Administration strictly validates and preserves the default-off permission per group and enabled fallback, including checkbox-only changes and explicit revocation. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingComparison --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload) --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC1: fallback preserves exact booleans and rejects coercion) -->
-2. Accessible group/fallback controls preserve independent submitted permissions and communicate them in Review changes without changing sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingReview --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions) -->
-3. First matching configured group is authoritative; only unmatched users may use enabled fallback. Malformed state and failed reads deny permission independently of sanctioned model eligibility. <!-- @impl: src/lib/access.ts::resolvePersonalPiPermission --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC3: first policy wins independently of sanctioned model eligibility) -->
-4. Trusted permitted human startup retains native authentication; pinned Pi exposes authenticated built-ins alongside unchanged sanctioned models. Missing or malformed hints remain default off. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models) -->
-5. Personal provider requests and reused WebSocket frames require the bound current human/session and current policy; warm revocation, expired authority and failed identity reads deny before provider I/O. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm revocation prevents provider I/O) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: reused native WebSockets deny frames after warm policy revocation) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies unbound and Operator paths) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: token-derived Copilot service hosts remain policy gated) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: deployment-bound Copilot enterprise hosts use native credentials) -->
-6. Native credentials and wire bodies remain owner-private; strict personal transport requires its binding, and credential-bearing provider redirects cannot cross origins automatically. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: strict personal transport requires its binding and does not use platform exemption) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: personal credentials cannot follow a cross-origin provider redirect) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: warm strict activation cannot use a stale direct transport hint) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: native OAuth traffic is bound and warm-strict gated: %s) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC6: pinned native OAuth login and refresh destinations reach the policy boundary) -->
-7. Operators receive neither the personal permission nor human authentication or inline provider secrets; stale managed handles cannot fall back to personal inference. <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authentication and inline provider secrets) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC7: Operator and stale managed handles never use personal transport) -->
+2. Accessible group/fallback controls preserve independent submitted permissions without changing sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions) -->
+3. Review changes communicate personal-provider grants and revocations separately from unchanged sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingReview --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088 AC3: Review renders $action for $scope without changing sanctioned defaults) -->
 
 **Constraints:**
 
@@ -2684,6 +2706,86 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication)
 
-**Verification:** Anchored Administration/component, real startup, pinned-runtime and interceptor tests. Focused startup GREEN is observed; full exact-head CI remains pending.
+**Verification:** Administration and shared editor tests cover persistence/payloads; separate actual Review component regressions cover grant/revocation rendering without changing sanctioned defaults. Test execution and exact-head CI remain unverified; startup/provider/Operator evidence belongs to the siblings below.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-089: Human native Pi startup
+
+**Intent:** Permitted humans retain native authentication alongside sanctioned models without treating startup hints as authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Trusted permitted human startup retains owner authentication. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) -->
+2. Pinned Pi exposes authenticated built-ins alongside unchanged sanctioned models. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models) -->
+3. Missing or malformed hints remain default off. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @manual -->
+4. Warm internal configuration can emit or revoke the next-start hint. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint) -->
+
+**Constraints:** Startup permission changes require container restart; request authorization never relies on picker state, and owner authentication follows the existing storage/governance regime.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-088](#req-enterprise-088-group-scoped-native-pi-providers)
+
+**Verification:** Anchored startup, pinned-runtime and internal configuration tests; focused startup GREEN is historical, not final exact-head CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-090: Current human native provider authority
+
+**Intent:** Every personal provider effect retains current human/session/policy and network boundaries.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The first matching configured group is authoritative; only unmatched users may use enabled fallback, independently of sanctioned model eligibility. <!-- @impl: src/lib/access.ts::resolvePersonalPiPermission --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC3: first policy wins independently of sanctioned model eligibility) -->
+2. Malformed state and failed policy/identity reads deny permission. <!-- @impl: src/lib/access.ts::resolvePersonalPiPermission --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm revocation prevents provider I/O) -->
+3. Requests require the bound current human/session and current policy; warm revocation and expired authority deny before provider I/O. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies unbound and Operator paths) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: token-derived Copilot service hosts remain policy gated) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: deployment-bound Copilot enterprise hosts use native credentials) -->
+4. Reused WebSocket frames reauthorize current human/session/policy before provider I/O. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: reused native WebSockets deny frames after warm policy revocation) -->
+5. Native credentials and wire bodies remain owner-private. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm revocation prevents provider I/O) -->
+6. Strict personal transport requires its binding and cannot use platform exemptions or stale direct hints. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: strict personal transport requires its binding and does not use platform exemption) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: warm strict activation cannot use a stale direct transport hint) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: native OAuth traffic is bound and warm-strict gated: %s) -->
+7. Credential-bearing provider redirects cannot cross origins automatically. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: personal credentials cannot follow a cross-origin provider redirect) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC6: pinned native OAuth login and refresh destinations reach the policy boundary) -->
+
+**Constraints:**
+
+- Enterprise human Pi only.
+- Fixed pinned native destinations and cloud resource/region families retain network policy, not arbitrary origins.
+- Native OpenAI JSON remains bounded at eight MiB.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-088](#req-enterprise-088-group-scoped-native-pi-providers), [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)
+
+**Verification:** Anchored policy/interceptor/runtime tests; current-head regression execution and CI remain pending.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-091: Operator personal-provider isolation
+
+**Intent:** Human personal-provider permission never supplies Operator authority or rescues a revoked sanctioned selector.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Operators receive neither personal permission nor human authentication or inline provider secrets. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authentication and inline provider secrets) -->
+2. Stale managed handles cannot fall back to personal inference. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC7: Operator and stale managed handles never use personal transport) -->
+
+**Constraints:** No production deployment, Operator activation, new origin or parallel OAuth service is implied.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-088](#req-enterprise-088-group-scoped-native-pi-providers), [REQ-ENTERPRISE-090](#req-enterprise-090-current-human-native-provider-authority)
+
+**Verification:** Anchored real Operator startup and interceptor tests; current-head regression execution and CI remain pending.
 
 **Status:** Implemented

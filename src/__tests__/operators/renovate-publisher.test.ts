@@ -40,7 +40,7 @@ type Publisher = { publishRenovateAssessment: (command: Command, authority: {
 /** Real Activity storage; only the independent session, registry and GitHub services are substituted. */
 async function fixture(test: (f: {
   publish: (options?: Partial<Command>, authority?: Partial<{ human: typeof human; accessJwt: string; platformAdmin: boolean }>) => Promise<unknown>;
-  activity: OperatorActivity; writes: Array<{ method: string; url: string; body: unknown }>;
+  activity: OperatorActivity; activityId: string; writes: Array<{ method: string; url: string; body: unknown }>;
   setAssessment: (value: unknown, status?: 'waiting' | 'completed') => Promise<void>; change: (key: string, value: unknown) => void;
   restart: () => void;
 }) => Promise<void>, selected = target, prospective: 'valid' | 'missing' | 'old' | 'foreign-session'
@@ -62,7 +62,8 @@ async function fixture(test: (f: {
       permission: 'admin', author: 'renovate[bot]', ambiguity: false, paginated: false, loggedOut: false,
       advanceBaseOnApproval: false, stopOnApproval: false, revokeOnApproval: false,
       rulesetType: 'non_fast_forward', prState: 'open',
-      moveHeadDuringChecks: false, forgedReadback: false, mergeReadbackUnavailable: false };
+      moveHeadDuringChecks: false, forgedReadback: false, mergeReadbackUnavailable: false,
+      lostApprovalResponse: false };
     const writes: Array<{ method: string; url: string; body: unknown }> = [];
     const registry = { resolveManagementExecution: async () => state.current ? { ok: true, value: selection } : { ok: false, reason: 'disabled' },
       readProspectiveRenovateAdmission: async (_id: string) => prospective === 'missing' ? null : {
@@ -93,7 +94,8 @@ async function fixture(test: (f: {
             if (state.revokeOnApproval) state.loggedOut = true;
           }
           if (url.pathname.endsWith('/merge')) state.prState = 'closed';
-          if (state.ambiguity) return Response.json({ message: 'response lost' }, { status: 502 });
+          if (state.ambiguity || state.lostApprovalResponse && url.pathname.endsWith('/reviews'))
+            return Response.json({ message: 'response lost' }, { status: 502 });
           if (url.pathname.endsWith('/merge')) return Response.json({ merged: true, sha: HEAD });
           return Response.json({ id: 9001, body });
         }
@@ -160,7 +162,7 @@ async function fixture(test: (f: {
     const access = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => state.loggedOut
       ? new Response(null, { status: 401 })
       : Response.json({ id: human.subject, email: human.email, groups: [] }));
-    try { await test({ activity, writes, change: (key, value) => { state[key] = value; },
+    try { await test({ activity, activityId, writes, change: (key, value) => { state[key] = value; },
       restart: () => { activity = new OperatorActivity(native, environment); },
       setAssessment: async (value, status = 'completed') => { const stored = await native.storage.get<Record<string, unknown>>('admission');
         await native.storage.put('admission', { ...stored, drive: { generation: 1, status, checkpoint: null, result: value } }); },
@@ -367,15 +369,23 @@ describe('REQ-OPERATOR-060: explicit fenced Renovate publication', () => {
     ]);
   }));
 
-  it('fences repeated and concurrent commands across restart, including ambiguous remote responses', () => fixture(async f => {
-    f.change('ambiguity', true);
-    await Promise.allSettled([f.publish(), f.publish()]);
-    const effects = JSON.stringify(f.writes);
+  it.each([false, true])('REQ-OPERATOR-060: concurrent commands publish once across restart (lost approval response: %s)', lostApprovalResponse => fixture(async f => {
+    f.change('lostApprovalResponse', lostApprovalResponse);
+    const results = await Promise.all([f.publish(), f.publish()]);
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ok: true, phase: 'completed', effect: 'merge', mergeSha: HEAD }),
+    ]));
+    // This complete external sequence is the idempotency/wire contract, not a helper count.
+    const permitted = [
+      { method: 'POST', url: '/repos/nikolanovoselec/komodo/pulls/1299/reviews',
+        body: { event: 'APPROVE', body: `<!-- Codeflare Renovate ${f.activityId}:1:${HEAD} -->`, commit_id: HEAD } },
+      { method: 'PUT', url: '/repos/nikolanovoselec/komodo/pulls/1299/merge',
+        body: { sha: HEAD, merge_method: 'merge' } },
+    ];
+    expect(f.writes).toEqual(permitted);
     f.restart();
-    await f.publish().catch(() => undefined);
-    expect(JSON.stringify(f.writes)).toBe(effects);
-    expect(f.writes.every(write => !write.url.endsWith('/merge')
-      || (write.body as { sha?: string })?.sha === HEAD)).toBe(true);
+    expect(await f.publish()).toMatchObject({ ok: true, phase: 'completed', effect: 'merge', mergeSha: HEAD });
+    expect(f.writes).toEqual(permitted);
   }));
 });
 

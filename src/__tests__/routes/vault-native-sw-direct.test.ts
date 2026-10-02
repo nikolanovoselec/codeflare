@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { nativeWorkerRuntime } from '../helpers/native-worker-runtime';
 
 // CF-045
 // Direct unit tests for src/routes/vault/native-sw.ts. The graft logic was
@@ -70,42 +71,68 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     ]);
   });
 
-  async function queryRecoveredKey({ configure = false, logout = false, expire = false } = {}) {
-    const worker = VAULT_NATIVE_SERVICE_WORKER_JS;
-    const helperStart = worker.indexOf('async function __cfRecover()');
-    const helperEnd = worker.indexOf('catch(cfe){}}', helperStart) + 'catch(cfe){}}'.length;
-    const message = configure ? 'config' : 'get-encryption-key';
-    const start = worker.indexOf(`case"${message}":{`);
-    const end = configure ? worker.indexOf('if(g.setSpacePrefixes', start) : worker.indexOf('case"set-encryption-key"', start);
-    const handler = worker.slice(start, end) + (configure ? 'return i;}' : '');
-    const state: { active: boolean; expire?: () => void } = { active: false };
-    const run = new Function('D', 'fetch', 'self', `let z,ne=0;D.expire=()=>{ne++};async function Kt(key){return key}async function $e(key){return key}
-      ${worker.slice(helperStart, helperEnd)}
-      return async function(){let reply;let o={data:{type:"${message}",config:{}},source:{postMessage(value){reply=value.key}}};let e=o.data;
-        switch(e.type){${handler}}return reply;};`)(state, async () => ({ ok: true, json: async () => {
-          if (logout) state.active = true;
-          if (expire) state.expire?.();
-          return { key: 'RECOVERED-KEY' };
-        } }), { registration: { scope: 'https://vault.test/' } });
-    return run();
+  const aesKey = btoa('a'.repeat(32));
+  const config = { enableClientEncryption: true, spaceFolderPath: '/vault', syncDocuments: true, syncIgnore: '' };
+  function servedRuntime(recover: () => Promise<Response> = async () => Response.json({ key: aesKey })) {
+    const requests: Array<{ url: string; credentials?: RequestCredentials }> = [];
+    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SERVICE_WORKER_JS, async (input, options) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push({ url, credentials: options?.credentials });
+      if (url === 'https://vault.test/.vault-key') return recover();
+      if (url === '/.fs') return Response.json([]);
+      throw new Error(`Unexpected native worker transport: ${url}`);
+    });
+    return { ...runtime, requests };
   }
 
-  it('REQ-VAULT-017: an encryption-key query recovers and returns the server key', async () => {
-    expect(await queryRecoveredKey()).toBe('RECOVERED-KEY');
+  it('REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler', async () => {
+    const runtime = servedRuntime();
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+    expect(runtime.requests).toEqual([{ url: 'https://vault.test/.vault-key', credentials: 'same-origin' }]);
   });
 
-  it('REQ-VAULT-017: config snapshots the recovered key before opening encrypted storage', async () => {
-    expect(await queryRecoveredKey({ configure: true })).toBe('RECOVERED-KEY');
+  it('REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler', async () => {
+    const runtime = servedRuntime();
+    expect(await runtime.message({ type: 'config', config })).toEqual([]); // config has no key reply
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+    // Intentional native database identity: scope, space and recovered key bind storage.
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`/vault:https://vault.test:${aesKey}`));
+    const name = `sb_files_${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    // Public logout preparation reports the configured sync database, not a private router field.
+    expect(await runtime.message({ type: 'logout-sync', id: 'configured' })).toEqual([{ ok: true, databases: [name] }]);
+    expect(await runtime.message({ type: 'logout-cancel', id: 'configured' })).toEqual([]);
+    await runtime.message({ type: 'shutdown' });
   });
 
-  it('REQ-VAULT-017: logout during recovery prevents publishing a recovered key', async () => {
-    expect(await queryRecoveredKey({ logout: true })).toBeUndefined();
-    expect(await queryRecoveredKey({ configure: true, logout: true })).toBeUndefined();
+  it.each(['get-encryption-key', 'config'])('REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration', async type => {
+    let release!: (response: Response) => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const runtime = servedRuntime(() => { entered(); return pending; });
+    const recovery = runtime.message({ type, config });
+    await started;
+    expect(await runtime.message({ type: 'logout-force' })).toEqual([{ ok: true }]);
+    expect(runtime.isRegistered()).toBe(false);
+    release(Response.json({ key: aesKey }));
+    expect(await recovery).toEqual([]);
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([]);
+    expect([...runtime.databases.keys()]).toEqual([]);
   });
 
-  it('REQ-VAULT-017: logout generation changes fence a pending recovered key', async () => {
-    expect(await queryRecoveredKey({ expire: true })).toBeUndefined();
-    expect(await queryRecoveredKey({ configure: true, expire: true })).toBeUndefined();
+  it('REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state', async () => {
+    let release!: (response: Response) => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const runtime = servedRuntime(() => { entered(); return pending; });
+    const recovery = runtime.message({ type: 'get-encryption-key' });
+    await started;
+    expect(await runtime.message({ type: 'logout-sync', id: 'pending' })).toEqual([{ ok: true, databases: [] }]);
+    release(Response.json({ key: aesKey }));
+    expect(await recovery).toEqual([]);
+    await runtime.message({ type: 'logout-cancel', id: 'pending' });
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
   });
 
   it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', async () => {
@@ -154,38 +181,19 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(() => graftVaultKeyRecovery('invalid upstream artifact')).toThrow(/anchor/);
   });
 
-  // REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the graft NEUTERS the upstream proactive
-  // 5s "no window clients" key flush so the in-memory AES key `y` is retained while
-  // the worker lives. Upstream wiped `y` during the bootstrap-hop -> editor 0-client
-  // transition, racing cold opens into a `.auth` 403. These slice the ACTUAL no-client
-  // flush callback out of each worker string and run it with zero clients, so
-  // reinstating the wipe (or gutting the graft) flips them red.
-  function runNoClientFlush(sw: string): string | undefined {
-    const NEEDLE = '.matchAll().then(o=>{';
-    const open = sw.indexOf(NEEDLE + 'o.length===0');
-    if (open < 0) throw new Error('no-client flush callback not found in served worker');
-    const keyVariable =
-      /async function __cfRecover\(\)\{if\(([A-Za-z_$][\w$]*)!==void 0/.exec(sw)?.[1]
-      ?? /o\.length===0&&([A-Za-z_$][\w$]*)&&\(console\.info\("No more clients, flushing encryption key"\),\1=void 0\)/.exec(sw)?.[1];
-    if (!keyVariable) throw new Error('encryption-key variable not found in worker');
-    const exprStart = open + NEEDLE.length;
-    const exprEnd = sw.indexOf('}', exprStart);
-    const expr = sw.slice(exprStart, exprEnd);
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(keyVariable, `const o = []; ${expr}; return ${keyVariable};`) as (
-      key: string,
-    ) => string | undefined;
-    return fn('AES-KEY');
-  }
-
-  it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
-    expect(runNoClientFlush(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe('AES-KEY');
+  it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval', async () => {
+    const runtime = servedRuntime(async () => new Response(null, { status: 403 }));
+    expect(await runtime.message({ type: 'set-encryption-key', key: aesKey })).toEqual([{ type: 'encryption-key-set' }]);
+    await runtime.noClientInterval();
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+    expect(runtime.requests).toEqual([]); // retained AES, not a successful recovery hiding a wipe
   });
 
-  it('the flush-neuter is load-bearing: the verbatim (pre-graft) worker DOES wipe the key on no clients', () => {
-    // Negative control — proves the retained key above comes from the graft, not the
-    // harness. Upstream sets y=void 0 when clients.matchAll() resolves to [].
-    expect(runNoClientFlush(VAULT_NATIVE_SW_VERBATIM)).toBeUndefined();
+  it('the verbatim worker loses real AES across its registered zero-client interval', async () => {
+    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SW_VERBATIM, async () => { throw new Error('No external recovery allowed'); });
+    await runtime.message({ type: 'set-encryption-key', key: aesKey });
+    await runtime.noClientInterval();
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: undefined }]);
   });
 
   it('throws when an anchor substring is missing (SilverBullet version drift guard)', () => {

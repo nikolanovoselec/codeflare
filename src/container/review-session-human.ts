@@ -106,7 +106,7 @@ export async function discardReviewSessionHuman(host: Host): Promise<void> {
 
 /** Parent-only read: credentials never enter interceptor props, logs or child environment. */
 export async function openReviewSessionHuman(host: Host, ref: { bucket: string; sessionId: string; email: string }): Promise<{
-  human: VerifiedHumanAccessClaims; accessJwt: string;
+  human: VerifiedHumanAccessClaims; accessJwt: string; generation: number;
 }> {
   own(host, ref.bucket, ref.sessionId, ref.email);
   if ((host._shutdownStartedAt ?? 0) > 0 || await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY)) {
@@ -120,5 +120,5 @@ export async function openReviewSessionHuman(host: Host, ref: { bucket: string; 
     || await host.ctx.storage.get('lifecycleGeneration') !== data.generation
     || data.human.email.toLowerCase() !== ref.email.toLowerCase()
     || data.human.expiresAt * 1000 <= Date.now()) throw new ForbiddenError('Session authority unavailable');
-  return { human: data.human, accessJwt: data.accessJwt };
+  return { human: data.human, accessJwt: data.accessJwt, generation: data.generation };
 }

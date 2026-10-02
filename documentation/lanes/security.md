@@ -73,14 +73,16 @@ The Worker's deployment/account-management token never enters a session containe
 
 Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
 
-Enterprise interception withholds supported real credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+Enterprise interception withholds Worker-managed/platform credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+
+The default-off [personal Pi provider permission](configuration.md#container-environment) is a separate human-only exception under [REQ-ENTERPRISE-090](../../sdd/spec/enterprise-mode.md#req-enterprise-090-current-human-native-provider-authority): owner API/OAuth authentication may remain in the session, subject to current owner/session/policy checks and strict egress when configured. It neither exposes platform credentials nor authorizes Operators or stale sanctioned selectors. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi -->
 
 A compromised container can still exercise any legitimate capability represented by a credential or boundary interceptor. Prompt isolation is not authorization; provider scope and branch/deployment policy remain necessary.
 
 <a id="non-enterprise-cloudflare-oauth-token"></a>
 ### Session-bound resolution
 
-Boundary interceptors resolve credentials from the session-bound bucket/configuration, never a caller-selected bucket header. Missing, expired, unrefreshable, wrong-account, or wrong-host requests fail before an upstream credential is attached. OAuth placeholders are distinct from Enterprise placeholders so modes cannot collide.
+For mediated platform routes, boundary interceptors resolve credentials from the session-bound bucket/configuration, never a caller-selected bucket header. Missing, expired, unrefreshable, wrong-account, or wrong-host requests fail before an upstream credential is attached. OAuth placeholders are distinct from Enterprise placeholders so modes cannot collide.
 
 <a id="github-token-handling"></a>
 ### GitHub credentials

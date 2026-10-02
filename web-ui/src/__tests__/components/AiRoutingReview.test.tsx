@@ -63,6 +63,45 @@ const renderReview = (submitted: unknown = values(), reviewed = preview({ change
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('AI routing review', () => {
+  it.each([
+    { scope: 'group', action: 'a personal-provider grant', before: false, after: true },
+    { scope: 'group', action: 'a personal-provider revocation', before: true, after: false },
+    { scope: 'fallback', action: 'a personal-provider grant', before: false, after: true },
+    { scope: 'fallback', action: 'a personal-provider revocation', before: true, after: false },
+  ])('REQ-ENTERPRISE-088 AC3: Review renders $action for $scope without changing sanctioned defaults', ({ scope, before, after }) => {
+    const existing = values();
+    const current = { ...existing,
+      groupRouting: [{ ...existing.groupRouting[0], allowPersonalPiProviders: before }],
+      fallbackRouting: { enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium', allowPersonalPiProviders: before },
+    };
+    const field = scope === 'group' ? 'groupRouting' : 'fallbackRouting';
+    const reviewedAfter = scope === 'group'
+      ? current.groupRouting.map((group) => ({ ...group, allowPersonalPiProviders: after }))
+      : { ...current.fallbackRouting, allowPersonalPiProviders: after };
+    // Keep submitted values at the old permission: Review must communicate the
+    // authoritative server delta, not an unchecked browser payload.
+    renderReview(current, preview({ changes: [{ field, before: current[field], after: reviewedAfter }] }), current);
+
+    const region = screen.getByRole('region', { name: scope === 'group' ? 'Group access' : 'Fallback' });
+    const policy = scope === 'group'
+      ? within(region).getByRole('article', { name: 'Platform engineers' }) : region;
+    const permissionRow = within(policy).getByText('Native Pi providers').parentElement!;
+    expect(within(permissionRow).getByRole('definition')).toHaveTextContent(after
+      ? /^Allowed with personal authentication$/ : /^Not allowed$/);
+    expect(within(permissionRow).getByRole('definition')).toBeVisible();
+
+    const routes = within(policy).getByRole('list', { name: 'Allowed routes' });
+    expect(within(routes).getAllByRole('listitem').map((item) => item.textContent))
+      .toEqual(scope === 'group' ? ['development', 'production'] : ['development']);
+    const defaultRow = within(policy).getByText('Default route').parentElement!;
+    expect(within(defaultRow).getByRole('definition')).toHaveTextContent(scope === 'group' ? /^production$/ : /^development$/);
+    const reasoningRow = within(policy).getByText('Default reasoning').parentElement!;
+    expect(within(reasoningRow).getByRole('definition')).toHaveTextContent(scope === 'group' ? /^High$/ : /^Medium$/);
+    expect(screen.queryByRole('region', { name: 'Dynamic routes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: scope === 'group' ? 'Fallback' : 'Group access' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Save' })).toBeEnabled();
+  });
+
   it.each([false, true])('REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)', (saved) => {
     const reviewed = { ...values(), nativeTargets: [{ label: 'Opus5', model: 'eu.anthropic.claude-opus-5', region: 'eu-central-1', contextWindow: 200000, enabled: true }] };
     const changes = additions(reviewed);

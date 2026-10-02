@@ -172,7 +172,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.81.0',
+  expectedVersion = '1.85.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -261,12 +261,15 @@ export async function verifyNodeTarRuntimes({
     '/opt/code-server/lib/vscode/node_modules/tar',
   ],
   expectedVersion = '7.5.21',
+  expectedVersions = runtimePaths.map(path => path === '/opt/code-server/lib/vscode/node_modules/tar' ? '7.5.22' : expectedVersion),
   temporaryRoot = tmpdir(),
 } = {}) {
   const require = createRequire(import.meta.url);
-  for (const runtimePath of runtimePaths) {
+  assert.equal(expectedVersions.length, runtimePaths.length, 'Every node-tar runtime requires an exact expected version');
+  for (const [index, runtimePath] of runtimePaths.entries()) {
     const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
-    assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain node-tar ${expectedVersion}`);
+    const version = expectedVersions[index];
+    assert.equal(manifest.version, version, `${runtimePath} must contain node-tar ${version}`);
     const nodeTar = require(runtimePath);
     assert.equal(typeof nodeTar.create, 'function', `${runtimePath} must load node-tar create()`);
     assert.equal(typeof nodeTar.extract, 'function', `${runtimePath} must load node-tar extract()`);

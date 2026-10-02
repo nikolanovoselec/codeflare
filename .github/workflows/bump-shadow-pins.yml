@@ -1411,6 +1411,7 @@ jobs:
               const manifest = JSON.parse(before);
               if (manifest.dependencies?.[PKG] === CUR) {
                 manifest.dependencies[PKG] = LAT;
+                if (manifest.overrides?.[PKG] === CUR) manifest.overrides[PKG] = LAT;
                 after = JSON.stringify(manifest, null, 2) + '\n';
               } else {
                 after = before;

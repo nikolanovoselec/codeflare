@@ -853,66 +853,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
   });
 
-  // REQ-AGENT-078: the DO-side wiring decision for the OAuth api.cloudflare.com
-  // interceptor, driven through the public start seam (startAndWaitForPorts →
-  // the container-interception registry). This pins the "never touch
-  // enterprise" invariant — the guard that decides WHETHER to wire the
-  // interceptor at all — so a future edit that weakens the mode gate or the
-  // placeholder/bucket guards fails here.
-  describe('OAuth api.cloudflare.com interception wiring guard (REQ-AGENT-078)', () => {
-    function makeWiringCtx() {
-      const interceptOutboundHttps = vi.fn();
-      const CloudflareBrowserInterceptor = vi.fn(() => ({ fetch: vi.fn() }));
-      const ctx = {
-        ...mockCtx,
-        exports: {
-          CloudflareBrowserInterceptor,
-          LlmInterceptor: vi.fn(() => ({ fetch: vi.fn() })),
-        },
-        container: { ...mockContainerRuntime, interceptOutboundHttps },
-      };
-      return { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor };
-    }
-
-    it('wires api.cloudflare.com in OAuth mode: non-enterprise + placeholder token + bound bucket', async () => {
-      const { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor } = makeWiringCtx();
-      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
-      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
-      (instance as any)._bucketName = 'user-bucket';
-      await instance.startAndWaitForPorts(8080);
-      // The interceptor is bound to the session bucket only (no request-supplied identity).
-      expect(CloudflareBrowserInterceptor).toHaveBeenCalledWith({ props: { bucket: 'user-bucket' } });
-      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.cloudflare.com', expect.anything());
-    });
-
-    it('does not bind the OAuth credential injector in Enterprise mode when native provider interception claims the host)', async () => {
-      const { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor } = makeWiringCtx();
-      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' });
-      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
-      (instance as any)._bucketName = 'user-bucket';
-      await instance.startAndWaitForPorts(8080);
-      expect(CloudflareBrowserInterceptor).not.toHaveBeenCalledWith({ props: { bucket: 'user-bucket' } });
-      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', expect.anything());
-    });
-
-    it('does NOT wire when the container token is not the OAuth placeholder (PAT / real-token session)', async () => {
-      const { ctx, interceptOutboundHttps } = makeWiringCtx();
-      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
-      (instance as any)._cloudflareApiToken = 'a-real-pat-deploy-token';
-      (instance as any)._bucketName = 'user-bucket';
-      await instance.startAndWaitForPorts(8080);
-      expect(interceptOutboundHttps).not.toHaveBeenCalled();
-    });
-
-    it('does NOT wire when no bucket is bound (cannot resolve a token)', async () => {
-      const { ctx, interceptOutboundHttps } = makeWiringCtx();
-      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
-      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
-      (instance as any)._bucketName = null;
-      await instance.startAndWaitForPorts(8080);
-      expect(interceptOutboundHttps).not.toHaveBeenCalled();
-    });
-  });
+  // Browser/OAuth registration outcomes are exercised with real registered
+  // entrypoints in browser-interception.test.ts (rather than mocked wiring).
 
   describe('operator context composition (REQ-OPERATOR-005)', () => {
     const operatorProfile = {

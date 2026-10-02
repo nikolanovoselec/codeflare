@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
@@ -21,20 +21,28 @@ async function providerDefaultSession(t, options = {}) {
     modelsPath: fixture.modelsPath, authPath: join(fixture.agentDir, 'auth.json'),
     modelsStorePath: join(fixture.agentDir, 'models-store.json'), allowModelNetwork: false,
   });
-  const sessionManager = SessionManager.inMemory(fixture.home);
+  const sessionManager = options.sessionManager ?? SessionManager.inMemory(fixture.home);
+  if (options.todo) {
+    const { fileURLToPath } = await import('node:url');
+    const settingsPath = join(fixture.agentDir, 'settings.json');
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    settings.packages = [fileURLToPath(new URL('../node_modules/@juicesharp/rpiv-todo/', import.meta.url))];
+    writeFileSync(settingsPath, JSON.stringify(settings));
+  }
   const settingsManager = SettingsManager.create(fixture.home, fixture.agentDir);
   const resourceLoader = new DefaultResourceLoader({
     cwd: fixture.home, agentDir: fixture.agentDir, settingsManager,
-    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+    noExtensions: !options.todo, noSkills: true, noPromptTemplates: true, noThemes: true,
   });
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: fixture.home, agentDir: fixture.agentDir, modelRuntime,
-    sessionManager, settingsManager, resourceLoader, tools: [],
+    sessionManager, settingsManager, resourceLoader, tools: options.todo ? ['todo'] : [],
   });
   t.after(() => session.dispose());
   assert.equal(session.model.provider, 'codeflare-gateway');
   assert.equal(session.model.id, 'bedrock_opus');
+  if (options.todo) await session.bindExtensions({});
   return { session, sessionManager, modelRuntime };
 }
 
@@ -273,6 +281,41 @@ it('REQ-ENTERPRISE-088 AC6: pinned native OAuth login and refresh destinations r
         `pinned ${id} ${action} traffic must reach authorization: ${new URL(request.url).hostname}`);
     }
   }
+});
+
+it('REQ-AGENT-081 AC1: actual pinned todo tasks survive independent child sessions and foreground replay', async t => {
+  const { patchRpivHostPeers } = await import('../../../../scripts/patch-rpiv-host-peers.mjs');
+  const { readFile, writeFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const modules = fileURLToPath(new URL('../node_modules/', import.meta.url));
+  const manifests = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo']
+    .map(name => join(modules, '@juicesharp', name, 'package.json'));
+  const originals = await Promise.all(manifests.map(async path => [path, await readFile(path)]));
+  t.after(async () => { for (const [path, bytes] of originals) await writeFile(path, bytes); });
+  await patchRpivHostPeers(modules);
+  const foreground = await providerDefaultSession(t, { todo: true });
+  const run = async ({ session, sessionManager }, params) => {
+    // Execute the SDK-wrapped public tool: its context is the actual session,
+    // not a fabricated session ID or a replacement task store.
+    const tool = session.agent.state.tools.find(item => item.name === 'todo');
+    assert.ok(tool, 'the pinned extension delivers todo to the session');
+    const id = `todo-${sessionManager.getBranch().length}`;
+    const result = await tool.execute(id, params);
+    sessionManager.appendMessage({ role: 'toolResult', toolCallId: id, toolName: 'todo',
+      content: result.content, details: result.details, isError: false, timestamp: Date.now() });
+    return result.details.tasks;
+  };
+  const retained = await run(foreground, { action: 'create', subject: 'Retain foreground work' });
+  assert.equal(retained[0].subject, 'Retain foreground work');
+  const child = await providerDefaultSession(t, { todo: true });
+  assert.deepEqual(await run(child, { action: 'list' }), []);
+  assert.equal((await run(child, { action: 'create', subject: 'Independent child work' }))[0].subject,
+    'Independent child work');
+  assert.deepEqual(await run(foreground, { action: 'list' }), retained);
+  child.session.dispose();
+  assert.deepEqual(await run(foreground, { action: 'list' }), retained);
+  const replay = await providerDefaultSession(t, { todo: true, sessionManager: foreground.sessionManager });
+  assert.deepEqual(await run(replay, { action: 'list' }), retained);
 });
 
 it('REQ-AGENT-210 AC6: image-prepared RPIV packages load actual pinned tools without warnings', async t => {

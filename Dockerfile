@@ -55,26 +55,32 @@ RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-u
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.98.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.98.1-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json /tmp/impeccable-engine.json
+COPY image/impeccable-engine.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
-node -e 'const p=require("/tmp/impeccable-engine.json"); if(p.version!=="0.1.5" || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")'
-COMMIT=$(node -p 'require("/tmp/impeccable-engine.json").commit')
-SHA256=$(node -p 'require("/tmp/impeccable-engine.json").sha256')
-curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
-echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
-tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
-rm /tmp/impeccable.tar.gz
-cargo build --locked --release -p impeccable
-python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable --expect-idle-bug
-python3 /tmp/patch-impeccable-engine.py /src/impeccable
-cargo build --locked --release -p impeccable
-python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable
-mkdir -p /out
-cp target/release/impeccable /out/impeccable
-cp LICENSE /out/LICENSE
+export CARGO_TARGET_DIR=/tmp/impeccable-target
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+  VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
+  COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
+  SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")
+  mkdir -p "/src/impeccable/$VERSION"
+  cd "/src/impeccable/$VERSION"
+  curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
+  echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
+  tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
+  rm /tmp/impeccable.tar.gz
+  cargo build --locked --release -p impeccable
+  python3 /tmp/impeccable-engine.py "$CARGO_TARGET_DIR/release/impeccable" --expect-idle-bug "--engine-version=$VERSION"
+  python3 /tmp/patch-impeccable-engine.py "/src/impeccable/$VERSION"
+  cargo build --locked --release -p impeccable
+  python3 /tmp/impeccable-engine.py "$CARGO_TARGET_DIR/release/impeccable" "--engine-version=$VERSION"
+  mkdir -p "/out/$VERSION"
+  cp "$CARGO_TARGET_DIR/release/impeccable" "/out/$VERSION/impeccable"
+  cp LICENSE "/out/$VERSION/LICENSE"
+done
 IMPECCABLE
 
 # ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
@@ -221,7 +227,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 
 # Keep fast server-modtime listings without copying source timestamps into remote state.
 COPY --from=rclone-builder /out/rclone /usr/bin/rclone
-COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/
+COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
@@ -298,17 +304,17 @@ RUN SILVERBULLET_VERSION="2.11.1" && \
 # The pinned code-server archive supplies js-yaml 5.4.1 in its upstream 5.x
 # range; do not downgrade it with the former 4.x overlay. Retain the independent
 # tar and pacote overlays pending their separate runtime verification.
-# The immutable Node and code-server artifacts also carry node-tar
-# versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
-# replaces both runtime copies. The Node image's bundled npm also carries pacote
+# The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
+# 7.5.21 overlay replaces npm's copy only. code-server retains its upstream fixed
+# IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.139.1" && \
-    CODE_SERVER_SHA256="53029be6c5781b7bca49b815fcc9a2a3fc111813ad8c9965b2c0f0d2985a0674" && \
-    CODE_SERVER_COMMIT="53c2f3253bcf32886706fc023e794bbeb253c90f" && \
-    CODE_SERVER_CODE_VERSION="1.139.1" && \
-    CODE_SERVER_VSCODE_COMMIT="04c0d99f4fb0d8afe6ce4f0c58e31e183ac3e4b1" && \
+RUN CODE_SERVER_VERSION="4.140.0" && \
+    CODE_SERVER_SHA256="864c5d01c808ade57e4d12c708717be7a187219fded60428f263b9e2da9f6b48" && \
+    CODE_SERVER_COMMIT="ccc19adc2e8992e18b14dd25eb1e646f5b9ef7cf" && \
+    CODE_SERVER_CODE_VERSION="1.140.0" && \
+    CODE_SERVER_VSCODE_COMMIT="07f806f999227108933c2e30515b26eecc1fda74" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     BRACE_EXPANSION_VERSION="5.0.12" && \
@@ -334,9 +340,8 @@ RUN CODE_SERVER_VERSION="4.139.1" && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
     test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "5.4.1" && \
-    for NODE_TAR_DIR in \
-        /usr/local/lib/node_modules/npm/node_modules/tar \
-        /opt/code-server/lib/vscode/node_modules/tar; do \
+    test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/tar/package.json)" = "7.5.22" && \
+    for NODE_TAR_DIR in /usr/local/lib/node_modules/npm/node_modules/tar; do \
       rm -rf "$NODE_TAR_DIR" && \
       mkdir -p "$NODE_TAR_DIR" && \
       tar -xzf /tmp/node-tar.tgz -C "$NODE_TAR_DIR" --strip-components=1 && \
@@ -635,8 +640,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.12.18
-ARG UV_X86_64_LINUX_SHA256=89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16
+ARG UV_VERSION=0.12.19
+ARG UV_X86_64_LINUX_SHA256=23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e

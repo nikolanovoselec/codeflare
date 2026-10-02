@@ -13,6 +13,24 @@ describe('REQ-ENTERPRISE-088: native Pi policy selection', () => {
     expect(parseFallbackRouting(policy)).toEqual(policy);
     expect(parseFallbackRouting({ enabled: false })).toEqual({ enabled: false });
   });
+  it.each(['off', 'minimal', 'low', 'medium', 'high'])(
+    'REQ-ENTERPRISE-088 AC3: native-only fallback preserves personal permission with %s reasoning', async reasoning => {
+      const kv = createMockKV();
+      const env = { ENTERPRISE_MODE: 'active', KV: kv } as unknown as Env;
+      const target = { kind: 'native-target', targetId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' };
+      const fallback = { enabled: true, routes: [], defaultRoute: '', targets: [target], defaultTarget: target,
+        reasoning, allowPersonalPiProviders: true };
+      kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [],
+        routeAssignments: {}, fallbackRouting: fallback });
+      expect((await loadEnterpriseRouteConfig(env)).allowPersonalPiProviders).toBe(true);
+      kv._set(SETUP_KEYS.GROUP_ROUTING, { denied: { routes: [], defaultRoute: '', reasoning: 'off',
+        allowPersonalPiProviders: false } });
+      expect((await loadEnterpriseRouteConfig(env, ['denied'])).allowPersonalPiProviders === true).toBe(false);
+      kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [],
+        routeAssignments: {}, fallbackRouting: { ...fallback, allowPersonalPiProviders: false } });
+      expect((await loadEnterpriseRouteConfig(env)).allowPersonalPiProviders === true).toBe(false);
+    },
+  );
   it('REQ-ENTERPRISE-088 AC3: first policy wins independently of sanctioned model eligibility', async () => {
     const kv = createMockKV();
     const env = { ENTERPRISE_MODE: 'active', KV: kv } as unknown as Env;

@@ -48,7 +48,9 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - The editor reuses the session container and existing authenticated proxy boundary.
-- Authorized WebSocket upgrades use native Durable Object `Stub.fetch` response transport, not RPC serialization. The Container fetch path forwards only to the existing private port and never starts a replacement runtime. HTTP requests retain existing-port RPC forwarding. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-001 AC3/AC6: %s native DO fetch returns a live 101 and echoes 256 KiB beneath the exact session URL) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-IDE-001 AC3/AC6 / REQ-SESSION-012 AC4: native %s upgrade survives SDK running=%s without restarting) -->
+- Authorized WebSocket upgrades use native Durable Object `Stub.fetch` response transport, not RPC serialization.
+- The Container fetch path forwards only to the existing private port and never starts a replacement runtime.
+- HTTP requests retain existing-port RPC forwarding. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-001 AC3/AC6: %s native DO fetch returns a live 101 and echoes 256 KiB beneath the exact session URL) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-IDE-001 AC3/AC6 / REQ-SESSION-012 AC4: native %s upgrade survives SDK running=%s without restarting) -->
 - The editor listens only inside the container; it has no independently reachable network surface.
 - The pinned MIT-licensed code-server release remains unmodified under [AD119](../../documentation/decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
 

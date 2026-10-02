@@ -200,15 +200,11 @@ The operator procedure, migration bounds, pause/resume behavior, verification, r
 
 ### REQ-OPS-011 preserved clauses
 
-- All seven Node base stages use the explicitly approved `mirror.gcr.io/library/node` source with the existing immutable manifest indices for Node 26 (`sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2`) and Node 22.21.1 (`sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c`).
-- The mirror must serve those exact indices and their Linux amd64 child manifests.
-- The image build, packaged smoke, CVE scan, provenance, and push gates remain required.
+The authoritative Node source, immutable indices and Linux amd64 manifest boundary are [REQ-OPS-011 AC5](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim); deployment evidence must cover that boundary plus the existing image build, packaged smoke, CVE scan, provenance and push gates.
 
 ### REQ-OPS-054 preserved clauses
 
-- Pi and Browser Run MCP ip-address locks must classify NAT64 local-use addresses: 10.x versions require 10.5.1 or later.
-- Pi runtime undici 8.x locks require the WebSocket decompression error fix in 8.10.2 or later.
-- Manifest overrides may not reinstall a vulnerable release.
+The authoritative NAT64 classification and undici decompression floors, override and regeneration constraints are [REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity). Verify committed lock integrity and clean packaged-runtime installation separately; static pin agreement is not deployment or alert-clearance evidence.
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

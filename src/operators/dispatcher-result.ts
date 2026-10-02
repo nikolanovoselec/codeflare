@@ -86,7 +86,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     };
   }
   if (previousOutcome !== undefined && state.outcome !== previousOutcome) throw new Error('Dispatcher terminal settlement changed');
-  if (previousResult !== undefined && state.result !== undefined
+  if (previousResult !== undefined
     && JSON.stringify(previousResult) !== JSON.stringify(state.result)) throw new Error('Dispatcher immutable result changed');
   if (state.messageIds.length > 128) throw new Error('Dispatcher message bound exceeded');
   state.position = next;

@@ -3455,7 +3455,7 @@ configure_consult_llm() {
     if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
         mkdir -p "$USER_HOME/.pi/agent"
         _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp-adapter.json" \
-            "$(jq -n --argjson env "$pi_env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
+            "$(jq -n --argjson env "$pi_env_obj" '{"settings":{"deferWithMissingMetadata":true},"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
             "Pi" "1"
     fi
 }

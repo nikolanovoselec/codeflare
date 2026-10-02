@@ -67,6 +67,32 @@ describe('Impeccable managed runtime policy', () => {
     assert.deepEqual(result.stdout.trim().split('\n'), ['context', '--target', 'file.ts']);
   }));
 
+  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10']]) {
+    it(`REQ-AGENT-181: reviewed ${skillVersion} dispatches only to its matching image engine ${engineVersion}`, () => withTempDir(root => {
+      const source = join(root, 'source');
+      cpSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}`), source, { recursive: true });
+      applyCodeflareImpeccableOverlay(source);
+      const target = join(root, 'target');
+      replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), [{
+        agent: 'pi', root: target, runtimePath: '~/.pi/agent/skills/impeccable',
+      }]);
+      const engines = join(root, 'engines');
+      const engine = join(engines, engineVersion, 'impeccable');
+      mkdirSync(dirname(engine), { recursive: true });
+      writeFileSync(engine, `#!/bin/sh\nprintf '%s\\n' '${engineVersion}' "$@"\n`, { mode: 0o755 });
+      const launcher = join(target, 'scripts/impeccable');
+      writeFileSync(launcher, managedImpeccableLauncher(engines), { mode: 0o755 });
+      const result = spawnSync(launcher, ['context', '--target', 'a file.ts'], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(result.stdout.trim().split('\n'), [engineVersion, 'context', '--target', 'a file.ts']);
+      assert.equal(spawnSync(launcher, ['skills', 'update'], { encoding: 'utf8' }).status, 1);
+      rmSync(engine);
+      const missing = spawnSync(launcher, ['context'], { encoding: 'utf8' });
+      assert.equal(missing.status, 127);
+      assert.match(missing.stderr, /missing from this Codeflare image/);
+    }));
+  }
+
   it('REQ-AGENT-181: unreviewed native engine fails before source mutation', () => withTempDir((source) => {
     cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.3.1'), source, { recursive: true });
     const before = readFileSync(join(source, 'SKILL.md'), 'utf8');

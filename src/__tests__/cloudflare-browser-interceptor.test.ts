@@ -177,13 +177,14 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
   });
 });
 
-describe('REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket', () => {
-  const makeUpstreamWs = () => ({
-    accept: vi.fn(),
-    addEventListener: vi.fn(),
-    send: vi.fn(),
-    close: vi.fn(),
+function nextFrame(socket: WebSocket): Promise<string | ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    socket.addEventListener('message', event => resolve(event.data), { once: true });
+    socket.addEventListener('error', () => reject(new Error('CDP socket failed')), { once: true });
   });
+}
+
+describe('REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket', () => {
 
   // Capture every WebSocketPair the interceptor creates and close both ends after each test so
   // the vitest-pool-workers isolate tears down cleanly (a live accepted socket crashes the pool).
@@ -207,26 +208,49 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket', () => {
   });
 
   it('bridges the CDP upgrade on the trusted path, injecting the token, returning a FRESH client socket, direct not Gateway', async () => {
-    const upstreamWs = makeUpstreamWs();
-    const ws101 = { status: 101, webSocket: upstreamWs, headers: new Headers() } as unknown as Response;
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ws101);
-    const { interceptor, egressFetch } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN });
+    const upstreamPair = new WebSocketPair();
+    const upstreamWs = upstreamPair[0];
+    const browser = upstreamPair[1];
+    browser.accept();
+    const forwarded: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      forwarded.push(input as Request);
+      return new Response(null, { status: 101, webSocket: upstreamWs });
+    });
+    const inspected: Request[] = [];
+    const { interceptor } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN }, {
+      EGRESS: { fetch: async (request: Request) => { inspected.push(request); return new Response('gateway'); } } as unknown as Fetcher,
+    });
     const res = await interceptor.fetch(
       new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser', {
         headers: { Upgrade: 'websocket', authorization: `Bearer ${PLACEHOLDER}` },
       }),
     );
     expect(res.status).toBe(101);
-    const clientWs = (res as unknown as { webSocket?: unknown }).webSocket;
-    expect(clientWs).toBeTruthy();
-    expect(clientWs).not.toBe(upstreamWs); // bridged, not returned as-is
-    expect(upstreamWs.accept).toHaveBeenCalled();
-    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(egressFetch).not.toHaveBeenCalled();
-    const fwd = fetchSpy.mock.calls[0][0] as Request;
-    expect(fwd.headers.get('authorization')).toBe(`Bearer ${REAL_TOKEN}`);
-    fetchSpy.mockRestore();
+    const clientWs = res.webSocket!;
+    clientWs.accept();
+    try {
+      const command = JSON.stringify({ id: 1, method: 'Browser.getVersion' });
+      const atBrowser = nextFrame(browser);
+      clientWs.send(command);
+      expect(await atBrowser).toBe(command);
+      const reply = JSON.stringify({ id: 1, result: { product: 'Chrome/test' } });
+      const atClient = nextFrame(clientWs);
+      browser.send(reply);
+      expect(await atClient).toBe(reply);
+      for (const [sender, receiver] of [[clientWs, browser], [browser, clientWs]]) {
+        const received = nextFrame(receiver);
+        sender.send(new Uint8Array([0, 1, 127, 255]).buffer);
+        expect(new Uint8Array(await received as ArrayBuffer)).toEqual(new Uint8Array([0, 1, 127, 255]));
+      }
+      // Intentional outbound credential contract, observed by the external endpoint.
+      expect(forwarded.map(request => request.headers.get('authorization'))).toEqual([`Bearer ${REAL_TOKEN}`]);
+      expect(inspected).toEqual([]);
+    } finally {
+      clientWs.close();
+      browser.close();
+      fetchSpy.mockRestore();
+    }
   });
 
   it('fails closed 401 on a trusted CDP upgrade with no token configured (no upstream)', async () => {
@@ -389,45 +413,5 @@ describe('REQ-AGENT-078: enterprise isolation — the AI Gateway host is OAuth-m
   });
 });
 
-describe('REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode — CDP WebSocket', () => {
-  const createdPairs: Array<Record<string, WebSocket>> = [];
-  const RealWebSocketPair = WebSocketPair;
-  beforeEach(() => {
-    mockGetValidToken.mockReset();
-    createdPairs.length = 0;
-    vi.stubGlobal('WebSocketPair', function WebSocketPairCapture() {
-      const pair = new RealWebSocketPair();
-      createdPairs.push(pair as unknown as Record<string, WebSocket>);
-      return pair;
-    });
-  });
-  afterEach(() => {
-    for (const pair of createdPairs) {
-      for (const end of Object.values(pair)) {
-        try { end.close(); } catch { /* already closed / handed to the Response */ }
-      }
-    }
-    vi.unstubAllGlobals();
-  });
-
-  it('bridges the CDP upgrade with the fresh token, returning a FRESH client socket, direct not Gateway', async () => {
-    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
-    const upstreamWs = { accept: vi.fn(), addEventListener: vi.fn(), send: vi.fn(), close: vi.fn() };
-    const ws101 = { status: 101, webSocket: upstreamWs, headers: new Headers() } as unknown as Response;
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ws101);
-    const interceptor = makeOAuthInterceptor();
-    const res = await interceptor.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/x/browser-rendering/devtools/browser', {
-        headers: { Upgrade: 'websocket', authorization: `Bearer ${OAUTH_PLACEHOLDER}` },
-      }),
-    );
-    expect(res.status).toBe(101);
-    const clientWs = (res as unknown as { webSocket?: unknown }).webSocket;
-    expect(clientWs).toBeTruthy();
-    expect(clientWs).not.toBe(upstreamWs); // bridged, not returned as-is
-    expect(upstreamWs.accept).toHaveBeenCalled();
-    const fwd = fetchSpy.mock.calls[0][0] as Request;
-    expect(fwd.headers.get('authorization')).toBe(`Bearer ${FRESH_TOKEN}`);
-    fetchSpy.mockRestore();
-  });
-});
+// OAuth CDP is exercised through real token resolution and registration in
+// container/browser-interception.test.ts; no owned token helper is mocked there.

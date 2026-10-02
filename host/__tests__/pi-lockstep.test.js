@@ -27,6 +27,23 @@ function readArgs(path) {
   return readFileSync(path, 'utf8').trim().split('\n');
 }
 
+describe('REQ-AGENT-152: reviewed Plan Mode release-lock contract', () => {
+  it('REQ-AGENT-152 AC2: reviewed Plan Mode archive matches the declared release and SHA-512 lock', () => {
+    const root = fileURLToPath(new URL('../../', import.meta.url));
+    const manifest = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package.json'), 'utf8'));
+    const lock = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
+    const version = manifest.dependencies['@narumitw/pi-plan-mode'];
+    const declared = lock.packages['node_modules/@narumitw/pi-plan-mode'];
+    const bytes = readFileSync(join(root, `host/__fixtures__/narumitw-pi-plan-mode-${version}.tgz`));
+    // The reviewed archive identity is the intentional release-lock contract,
+    // not a proxy assertion for planning behavior.
+    assert.equal(declared.version, version);
+    assert.equal(declared.resolved,
+      `https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-${version}.tgz`);
+    assert.equal(`sha512-${createHash('sha512').update(bytes).digest('base64')}`, declared.integrity);
+  });
+});
+
 describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () => {
   it('rejects an installed Pi package whose required image dependency is missing', () => {
     const directory = mkdtempSync(join(tmpdir(), 'pi-health-'));

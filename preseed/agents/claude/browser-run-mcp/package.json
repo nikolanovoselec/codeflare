@@ -12,6 +12,6 @@
   },
   "overrides": {
     "@hono/node-server": "2.0.12",
-    "ip-address": "10.7.2"
+    "ip-address": "10.7.3"
   }
 }

@@ -119,8 +119,23 @@ test('REQ-AGENT-069: startup bootstraps consult-llm at the adapter filename, laz
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(readFileSync(f.target, 'utf8'));
   assert.equal(config.mcpServers['consult-llm'].lifecycle, 'lazy');
+  assert.equal(config.settings.deferWithMissingMetadata, true,
+    'fresh managed configuration must not eagerly launch a lazy server for metadata');
   assert.equal(config.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
   assert.equal(existsSync(f.legacy), false);
+});
+
+test('REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers', async t => {
+  const f = await fixture(t);
+  const config = { mcpServers: { custom: { command: 'custom', args: ['keep'], lifecycle: 'lazy' } },
+    settings: { deferWithMissingMetadata: false, custom: true } };
+  writeFileSync(f.target, JSON.stringify(config));
+  const result = startConsult(f.home);
+  assert.equal(result.status, 0, result.stderr);
+  const updated = JSON.parse(readFileSync(f.target, 'utf8'));
+  assert.deepEqual(updated.settings, config.settings);
+  assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
+  assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
 });
 
 test('REQ-AGENT-069: startup retains existing consult credentials and both-file user settings exactly', async (t) => {

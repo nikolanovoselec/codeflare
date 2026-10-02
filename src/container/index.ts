@@ -860,7 +860,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{
-    human: VerifiedHumanAccessClaims; accessJwt: string;
+    human: VerifiedHumanAccessClaims; accessJwt: string; generation: number;
   }> {
     return openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
   }

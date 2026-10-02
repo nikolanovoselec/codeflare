@@ -4,6 +4,7 @@ import { wireContainerInterception, type InterceptionHost } from '../container/c
 import { createMockKV } from './helpers/mock-kv';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import type { Env } from '../types';
+import { bindReviewSessionHuman, discardReviewSessionHuman, openReviewSessionHuman } from '../container/review-session-human';
 
 const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test' };
 const issuer = 'https://personal-pi.cloudflareaccess.com';
@@ -26,7 +27,7 @@ function fixture(strict = false, operator = false) {
   const egressRequests: Request[] = [];
   const env = { ENTERPRISE_MODE: 'active', KV: kv, CONTAINER: { getByName: () => ({ openReviewHuman: async (ref: { bucket: string; sessionId: string; email: string }) => {
     if (ref.bucket !== owner.bucket || ref.sessionId !== owner.sessionId || ref.email !== owner.user) throw Error('wrong owner');
-    return { human, accessJwt: 'synthetic-sealed-assertion' };
+    return { human, accessJwt: 'synthetic-sealed-assertion', generation: 1 };
   } }) }, EGRESS: strict ? { fetch: async (request: Request) => { egressRequests.push(request); return new Response('inspected-response'); } } : undefined } as unknown as Env;
   const props = { user: owner.user, sessionId: owner.sessionId, personalPi: owner, strict, ...(operator ? { operatorInference: { activityId: 'operator' } } : {}) };
   const interceptor = new LlmInterceptor({ props } as unknown as ExecutionContext, env);
@@ -76,6 +77,71 @@ it('REQ-ENTERPRISE-088 AC7: Operator and stale managed handles never use persona
   const response = await new LlmInterceptor({ props: { user: owner.user, personalPi: owner } } as unknown as ExecutionContext, f.env).fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key' }, body: JSON.stringify({ model: 'cf-native-aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', messages: [] }) }));
   expect(response.status).not.toBe(200);
   expect(f.requests).toEqual([]);
+});
+
+it.each(['application/json', 'text/plain', undefined])(
+  'REQ-ENTERPRISE-088 AC7: reserved selectors cannot bypass authorization with media type %s', async contentType => {
+    for (const selector of ['cf-native-aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+      'dynamic/cf-native-aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', 'dynamic/codeflare-enterprise']) {
+      const f = fixture();
+      const headers = new Headers({ authorization: 'Bearer synthetic-personal-key' });
+      if (contentType) headers.set('content-type', contentType);
+      const request = new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', headers,
+        body: new TextEncoder().encode(JSON.stringify({ model: selector, messages: [] })) });
+      const interceptor = new LlmInterceptor({ props: { user: owner.user, personalPi: owner } } as unknown as ExecutionContext, f.env);
+      expect((await interceptor.fetch(request)).status).not.toBe(200);
+      expect(f.requests).toEqual([]);
+      vi.restoreAllMocks();
+    }
+  },
+);
+
+it.each(['subject', 'issuedAt', 'expiresAt', 'audiences'] as const)(
+  'REQ-ENTERPRISE-088 AC5: authority %s rebinding during policy resolution denies provider I/O', async field => {
+    const f = fixture();
+    const originalKV = f.env.KV;
+    f.env.KV = { ...originalKV, get: async (key: string) => {
+      const value = await originalKV.get(key);
+      if (key === SETUP_KEYS.GROUP_ROUTING) {
+        if (field === 'subject') f.human.subject = 'rebound-human';
+        else if (field === 'audiences') f.human.audiences = ['rebound-audience'];
+        else f.human[field] += 1;
+      }
+      return value;
+    } } as KVNamespace;
+    expect((await f.send()).status).toBe(403);
+    expect(f.requests).toEqual([]);
+  },
+);
+
+it('REQ-ENTERPRISE-088 AC5: real sealed authority cannot cross a lifecycle replacement during authorization', async () => {
+  const f = fixture();
+  const records = new Map<string, unknown>([['lifecycleGeneration', 1]]);
+  const actions = { get: async (key: string) => records.get(key),
+    put: async (key: string, value: unknown) => { records.set(key, value); },
+    delete: async (key: string) => { records.delete(key); } };
+  const storage = { ...actions, transaction: async <T>(run: (tx: typeof actions) => Promise<T>) => run(actions) };
+  const host = { _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user,
+    env: { ENCRYPTION_KEY: btoa('a'.repeat(32)) }, ctx: { storage } };
+  const bound = { bucket: owner.bucket, sessionId: owner.sessionId, generation: 1,
+    human: f.human, accessJwt: 'synthetic-sealed-assertion' };
+  await bindReviewSessionHuman(host, bound);
+  f.env.CONTAINER = { getByName: () => ({ openReviewHuman: (ref: { bucket: string; sessionId: string; email: string }) =>
+    openReviewSessionHuman(host, ref) }) } as unknown as Env['CONTAINER'];
+  const originalKV = f.env.KV;
+  f.env.KV = { ...originalKV, get: async (key: string) => {
+    const value = await originalKV.get(key);
+    if (key === SETUP_KEYS.GROUP_ROUTING && records.get('lifecycleGeneration') === 1) {
+      await discardReviewSessionHuman(host);
+      records.set('lifecycleGeneration', 2);
+      await bindReviewSessionHuman(host, { ...bound, generation: 2 });
+    }
+    return value;
+  } } as KVNamespace;
+  expect((await f.send()).status).toBe(403);
+  expect(f.requests).toEqual([]);
+  expect(await openReviewSessionHuman(host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }))
+    .toMatchObject({ generation: 2, human: { subject: f.human.subject } });
 });
 
 it('REQ-ENTERPRISE-088 AC6: personal credentials cannot follow a cross-origin provider redirect', async () => {
@@ -159,6 +225,27 @@ it('REQ-ENTERPRISE-088 AC5: token-derived Copilot service hosts remain policy ga
   f.policy(false);
   expect((await f.send(url)).status).toBe(403);
   expect(f.requests.map(request => request.url)).toEqual([url]);
+});
+
+it('REQ-ENTERPRISE-090 AC4: registered regional Vertex transport denies revoked traffic with strict mode off', async () => {
+  const f = fixture();
+  const handlers = new Map<string, Fetcher>();
+  await wireContainerInterception({ env: f.env, logger: { info() {}, warn() {}, error() {} },
+    ctx: { exports: { LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
+      container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
+    _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user, _userGroups: [], _strictEgress: false,
+  } as unknown as InterceptionHost);
+  // The regional-host registration is an intentional provider-origin contract.
+  const handler = handlers.get('*-aiplatform.googleapis.com');
+  if (!handler) throw Error('Regional Vertex interception is unavailable');
+  const url = 'https://us-central1-aiplatform.googleapis.com/v1/projects/owner/locations/us-central1/publishers/google/models/native:generateContent';
+  const request = () => new Request(url, { method: 'POST', headers: { authorization: 'Bearer synthetic-owner-token',
+    'content-type': 'application/json' }, body: JSON.stringify({ contents: [] }) });
+  expect((await handler.fetch(request())).status).toBe(200);
+  expect(f.requests.map(value => value.url)).toEqual([url]);
+  f.policy(false);
+  expect((await handler.fetch(request())).status).toBe(403);
+  expect(f.requests.map(value => value.url)).toEqual([url]);
 });
 
 it('REQ-ENTERPRISE-088 AC5: deployment-bound Copilot enterprise hosts use native credentials', async () => {

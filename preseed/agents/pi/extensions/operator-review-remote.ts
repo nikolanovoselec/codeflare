@@ -2,7 +2,8 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { findGitRoot, recallActiveRepo, shellInvocations, resolveShellInvocationRepo } from './active-repo-memory';
-import { classifyReviewBoundaryCommand, REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER } from './review-helpers';
+import { classifyReviewBoundaryCommand, exposureTargetsCheckedOutBranch, REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER } from './review-helpers';
+import { executableShellCommands, shellCommandArguments, shellCommandExecutable } from './guard-helpers';
 
 const execFile = promisify(execFileCallback);
 type RejectedFinding = { findingId: string; priorActivityId: string; priorRound: number;
@@ -154,7 +155,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       if (timer) { clearTimeout(timer); timer = undefined; }
     } finally { checking = false; }
   };
-  const activate = (boundary: Boundary, activityId: string, ctx: any): void => {
+  const activate = (boundary: Boundary, activityId: string, ctx: any, asynchronous = false): void => {
     const saved = branchMarker(ctx);
     const next: Round = saved && saved.repository === boundary.repository
       && saved.pullRequest === boundary.pullRequest && saved.head === boundary.head
@@ -175,7 +176,8 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
           + `Launch only the attached ci-monitor for ${JSON.stringify({ repo: next.repository,
             pr: next.pullRequest, head: next.head, cwd: next.repo })} `
           + 'with run_in_background=true and inherit_context=false. '
-          + 'Monitor the independent protected Action publication; selection is pending, not clearance.' });
+          + 'Monitor the independent protected Action publication; selection is pending, not clearance.' },
+      asynchronous ? { triggerTurn: true, deliverAs: 'followUp' } : undefined);
     }
   };
   const schedule = (ctx: any): void => {
@@ -199,8 +201,9 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
           const current = await dependencies.currentBoundary({ type: 'session_start' }, ctx);
           if (observedEpoch !== epoch) return;
           if (!samePending(pending, waiting) || !samePending(pendingMarker(ctx), waiting)
-            || !current || current.repository !== waiting.repository
-            || current.pullRequest !== waiting.pullRequest || current.head !== waiting.head) {
+            || waiting.sessionFile && ctx.sessionManager.getSessionFile?.() !== waiting.sessionFile
+            || !current || current.repository !== waiting.repository || current.repositoryId !== waiting.repositoryId
+            || current.repo !== waiting.repo || current.pullRequest !== waiting.pullRequest || current.head !== waiting.head) {
             stop(); return;
           }
           if (selection.mode !== 'remote') {
@@ -208,7 +211,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
               content: 'Protected Review selection became unavailable. No local fallback or clearance.' });
             stop(); return;
           }
-          if (selection.activityId && id.test(selection.activityId)) activate(waiting, selection.activityId, ctx);
+          if (selection.activityId && id.test(selection.activityId)) activate(waiting, selection.activityId, ctx, true);
         }
         await inspect(ctx);
         schedule(ctx);
@@ -334,9 +337,36 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   });
 }
 
-async function currentBoundary(event: any, ctx: any): Promise<Boundary | undefined> {
-  const invocation = shellInvocations(event, ctx.cwd).find(item =>
-    Boolean(classifyReviewBoundaryCommand(item.command).kind));
+function githubRepository(value: string): string | undefined {
+  const ssh = /^git@github\.com:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(value);
+  if (ssh) return ssh[1]!.toLowerCase();
+  try {
+    const url = new URL(value);
+    if (url.hostname !== 'github.com' || url.password || url.port || url.search || url.hash
+      || !['https:', 'ssh:'].includes(url.protocol)
+      || url.username && !(url.protocol === 'ssh:' && url.username === 'git')) return;
+    const match = /^\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(url.pathname);
+    return match?.[1]?.toLowerCase();
+  } catch { return; }
+}
+function createdPullRequest(event: any): { repository: string; number: number; url: string } | undefined {
+  const text = (value: any): string => typeof value === 'string' ? value
+    : Array.isArray(value) ? value.map(text).join('\n')
+      : value && typeof value === 'object' ? ['text', 'content', 'stdout', 'result']
+        .map(key => text(value[key])).join('\n') : '';
+  const urls = [...new Set(text(event).split(/\r?\n/).map(line => line.trim())
+    .filter(line => /^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/[1-9]\d*\/?$/.test(line)))];
+  if (urls.length !== 1) return;
+  const url = new URL(urls[0]!);
+  if (url.hostname !== 'github.com' || url.username || url.password || url.port) return;
+  const [, owner, repo, , number] = url.pathname.split('/');
+  return { repository: `${owner}/${repo}`.toLowerCase(), number: Number(number), url: url.href };
+}
+export async function currentOperatorBoundary(event: any, ctx: any,
+  runner: typeof execFile = execFile): Promise<Boundary | undefined> {
+  const invocation = shellInvocations(event, ctx.cwd).filter(item =>
+    Boolean(classifyReviewBoundaryCommand(item.command).event)).at(-1);
+  if (event?.type === 'tool_result' && !invocation) return;
   const saved = !invocation && typeof ctx.sessionManager?.getBranch === 'function'
     ? ctx.sessionManager.getBranch().filter((entry: any) => entry.type === 'custom'
       && (entry.customType === ROUND_ENTRY || entry.customType === PENDING_ENTRY)).at(-1)?.data?.repo
@@ -346,19 +376,92 @@ async function currentBoundary(event: any, ctx: any): Promise<Boundary | undefin
       ?? (recallActiveRepo() ? findGitRoot(recallActiveRepo()!) : undefined);
   if (!repo) return;
   try {
-    const [{ stdout: identity }, { stdout: prText }, { stdout: idText }] = await Promise.all([
-      execFile('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }),
-      execFile('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],
-        { cwd: repo, encoding: 'utf8', timeout: 10_000 }),
-      execFile('gh', ['api', 'repos/{owner}/{repo}', '--jq', '.id'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }),
+    const options = { cwd: repo, encoding: 'utf8' as const, timeout: 10_000 };
+    const [{ stdout: branchText }, { stdout: headText }, { stdout: identity }, { stdout: idText }] = await Promise.all([
+      runner('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], options),
+      runner('git', ['rev-parse', 'HEAD'], options),
+      runner('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], options),
+      runner('gh', ['api', 'repos/{owner}/{repo}', '--jq', '.id'], options),
     ]);
-    const target = JSON.parse(String(identity)), pr = JSON.parse(String(prText));
+    const branch = String(branchText).trim(), localHead = String(headText).trim();
+    if (!branch || !sha.test(localHead)) return;
+    const target = JSON.parse(String(identity));
+    const operation = invocation && classifyReviewBoundaryCommand(invocation.command).kind;
+    const words = invocation && executableShellCommands(invocation.command).filter(row =>
+      ['git', 'gh'].includes(shellCommandExecutable(row) ?? '')).at(-1);
+    const executable = words && shellCommandExecutable(words);
+    const args = words && (executable === 'git' || executable === 'gh')
+      ? shellCommandArguments(words, executable) : [];
+    if (executable === 'gh') {
+      // Repository selectors can precede or follow the PR operation.
+      for (let index = 0; index < words!.length; index += 1) {
+        const word = words![index]!;
+        const repository = word === '-R' || word === '--repo' ? words![++index]
+          : word.startsWith('--repo=') ? word.slice(7) : undefined;
+        if (repository !== undefined && repository.toLowerCase() !== target.nameWithOwner.toLowerCase()) return;
+      }
+    }
+    const created = operation === 'pr-create' ? createdPullRequest(event) : undefined;
+    // A create result naming a different PR/host must not become the current checkout's PR.
+    if (operation === 'pr-create' && !created) return;
+    if (created && created.repository !== target.nameWithOwner.toLowerCase()) return;
+    let selector = created?.url ?? branch;
+    if (operation === 'pr-reopen') {
+      const positional: string[] = [];
+      for (let index = 2; index < args.length; index += 1) {
+        const arg = args[index]!;
+        if (['-R', '--repo', '-c', '--comment'].includes(arg)) { index += 1; continue; }
+        if (!arg.startsWith('-')) positional.push(arg);
+      }
+      if (positional.length > 1) return;
+      selector = positional[0] ?? branch;
+      if (selector.startsWith('https://') && (!selector.startsWith('https://github.com/')
+        || !/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(selector))) return;
+    }
+    const { stdout: prText } = await runner('gh', ['pr', 'view', selector, '--json',
+      'number,state,baseRefName,headRefName,headRefOid,headRepository'], options);
+    const pr = JSON.parse(String(prText));
     const repositoryId = Number(String(idText).trim());
     if (new URL(target.url).hostname !== 'github.com'
       || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(target.nameWithOwner)
       || !Number.isSafeInteger(repositoryId) || repositoryId < 1
       || !Number.isSafeInteger(pr.number) || pr.number < 1 || pr.state !== 'OPEN'
-      || !['main', 'master', 'develop'].includes(pr.baseRefName) || !sha.test(pr.headRefOid)) return;
+      || !['main', 'master', 'develop'].includes(pr.baseRefName) || !sha.test(pr.headRefOid)
+      || pr.headRefName !== branch || pr.headRefOid !== localHead
+      || created && pr.number !== created.number
+      || invocation && !exposureTargetsCheckedOutBranch(invocation.command,
+        { branch, pr: pr.number, repository: target.nameWithOwner })) return;
+    if (operation === 'pr-create') {
+      const inline = args.find(arg => arg.startsWith('--head='))?.slice(7);
+      const index = args.findIndex(arg => arg === '--head' || arg === '-H');
+      const head = inline ?? (index >= 0 ? args[index + 1] : undefined);
+      const owner = (pr.headRepository?.nameWithOwner ?? target.nameWithOwner).split('/')[0];
+      if (head && head !== branch && head !== `${owner}:${branch}`) return;
+    }
+    if (operation === 'push') {
+      const positional: string[] = [];
+      let remote: string | undefined;
+      for (let index = 1; index < args.length; index += 1) {
+        const arg = args[index]!;
+        if (arg === '--repo') { remote = args[++index]; continue; }
+        if (arg.startsWith('--repo=')) { remote = arg.slice(7); continue; }
+        if (['--receive-pack', '--exec', '--push-option', '-o'].includes(arg)) { index += 1; continue; }
+        if (arg === '--') { positional.push(...args.slice(index + 1)); break; }
+        if (!arg.startsWith('-') && !/^\d*[<>]&\d+$/.test(arg)) positional.push(arg);
+      }
+      remote ??= positional[0];
+      if (!remote) {
+        for (const key of [`branch.${branch}.pushRemote`, 'remote.pushDefault', `branch.${branch}.remote`]) {
+          const configured = await runner('git', ['config', '--get', key], options).catch(() => undefined);
+          remote = configured && String(configured.stdout).trim() || undefined;
+          if (remote) break;
+        }
+      }
+      if (!remote) return;
+      const url = githubRepository(remote) ? remote
+        : String((await runner('git', ['remote', 'get-url', '--push', remote], options)).stdout).trim();
+      if (githubRepository(url) !== (pr.headRepository?.nameWithOwner ?? target.nameWithOwner).toLowerCase()) return;
+    }
     return { repository: target.nameWithOwner, repositoryId, pullRequest: pr.number,
       head: pr.headRefOid, repo };
   } catch { return; }
@@ -421,5 +524,6 @@ async function readPublishedResult(boundary: Boundary, activityId: string): Prom
   return JSON.parse(String(stdout));
 }
 export default function operatorReviewRemote(pi: ExtensionAPI): void {
-  registerOperatorReviewRemote(pi, { currentBoundary, selectBoundary: selectOperatorBoundary, readPublishedResult });
+  registerOperatorReviewRemote(pi, { currentBoundary: currentOperatorBoundary,
+    selectBoundary: selectOperatorBoundary, readPublishedResult });
 }

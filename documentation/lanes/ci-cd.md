@@ -160,7 +160,7 @@ The run title (`run-name`) resolves and displays the deploy target (production /
    - Pi extensions are copied after dependency layers but before Jiti prewarm. Browser IDE artifacts and generated seeds assemble after unrelated runtime installs. See [REQ-OPS-050](../../sdd/spec/operations.md#req-ops-050-hosted-image-build-critical-path-optimization).
    - Login failure disables cache use; export errors are ignored without failing or restarting the image build.
    - PR Checks never authenticate to this cache.
-   - The base image comes from the AWS ECR Public Node mirror to avoid Docker Hub anonymous pull limits.
+   - The base image comes from the digest-pinned Google mirror (`mirror.gcr.io/library/node`) to avoid Docker Hub anonymous pull limits.
    - Before scan or push, the locally loaded image runs the packaged Pi/Claude/empty-inventory, cold-readiness, process, resource, and prefixed-proxy smoke gates.
    - Locked Trivy primes daily vulnerability and Java databases, copies them into isolated caches, then starts scan, SBOM, and Wrangler preparation concurrently. See [REQ-OPS-052](../../sdd/spec/operations.md#req-ops-052-concurrent-image-security-preparation).
    - The workflow awaits all three, applies `ignore-unfixed: true` plus `.trivyignore`, validates the bounded verdict, and uploads the SBOM before push. See [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011) and [REQ-OPS-052](../../sdd/spec/operations.md#req-ops-052-concurrent-image-security-preparation).

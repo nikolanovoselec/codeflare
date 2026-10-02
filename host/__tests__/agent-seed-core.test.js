@@ -16,6 +16,15 @@ const generatedPath = join(repoRoot, 'src/lib/agent-seed.generated.ts');
 // deleting the core, restoring import-time generation, or changing generated
 // bytes makes them fail.
 describe('shared agent seed compiler', () => {
+  it('REQ-AGENT-081 AC2: generated seed delivers no retired todo source override or install hook', async () => {
+    const { compileAgentSeed } = await import(coreUrl);
+    const compiled = await compileAgentSeed({ rootDir: repoRoot });
+    // Intentional generated-artifact retirement contract: upstream task state
+    // must not be replaced by a managed source payload or installation hook.
+    assert.deepEqual(compiled.documents.filter(({ key }) => key.includes('rpiv-todo-session-isolation')), []);
+    const piManifest = JSON.parse(await readFile(join(repoRoot, 'preseed/agents/pi/package.json'), 'utf8'));
+    assert.equal(piManifest.scripts?.postinstall, undefined);
+  });
   it('imports without generating or rewriting the committed image artifact', async () => {
     const before = await stat(generatedPath);
     const beforeBytes = await readFile(generatedPath);

@@ -326,7 +326,7 @@ Dependencies point from Codeflare adapters to these platform interfaces and from
 
 Codeflare does not implement Review packet preparation, session orchestration, result semantics, history reconciliation, or publication policy; those behaviors belong to the installed Conductor. Codeflare distributes Conductor Review Pi extensions, skills, and references, while generic host-side Pi sandbox/security primitives remain Codeflare execution confinement.
 
-The obsolete Codeflare-repository `boundary-reviews.yml` shadow workflow is retired from development: its single-origin variable could not run the three-origin collector. The dormant enrollment candidate instead proposes a reviewed target-repository workflow PR referring to an immutable Codeflare `boundary-runtime.yml` commit. That reusable workflow checks out **only** the pinned Codeflare runtime (not target PR code or the target's root package), and gives the collect job no publisher privileges; installer-fixed dev/Integration/production origins and non-consuming discovery must select one preprepared user-owned Activity before claim. The separate publish job independently revalidates the terminal result and PR context. <!-- @impl: src/operators/boundary-action-installation.ts::proposeBoundaryWorkflow --> <!-- @impl: .github/workflows/boundary-runtime.yml::publish --> <!-- @impl: scripts/operator-boundary-action.mjs::selectBoundaryOrigin -->
+The obsolete Codeflare-repository `boundary-reviews.yml` shadow workflow is retired from development; the owner also directed GitHub disablement, verified as `disabled_manually`, after the unavailable-origin failure. No origin repair, activated replacement, independent publication or live acceptance follows from this retirement. The dormant enrollment candidate instead proposes a reviewed target-repository workflow PR referring to an immutable Codeflare `boundary-runtime.yml` commit. That reusable workflow checks out **only** the pinned Codeflare runtime (not target PR code or the target's root package), and gives the collect job no publisher privileges; installer-fixed dev/Integration/production origins and non-consuming discovery must select one preprepared user-owned Activity before claim. The separate publish job independently revalidates the terminal result and PR context. <!-- @impl: src/operators/boundary-action-installation.ts::proposeBoundaryWorkflow --> <!-- @impl: .github/workflows/boundary-runtime.yml::publish --> <!-- @impl: scripts/operator-boundary-action.mjs::selectBoundaryOrigin -->
 
 Pi Review routing is separate from the protected Action's origin selection. At an eligible PR boundary, the external `operator-review-selector.ts` registers only the dedicated `operator-review-remote.ts` handlers when Codeflare confirms an active applicable Action; confirmed absence or inactivity invokes the unchanged local Review extension; ambiguous or broken active enrollment invokes neither. The runtime excludes direct autoload of the local implementation so it cannot run beside the remote path, and reselects when the active repository changes. Remote Review reads the parent's independently authenticated GitHub artifact, comment, check and run under the current user's GitHub repository access; it does not read another user's private Activity, run local reviewers or publish. A selected Activity without independent publication and exact-head CI is pending, not cleared. The dedicated dormant selector/result consumer passed full exact-head Test `36457559457` at `65d1512409449b5e18a31ad36ba0dff17eafc597`; this verifies neither an activated Action nor a live receipt. After complete same-session triage, a rejected published finding may be carried to the next matching PR/head with its immutable publication reference, rationale and evidence. The current actor's parent reauthenticates that publication before putting bounded context in approved reviewer packets; Conductor alone independently reassesses it. Submission, silence or missing publication evidence never clears the prior finding. The compiled Conductor fixture comes from exact-source `c40527ee21664012d326d73efcfd26889302deff` release run `36465347782` (bundle SHA-256 `a80a049069a33038c281804c9eb6f7f0ba3c24f486659928929b750c7e21cf4e`); this is package evidence, not installed live proof. Enrollment activation and live runtime proof require separate authorization and verification. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @impl: preseed/agents/pi/extensions/operator-review-remote.ts::registerOperatorReviewRemote -->
 
@@ -368,10 +368,11 @@ These clauses retain the existing transport and fencing contract after the requi
 - Retained installation pins and rollback releases remain unchanged.
 
 - Unsafe URLs or redirects, unavailable bytes, and provenance, digest, or schema mismatches fail without credential disclosure or enablement.
-- Release assets and Actions archives may follow only exact approved GitHub CDN hosts, including `productionresultssa2.blob.core.windows.net` and `productionresultssa6.blob.core.windows.net`, without allowing adjacent or suffix-lookalike names or forwarding the acquisition PAT.
+- Release assets use the existing exact GitHub CDN allowlist; only authenticated API Actions artifact ZIP endpoints additionally accept the existing Azure blob-account host family (`[a-z0-9]{3,24}.blob.core.windows.net`).
+- One uncredentialed HTTPS redirect is permitted, with nondefault ports, userinfo, fragments, lookalikes and onward redirects denied; the acquisition PAT stays on the locally constructed GitHub API URL.
 - Approved-host responses remain subject to the existing acquisition deadline and full build-byte/digest verification.
 
-The exact CDN hostnames are security allowlist contracts, not release-version sentinels.
+The exact CDN allowlist and artifact-endpoint-only blob-account family are current security boundaries, not release-version sentinels. This Planned-contract clarification neither grants new origins nor narrows the existing family automatically.
 
 Behavioral acquisition tests verify persisted artifact identity, credentials confined to the GitHub API, rejected lookalikes, mismatched build bytes and expired acquisition.
 
@@ -428,7 +429,7 @@ This proves unsupported valid identity shape handling, not the exact branch of t
 - They do not provision profiles or configure storage.
 - Source and technical disclosures stay separate.
 - Dispatcher has no session profile and Conductor Review no ad hoc launcher.
-- Mobile sections retain local save feedback.
+- Mobile sections remain horizontal and retain local save feedback.
 
 ### REQ-OPERATOR-054 preserved clauses
 
@@ -449,6 +450,7 @@ This proves unsupported valid identity shape handling, not the exact branch of t
 ### REQ-OPERATOR-027 preserved clauses
 
 - The overview shows a trusted pinned operator name and allowlisted admitted repository/PR context and progress when available.
+- Owned detail retains progress, source and session links, result, execution, cleanup, collection and explicit attention as distinct observable information.
 - For a historical owner summary missing display metadata, a five-entry page may recover only that metadata from the same owner's pinned Activity without reading result bytes, rewriting history or changing status/cursors.
 - Unavailable or contradictory projections do not supply a name.
 
@@ -714,7 +716,8 @@ Live #1299 remains unverified.
 - Only the pinned compiled Dispatcher's nested assessment may establish a cited `safe` result.
 - Flattened, missing, malformed, or contradictory envelope evidence cannot authorize publication.
 - Parent write targets remain admission-derived.
-- Current repository/PR identity, base/head, permission, applicable checks/reviews/rules and mergeability must be complete and compatible.
+- Every comment rechecks current repository/PR/bot identity, base/head and protected publication permission; unavailable or ambiguous identity/current authority denies the comment.
+- Approval/merge additionally require complete compatible checks/statuses, reviews, rules and mergeability. Failed merge checks do not suppress an otherwise authorized explanatory `DO_NOT_MERGE` comment.
 - Zero configured checks is not itself proof of safety or a blocker.
 - Missing, pending, failed, paginated or ambiguous policy evidence blocks merge.
 - Before each write, reserve a durable exact-generation effect intent.
@@ -740,7 +743,7 @@ Live #1299 remains unverified.
 - Among simultaneously valid admins, Registry deterministically chooses one actor/session/generation for a PR/revision and atomically reserves one stable Activity identity.
 - An uncertain preparation/start reconciles that same identity, never creates replacement work or changes the actor.
 - A changed head requires separate revalidation without admitting a pre-cutoff PR.
-- A non-#1299 publication requires that exact Registry admission proof as well as the publisher's fresh current-session, PR/head/base, Renovate author, check/review/rules and cited-assessment gates.
+- A non-#1299 publication requires that exact Registry admission proof plus fresh current-session, PR/head/base, Renovate author and assessment gates; approval/merge additionally require the publisher's checks/reviews/rules and mergeability gates.
 - Only an independently supported `safe` result may approve or attempt expected-head merge.
 - Uncertain or missing evidence never becomes safe.
 - Neither an alarm nor a child can publish by itself.

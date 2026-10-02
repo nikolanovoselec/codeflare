@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
+import type { OperatorActivityDetail } from '../../api/operator-activities';
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
@@ -269,20 +270,122 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
 
   it('keeps the older page stable when polling prepends a newer activity', async () => {
     vi.useFakeTimers();
-    const initial = Array.from({ length: 8 }, (_, i) => ({ ...active, activityId: `activity-${i + 1}` }));
-    listMock.mockImplementation(async (after: string | null) => after === 'activity-5'
-      ? { items: initial.slice(5), nextCursor: null, workingCount: 9 }
-      : { items: initial.slice(0, 5), nextCursor: 'activity-5', workingCount: 8 });
+    let history = Array.from({ length: 12 }, (_, i) => ({ ...active, activityId: `activity-${i + 1}` }));
+    listMock.mockImplementation(async (after: string | null) => {
+      const start = after ? history.findIndex(item => item.activityId === after) + 1 : 0;
+      const items = history.slice(start, start + 5);
+      return { items, nextCursor: start + 5 < history.length ? items[items.length - 1].activityId : null,
+        workingCount: history.length, unreadCount: 0 };
+    });
+    const visibleActivities = () => screen.getAllByRole('button', { name: /^View activity-/ }).map(button => button.getAttribute('aria-label'));
     render(() => <OperatorActivityButton enabled />);
     await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
     await vi.advanceTimersByTimeAsync(0);
+    const olderPage = ['View activity-6', 'View activity-7', 'View activity-8', 'View activity-9', 'View activity-10'];
+    expect(visibleActivities()).toEqual(olderPage);
+    history = [{ ...active, activityId: 'activity-new' }, ...history];
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(screen.getByRole('button', { name: 'View activity-6' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'View activity-5' })).toBeNull();
-    expect(screen.getAllByRole('article')).toHaveLength(3);
+    expect(visibleActivities()).toEqual(olderPage);
+    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibleActivities()).toEqual(['View activity-11', 'View activity-12']);
+    await fireEvent.click(screen.getByRole('button', { name: 'Newer 5' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibleActivities()).toEqual(olderPage);
+    await fireEvent.click(screen.getByRole('button', { name: 'Newer 5' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibleActivities()).toEqual(['View activity-new', 'View activity-1', 'View activity-2', 'View activity-3', 'View activity-4']);
+    expect(screen.getAllByRole('article')).toHaveLength(5);
+  });
+
+  it('REQ-OPERATOR-057: polls selected detail from running to completed without leaving the result view', async () => {
+    vi.useFakeTimers();
+    let currentDetail: OperatorActivityDetail = { ...active, checkpoint: null, result: null };
+    listMock.mockImplementation(async () => ({ items: [currentDetail] }));
+    detailMock.mockImplementation(async () => currentDetail);
+    render(() => <OperatorActivityButton enabled />);
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText('Execution: running')).toBeTruthy();
+    expect(screen.getByText('Result pending')).toBeTruthy();
+    currentDetail = { ...currentDetail, executionStatus: 'completed', cleanupStatus: 'stopped',
+      collectionStatus: 'ready', result: { verdict: 'reviewed' } };
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.getByText('Activity ID: activity-1')).toBeTruthy();
+    expect(screen.getByText('Execution: completed')).toBeTruthy();
+    expect(screen.getByText('Cleanup: stopped')).toBeTruthy();
+    expect(screen.getByText('Collection: ready')).toBeTruthy();
+    expect(screen.getByText('Conclusion: reviewed')).toBeTruthy();
+    expect(screen.queryByText('Result pending')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Back to activities' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /collect|restart|retry activity/i })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    expect(screen.getByText('completed')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/app?session=session-1');
+  });
+
+  it('REQ-OPERATOR-033 AC4: a failed detail poll is unavailable and a later poll recovers without navigation', async () => {
+    vi.useFakeTimers();
+    let unavailable = false;
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockImplementation(async () => {
+      if (unavailable) throw new Error('denied');
+      return { ...active, executionStatus: 'completed', checkpoint: null, result: { verdict: 'reviewed' } };
+    });
+    render(() => <OperatorActivityButton enabled />);
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText('Conclusion: reviewed')).toBeTruthy();
+    unavailable = true;
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.getByText('Activity detail unavailable')).toBeTruthy();
+    expect(screen.queryByText('Conclusion: reviewed')).toBeNull();
+    unavailable = false;
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.getByText('Conclusion: reviewed')).toBeTruthy();
+    expect(screen.queryByText('Activity detail unavailable')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Back to activities' })).toBeTruthy();
+  });
+
+  it('REQ-OPERATOR-057 AC3: retains explicit attention through overview detail and back navigation', async () => {
+    const item = { ...active, executionStatus: 'completed', attention: true, updatedAt: 1 };
+    listMock.mockResolvedValue({ items: [item] });
+    detailMock.mockResolvedValue({ ...item, checkpoint: null, result: null });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    expect(await screen.findByText('Needs attention')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+    expect(await screen.findByText('Execution: completed')).toBeTruthy();
+    expect(screen.getByText('Needs attention')).toBeTruthy();
+    expect(screen.getByText('Result unavailable')).toBeTruthy();
+    expect(screen.queryByText(/Last observation may be stale/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    expect(screen.getByText('Needs attention')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/app?session=session-1');
+  });
+
+  it.each(['running', 'completed'])('REQ-OPERATOR-057 AC3: old %s detail never infers attention from age alone', async (executionStatus) => {
+    const item = { ...active, executionStatus, updatedAt: 1, attention: false };
+    listMock.mockResolvedValue({ items: [item] });
+    detailMock.mockResolvedValue({ ...item, checkpoint: null, result: null });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    expect(await screen.findByText(`Execution: ${executionStatus}`)).toBeTruthy();
+    expect(screen.queryByText('Needs attention')).toBeNull();
+    if (executionStatus === 'running') expect(screen.getByText(/Last observation may be stale/)).toBeTruthy();
+    else expect(screen.queryByText(/Last observation may be stale/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    expect(screen.queryByText('Needs attention')).toBeNull();
   });
 
   it('opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting', async () => {

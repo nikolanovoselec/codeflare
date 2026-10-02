@@ -859,6 +859,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     const refreshed = await currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
+    if (activeRound !== round) return;
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
       await clearRound(ctx);
       return;
@@ -869,8 +870,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     } catch {
       return;
     }
-    await sendFixFollowUp(pi, ctx, round);
     activeRound = undefined;
+    await sendFixFollowUp(pi, ctx, round);
   };
 
   pi.on("agent_end", async (_event, ctx) => {

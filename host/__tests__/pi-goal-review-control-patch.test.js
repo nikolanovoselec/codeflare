@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { build, transform } from 'esbuild';
+import { build } from 'esbuild';
 
 import {
   COMMANDS_PATCH_MARKER,
@@ -21,7 +21,6 @@ import {
   patchPiGoalDirectory,
   patchPiGoalPromptsSource,
   patchPiGoalRuntimeSource,
-  patchPiGoalSettingsSource,
   patchPiGoalSource,
 } from '../../scripts/patch-pi-goal-review-control.mjs';
 import {
@@ -94,71 +93,6 @@ const fixtureGoalSource = `function registerGoalRuntime(pi: ExtensionAPI, option
 \tpi.on("session_shutdown", (_event, ctx) => {
 \t\trunController.unbindSession();
 \t});
-}
-`;
-
-const fixtureSettingsSource = `export interface GoalSettings {
-\tcontinuationLimits: {
-\t\tautomaticTurns: ContinuationLimit;
-\t\tnoProgressTurns: ContinuationLimit;
-\t};
-}
-
-export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
-\tcontinuationLimits: { automaticTurns: null, noProgressTurns: 3 },
-};
-
-export function normalizeGoalSettings(value: unknown) {
-\tif (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-\tconst continuationLimitsValue = Object.hasOwn(value, "continuationLimits")
-\t\t? Reflect.get(value, "continuationLimits")
-\t\t: undefined;
-\tif (
-\t\tcontinuationLimitsValue !== undefined &&
-\t\t(typeof continuationLimitsValue !== "object" ||
-\t\t\tcontinuationLimitsValue === null ||
-\t\t\tArray.isArray(continuationLimitsValue))
-\t) {
-\t\treturn undefined;
-\t}
-\tconst automaticTurns = continuationLimitsValue
-\t\t? normalizeContinuationLimit(
-\t\t\t\tReflect.get(continuationLimitsValue, "automaticTurns"),
-\t\t\t\tDEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns,
-\t\t\t)
-\t\t: DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns;
-\tconst noProgressTurns = continuationLimitsValue
-\t\t? normalizeContinuationLimit(
-\t\t\t\tReflect.get(continuationLimitsValue, "noProgressTurns"),
-\t\t\t\tDEFAULT_GOAL_SETTINGS.continuationLimits.noProgressTurns,
-\t\t\t)
-\t\t: DEFAULT_GOAL_SETTINGS.continuationLimits.noProgressTurns;
-\tif (automaticTurns === undefined || noProgressTurns === undefined) return undefined;
-
-\treturn {
-\t\tcontinuationLimits: { automaticTurns, noProgressTurns },
-\t};
-}
-
-function normalizeContinuationLimit(
-\tvalue: unknown,
-\tfallback: ContinuationLimit,
-): ContinuationLimit | undefined {
-\tif (value === undefined) return fallback;
-\tif (value === null) return null;
-\treturn typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
-}
-
-export function buildSavedGoalSettings(normalized, raw) {
-\tconst continuationLimits = raw.continuationLimits ?? {};
-\treturn {
-\t\t...raw,
-\t\tcontinuationLimits: {
-\t\t\t\t...continuationLimits,
-\t\t\t\tautomaticTurns: normalized.continuationLimits.automaticTurns,
-\t\t\t\tnoProgressTurns: normalized.continuationLimits.noProgressTurns,
-\t\t\t},
-\t};
 }
 `;
 
@@ -441,28 +375,6 @@ function executablePatchedGoal() {
   return { runtime: runtimes[0], controller: controllers[0], lifecycle, events };
 }
 
-function executablePatchedSettings() {
-  const patched = patchPiGoalSettingsSource(fixtureSettingsSource)
-    .replace(/export interface GoalSettings \{[\s\S]*?\n\}\n\n/, '')
-    .replace(
-      'export const DEFAULT_GOAL_SETTINGS: GoalSettings =',
-      'const DEFAULT_GOAL_SETTINGS =',
-    )
-    .replace('export function normalizeGoalSettings(value: unknown)', 'function normalizeGoalSettings(value)')
-    .replace(
-      'function normalizeContinuationLimit(\n\tvalue: unknown,\n\tfallback: ContinuationLimit,\n): ContinuationLimit | undefined {',
-      'function normalizeContinuationLimit(value, fallback) {',
-    )
-    .replace(
-      'function normalizeMinIntervalMs(\n\tvalue: unknown,\n\tfallback: number,\n): number | undefined {',
-      'function normalizeMinIntervalMs(value, fallback) {',
-    )
-    .replace('export function buildSavedGoalSettings', 'function buildSavedGoalSettings');
-  return Function(
-    `${patched}\nreturn { DEFAULT_GOAL_SETTINGS, normalizeGoalSettings, buildSavedGoalSettings };`,
-  )();
-}
-
 function createScheduler() {
   let now = 0;
   let nextId = 1;
@@ -690,6 +602,7 @@ function createExtensionHarness() {
   const eventListeners = new Map();
   const notifications = [];
   const entries = [];
+  const messages = [];
   const tools = [
     { name: 'read', description: 'Read files', sourceInfo: { source: 'builtin' } },
     { name: 'bash', description: 'Run bounded commands', sourceInfo: { source: 'builtin' } },
@@ -734,7 +647,8 @@ function createExtensionHarness() {
     appendEntry(customType, data) {
       entries.push({ type: 'custom', customType, data });
     },
-    sendUserMessage: async () => undefined,
+    sendUserMessage: async (content, options) => { messages.push({ content, options }); },
+    sendMessage: (message) => { entries.push({ type: 'custom_message', ...message }); },
     getAllTools: () => [...tools],
     getActiveTools: () => [...activeTools],
     setActiveTools: (tools) => { activeTools = [...tools]; },
@@ -757,7 +671,14 @@ function createExtensionHarness() {
     ctx,
     emit: (channel, payload) => api.events.emit(channel, payload),
     entries,
+    messages,
     notifications,
+    tools,
+    dispatch: async (name, event = {}) => {
+      let result;
+      for (const listener of lifecycle.get(name) ?? []) result = await listener(event, ctx) ?? result;
+      return result;
+    },
     startSession: async () => {
       for (const listener of lifecycle.get('session_start') ?? []) await listener({}, ctx);
     },
@@ -772,19 +693,74 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-178: unreviewed Plan command layout fails without partial writes', () => {
+  it('REQ-AGENT-178: unreviewed Plan command layout fails without partial writes', (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-policy-drift-'));
-    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.56.0.tgz'),
-      'sha512-sxbIODVaV6Ct+eD+lDN+tEn0mKtU9PG7rkkVhF6EC1d7t6YLHi1ixFhrKwMrJmsAPfkCnBKKImJcXx/bMFateg==', root);
-    const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-57OBPS7P.js'];
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
+      'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==', root);
+    const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-L2CXUWCH.ts'];
     const chunk = join(root, paths[3]);
     writeFileSync(chunk, readFileSync(chunk, 'utf8').replace('if (matchesConfiguredSafeSubcommand(command, safeSubcommands)) return void 0;', 'return void 0;'));
     const before = paths.map((path) => readFileSync(join(root, path), 'utf8'));
-    assert.throws(() => patchPiPlanModeDirectory('0.56.0', root), /command policy anchors/);
+    assert.throws(() => patchPiPlanModeDirectory('0.58.3', root), /command policy anchors/);
     assert.deepEqual(paths.map((path) => readFileSync(join(root, path), 'utf8')), before);
     assert.throws(() => patchPiPlanModeDirectory('0.56.1', root), /Unsupported Plan Mode version/);
     assert.deepEqual(paths.map((path) => readFileSync(join(root, path), 'utf8')), before);
   });
+  it('REQ-AGENT-178: transformed pinned Plan candidate rejects unsafe commands and invalid publication', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-plan-candidate-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
+      'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==', root);
+    patchPiPlanModeDirectory('0.58.3', root);
+    // Exercise the generated candidate entrypoint, not a command recorder.
+    const extension = await bundleFixture(join(root, 'dist/index.ts'), join(root, 'plan.mjs'));
+    const harness = createExtensionHarness();
+    extension(harness.api, { settingsPath: join(root, 'settings.json') });
+    await harness.startSession();
+    harness.api.setActiveTools(['read', 'bash']);
+    await harness.commands.get('plan').handler('start', harness.ctx);
+    await harness.runContext();
+    assert.equal(await harness.dispatch('tool_call', { toolName: 'bash', input: { command: 'git status' } }), undefined);
+    const denied = await harness.dispatch('tool_call', { toolName: 'bash', input: { command: 'git status && touch sentinel' } });
+    assert.equal(denied?.block, true);
+    const complete = harness.tools.find((tool) => tool.name === 'plan_mode_complete');
+    for (const plan of ['', '   ', 'x'.repeat(50_001), 42]) {
+      await assert.rejects(() => complete.execute('invalid', { plan }, undefined, undefined, harness.ctx));
+      assert.equal(harness.entries.filter((entry) => entry.customType === 'plan-mode-state').at(-1).data.latestPlan, undefined);
+    }
+    const candidate = '# Exact candidate\n\nPreserve every decision.';
+    const published = await complete.execute('valid', { plan: `  ${candidate}\n` }, undefined, undefined, harness.ctx);
+    assert.equal(published.details.plan, candidate);
+    assert.equal(published.content[0].text, `**Proposed Plan**\n\n${candidate}`);
+    assert.equal(harness.entries.filter((entry) => entry.customType === 'plan-mode-state').at(-1).data.latestPlan, candidate);
+    await harness.commands.get('plan').handler('exit', harness.ctx);
+    await harness.dispatch('session_shutdown');
+  });
+
+  it('REQ-AGENT-111: latest Goal drift fails before writing any candidate package file', (t) => {
+    for (const kind of ['version', 'entrypoint', 'runtime']) {
+      const root = mkdtempSync(join(tmpdir(), `pi-goal-latest-${kind}-`));
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.8.tgz'),
+        'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==', root);
+      if (kind === 'runtime') {
+        const path = join(root, 'src/runtime.ts');
+        writeFileSync(path, readFileSync(path, 'utf8').replace('this.continuationDispatchTimer = setTimeout(() => {', 'this.continuationDispatchTimer = queueMicrotask(() => {'));
+      } else {
+        const path = join(root, 'package.json');
+        const manifest = JSON.parse(readFileSync(path, 'utf8'));
+        if (kind === 'version') manifest.version = '0.54.9';
+        else manifest.pi.extensions = ['./unknown.ts'];
+        writeFileSync(path, JSON.stringify(manifest));
+      }
+      const before = readFixturePackage(root);
+      assert.throws(() => patchPiGoalDirectory('0.54.8', root));
+      // No-partial-write artifact contract: all patch destinations stay byte-identical.
+      assert.deepEqual(readFixturePackage(root), before);
+    }
+  });
+
   for (const versions of [
     { goal: EXPECTED_PI_GOAL_VERSION, plan: EXPECTED_PI_PLAN_MODE_VERSION,
       goalArchive: PINNED_PACKAGE_ARCHIVE, goalIntegrity: PINNED_PACKAGE_INTEGRITY,
@@ -891,15 +867,29 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
+    if (versions.goal === '0.54.8') {
+      const complete = harness.tools.find((tool) => tool.name === 'goal_complete');
+      await harness.dispatch('before_agent_start', { prompt: 'Continue the resumed objective', systemPrompt: '' });
+      await harness.dispatch('agent_start');
+      const rejected = await complete.execute('stale-completion', { goal_id: pausedGoalId, summary: 'Verified all requirements' }, undefined, undefined, harness.ctx);
+      assert.match(rejected.content[0].text, /goal_id does not match the active goal/);
+      assert.notEqual(rejected.terminate, true);
+      assert.equal(harness.entries.filter((entry) => entry.customType === 'goal-state').at(-1).data.goal.status, 'active');
+      const accepted = await complete.execute('current-completion', { goal_id: response.goalId, summary: 'Verified all requirements' }, undefined, undefined, harness.ctx);
+      assert.equal(accepted.terminate, true);
+      assert.match(accepted.content[0].text, /Goal complete/);
+    }
   });
 
   });
   }
 
-  it('REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching', async () => {
+  it('REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching', async (t) => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-prompt-'));
-    extractPinnedFixturePackage(goalRoot);
-    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
+    t.after(() => rmSync(goalRoot, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.8.tgz'),
+      'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==', goalRoot);
+    patchPiGoalDirectory('0.54.8', goalRoot);
     const prompts = await bundleFixture(join(goalRoot, 'src/prompts.ts'), join(goalRoot, 'prompts.mjs'), 'namespace');
     const goal = {
       id: 'goal-id',
@@ -923,9 +913,16 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.doesNotMatch(waitingResume, /goal_blocked|goal_wait/);
     assert.match(waitingResume, /external_wait_reason/);
 
-    const patchedSource = readFileSync(join(goalRoot, 'src/prompts.ts'), 'utf8');
-    assert.ok(patchedSource.includes(PROMPTS_PATCH_MARKER));
-    assert.equal(patchPiGoalPromptsSource(patchedSource), patchedSource);
+    // Goal prompt copy contract: every entry/resume/system/continuation output
+    // carries the authoritative objective and exact completion stale-turn guard.
+    for (const prompt of [prompts.buildGoalPrompt(goal), prompts.buildResumePrompt(goal, 'paused'),
+      prompts.buildGoalSystemPrompt(goal), continuation, waitingResume]) {
+      assert.match(prompt, /complete every open task/);
+      assert.match(prompt, /<goal_id>\n?goal-id\n?<\/goal_id>/);
+      assert.match(prompt, /goal_complete/);
+      assert.doesNotMatch(prompt, /goal_blocked|goal_wait/);
+      assert.ok(prompt.length < 1_600);
+    }
   });
 
   it('REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract', async () => {
@@ -1239,33 +1236,53 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     ]);
   });
 
-  it('REQ-AGENT-129 AC5: rejects invalid minIntervalMs values', () => {
-    const { normalizeGoalSettings } = executablePatchedSettings();
+  it('REQ-AGENT-129 AC5: rejects invalid minIntervalMs values', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-settings-validation-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.8.tgz'),
+      'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==', root);
+    patchPiGoalDirectory('0.54.8', root);
+    const { normalizeGoalSettings, saveGoalSettings } = await bundleFixture(join(root, 'src/settings.ts'), join(root, 'settings.mjs'), 'namespace');
+    const path = join(root, 'settings.json');
+    writeFileSync(path, '{}');
     for (const minIntervalMs of [null, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
       assert.equal(
         normalizeGoalSettings({ continuationLimits: { minIntervalMs } }),
         undefined,
         `expected ${String(minIntervalMs)} to be rejected`,
       );
+      assert.throws(() => saveGoalSettings({ continuationLimits: { minIntervalMs } }, path), /invalid/);
+      assert.equal(readFileSync(path, 'utf8'), '{}', 'invalid settings must not replace saved settings');
     }
   });
 
-  it('REQ-AGENT-129 AC6: defaults a missing delay to zero', () => {
-    const { normalizeGoalSettings } = executablePatchedSettings();
+  it('REQ-AGENT-129 AC6: defaults a missing delay to zero', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-settings-default-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.8.tgz'),
+      'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==', root);
+    patchPiGoalDirectory('0.54.8', root);
+    const { normalizeGoalSettings } = await bundleFixture(join(root, 'src/settings.ts'), join(root, 'settings.mjs'), 'namespace');
     const normalized = normalizeGoalSettings({ continuationLimits: {} });
     assert.deepEqual(normalized, {
-      continuationLimits: { automaticTurns: null, noProgressTurns: 3, minIntervalMs: 0 },
+      rpc: { enabled: false },
+      continuationLimits: { automaticTurns: 25, noProgressTurns: 3, minIntervalMs: 0 },
     });
   });
 
-  it('REQ-AGENT-129 AC7: saves the delay without dropping unknown fields', () => {
-    const { normalizeGoalSettings, buildSavedGoalSettings } = executablePatchedSettings();
-    const saved = buildSavedGoalSettings(
-      { continuationLimits: { automaticTurns: 10, noProgressTurns: null, minIntervalMs: 60_000 } },
-      { unknownRoot: 'keep', continuationLimits: { unknownLimit: 'keep' } },
-    );
-    assert.deepEqual(saved, {
+  it('REQ-AGENT-129 AC7: saves the delay without dropping unknown fields', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-settings-save-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.8.tgz'),
+      'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==', root);
+    patchPiGoalDirectory('0.54.8', root);
+    const { normalizeGoalSettings, saveGoalSettings, readGoalSettings } = await bundleFixture(join(root, 'src/settings.ts'), join(root, 'settings.mjs'), 'namespace');
+    const path = join(root, 'settings.json');
+    writeFileSync(path, JSON.stringify({ unknownRoot: 'keep', rpc: { unknownRpc: 'keep' }, continuationLimits: { unknownLimit: 'keep' } }));
+    saveGoalSettings({ continuationLimits: { automaticTurns: 10, noProgressTurns: null, minIntervalMs: 60_000 } }, path);
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), {
       unknownRoot: 'keep',
+      rpc: { enabled: false, unknownRpc: 'keep' },
       continuationLimits: {
         unknownLimit: 'keep',
         automaticTurns: 10,
@@ -1273,6 +1290,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
         minIntervalMs: 60_000,
       },
     });
+    assert.equal(readGoalSettings(path).settings.continuationLimits.minIntervalMs, 60_000);
     assert.equal(
       normalizeGoalSettings({ continuationLimits: { minIntervalMs: Number.MAX_SAFE_INTEGER } })
         .continuationLimits.minIntervalMs,

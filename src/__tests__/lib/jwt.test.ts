@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { verifyAccessJWT, verifyHumanAccessJWT, resetJWKSCache } from '../../lib/jwt';
+import { requireOperatorHumanContext, resetAuthConfigCache } from '../../lib/access';
+import { createMockKV } from '../helpers/mock-kv';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+import type { Env } from '../../types';
 
 /**
  * Test helpers for generating RSA key pairs and signing JWTs
@@ -130,6 +134,35 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
     };
     const sign = (claims: Record<string, unknown>) => createTestJWT(
       claims, testKeyPair.privateKey, testKeyPair.kid,
+    );
+
+    it.each(['absent groups', 'malformed groups', 'revoked', 'unavailable', 'wrong subject', 'wrong email'])(
+      'REQ-OPERATOR-045 AC3: signed human management context distinguishes live %s from valid empty membership', async state => {
+        resetAuthConfigCache();
+        const claims = humanClaims();
+        const token = await sign(claims);
+        const kv = createMockKV();
+        kv._store.set(SETUP_KEYS.AUTH_DOMAIN, TEST_AUTH_DOMAIN);
+        kv._store.set(SETUP_KEYS.ACCESS_AUD, TEST_AUD);
+        const env = { ENTERPRISE_MODE: 'active', KV: kv } as unknown as Env;
+        const certFetch = globalThis.fetch;
+        globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          if (request.url.endsWith('/cdn-cgi/access/certs')) return certFetch(input, init);
+          if (request.url !== `${claims.iss}/cdn-cgi/access/get-identity`) throw Error('Unexpected identity destination');
+          if (state === 'revoked' || state === 'unavailable') return new Response(null, { status: state === 'revoked' ? 401 : 503 });
+          return Response.json({ user_uuid: state === 'wrong subject' ? 'other-human' : claims.sub,
+            email: state === 'wrong email' ? 'other@example.test' : claims.email,
+            ...(state === 'malformed groups' ? { groups: null } : {}) });
+        });
+        try {
+          const context = requireOperatorHumanContext(new Request('https://codeflare.test/api/operator-management', {
+            headers: { 'cf-access-jwt-assertion': token },
+          }), env, claims.email);
+          if (state === 'absent groups') expect(await context).toMatchObject({ human: { subject: claims.sub, groups: [] }, accessJwt: token });
+          else await expect(context).rejects.toThrow();
+        } finally { resetAuthConfigCache(); }
+      },
     );
 
     it('returns verified human claims and actual expiry without returning the credential', async () => {

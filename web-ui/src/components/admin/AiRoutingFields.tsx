@@ -609,7 +609,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
   const copyGroupToAll = () => {
     const source = groups().find((group) => group.accessGroup === applyGroupSource());
-    if (source) { const clean = normalizedPolicy(source); setGroups((items) => items.map((group) => ({ ...group, routes: [...clean.routes], defaultRoute: clean.defaultRoute, reasoning: clean.reasoning }))); }
+    if (source) { const clean = normalizedPolicy(source); setGroups((items) => items.map((group) => personalPermission({ ...group, routes: [...clean.routes], defaultRoute: clean.defaultRoute, reasoning: clean.reasoning }, clean.allowPersonalPiProviders === true))); }
     setApplyGroupsOpen(false);
   };
   const confirmRemove = (name: string) => {

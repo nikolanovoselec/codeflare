@@ -70,6 +70,8 @@ app.get('/', async c => {
           const projection = await c.env.OPERATOR_ACTIVITY!.getByName(summary.activityId)
             .getBrowserSummary(c.get('ownerKey'));
           if (projection?.activityId !== summary.activityId || projection.operatorId !== summary.operatorId) return summary;
+          if (summary.operatorName && projection.operatorName && summary.operatorName !== projection.operatorName
+            || summary.context && projection.context && summary.context !== projection.context) return summary;
           if (!summary.operatorName && projection.operatorName) summary.operatorName = projection.operatorName;
           if (!summary.context && projection.context) summary.context = projection.context;
         } catch { /* Historical display metadata is unavailable; keep the owner index unchanged. */ }
