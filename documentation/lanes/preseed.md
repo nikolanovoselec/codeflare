@@ -399,9 +399,10 @@ Adapter 3.3.0 retains the config schema but, since 3.0.0, no longer reads Pi's
 `mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
 migrate a valid legacy file byte-for-byte only when the destination is absent.
 Existing adapter files win; when the backup is absent, valid legacy bytes move
-to `mcp.json.migrated` without leaving the deprecated filename. An existing
-backup denies migration and preserves all three files unchanged. Invalid or
-nonregular paths block bootstrap changes. The legacy path is not retired.
+to `mcp.json.migrated` without leaving the deprecated filename. When an adapter
+destination already exists, an existing backup denies migration and preserves
+all three files unchanged. Invalid or nonregular paths block bootstrap changes.
+The legacy path is not retired.
 See [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 Managed delivery reaches existing images on the next Pi load or `/reload`, not
 merely when the release is published or refreshed.
@@ -1529,7 +1530,7 @@ Migration is governed by [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-
 
 - Startup and the signed managed migration extension move a valid legacy `mcp.json` byte-for-byte only when the adapter destination is absent.
 - Existing destinations win; when the backup is absent, valid legacy bytes are archived as `mcp.json.migrated` without leaving the deprecated filename.
-- Existing backups deny migration and preserve all three files unchanged.
+- When an adapter destination already exists, an existing backup denies migration and preserves all three files unchanged.
 - Malformed or nonregular paths fail closed without deleting user data.
 
 ## Related Documentation
