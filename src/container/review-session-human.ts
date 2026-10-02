@@ -109,7 +109,7 @@ export async function bindReviewSessionHuman(host: Host, input: {
 }
 
 /** Only terminal lifecycle cleanup discards both the sealed credential and immutable principal. */
-export async function discardReviewSessionHuman(host: Host): Promise<void> {
+export async function discardReviewSessionHuman(host: { ctx: { storage: Pick<Storage, 'delete'> } }): Promise<void> {
   await host.ctx.storage.delete(KEY);
   await host.ctx.storage.delete(OWNER_KEY);
 }

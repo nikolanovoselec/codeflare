@@ -272,11 +272,13 @@ export async function handleWebSocketUpgrade(
           bucket: string; sessionId: string; generation: number;
         } | null, expected?: { bucket: string; sessionId: string; email: string; generation: number }): Promise<void>;
       };
+      let stage: 'human-context' | 'parent-bind' = 'human-context';
       try {
         const human = await requireOperatorHumanContext(request, env, user.email);
+        stage = 'parent-bind';
         await parent.bindReviewHuman({ ...human, bucket: bucketName,
           sessionId: baseSessionId, generation: session.lifecycleGeneration });
-      } catch {
+      } catch (error) {
         // Ordinary terminal access remains independent of optional native
         // provider permission. Revoke credentials, never the session principal.
         try { await parent.bindReviewHuman(null, { bucket: bucketName, sessionId: baseSessionId,
@@ -287,7 +289,11 @@ export async function handleWebSocketUpgrade(
           pair[1].close(1011, 'Session authority unavailable');
           return new Response(null, { status: 101, webSocket: pair[0] });
         }
-        logger.warn('Native Pi human authority unavailable on terminal reconnect');
+        const reason = stage === 'parent-bind' && error instanceof Error
+          ? error.message === 'Session human mismatch' ? 'principal-mismatch'
+            : error.message === 'Session is shutting down' ? 'shutdown' : 'unclassified'
+          : 'unclassified';
+        logger.warn('Native Pi human authority unavailable on terminal reconnect', { stage, reason });
       }
     }
 

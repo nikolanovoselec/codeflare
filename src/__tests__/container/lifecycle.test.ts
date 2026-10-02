@@ -99,6 +99,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     deleteAll: ReturnType<typeof vi.fn>;
     setAlarm: ReturnType<typeof vi.fn>;
     deleteAlarm: ReturnType<typeof vi.fn>;
+    transaction: ReturnType<typeof vi.fn>;
   };
   let mockTcpPortFetch: ReturnType<typeof vi.fn>;
   let mockContainerRuntime: {
@@ -131,6 +132,12 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       deleteAll: vi.fn().mockResolvedValue(undefined),
       setAlarm: vi.fn().mockResolvedValue(undefined),
       deleteAlarm: vi.fn().mockResolvedValue(undefined),
+      transaction: vi.fn(async (work: (tx: {
+        get: (key: string) => Promise<unknown>; put: typeof mockStorage.put; delete: typeof mockStorage.delete;
+      }) => Promise<unknown>) => await work({
+        get: async key => (await mockStorage.get(key)) ?? undefined,
+        put: mockStorage.put, delete: mockStorage.delete,
+      })),
     };
     mockTcpPortFetch = vi.fn();
     mockContainerRuntime = {

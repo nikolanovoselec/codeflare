@@ -120,15 +120,30 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
   authentication.verified.set(freshJwt, verifiedHuman);
   const freshHuman = { ...verifiedHuman, groups: ['engineering-id'] };
   const records = new Map<string, unknown>([['lifecycleGeneration', 1]]);
+  let authorityDeletionFailure: 'credential' | 'principal' | null = null;
   const actions = {
     get: async (key: string) => records.get(key),
     put: async (key: string, value: unknown) => { records.set(key, value); },
     delete: async (key: string | string[]) => {
-      for (const name of Array.isArray(key) ? key : [key]) records.delete(name);
+      for (const name of Array.isArray(key) ? key : [key]) {
+        if ((authorityDeletionFailure === 'credential' && name === 'review:session-human')
+          || (authorityDeletionFailure === 'principal' && name === 'review:session-principal')) {
+          throw Error('Synthetic authority cleanup unavailable');
+        }
+        records.delete(name);
+      }
     },
   };
   const storage = { ...actions,
-    transaction: async <T>(work: (tx: typeof actions) => Promise<T>) => work(actions),
+    transaction: async <T>(work: (tx: typeof actions) => Promise<T>) => {
+      const before = new Map(records);
+      try { return await work(actions); }
+      catch (error) {
+        records.clear();
+        for (const [key, value] of before) records.set(key, value);
+        throw error;
+      }
+    },
   };
   const env = {
     ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)), KV: kv,
@@ -253,6 +268,7 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
   return { kv, env, host, storage, repository, startReplacement, records, oldHuman, freshHuman, verifiedHuman, policy, reconnect, send, body,
     providerRequests, identity: (value: unknown) => { identity = value; },
     readiness: (ready: boolean) => { terminalReady = ready; },
+    authorityDeletionFailure: (failure: 'credential' | 'principal' | null) => { authorityDeletionFailure = failure; },
     bindingFailure: (failure: 'renew' | 'revoke') => { bindingFailure = failure; },
   };
 }
@@ -354,6 +370,49 @@ describe('warm terminal native Pi authority', () => {
     await expectReplacementAuthority(f);
   });
 
+  it('REQ-ENTERPRISE-090: monitored replacement renews authority while old cleanup waits after fence commit', async () => {
+    const f = await fixture('valid');
+    let entered!: () => void;
+    let release!: () => void;
+    const cleanupEntered = new Promise<void>(resolve => { entered = resolve; });
+    const cleanupReleased = new Promise<void>(resolve => { release = resolve; });
+    const transaction = f.storage.transaction;
+    f.storage.transaction = async work => {
+      if (f.records.has(SHUTDOWN_REQUESTED_KEY)) {
+        f.storage.transaction = transaction;
+        entered();
+        await cleanupReleased;
+      }
+      return await transaction(work);
+    };
+    const oldExit = confirmMonitoredExit(f.host.ctx, f.env, owner.bucket, owner.sessionId, 1);
+    await cleanupEntered;
+    try {
+      await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+      await f.startReplacement();
+      expect((await f.reconnect()).status).toBe(200);
+      expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.freshHuman, accessJwt: freshJwt, generation: 2 });
+    } finally {
+      release();
+      await oldExit;
+    }
+    await expectReplacementAuthority(f);
+  });
+
+  it.each(['credential', 'principal'] as const)(
+    'REQ-ENTERPRISE-090: confirmed exit still denies provider access when %s cleanup rolls back', async failure => {
+      const f = await fixture('valid');
+      f.authorityDeletionFailure(failure);
+      expect(await confirmMonitoredExit(f.host.ctx, f.env, owner.bucket, owner.sessionId, 1)).toBe(true);
+      f.authorityDeletionFailure(null);
+      await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+      await expect(bindReviewSessionHuman(f.host, { bucket: owner.bucket, sessionId: owner.sessionId,
+        generation: 1, human: f.freshHuman, accessJwt: freshJwt })).rejects.toThrow();
+      for (const login of nativeLogins) await expectDenied(await f.send(login.url, {}, login));
+      expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    },
+  );
+
   it('REQ-TERM-002: actual destroy and fresh Start on the surviving host permit same-owner native provider renewal', async () => {
     const f = await fixture('valid');
     await f.repository.claimStop(owner.bucket, owner.sessionId, 'deliberate-stop', new Date().toISOString(), 1);
@@ -397,6 +456,24 @@ describe('warm terminal native Pi authority', () => {
       await oldExit;
     }
     await expectReplacementAuthority(f);
+  });
+
+  it('REQ-SESSION-033: stale fresh-start handoff cannot clear an assigned generation shutdown fence', async () => {
+    const f = await fixture('valid');
+    const key = `session:${owner.bucket}:${owner.sessionId}`;
+    const session = await f.kv.get(key, 'json') as Record<string, unknown>;
+    f.kv._set(key, { ...session, status: 'initializing' });
+    f.records.set('lifecycleGeneration', 2);
+    await f.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now());
+    f.host._shutdownStartedAt = Date.now();
+    await expect(onStart(f.host)).rejects.toThrow();
+    f.host._shutdownStartedAt = 0;
+    await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+    for (const login of nativeLogins) await expectDenied(await f.send(login.url, {}, login));
+    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    await f.storage.delete(SHUTDOWN_REQUESTED_KEY);
+    f.records.set('lifecycleGeneration', 1);
+    expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.oldHuman, accessJwt: oldJwt, generation: 1 });
   });
 
   it.each([

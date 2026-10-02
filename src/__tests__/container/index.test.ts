@@ -147,8 +147,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       deleteAll: vi.fn().mockResolvedValue(undefined),
       setAlarm: vi.fn().mockResolvedValue(undefined),
       deleteAlarm: vi.fn().mockResolvedValue(undefined),
-      transaction: vi.fn(async (fn: (txn: { get: typeof mockStorage.get; put: typeof mockStorage.put }) => Promise<unknown>) =>
-        fn({ get: mockStorage.get, put: mockStorage.put })),
+      transaction: vi.fn(async (fn: (txn: { get: typeof mockStorage.get; put: typeof mockStorage.put;
+        delete: typeof mockStorage.delete }) => Promise<unknown>) =>
+        await fn({ get: mockStorage.get, put: mockStorage.put, delete: mockStorage.delete })),
     };
     mockTcpPortFetch = vi.fn();
     mockContainerRuntime = {

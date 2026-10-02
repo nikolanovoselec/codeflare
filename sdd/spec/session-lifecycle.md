@@ -723,7 +723,7 @@ None.
 **Acceptance Criteria:**
 
 1. A replay for an already-running generation preserves established lifecycle ownership. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (preserves generation ownership and idle baseline on a duplicate onStart) -->
-2. Stale or stopping start callbacks cannot clear lifecycle ownership or re-arm lifecycle work. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
+2. Stale or stopping start callbacks cannot clear lifecycle ownership or re-arm lifecycle work. <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-SESSION-033: stale fresh-start handoff cannot clear an assigned generation shutdown fence) --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-SESSION-033: %s onStart preserves the %s shutdown fence and sealed principal) --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
 
 **Constraints:** Same-generation replays and rejected stale or stopping callbacks do not project lifecycle transitions.
 

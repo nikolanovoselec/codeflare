@@ -65,7 +65,8 @@ vi.mock('@cloudflare/containers', () => {
     ctx: {
       id: { toString: () => string };
       container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
-      storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void> };
+      storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void>;
+        transaction: <T>(work: (tx: Pick<MockContainer['ctx']['storage'], 'get' | 'put' | 'delete'>) => Promise<T>) => Promise<T> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
       abort: (reason: string) => never;
     };
@@ -157,7 +158,7 @@ vi.mock('@cloudflare/containers', () => {
           // collectMetrics not-running confirmation marker relies on it). The
           // special-cased identifier keys still read from testState.
           const store = testState.storageStore;
-          return {
+          const operations = {
             get: async <T>(key: string): Promise<T | undefined> => {
               if (testState.storageGetFailures.has(key)) throw new Error(`storage read failed: ${key}`);
               if (key === '_sessionId') return testState.storedSessionId as T;
@@ -178,6 +179,15 @@ vi.mock('@cloudflare/containers', () => {
             }),
             sync: vi.fn(async () => {}),
           };
+          return { ...operations, transaction: async <T>(work: (tx: typeof operations) => Promise<T>) => {
+            const before = new Map(store);
+            try { return await work(operations); }
+            catch (error) {
+              store.clear();
+              for (const [key, value] of before) store.set(key, value);
+              throw error;
+            }
+          } };
         })(),
         blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
         abort: (reason: string): never => {
