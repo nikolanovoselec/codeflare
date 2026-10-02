@@ -855,8 +855,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   async bindReviewHuman(input: {
     bucket: string; sessionId: string; generation: number;
     human: VerifiedHumanAccessClaims; accessJwt: string;
-  } | null): Promise<void> {
-    await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input);
+  } | null, expected?: Parameters<typeof bindReviewSessionHuman>[2]): Promise<void> {
+    await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{

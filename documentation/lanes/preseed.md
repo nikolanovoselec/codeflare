@@ -397,12 +397,14 @@ Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp-adapter.json` via the pi-mcp-adapter `mcp` proxy.
 Adapter 3.3.0 retains the config schema but, since 3.0.0, no longer reads Pi's
 `mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
-migrate a valid legacy file byte-for-byte only when the destination is absent.
-Existing adapter files win; when the backup is absent, valid legacy bytes move
-to `mcp.json.migrated` without leaving the deprecated filename. When an adapter
-destination exists, an existing backup denies migration and preserves
-all three files unchanged. Invalid or nonregular paths block bootstrap changes.
-The legacy path is not retired.
+prepare one valid active adapter after restore. Valid legacy-only data migrates
+byte-for-byte on Pi load/reload; startup rebuilds recognizable managed entries
+from current runtime inputs while preserving custom configuration. Displaced, transformed or malformed originals survive in exclusive recovery
+copies outside active names; unchanged legacy-only data needs no extra archive.
+Passive backups never block startup; unsafe active paths and I/O failures still
+fail closed. Successful startup preparation excludes only root
+`.pi/agent/mcp.json` from subsequent baseline/bisync, not initial restore,
+active adapters or recovery copies. No bucket objects are deleted.
 See [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 Managed delivery reaches existing images on the next Pi load or `/reload`, not
 merely when the release is published or refreshed.
@@ -413,10 +415,11 @@ and `cross-spawn` in the container dependency tree. Because adapter 2.15+
 reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. Pi startup adds the
-`consult-llm` server entry with `lifecycle: "lazy"` only when missing, preserving
-existing entries, credentials and unrelated MCP servers; it does not
-retroactively repair the lifecycle of a preserved entry. Claude retains
-owned-entry replacement on each start ([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
+`consult-llm` server entry with `lifecycle: "lazy"` after preparing the adapter.
+Startup regenerates standard managed credentials; customized entries and user
+settings remain preserved. Pi load/reload leaves working entries intact. Claude
+retains its existing owned-entry replacement
+([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)):
@@ -1528,10 +1531,11 @@ Exhaustive Agents and Memory status remains in the active SDD; section-local lin
 
 Migration is governed by [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 
-- Startup and the signed managed migration extension move a valid legacy `mcp.json` byte-for-byte only when the adapter destination is absent.
-- Existing destinations win; when the backup is absent, valid legacy bytes are archived as `mcp.json.migrated` without leaving the deprecated filename.
-- When an adapter destination already exists, an existing backup denies migration and preserves all three files unchanged.
-- Malformed or nonregular paths fail closed without deleting user data.
+- Pi load/reload migrates valid legacy-only configuration byte-for-byte; startup also regenerates recognizable owned entries.
+- Valid active adapters take precedence; displaced, transformed or malformed originals remain recoverable outside active names.
+- Passive archive collisions do not block recovery or overwrite existing data.
+- Malformed regular files recover after archival; unsafe active paths and I/O errors fail closed.
+- Only successful preparation excludes obsolete root `mcp.json` from subsequent baseline/bisync; other files still sync.
 
 ## Related Documentation
 

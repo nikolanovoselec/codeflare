@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,7 @@ async function fixture(t) {
   const directory = join(home, '.pi', 'agent');
   mkdirSync(directory, { recursive: true });
   return { home, directory, legacy: join(directory, 'mcp.json'), target: join(directory, 'mcp-adapter.json'), backup: join(directory, 'mcp.json.migrated'),
-    migrate: () => migratePiMcpAdapterConfig(directory),
+    migrate: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate),
     load: () => register({}, { HOME: home }),
   };
 }
@@ -203,13 +203,26 @@ function startConsult(home, restoredLegacy) {
   return spawnSync('bash', ['-c', `${functions}\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm
 if [ -n "$RESTORED_LEGACY" ]; then
   # Execute the rclone exclusion wire contract against a synthetic restored object.
-  python3 - "$RESTORED_LEGACY" "$USER_HOME/.pi/agent/mcp.json" "\${RCLONE_FILTERS[@]}" <<'BASELINE'
-import fnmatch, pathlib, shutil, sys
+  python3 - "$RESTORED_LEGACY" "$USER_HOME" "\${RCLONE_FILTERS[@]}" <<'BASELINE'
+import pathlib, re, shutil, sys
 args=sys.argv[3:]
-excluded=any(args[i] == '--filter' and args[i+1].startswith('- ')
-             and fnmatch.fnmatch('.pi/agent/mcp.json', args[i+1][2:])
-             for i in range(len(args)-1))
-if not excluded: shutil.copyfile(sys.argv[1], sys.argv[2])
+rules=[args[i+1] for i in range(len(args)-1) if args[i] == '--filter']
+def included(key):
+    for rule in rules:
+        action, pattern = rule[:2], rule[2:]
+        anchored = pattern.startswith('/')
+        pattern = pattern.lstrip('/') if anchored else pattern
+        expression = re.escape(pattern).replace(r'\\*\\*', '.*').replace(r'\\*', '[^/]*').replace(r'\\?', '[^/]')
+        candidates = [key] if anchored else [key] + [key[i+1:] for i, char in enumerate(key) if char == '/']
+        if any(re.fullmatch(expression, candidate) for candidate in candidates):
+            return action != '- '
+    return True
+source, destination = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+for obj in source.rglob('*'):
+    if obj.is_file() and included(obj.relative_to(source).as_posix()):
+        target = destination / obj.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(obj, target)
 BASELINE
 fi`], {
     encoding: 'utf8',
@@ -271,15 +284,23 @@ test('REQ-AGENT-069: startup recovers malformed legacy and bootstraps lazy consu
 
 test('REQ-AGENT-217: fresh startup prevents baseline from restoring the obsolete MCP filename', async t => {
   const f = await fixture(t);
-  const restored = join(f.home, 'remote-legacy.json');
-  writeFileSync(restored, legacyConfig);
+  const restored = join(f.home, 'remote');
+  const remoteAgent = join(restored, '.pi', 'agent');
+  mkdirSync(join(remoteAgent, 'nested'), { recursive: true });
+  const remoteAdapter = { mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', lifecycle: 'lazy' } }, settings: { restored: true } };
+  writeFileSync(join(remoteAgent, 'mcp.json'), legacyConfig);
+  writeFileSync(join(remoteAgent, 'mcp-adapter.json'), JSON.stringify(remoteAdapter));
+  writeFileSync(join(remoteAgent, 'mcp.json.migrated.baseline'), 'remote recovery bytes');
+  writeFileSync(join(remoteAgent, 'nested', 'mcp.json'), 'unrelated nested bytes');
   writeFileSync(f.legacy, legacyConfig);
   writeFileSync(f.target, '{}');
   writeFileSync(f.backup, 'old passive archive');
   const result = startConsult(f.home, restored);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(existsSync(f.legacy), false);
-  assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).mcpServers['consult-llm'].lifecycle, 'lazy');
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), remoteAdapter);
+  assert.equal(readFileSync(join(f.directory, 'mcp.json.migrated.baseline'), 'utf8'), 'remote recovery bytes');
+  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp.json'), 'utf8'), 'unrelated nested bytes');
   assertArchived(f, 'mcp.json.migrated', legacyConfig);
   assert.equal(readFileSync(f.backup, 'utf8'), 'old passive archive');
 });
@@ -298,4 +319,77 @@ test('REQ-AGENT-069: fresh startup regenerates managed consult credentials while
   assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
   assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
   assert.deepEqual(updated.settings, config.settings);
+});
+
+
+for (const location of ['target', 'legacy']) {
+  for (const customization of ['arguments', 'environment', 'server-fields', 'browser-headers', 'browser-endpoint']) {
+    test(`startup preserves canonical-command ${customization} customization from ${location}`, async (t) => {
+      const f = await fixture(t);
+      const server = { command: 'consult-llm-mcp', args: [], env: { OPENAI_API_KEY: 'synthetic-custom-provider' }, lifecycle: 'lazy' };
+      if (customization === 'arguments') server.args = ['--user-owned-option'];
+      if (customization === 'environment') server.env.USER_OWNED_TOKEN = 'synthetic-user-secret';
+      if (customization === 'server-fields') server.description = 'user-owned description';
+      const original = { settings: { custom: true }, mcpServers: { 'consult-llm': server,
+        'chrome-devtools': { command: '/opt/codeflare/bin/chrome-devtools-mcp',
+          args: ['--wsEndpoint=wss://custom.example.test', '--wsHeaders={"X-Custom":"synthetic"}', '--user-owned-option'] } } };
+      if (customization.startsWith('browser-')) {
+        server.args = ['--user-owned-option'];
+        original.mcpServers['chrome-devtools'].args = [
+          '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/custom/browser-rendering/devtools/browser',
+          '--wsHeaders={"Authorization":"Bearer synthetic","X-Custom":"synthetic-user-value"}',
+        ];
+        if (customization === 'browser-endpoint') original.mcpServers['chrome-devtools'].args = [
+          '--wsEndpoint=wss://custom.example.test', '--wsHeaders={"Authorization":"Bearer synthetic"}',
+        ];
+      }
+      const bytes = JSON.stringify(original);
+      writeFileSync(f[location], bytes);
+      assert.equal(f.migrate(true), true);
+      assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), original);
+      assert.equal(existsSync(f.legacy), false);
+      if (location === 'legacy') assert.equal(readFileSync(f.target, 'utf8'), bytes);
+    });
+  }
+}
+
+test('startup preserves selected custom legacy originals before regenerating owned entries', async (t) => {
+  const f = await fixture(t);
+  const original = { imports: ['user-owned-import'], settings: { custom: true },
+    mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', args: [], env: { OPENAI_API_KEY: 'synthetic-old-generated' }, lifecycle: 'lazy' } } };
+  const bytes = JSON.stringify(original);
+  writeFileSync(f.legacy, bytes);
+  assert.equal(f.migrate(true), true);
+  assertArchived(f, 'mcp.json.migrated', bytes);
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), { ...original, mcpServers: {} });
+  assert.equal(existsSync(f.legacy), false);
+});
+
+// POSIX permissions are observable only for an unprivileged runner.
+test('unreadable passive archive cannot block custom legacy recovery', { skip: process.getuid?.() === 0 }, async (t) => {
+  const f = await fixture(t);
+  writeFileSync(f.target, '{}');
+  writeFileSync(f.legacy, legacyConfig);
+  writeFileSync(f.backup, legacyConfig);
+  chmodSync(f.backup, 0o000);
+  assert.equal(f.migrate(), true);
+  assert.equal(existsSync(f.legacy), false);
+  assert.equal(readFileSync(f.target, 'utf8'), '{}');
+  assert.equal(lstatSync(f.backup).mode & 0o777, 0o000);
+  const recoverable = readdirSync(f.directory).filter(name => name.startsWith('mcp.json.migrated.') && lstatSync(join(f.directory, name)).isFile());
+  assert.ok(recoverable.some(name => readFileSync(join(f.directory, name), 'utf8') === legacyConfig));
+});
+
+test('REQ-AGENT-217: failed preparation does not exclude restored legacy from baseline', async (t) => {
+  const f = await fixture(t);
+  const outside = join(f.home, 'unsafe-target');
+  writeFileSync(outside, 'external original');
+  symlinkSync(outside, f.target);
+  const remote = join(f.home, 'remote-failed-preparation');
+  mkdirSync(join(remote, '.pi', 'agent'), { recursive: true });
+  writeFileSync(join(remote, '.pi', 'agent', 'mcp.json'), legacyConfig);
+  const result = startConsult(f.home, remote);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+  assert.equal(readFileSync(outside, 'utf8'), 'external original');
 });

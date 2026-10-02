@@ -73,8 +73,18 @@ function same(a: Principal, b: Principal): boolean {
 export async function bindReviewSessionHuman(host: Host, input: {
   bucket: string; sessionId: string; generation: number;
   human: VerifiedHumanAccessClaims; accessJwt: string;
-} | null): Promise<void> {
-  if (input === null) { await host.ctx.storage.delete(KEY); return; }
+} | null, expected?: { bucket: string; sessionId: string; email: string; generation: number }): Promise<void> {
+  if (input === null) {
+    if (!expected) { await host.ctx.storage.delete(KEY); return; }
+    await host.ctx.storage.transaction(async tx => {
+      own(host, expected.bucket, expected.sessionId, expected.email);
+      if (await tx.get('lifecycleGeneration') !== expected.generation) {
+        throw new ForbiddenError('Session generation mismatch');
+      }
+      await tx.delete(KEY);
+    });
+    return;
+  }
   const parsed = envelope.safeParse(input);
   if (!parsed.success || parsed.data.human.expiresAt * 1000 <= Date.now()
     || parsed.data.human.issuedAt > parsed.data.human.expiresAt) throw new ValidationError('Invalid human authority');

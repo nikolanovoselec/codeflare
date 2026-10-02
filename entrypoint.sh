@@ -3349,10 +3349,13 @@ configure_pi_mcp_adapter() {
     if node --input-type=module - "$module" "$USER_HOME/.pi/agent" <<'PI_MCP_MIGRATION'
 import { pathToFileURL } from 'node:url';
 const { migratePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
-process.exitCode = migratePiMcpAdapterConfig(process.argv[3]) ? 0 : 1;
+process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true) ? 0 : 1;
 PI_MCP_MIGRATION
     then
         PI_MCP_CONFIG_READY=1
+        # Restore has finished; only subsequent baseline/bisync excludes this
+        # obsolete root path. Active config and custom recovery files still sync.
+        RCLONE_FILTERS+=(--filter "- /.pi/agent/mcp.json")
     else
         echo "[entrypoint] WARNING: Pi MCP config migration skipped; user files preserved"
     fi
