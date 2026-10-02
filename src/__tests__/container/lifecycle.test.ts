@@ -93,7 +93,7 @@ import { container as ContainerClass, validateBucketNameInput } from '../../cont
 
 describe('container DO class / REQ-SESSION-002 (one container per session) / REQ-SESSION-019', () => {
   let mockStorage: {
-    get: ReturnType<typeof vi.fn>;
+    get: ReturnType<typeof vi.fn<(key: string) => Promise<unknown>>>;
     put: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
     deleteAll: ReturnType<typeof vi.fn>;
@@ -126,7 +126,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z',
     });
     mockStorage = {
-      get: vi.fn().mockResolvedValue(null),
+      get: vi.fn<(key: string) => Promise<unknown>>().mockResolvedValue(null),
       put: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
       deleteAll: vi.fn().mockResolvedValue(undefined),

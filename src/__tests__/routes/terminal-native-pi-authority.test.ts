@@ -458,6 +458,73 @@ describe('warm terminal native Pi authority', () => {
     await expectReplacementAuthority(f);
   });
 
+  it('REQ-SESSION-033: fresh-start completion preserves a newer shutdown when durable fencing fails', async () => {
+    const f = await fixture('valid');
+    const key = `session:${owner.bucket}:${owner.sessionId}`;
+    const session = await f.kv.get(key, 'json') as Record<string, unknown>;
+    f.kv._set(key, { ...session, status: 'initializing' });
+    let projected!: () => void;
+    let releaseProjection!: () => void;
+    let cleanupEntered!: () => void;
+    let releaseCleanup!: () => void;
+    const projectionCommitted = new Promise<void>(resolve => { projected = resolve; });
+    const projectionReleased = new Promise<void>(resolve => { releaseProjection = resolve; });
+    const cleanupWaiting = new Promise<void>(resolve => { cleanupEntered = resolve; });
+    const cleanupReleased = new Promise<void>(resolve => { releaseCleanup = resolve; });
+    // Delay the external database response after its first write commits.
+    const prepare = f.env.USAGE_DB.prepare.bind(f.env.USAGE_DB);
+    let delayResponse = true;
+    f.env.USAGE_DB.prepare = sql => {
+      const statement = prepare(sql);
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => {
+        const bound = bind(...values);
+        const run = bound.run.bind(bound);
+        bound.run = async <T>() => {
+          const result = await run<T>();
+          if (delayResponse) {
+            delayResponse = false;
+            projected();
+            await projectionReleased;
+          }
+          return result;
+        };
+        return bound;
+      };
+      return statement;
+    };
+    const starting = onStart(f.host);
+    await projectionCommitted;
+    const put = f.storage.put;
+    const remove = f.storage.delete;
+    f.storage.put = async (name, value) => {
+      if (name === SHUTDOWN_REQUESTED_KEY) throw Error('Synthetic shutdown storage unavailable');
+      await put(name, value);
+    };
+    f.storage.delete = async name => {
+      if (name === 'review:session-human') {
+        cleanupEntered();
+        await cleanupReleased;
+      }
+      await remove(name);
+    };
+    const stopping = destroy(f.host);
+    try {
+      await cleanupWaiting;
+      releaseProjection();
+      await starting;
+      await expect(bindReviewSessionHuman(f.host, { bucket: owner.bucket, sessionId: owner.sessionId,
+        generation: 1, human: f.freshHuman, accessJwt: freshJwt })).rejects.toThrow();
+      await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+      for (const login of nativeLogins) await expectDenied(await f.send(login.url, {}, login));
+      expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    } finally {
+      releaseProjection();
+      releaseCleanup();
+      await Promise.all([starting, stopping]);
+    }
+  });
+
   it('REQ-SESSION-033: stale fresh-start handoff cannot clear an assigned generation shutdown fence', async () => {
     const f = await fixture('valid');
     const key = `session:${owner.bucket}:${owner.sessionId}`;

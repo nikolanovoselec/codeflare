@@ -55,6 +55,7 @@ export interface LifecycleHost extends ContainerHost {
 
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
+  const shutdownAtEntry = host._shutdownStartedAt;
   updateEnvVars(host);
   if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
   const repository = new D1SessionRepository(host.env.USAGE_DB);
@@ -86,7 +87,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
     if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
       lifecycleState: 'running', observedAt,
     })) throw new Error('D1 running projection rejected');
-    host._shutdownStartedAt = 0;
+    if (host._shutdownStartedAt === shutdownAtEntry) host._shutdownStartedAt = 0;
   } else {
     // The Containers SDK can replay onStart after the first hook projected the
     // generation. Only the same durable generation is a harmless replay.
