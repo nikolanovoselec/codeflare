@@ -9,6 +9,28 @@ import { resolve } from 'node:path';
 const headerStyles = readFileSync(resolve('src/styles/header.css'), 'utf8');
 const designTokens = readFileSync(resolve('src/styles/design-tokens.css'), 'utf8');
 
+// jsdom retains a selected var(...) rather than resolving inherited custom
+// properties. Read the actual cascade and let CSSOM normalize the literal;
+// this is not a substitute for real-browser rendering acceptance.
+function renderedColor(element: Element): string {
+  let color = getComputedStyle(element).color;
+  const variable = /^var\((--[\w-]+)\)$/.exec(color);
+  if (variable) {
+    let owner: Element | null = element;
+    color = '';
+    while (owner && !color) {
+      color = getComputedStyle(owner).getPropertyValue(variable[1]).trim();
+      owner = owner.parentElement;
+    }
+    if (!color) throw new Error(`Missing rendered color property ${variable[1]}`);
+  }
+  const probe = document.createElement('span');
+  probe.style.color = color;
+  document.body.append(probe);
+  try { return getComputedStyle(probe).color; }
+  finally { probe.remove(); }
+}
+
 // Mock isMobile - default to desktop (false)
 const isMobileMock = vi.hoisted(() => ({ value: false }));
 vi.mock('../../lib/mobile', () => ({
@@ -180,7 +202,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       const timer = screen.getByRole('button', { name: bucket });
       expect(timer).toBeVisible();
       const treatment = getComputedStyle(timer);
-      expect(treatment.color).toBe(color);
+      expect(renderedColor(timer)).toBe(color);
       expect(treatment.animation).toContain(pulse);
       fireEvent.click(timer);
       expect(screen.getByTestId('header-timer-dropdown')).toHaveTextContent(bucket);

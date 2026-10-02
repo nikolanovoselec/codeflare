@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
@@ -87,7 +87,9 @@ describe('Impeccable managed runtime policy', () => {
       for (const target of targets) {
         const launcher = join(target.root, 'scripts/impeccable');
         writeFileSync(launcher, managedImpeccableLauncher(engines), { mode: 0o755 });
+        chmodSync(launcher, 0o755);
         const result = spawnSync(launcher, ['context', '--target', 'a file.ts'], { encoding: 'utf8' });
+        assert.ifError(result.error);
         assert.equal(result.status, 0, result.stderr);
         assert.deepEqual(result.stdout.trim().split('\n'), [engineVersion, 'context', '--target', 'a file.ts']);
         for (const command of ['install', 'update']) {

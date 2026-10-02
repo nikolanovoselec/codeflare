@@ -61,6 +61,8 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
 
     await waitFor(() => expect(window.location.pathname).toBe('/operators'));
+    // Navigation does not await the real management component's lazy import.
+    await vi.dynamicImportSettled();
     expect(await screen.findByText(longName)).toBeInTheDocument();
     expect(screen.queryByText('Endpoint URL')).not.toBeInTheDocument();
   });
