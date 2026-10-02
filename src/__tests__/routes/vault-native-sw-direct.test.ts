@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { nativeWorkerRuntime } from '../helpers/native-worker-runtime';
 
 // CF-045
@@ -73,8 +73,10 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
 
   const aesKey = btoa('a'.repeat(32));
   const config = { enableClientEncryption: true, spaceFolderPath: '/vault', syncDocuments: true, syncIgnore: '' };
+  const runtimes = new Set<ReturnType<typeof nativeWorkerRuntime>>();
+  afterEach(() => { for (const runtime of runtimes) runtime.dispose(); runtimes.clear(); });
   function servedRuntime(recover: () => Promise<Response> = async () => Response.json({ key: aesKey })) {
-    const requests: Array<{ url: string; credentials?: RequestCredentials }> = [];
+    const requests: Array<{ url: string; credentials?: string }> = [];
     const runtime = nativeWorkerRuntime(VAULT_NATIVE_SERVICE_WORKER_JS, async (input, options) => {
       const url = input instanceof Request ? input.url : String(input);
       requests.push({ url, credentials: options?.credentials });
@@ -82,6 +84,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
       if (url === '/.fs') return Response.json([]);
       throw new Error(`Unexpected native worker transport: ${url}`);
     });
+    runtimes.add(runtime);
     return { ...runtime, requests };
   }
 
@@ -121,15 +124,15 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   });
 
   it('REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state', async () => {
-    let release!: (response: Response) => void;
+    let release!: () => void;
     let entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });
-    const pending = new Promise<Response>(resolve => { release = resolve; });
-    const runtime = servedRuntime(() => { entered(); return pending; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const runtime = servedRuntime(async () => { entered(); await pending; return Response.json({ key: aesKey }); });
     const recovery = runtime.message({ type: 'get-encryption-key' });
     await started;
     expect(await runtime.message({ type: 'logout-sync', id: 'pending' })).toEqual([{ ok: true, databases: [] }]);
-    release(Response.json({ key: aesKey }));
+    release();
     expect(await recovery).toEqual([]);
     await runtime.message({ type: 'logout-cancel', id: 'pending' });
     expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);

@@ -4,7 +4,9 @@ import { mdiViewDashboardOutline, mdiMicrosoftVisualStudioCode } from '@mdi/js';
 import Header from '../../components/Header';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SleepAfterOption } from '../../types';
-import headerStyles from '../../styles/header.css?inline';
+import { readFileSync } from 'node:fs';
+const headerStyles = readFileSync(new URL('../../styles/header.css', import.meta.url), 'utf8');
+const designTokens = readFileSync(new URL('../../styles/design-tokens.css', import.meta.url), 'utf8');
 
 // Mock isMobile - default to desktop (false)
 const isMobileMock = vi.hoisted(() => ({ value: false }));
@@ -128,7 +130,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       // Apply the production stylesheet so severity assertions observe rendered
       // treatment, rather than inspecting classes or recreating CSS in the test.
       stylesheet = document.createElement('style');
-      stylesheet.textContent = headerStyles;
+      stylesheet.textContent = `${designTokens}\n${headerStyles}`;
       document.head.append(stylesheet);
     });
 
@@ -168,8 +170,8 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
 
     it.each([
-      { remainingMs: 300_000, bucket: '< 10 min', color: 'var(--color-warning)', pulse: '2s', ac: 'AC3' },
-      { remainingMs: 299_999, bucket: '< 5 min', color: 'var(--color-error)', pulse: '1s', ac: 'AC4' },
+      { remainingMs: 300_000, bucket: '< 10 min', color: 'rgb(245, 158, 11)', pulse: '2s', ac: 'AC3' },
+      { remainingMs: 299_999, bucket: '< 5 min', color: 'rgb(239, 68, 68)', pulse: '1s', ac: 'AC4' },
     ])('REQ-SESSION-036 $ac: renders $bucket with its warning or critical treatment ($remainingMs ms remaining)', ({ remainingMs, bucket, color, pulse }) => {
       const session = runningSession({ lastActiveAt: new Date(now - (1_800_000 - remainingMs)).toISOString() });
       render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id} />);

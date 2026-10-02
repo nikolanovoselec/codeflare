@@ -1756,7 +1756,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ---
 
 
-<a id="req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var"></a>
 ### REQ-ENTERPRISE-092: Mode-scoped platform credential delivery
 
 **Intent:** Credential mediation and personal human authentication are distinct from mode-specific owner credential delivery.
@@ -1781,6 +1780,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
+<a id="req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var"></a>
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.

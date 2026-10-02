@@ -294,7 +294,7 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 
 <!-- Preserved source-evidence anchors for the controls summarized above. -->
 <!-- @impl: .github/workflows/sign-release.yml::sign -->
-<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.139.1" -->
+<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.140.0" -->
 <!-- @impl: Dockerfile::CODE_SERVER_SHA256 -->
 <!-- @impl: entrypoint.sh::_openvscode_launch_once -->
 <!-- @impl: entrypoint.sh::_openvscode_prepare_agent -->

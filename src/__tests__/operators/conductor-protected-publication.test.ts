@@ -3,8 +3,9 @@
  * Parent capability, webhook, ledger and GitHub/artifact I/O are external fixtures;
  * no producer policy, history reconciliation, presentation or publisher validation is mocked. */
 import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import { env } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseOperatorBundle } from '../../operators/distribution';
 import { collectBoundaryResult, publishBoundaryResult } from '../../../scripts/operator-boundary-action.mjs';
 import provenance from './fixtures/conductor-review.provenance.json';
@@ -12,6 +13,9 @@ import provenance from './fixtures/conductor-review.provenance.json';
 import bundleJson from './fixtures/conductor-review.generated.json?raw';
 // @ts-expect-error Workers test loader supports raw wrapper modules.
 import producerFixture from './fixtures/conductor-publication-producer.js?raw';
+
+beforeEach(() => vi.stubGlobal('Buffer', Buffer));
+afterEach(() => vi.unstubAllGlobals());
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const finding = { id: 'code-reviewer-guard', severity: 'HIGH', path: 'src/guard.ts', line: 12,

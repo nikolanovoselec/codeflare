@@ -702,11 +702,11 @@ This release extends the existing Operator foundation with GitHub package instal
 2. Rationale is bounded and publication references are independently verified. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (rejects mismatched publication references and extraneous authority fields before sealing) -->
 3. The parent rejects forged, omitted, truncated or duplicate references before packet persistence. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (rejects mismatched publication references and extraneous authority fields before sealing) -->
 4. Each accepted rejection retains its independently verified original finding. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (puts an independently authenticated prior finding in the actor-bound approved packet) -->
-5. Only independent next-round reassessment may resolve a prior finding; caller disagreement alone never supplies clearance. <!-- @test: src/__tests__/operators/review-connected-lifecycle.test.ts (connects protected collection through authenticated Pi rejection and compiled next-round reassessment) -->
+5. Only independent next-round reassessment may resolve a prior finding; caller disagreement alone never supplies clearance. <!-- @impl: src/__tests__/operators/fixtures/conductor-review.generated.json::reconcileProtectedReviewHistory --> <!-- @test: src/__tests__/operators/review-connected-lifecycle.test.ts (connects protected collection through authenticated Pi rejection and compiled next-round reassessment) -->
 
 **Constraints:**
 
-- The canonical reassessment owner is packaged Conductor `src/review-action-history.js::reconcileProtectedReviewHistory` in sibling managed-source repository `codeflare-operator-conductor`, not the Codeflare packet producer or result consumer. Parent adapters authenticate input and publication transport; the compiled-package lifecycle test exercises that owner.
+- Reassessment policy remains package-owned; see [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details) for the packaged-source trace.
 - Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
 - Detailed preserved wire and fencing clauses remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 

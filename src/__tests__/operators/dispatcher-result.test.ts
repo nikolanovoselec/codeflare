@@ -55,8 +55,8 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     } })]), initial(), 'requested');
     expect(projection).toMatchObject({ messageIds: ['answer'], result, writes: 1, outcome: 'completed' });
   });
-  it.each([[], [{ type: 'data-result', data: { repository: 'replacement/project', results: [] } }]])(
-    'preserves the observed result fence when an advancing reset omits or replaces it (%j)', async parts => {
+  it.each([{ parts: [] }, { parts: [{ type: 'data-result', data: { repository: 'replacement/project', results: [] } }] }])(
+    'preserves the observed result fence when an advancing reset omits or replaces it (%j)', async ({ parts }) => {
       const observed = await readDispatcherUpdates(response([start, data], 'observed-page'), initial(), 'requested');
       const reset = event(5, { type: 'conversation-reset', snapshot: {
         conversationId: 'conversation',

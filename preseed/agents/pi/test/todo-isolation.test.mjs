@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { it } from 'node:test';
 
 const requirePreseed = createRequire(new URL('../package.json', import.meta.url));
@@ -16,7 +15,7 @@ it('REQ-AGENT-081 AC1: pinned rpiv-todo isolates foreground tasks through child/
   assert.equal(manifest.dependencies['@juicesharp/rpiv-todo'], '2.11.0');
   assert.equal(todoManifest.version, '2.11.0');
 
-  const sdkEntry = pathToFileURL(requirePreseed.resolve('@earendil-works/pi-coding-agent'));
+  const sdkEntry = new URL(import.meta.resolve('@earendil-works/pi-coding-agent'));
   const { SessionManager } = await import(sdkEntry.href);
   // Pi's distributed loader evaluates the complete published TypeScript extension and its dependencies.
   const { loadExtensions } = await import(new URL('./core/extensions/loader.js', sdkEntry).href);

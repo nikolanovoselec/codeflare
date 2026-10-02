@@ -37,7 +37,7 @@ const workflowDigest = '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc
 const request = { repositoryId: 138, pullRequest: 34, head, base, mergeBase, runId: 87, runAttempt: 1 };
 const session = { bucket: 'owner-bucket', sessionId: 'session01', generation: 1 };
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
-let keys: CryptoKeyPair, jwk: JsonWebKey;
+let keys: CryptoKeyPair, jwk: JsonWebKey & { kid: string };
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function sign(payload: Record<string, unknown>) {
   const header = encode(new TextEncoder().encode(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'live-identity-key' })));
@@ -68,7 +68,7 @@ function identityResponse(fault: Fault): Response {
 beforeAll(async () => {
   keys = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
     publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']) as CryptoKeyPair;
-  jwk = { ...await crypto.subtle.exportKey('jwk', keys.publicKey), kid: 'live-identity-key', alg: 'RS256', use: 'sig' } as JsonWebKey;
+  jwk = { ...await crypto.subtle.exportKey('jwk', keys.publicKey), kid: 'live-identity-key', alg: 'RS256', use: 'sig' };
   for (const sql of `${migration};${boundaryMigration}`.split(';').map(part => part.trim()).filter(Boolean)) await db.prepare(sql).run();
 });
 beforeEach(async () => {
@@ -131,7 +131,7 @@ async function fixture(test: (f: {
     (owner[method as keyof OperatorRegistry] as (...input: unknown[]) => Promise<unknown>).apply(owner, args)) });
   const humanContext = await requireOperatorHumanContext(new Request('https://enterprise.example.test/', {
     headers: { 'cf-access-jwt-assertion': accessJwt },
-  }), protectedEnv as Env, email);
+  }), protectedEnv as unknown as Env, email);
   expect(humanContext.human.groups).toEqual([]); // Live absence replaces stale signed groups.
   let activityId!: string;
   await runInDurableObject(registryNamespace.getByName(registryName), async (_instance, ctx) => {
@@ -161,11 +161,11 @@ async function fixture(test: (f: {
     if (!reserved.ok) throw Error('Real Registry reservation failed');
     activityId = reserved.value.activityId;
   });
-  await storeGithubConnection(protectedEnv as Env, session.bucket, { accessToken: 'parent-github-token', source: 'pat' });
+  await storeGithubConnection(protectedEnv as unknown as Env, session.bucket, { accessToken: 'parent-github-token', source: 'pat' });
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(activityNamespace.get(activityNamespace.newUniqueId()), async (_instance, ctx) => {
     const activityEnv = { ...protectedEnv, OPERATOR_REGISTRY: { getByName: () => registry } };
-    const activity = new OperatorActivity(ctx, activityEnv as Env);
+    const activity = new OperatorActivity(ctx, activityEnv as unknown as Env);
     const actionEnv = { ...activityEnv, OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db,
       CONTAINER: { getByName: () => ({ openReviewHuman: async () => ({ human: humanContext.human, accessJwt }) }) } } as unknown as Env;
     const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews', activityId,

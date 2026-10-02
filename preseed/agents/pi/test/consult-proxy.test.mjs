@@ -126,7 +126,11 @@ test('REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and star
   shutdown = () => emit('session_shutdown');
   await emit('session_start');
   assert.ok(activeTools.includes('mcp'), 'consult must be reachable through the actual registered proxy');
-  assert.ok(!activeTools.some(name => name.includes('consult_llm')), 'consult must not be promoted to a direct tool');
+  const hasDirectConsult = () => activeTools.some(name => {
+    const parameters = tools.get(name)?.parameters?.properties;
+    return parameters && Object.hasOwn(parameters, 'prompt') && Object.hasOwn(parameters, 'model');
+  });
+  assert.equal(hasDirectConsult(), false, 'consult must not expose its direct prompt/model tool schema');
   const startedBeforeUse = existsSync(receipt);
   process.env.CODEFLARE_Q17_PHASE = 'proxy-use';
   const args = { model: 'openai', prompt: 'Compare the stated alternatives.', task_mode: 'general' };
@@ -141,5 +145,6 @@ test('REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and star
   // lifecycle:"lazy". The child inherits the phase at the actual launch boundary.
   assert.equal(startedBeforeUse, false, 'session startup must not launch consult');
   assert.equal(observations.find(event => event.event === 'started').phase, 'proxy-use');
-  assert.ok(!activeTools.some(name => name.includes('consult_llm')), 'proxy use must retain the proxy-only surface');
+  assert.ok(activeTools.includes('mcp'), 'proxy use must retain the registered mcp surface');
+  assert.equal(hasDirectConsult(), false, 'proxy use must not expose the direct consult prompt/model tool schema');
 });

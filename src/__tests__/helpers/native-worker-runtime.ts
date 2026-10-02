@@ -1,6 +1,7 @@
 // Browser platform doubles only. The complete served SilverBullet bundle is
 // evaluated unchanged and all messages go through its registered listener.
-export function nativeWorkerRuntime(worker: string, transport: typeof fetch) {
+export function nativeWorkerRuntime(worker: string, transport: (input: RequestInfo | URL,
+  options?: RequestInit & { credentials?: 'omit' | 'same-origin' | 'include' }) => Promise<Response>) {
   class IDBRequest extends EventTarget {
     result: unknown;
     transaction?: IDBTransaction;
@@ -66,7 +67,7 @@ export function nativeWorkerRuntime(worker: string, transport: typeof fetch) {
   type Listener = (event: unknown) => unknown;
   const listeners = new Map<string, Listener>();
   const intervals: Array<() => unknown> = [];
-  const timeouts = new Map<number, () => unknown>();
+  const timeouts = new Set<ReturnType<typeof setTimeout>>();
   let registered = true;
   const clients = { matchAll: async () => [] }; // empty-vault/zero-window fixture
   const self = {
@@ -82,12 +83,17 @@ export function nativeWorkerRuntime(worker: string, transport: typeof fetch) {
     fetch: transport, console: quietConsole,
     caches: { match: async () => undefined },
     setInterval: (callback: () => unknown) => { intervals.push(callback); return intervals.length; },
-    setTimeout: (callback: () => unknown) => { const id = timeouts.size + 1; timeouts.set(id, callback); return id; },
-    clearTimeout: (id: number) => { timeouts.delete(id); },
+    setTimeout: (callback: () => unknown, delay = 0) => {
+      const id = setTimeout(() => { timeouts.delete(id); callback(); }, delay);
+      timeouts.add(id);
+      return id;
+    },
+    clearTimeout: (id: ReturnType<typeof setTimeout>) => { clearTimeout(id); timeouts.delete(id); },
   };
   new Function(...Object.keys(platform), worker)(...Object.values(platform));
   return {
     databases,
+    dispose() { for (const id of timeouts) clearTimeout(id); timeouts.clear(); intervals.length = 0; },
     isRegistered: () => registered,
     async message(data: Message) {
       const listener = listeners.get('message');

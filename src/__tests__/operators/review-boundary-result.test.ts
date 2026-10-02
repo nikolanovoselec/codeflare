@@ -14,7 +14,7 @@ let publicJwk: JsonWebKey;
 beforeAll(async () => {
   keys = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
     publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']) as CryptoKeyPair;
-  publicJwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
+  publicJwk = await crypto.subtle.exportKey('jwk', keys.publicKey) as JsonWebKey;
 });
 beforeEach(() => { resetAuthConfigCache(); resetJWKSCache(); });
 afterEach(() => { vi.restoreAllMocks(); resetAuthConfigCache(); resetJWKSCache(); });

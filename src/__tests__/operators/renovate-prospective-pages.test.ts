@@ -20,7 +20,7 @@ function scan(pages: Array<{ rows: unknown[]; link?: string }>) {
       const page = pages[Number(url.searchParams.get('page')) - 1];
       if (!page) throw Error('Unprovided external GitHub page');
       return Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
-    } }) },
+    }, connect: () => { throw Error('Prospective GitHub reads do not open sockets'); } }) },
   });
 }
 
