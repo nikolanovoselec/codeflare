@@ -98,6 +98,22 @@ describe('entrypoint Browser Run MCP registration', () => {
 
   it('REQ-BROWSER-006 AC5: duplicate retention parameters cannot retain a ten-minute browser', () => checkManagedBrowser('target', '180000&keep_alive=600000'));
 
+  it('REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings', () => {
+    const target = { mcpServers: {
+      'chrome-devtools': { command: '/opt/codeflare/bin/chrome-devtools-mcp', args: [
+        '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/old-account/browser-rendering/devtools/browser?keep_alive=600000',
+        '--wsHeaders={"Authorization":"Bearer synthetic-stale-managed-token"}',
+      ], lifecycle: 'lazy' }, custom: { command: 'custom', env: { TOKEN: 'synthetic-custom-token' } },
+    }, settings: { custom: true } };
+    const { pi } = generatedBrowserConfigs({ target });
+    assert.equal(new URL(wsEndpoint(pi)).pathname, '/client/v4/accounts/test-account/browser-rendering/devtools/browser');
+    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '180000');
+    const headers = pi.mcpServers['chrome-devtools'].args.find(arg => arg.startsWith('--wsHeaders='));
+    assert.equal(JSON.parse(headers.slice('--wsHeaders='.length)).Authorization, 'Bearer test-token');
+    assert.deepEqual(pi.mcpServers.custom, target.mcpServers.custom);
+    assert.deepEqual(pi.settings, target.settings);
+  });
+
   it('REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials', () => {
     const legacy = { mcpServers: {
       'chrome-devtools': { command: 'custom-browser', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'], lifecycle: 'lazy' },
