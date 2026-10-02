@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { test } from 'node:test';
 import { existsSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -190,7 +192,7 @@ test('nonregular destination blocks migration and retains legacy', async (t) => 
   assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
 });
 
-function startConsult(home, restoredLegacy) {
+function startConsult(home, restoredLegacy, overrides = {}) {
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const lines = readFileSync(join(repo, 'entrypoint.sh'), 'utf8').split('\n');
   function functionSource(name) {
@@ -228,7 +230,7 @@ fi`], {
     encoding: 'utf8',
     env: { ...process.env, USER_HOME: home, USER_CLAUDE_JSON: join(home, '.claude.json'),
       MIGRATION_MODULE: join(repo, 'preseed/agents/pi/extensions/00-mcp-adapter-config.ts'),
-      RESTORED_LEGACY: restoredLegacy || '', CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '',
+      RESTORED_LEGACY: restoredLegacy || '', CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '', ...overrides,
     },
   });
 }
@@ -393,3 +395,45 @@ test('REQ-AGENT-217: failed preparation does not exclude restored legacy from ba
   assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
   assert.equal(readFileSync(outside, 'utf8'), 'external original');
 });
+
+test('replacement write failure preserves the original custom adapter for recovery', async (t) => {
+  const f = await fixture(t);
+  const original = JSON.stringify({ settings: { custom: true }, mcpServers: {
+    'consult-llm': { command: 'consult-llm-mcp', args: [], env: { OPENAI_API_KEY: 'synthetic-generated' }, lifecycle: 'lazy' },
+    custom: { command: 'user-server', env: { TOKEN: 'synthetic-private' } },
+  } });
+  writeFileSync(f.target, original, { mode: 0o600 });
+  const write = fs.writeFileSync;
+  try {
+    // Inject ENOSPC at the filesystem boundary, not inside the migration.
+    fs.writeFileSync = (path, ...args) => {
+      if (path === f.target) throw Object.assign(new Error('Synthetic full disk'), { code: 'ENOSPC' });
+      return write(path, ...args);
+    };
+    syncBuiltinESMExports();
+    assert.equal(f.migrate(true), false);
+    assertArchived(f, 'mcp-adapter.json.migrated', original);
+  } finally {
+    fs.writeFileSync = write;
+    syncBuiltinESMExports();
+  }
+});
+
+for (const mode of ['no-provider', 'enterprise']) {
+  test(`REQ-AGENT-069: ${mode} startup preserves customized Pi consult while retaining Claude cleanup`, async (t) => {
+    const f = await fixture(t);
+    const original = { settings: { custom: true }, mcpServers: {
+      'consult-llm': { command: 'consult-llm-mcp', args: ['--user-option'], env: { USER_TOKEN: 'synthetic-private' } },
+      unrelated: { command: 'user-server' },
+    } };
+    writeFileSync(f.target, JSON.stringify(original));
+    const claude = join(f.home, '.claude.json');
+    writeFileSync(claude, JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp' }, unrelated: { command: 'keep' } } }));
+    const result = startConsult(f.home, undefined, {
+      CODEFLARE_OPENAI_API_KEY: '', ENTERPRISE_MODE: mode === 'enterprise' ? 'active' : '',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), original);
+    assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers, { unrelated: { command: 'keep' } });
+  });
+}

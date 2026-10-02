@@ -282,7 +282,10 @@ export async function handleWebSocketUpgrade(
         try { await parent.bindReviewHuman(null, { bucket: bucketName, sessionId: baseSessionId,
           email: user.email, generation: session.lifecycleGeneration }); } catch {
           logger.warn('Native Pi human authority revocation unavailable on terminal reconnect');
-          return createErrorWebSocketResponse(1011, 'Session authority unavailable');
+          const pair = new WebSocketPair();
+          pair[1].accept();
+          pair[1].close(1011, 'Session authority unavailable');
+          return new Response(null, { status: 101, webSocket: pair[0] });
         }
         logger.warn('Native Pi human authority unavailable on terminal reconnect');
       }

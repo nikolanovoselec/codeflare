@@ -3400,9 +3400,8 @@ _remove_consult_llm_mcp() {
 
 _remove_disabled_consult_llm() {
     _remove_consult_llm_mcp "$USER_CLAUDE_JSON" "Claude Code"
-    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
-        _remove_consult_llm_mcp "$USER_HOME/.pi/agent/mcp-adapter.json" "Pi"
-    fi
+    # Successful Pi preparation already removes recognizable generated entries.
+    # Anything remaining is customized; do not repeat Claude's name-only cleanup.
     rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
 }
 

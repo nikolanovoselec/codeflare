@@ -132,6 +132,7 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
       preserve(legacy, `${legacyPath}.migrated`);
     }
     if (target && !target.bytes.equals(bytes)) {
+      if (targetConfig && !managedOnly(targetConfig)) preserve(target, `${targetPath}.migrated`);
       if (!unchanged(target)) return false;
       unlinkSync(targetPath);
     }

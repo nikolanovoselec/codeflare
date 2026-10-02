@@ -399,8 +399,8 @@ Adapter 3.3.0 retains the config schema but, since 3.0.0, no longer reads Pi's
 `mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
 prepare one valid active adapter after restore. Valid legacy-only data migrates
 byte-for-byte on Pi load/reload; startup rebuilds recognizable managed entries
-from current runtime inputs while preserving custom configuration. Displaced, transformed or malformed originals survive in exclusive recovery
-copies outside active names; unchanged legacy-only data needs no extra archive.
+from current runtime inputs while preserving custom configuration. Displaced or transformed unknown/custom originals, and malformed originals,
+survive in recovery copies; unchanged legacy-only data needs no extra archive.
 Passive backups never block startup; unsafe active paths and I/O failures still
 fail closed. Successful startup preparation excludes only root
 `.pi/agent/mcp.json` from subsequent baseline/bisync, not initial restore,
@@ -1532,7 +1532,7 @@ Exhaustive Agents and Memory status remains in the active SDD; section-local lin
 Migration is governed by [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 
 - Pi load/reload migrates valid legacy-only configuration byte-for-byte; startup also regenerates recognizable owned entries.
-- Valid active adapters take precedence; displaced, transformed or malformed originals remain recoverable outside active names.
+- Valid active adapters take precedence; displaced or transformed unknown/custom originals, and malformed originals, remain recoverable outside active names.
 - Passive archive collisions do not block recovery or overwrite existing data.
 - Malformed regular files recover after archival; unsafe active paths and I/O errors fail closed.
 - Only successful preparation excludes obsolete root `mcp.json` from subsequent baseline/bisync; other files still sync.
