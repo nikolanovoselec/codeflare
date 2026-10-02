@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-01
 
+- Correct RPIV template-declaration references and actual selector/global-control enforcement anchors. Separate registration validation from saved installation-configuration retention, retain mixed MCP verification markers, and distinguish legacy waiting from repository-only completed Dispatcher collection without changing runtime behavior or fences.
+
 - Repair native OAuth authorization and warm-strict interception for pinned authentication origins; extend real registry and actual pinned SDK login/refresh coverage. Correct results-table fixtures and unnecessary exports without changing viewer behavior or quality gates. Repair declaration anchors and traceability; separate existing presentation predicates, preserve detailed authority/security clauses, and move dormant enrollment steps to the deployment owner. Full exact-head CI and complete review remain pending; no activation or live acceptance is implied.
 
 - **Repair promotion review and native-provider regression coverage.** Correct valid session/group/transport fixtures, checkbox revocation and pre-start interception expectations. Preserve status-only CI contexts and substantive GitHub reviews; separate approval readiness from merge readiness. Render bounded repository-only Dispatcher outcomes. Repair requirement anchors, canonical fields and coherent transport/diagnostic/enrollment/evidence contracts without granting new authority or claiming live activation. Exact-head verification remains pending.

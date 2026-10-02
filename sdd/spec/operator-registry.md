@@ -386,7 +386,7 @@ This release extends the existing Operator foundation with GitHub package instal
 
 **Acceptance Criteria:**
 
-1. Only Enterprise mode selects Operator Review; non-enterprise and confirmed local review remain unchanged. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-OPERATOR-053 AC1: non-enterprise boundaries keep local Review) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (retains unchanged local behavior only for confirmed absence or inactive enrollment) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-OPERATOR-053: Pi loads only the selector, not the separately auto-discovered local Review extension) -->
+1. Only Enterprise mode selects Operator Review; non-enterprise and confirmed local review remain unchanged. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::selectOperatorReviewApplicability --> <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-OPERATOR-053 AC1: non-enterprise boundaries keep local Review) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (retains unchanged local behavior only for confirmed absence or inactive enrollment) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-OPERATOR-053: Pi loads only the selector, not the separately auto-discovered local Review extension) -->
 2. Preparation binds one visible reservation to the verified human, installation, exact PR revision, trusted Action and eligible inference/resource scope. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-boundary-preparation.ts::prepareVerifiedBoundary --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation) --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-053: exact-context preparation is one durable Registry reservation) --> <!-- @test: src/__tests__/operators/conductor-production-inference.test.ts (REQ-OPERATOR-053: a provider-default inference route admits a scoped Conductor session without a reasoning grade) -->
 3. Each target selects exactly one local, remote or unavailable path; repository changes reselect before the boundary without modifying canonical local Review. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @impl: src/operators/review-boundary-preparation.ts::selectVerifiedBoundaryAction --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-OPERATOR-053: exclusive local versus dedicated remote Review extensions) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-OPERATOR-053: Pi loads only the selector) --> <!-- @test: src/__tests__/operators/review-action-applicability.test.ts (REQ-OPERATOR-053: approved target Action applicability, not release provenance) -->
 4. Status exposes metadata and durable generation only; a continuation consumes its waiting generation once and cannot reserve a later drive. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/runtime.ts::driveOperatorRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes) -->
@@ -686,11 +686,11 @@ This release extends the existing Operator foundation with GitHub package instal
 
 1. Capability ceiling edits preserve installation policies and disable existing enablement. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled) -->
 2. Saved missing grants remain distinguishable from unverified choices, with local save feedback. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (keeps saved missing grants, distinguishes unverified choices and shows local save feedback) -->
-3. Global limits use human scope labels; choosing an ID does not provision resources. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
+3. Global limits use human scope labels; choosing an ID does not provision resources. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::ManagementAccessPanel --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
 4. Source and technical identity stay outside restriction edits. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) -->
 5. Realm remains compatibility metadata, not a registration choice, filter or permission boundary. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (does not present realm as a registration choice, catalog filter, or permission boundary) -->
-6. Dispatcher has no resource profile; Conductor scope IDs select configured resources rather than provisioning profiles or an ad hoc launcher. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains why Dispatcher has no resource profile and opens its invocation without a reload or start) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (explains that allowed scope IDs match requests rather than creating profiles) -->
-7. Registration rejects blank limits; restriction edits preserve saved unused configuration. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (requires explicit usable registration limits before accepting a source) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (keeps persisted configuration when saving restrictions, without an unused JSON editor) -->
+6. Dispatcher has no resource profile; Conductor scope IDs select configured resources rather than provisioning profiles or an ad hoc launcher. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::ManagementAccessPanel --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains why Dispatcher has no resource profile and opens its invocation without a reload or start) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (explains that allowed scope IDs match requests rather than creating profiles) -->
+7. Registration rejects blank limits. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (requires explicit usable registration limits before accepting a source) -->
 
 **Constraints:** Presentation cannot grant execution or management authority.
 
@@ -722,6 +722,28 @@ This release extends the existing Operator foundation with GitHub package instal
 **Dependencies:** [REQ-OPERATOR-027](operators.md#req-operator-027-owned-activity-user-surface)
 
 **Verification:** Automated test: [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-070: Installation configuration retention
+
+**Intent:** Restriction edits retain saved installation configuration.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Saving installation restrictions preserves saved unused configuration without requiring a JSON editor. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (keeps persisted configuration when saving restrictions, without an unused JSON editor) -->
+
+**Constraints:** Restriction edits cannot enable an installation or expand caller authority.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPERATOR-068](#req-operator-068-scoped-restriction-controls)
+
+**Verification:** Automated test: [Installation restriction tests](../../web-ui/src/__tests__/operators/operator-management.test.tsx).
 
 **Status:** Implemented
 
