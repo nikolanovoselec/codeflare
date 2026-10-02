@@ -55,14 +55,14 @@ RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-u
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.98.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.98.1-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json image/impeccable-engine-legacy.json /tmp/
+COPY image/impeccable-engine.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
 export CARGO_TARGET_DIR=/tmp/impeccable-target
-for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine.json; do
-  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
   VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
   COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
   SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")

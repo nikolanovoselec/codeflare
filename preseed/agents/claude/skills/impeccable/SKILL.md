@@ -1,7 +1,7 @@
 ---
 name: impeccable
 description: Critique, audit, harden, adapt, animate, or apply bounded polish to an existing interface whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, the applicable platform design owner controls art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.
-version: 4.4.0
+version: 4.5.0
 user-invocable: true
 argument-hint: "[shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live|generate] [target]"
 license: Apache 2.0

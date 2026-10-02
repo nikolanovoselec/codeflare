@@ -2442,6 +2442,9 @@ CASE_EOF
 CASE_EOF
                     ;;
                 codex|opencode|copilot*|agy|agy\ *)
+                    if [ "$cmd" = "codex" ] && [ "${FAST_CLI_START:-true}" != "false" ]; then
+                        cmd="codex --no-daemon"
+                    fi
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)

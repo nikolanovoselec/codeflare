@@ -201,7 +201,7 @@ def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
 def main() -> None:
     root = Path(__file__).resolve().parents[2]
     pin = json.loads((root / "image/impeccable-engine.json").read_text())
-    if pin.get("version") != "0.1.10" or not re.fullmatch(r"[a-f0-9]{40}", pin.get("commit", "")):
+    if pin.get("version") != "0.1.11" or not re.fullmatch(r"[a-f0-9]{40}", pin.get("commit", "")):
         raise ValueError("Invalid Impeccable engine identity pin")
     if not re.fullmatch(r"[a-f0-9]{64}", pin.get("sha256", "")):
         raise ValueError("Invalid Impeccable engine archive pin")

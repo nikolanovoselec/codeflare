@@ -9,8 +9,8 @@ import tempfile
 import time
 
 
-def verify_engine(binary, expect_idle_bug=False, expected_version="0.1.10"):
-    assert expected_version in ("0.1.5", "0.1.10"), expected_version
+def verify_engine(binary, expect_idle_bug=False, expected_version="0.1.11"):
+    assert expected_version in ("0.1.5", "0.1.10", "0.1.11"), expected_version
     probe = subprocess.run([binary, "engine-probe"], capture_output=True, text=True, timeout=10, check=True)
     assert probe.stdout.strip() == f"impeccable-engine {expected_version}", probe.stdout
     with tempfile.TemporaryDirectory(prefix="impeccable-engine-") as directory:
@@ -81,6 +81,6 @@ if __name__ == "__main__":
     binary = str(Path(sys.argv[1]).resolve())
     upstream = "--expect-idle-bug" in sys.argv[2:]
     version = next((argument.split("=", 1)[1] for argument in sys.argv[2:]
-                    if argument.startswith("--engine-version=")), "0.1.10")
+                    if argument.startswith("--engine-version=")), "0.1.11")
     verify_engine(binary, upstream, version)
     verify_scan(binary, upstream)

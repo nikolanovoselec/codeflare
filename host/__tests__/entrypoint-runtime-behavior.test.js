@@ -76,6 +76,29 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
 };
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings', () => {
+    for (const fastStart of [undefined, 'true', 'false']) {
+      const home = mkdtempSync(join(tmpdir(), 'classic-codex-fast-start-'));
+      try {
+        const config = join(home, '.codex/config.toml');
+        mkdirSync(dirname(config), { recursive: true });
+        writeFileSync(config, 'model = "user-model"\n');
+        const args = join(home, 'codex-args');
+        const env = { HOME: home, USER_HOME: home, CODEX_TEST_ARGS: args, SESSION_ID: '',
+          TAB_CONFIG: JSON.stringify([{ id: '1', command: 'codex', label: 'Codex' }]),
+          FAST_CLI_START: fastStart };
+        const generated = runFunction('configure_tab_autostart',
+          'mkdir -p "$CODEFLARE_RUNTIME_ROOT/services"', 'configure_tab_autostart', env);
+        assert.equal(generated.status, 0, generated.stderr);
+        const launched = spawnSync('script', ['-qec',
+          `bash --noprofile --norc -c 'codex() { printf "%s\\n" "$@" > "$CODEX_TEST_ARGS"; }; source "$HOME/.bashrc"'`, '/dev/null'],
+          { encoding: 'utf8', env: runtimeEnv({ ...env, TERMINAL_APP_STARTED: '', MANUAL_TAB: '', TERMINAL_ID: '1' }) });
+        assert.equal(launched.status, 0, launched.stderr);
+        assert.deepEqual(readFileSync(args, 'utf8').trim().split('\n').filter(Boolean), fastStart === 'false' ? [] : ['--no-daemon']);
+        assert.equal(readFileSync(config, 'utf8'), 'model = "user-model"\n');
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    }
+  });
   it('REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences', () => {
     const home = mkdtempSync(join(tmpdir(), 'pi-subagent-settings-'));
     try {

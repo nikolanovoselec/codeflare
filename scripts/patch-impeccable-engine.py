@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preserve question idle grace and raster boundaries in the two reviewed engines."""
+"""Preserve question idle grace and raster boundaries in the reviewed engines."""
 from pathlib import Path
 import sys
 import tomllib
@@ -8,8 +8,8 @@ import tomllib
 def patch_engine(root):
     root = Path(root)
     manifest = tomllib.loads((root / "Cargo.toml").read_text())
-    if manifest["workspace"]["package"]["version"] not in ("0.1.5", "0.1.10"):
-        raise ValueError("Unsupported Impeccable engine; expected 0.1.5 or 0.1.10")
+    if manifest["workspace"]["package"]["version"] not in ("0.1.5", "0.1.10", "0.1.11"):
+        raise ValueError("Unsupported Impeccable engine; expected 0.1.5, 0.1.10 or 0.1.11")
     patches = [
         ("serve_question.rs",
          "if !mid_delivery && lb != 0.0 && now_ms() - lb > 15000.0 {",

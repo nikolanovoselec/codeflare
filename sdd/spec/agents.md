@@ -1102,13 +1102,13 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
-2. When enabled, Codeflare applies the supported environment-based update suppressors before agent startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
+2. When enabled, Codeflare applies supported environment and interactive-launch update suppressors before agent startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration) -->
 3. Codeflare removes only its own settings-file suppressor and preserves an operator-owned Codex version preference. <!-- @impl: entrypoint.sh::configure_fast_start_tool_settings --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: disabled Fast Start removes only Codeflare-managed settings suppressors) -->
 4. Users can toggle the preference from the session defaults area of the application settings. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) --> <!-- @manual -->
 
 **Constraints:**
 
-- Codex `~/.codex/` directory is excluded from sync, so `version.json` is safe to recreate on every start.
+- Codex credentials, configuration and user skills remain eligible for sync; only explicitly listed ephemeral entries are excluded. The managed version suppressor does not authorize replacing user configuration.
 
 **Priority:** P1
 
@@ -3551,7 +3551,7 @@ None.
 
 - The native Impeccable launcher uses only the reviewed image engine and refuses runtime installation or self-update. <!-- @impl: scripts/impeccable-launcher.mjs::managedImpeccableLauncher --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: native launcher uses only the image engine and refuses runtime updates) -->
 - Boot and successful sync restore executable permissions only for the known Claude and Pi Impeccable launchers. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync) -->
-- Native bundle updates accept only reviewed skill/engine pairs and reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: current native bundle refresh dispatches through its reviewed image engine without a retired JavaScript server) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
+- Native bundle updates accept only reviewed skill/engine pairs and reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: current native bundle refresh dispatches through its reviewed image engine without a retired JavaScript server) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: 4.5.0 rejects an older engine before source mutation) -->
 - Explicit specialist invocations retain their documented behavior.
 - Missing optional specialists do not block the selected owner.
 
