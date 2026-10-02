@@ -13,7 +13,7 @@ export interface BoundaryActionIdentity {
 /** Fetch only GitHub's fixed signing origin; neither token headers nor request data can select a key URL. */
 async function fetchBoundaryActionKeys(): Promise<unknown> {
   const response = await fetch(KEYS_URL, { signal: AbortSignal.timeout(5_000),
-    headers: { accept: 'application/json' }, redirect: 'error' });
+    headers: { accept: 'application/json' }, redirect: 'manual' });
   if (!response.ok) throw Error('Action signing keys unavailable');
   return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
     await readBoundedResponse(response, 64 * 1024, 'GitHub Action signing keys'))) as unknown;
@@ -45,18 +45,13 @@ export async function verifyBoundaryActionOidc(token: string, expected: {
     || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(expected.protectedRef)
     || !SHA.test(expected.workflowSha)
     || (expected.jobWorkflowRef !== undefined && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@[a-f0-9]{40}$/i.test(expected.jobWorkflowRef))) return null;
-  let diagnosticStage = 'oidc-header-decode';
   try {
     const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
     const header = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(decode(encodedHeader))) as unknown;
-    console.log('DIAG oidc-header-decode passed');
-    diagnosticStage = 'oidc-payload-decode';
     const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(decode(encodedPayload))) as unknown;
     if (!object(header) || header.alg !== 'RS256' || header.typ !== 'JWT'
       || typeof header.kid !== 'string' || header.kid.length < 1 || header.kid.length > 256
       || 'crit' in header || 'jku' in header || 'x5u' in header || !object(payload)) return null;
-    console.log('DIAG oidc-header-shape passed');
-    diagnosticStage = 'oidc-expected-claims';
     const now = Math.floor(Date.now() / 1000);
     const workflowRef = `${expected.repository}/${expected.workflowPath}@${expected.protectedRef}`;
     if (payload.iss !== ISSUER || payload.aud !== expected.audience
@@ -70,8 +65,6 @@ export async function verifyBoundaryActionOidc(token: string, expected: {
       || payload.workflow_ref !== workflowRef || payload.workflow_sha !== expected.workflowSha
       || (expected.jobWorkflowRef !== undefined && payload.job_workflow_ref !== expected.jobWorkflowRef)
       || !numeric(payload.run_id, expected.runId) || !numeric(payload.run_attempt, expected.runAttempt)) return null;
-    console.log('DIAG oidc-expected-claims passed');
-    diagnosticStage = 'oidc-jwks-fetch-and-decode';
     const jwks = await fetchKeys();
     if (!object(jwks) || !Array.isArray(jwks.keys) || jwks.keys.length > 64) return null;
     const matching = jwks.keys.filter((candidate: unknown) => object(candidate) && candidate.kid === header.kid);
@@ -79,16 +72,12 @@ export async function verifyBoundaryActionOidc(token: string, expected: {
     const key = matching[0] as Record<string, unknown>;
     if (key.kty !== 'RSA' || key.use !== 'sig' || key.alg !== 'RS256'
       || typeof key.n !== 'string' || typeof key.e !== 'string') return null;
-    console.log('DIAG oidc-jwks-selection passed');
-    diagnosticStage = 'oidc-key-import';
     const imported = await crypto.subtle.importKey('jwk', { kty: 'RSA', n: key.n, e: key.e,
       alg: 'RS256', use: 'sig', ext: true }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-    console.log('DIAG oidc-key-import passed');
-    diagnosticStage = 'oidc-signature';
     const signed = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`);
     if (!await crypto.subtle.verify('RSASSA-PKCS1-v1_5', imported, decode(encodedSignature), signed)) return null;
     return { repositoryId: expected.repositoryId, repository: expected.repository,
       workflowRef, workflowSha: expected.workflowSha, runId: expected.runId,
       runAttempt: expected.runAttempt, eventName: 'pull_request_target' };
-  } catch (error) { console.log('DIAG', diagnosticStage, error instanceof Error ? error.name : 'NonError'); return null; }
+  } catch { return null; }
 }

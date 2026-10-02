@@ -239,6 +239,17 @@ export default {
         const second = await create().fetch(new Request('https://child.test/count'));
         return Response.json([await first.json(), await second.json()]);
       }
+      if (url.pathname === '/conductor-publication-producer' && request.method === 'POST') {
+        const input = await request.json<{ bundleJson: string; bundleDigest: string; producerSource: string;
+          mode: string; previous: unknown; round: number }>();
+        const compiled = await parseOperatorBundle(new TextEncoder().encode(input.bundleJson), input.bundleDigest);
+        const producer = (env.LOADER as unknown as WorkerLoader).load({ compatibilityDate: compiled.compatibilityDate,
+          compatibilityFlags: compiled.compatibilityFlags, mainModule: 'producer-fixture.js',
+          modules: { ...compiled.modules, 'producer-fixture.js': { js: input.producerSource } },
+          env: {}, globalOutbound: null }).getEntrypoint();
+        return producer.fetch(new Request('https://producer.internal/', { method: 'POST',
+          body: JSON.stringify({ mode: input.mode, previous: input.previous, round: input.round }) }));
+      }
       if (url.pathname === '/conductor-bundle') {
         const loaded = await loadConductorBundle(env, entrypoints.ConductorFixtureCapability({ props }));
         const invocation = { input: { roundGeneration: 1,

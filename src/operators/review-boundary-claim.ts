@@ -103,17 +103,12 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
   const [repoOwner, repoName] = identity.repository.split('/');
   const root = `/repos/${repoOwner}/${repoName}`;
   async function github(path: string): Promise<unknown> {
-    let diagnosticStage = 'github-transport';
-    try {
-      const response = await fetch(`https://api.github.com${path}`, { redirect: 'error',
-        headers: { authorization: `Bearer ${githubToken}`, accept: 'application/vnd.github+json',
-          'x-github-api-version': '2022-11-28' }, signal: AbortSignal.timeout(5_000) });
-      diagnosticStage = 'github-response-status';
-      if (!response.ok) throw Error('GitHub context unavailable');
-      diagnosticStage = 'github-response-decode';
-      return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
-        await readBoundedResponse(response, 128 * 1024, 'Action claim GitHub context'))) as unknown;
-    } catch (error) { console.log('DIAG', diagnosticStage, error instanceof Error ? error.name : 'NonError'); throw error; }
+    const response = await fetch(`https://api.github.com${path}`, { redirect: 'manual',
+      headers: { authorization: `Bearer ${githubToken}`, accept: 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28' }, signal: AbortSignal.timeout(5_000) });
+    if (!response.ok) throw Error('GitHub context unavailable');
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      await readBoundedResponse(response, 128 * 1024, 'Action claim GitHub context'))) as unknown;
   }
   const repo = await github(root) as { id: number; full_name: string };
   const branchPath = `${root}/branches/${encodeURIComponent(action.protectedRef.slice('refs/heads/'.length))}`;
@@ -135,7 +130,6 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
     Array<{ number: number }>, { merge_base_commit: { sha: string } }];
   const applicable = (await resolveBoundaryAction({ action, repository: repo, baseRef: prepared.protectedRef,
     workflow, branch, contents, event: 'pull_request_target' })).selection === 'remote';
-  console.log(applicable ? 'DIAG github-workflow-proof passed' : 'DIAG github-workflow-proof denied');
   return verifyBoundaryActionRun({ prepared, oidc: identity, action: {
     repositoryId: action.repositoryId, workflowId: action.workflowId,
     workflowPath: action.workflowPath, protectedRef: action.protectedRef,
@@ -149,18 +143,15 @@ async function verifyCurrentBoundaryAction(prepared: BoundaryPreparation, action
 /** A claimed run does not renew the human or installation authority for later effects. */
 async function currentBoundaryActor(env: Env, prepared: BoundaryPreparation): Promise<boolean> {
   if (!env.CONTAINER || !env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return false;
-  let diagnosticStage = 'actor-execution-context';
   try {
     const activity = env.OPERATOR_ACTIVITY.getByName(prepared.activityId);
     const owner = await activity.getExecutionContext();
-    if (!owner || owner.activityId !== prepared.activityId || owner.operatorId !== prepared.operatorId) { console.log('DIAG actor-execution-context denied'); return false; }
-    diagnosticStage = 'actor-sealed-human';
+    if (!owner || owner.activityId !== prepared.activityId || owner.operatorId !== prepared.operatorId) return false;
     const container = env.CONTAINER.getByName(getContainerId(prepared.session.bucket,
       prepared.session.sessionId)) as unknown as { openReviewHuman(input: { bucket: string; sessionId: string;
         email: string }): Promise<{ human: import('../lib/jwt').VerifiedHumanAccessClaims; accessJwt: string }> };
     const sealed = await container.openReviewHuman({ bucket: prepared.session.bucket,
       sessionId: prepared.session.sessionId, email: owner.owner.email });
-    diagnosticStage = 'actor-current-human';
     const current = await requireOperatorHumanContext(new Request('https://codeflare.invalid/', {
       headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
     }), env, sealed.human.email);
@@ -168,20 +159,16 @@ async function currentBoundaryActor(env: Env, prepared: BoundaryPreparation): Pr
       || current.human.email.toLowerCase() !== sealed.human.email.toLowerCase()
       || JSON.stringify(current.human.audiences) !== JSON.stringify(sealed.human.audiences)
       || current.human.expiresAt * 1000 <= Date.now()
-      || await operatorOwnerKey(current.human) !== prepared.ownerKey) { console.log('DIAG actor-human-binding denied'); return false; }
-    diagnosticStage = 'actor-management-selection';
+      || await operatorOwnerKey(current.human) !== prepared.ownerKey) return false;
     const selection = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(prepared.installationId);
-    if (!selection.ok) { console.log('DIAG actor-management-selection denied'); return false; }
-    if (selection.value.operator.operatorId !== prepared.operatorId) { console.log('DIAG actor-operator-binding denied'); return false; }
-    if (selection.value.installation.revision !== prepared.installationRevision) { console.log('DIAG actor-installation-revision denied'); return false; }
-    if (selection.value.operator.revision !== prepared.operatorRevision) { console.log('DIAG actor-operator-revision denied'); return false; }
-    if (selection.value.controlsRevision !== prepared.controlsRevision) { console.log('DIAG actor-controls-revision denied'); return false; }
-    if (selection.value.release.id !== prepared.releaseId) { console.log('DIAG actor-release-binding denied'); return false; }
-    if (selection.value.release.bundleDigest !== prepared.bundleDigest) { console.log('DIAG actor-bundle-binding denied'); return false; }
-    if (!canInvokeOperator(current.human, selection.value.operator)) { console.log('DIAG actor-invoker-grant denied'); return false; }
-    console.log('DIAG actor-current-human-and-management passed');
-    return true;
-  } catch (error) { console.log('DIAG', diagnosticStage, error instanceof Error ? error.name : 'NonError'); return false; }
+    return selection.ok && selection.value.operator.operatorId === prepared.operatorId
+      && selection.value.installation.revision === prepared.installationRevision
+      && selection.value.operator.revision === prepared.operatorRevision
+      && selection.value.controlsRevision === prepared.controlsRevision
+      && selection.value.release.id === prepared.releaseId
+      && selection.value.release.bundleDigest === prepared.bundleDigest
+      && canInvokeOperator(current.human, selection.value.operator);
+  } catch { return false; }
 }
 
 /** Non-consuming origin discovery: GitHub authenticates the job; the sealed human and current PR remain authoritative. */
@@ -196,7 +183,6 @@ export async function discoverVerifiedBoundaryAction(env: Env, oidcToken: string
     || ![input.head, input.base, input.mergeBase].every(value => SHA.test(value))) return { status: 'unavailable' };
   const hints = tokenHints(oidcToken);
   if (!hints) return { status: 'unavailable' };
-  let diagnosticStage = 'discovery-preparation';
   try {
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
     const prepared = await registry.getBoundaryPreparation(input.repositoryId, input.pullRequest);
@@ -229,36 +215,25 @@ export async function discoverVerifiedBoundaryAction(env: Env, oidcToken: string
     if (!domain || !/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i.test(domain)) {
       return { status: 'unavailable' };
     }
-    diagnosticStage = 'discovery-oidc';
     const signed = await verifyBoundaryActionOidc(oidcToken, { audience: `https://${domain}${DISCOVERY_PATH}`,
       repositoryId: input.repositoryId, repository: hints.repository,
       workflowPath: action.workflowPath, protectedRef: action.protectedRef,
       workflowSha: hints.workflowSha, runId: input.runId, runAttempt: input.runAttempt,
       ...pinnedRuntime(action) });
-    if (!signed) { console.log('DIAG discovery-oidc denied'); return { status: 'unavailable' }; }
-    console.log('DIAG discovery-oidc passed');
-    diagnosticStage = 'discovery-current-actor';
-    if (!await currentBoundaryActor(env, prepared)
+    if (!signed || !await currentBoundaryActor(env, prepared)
       || env.GITHUB_HOST && env.GITHUB_HOST !== 'github.com'
-      || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') { console.log('DIAG discovery-current-actor-or-host denied'); return { status: 'unavailable' }; }
-    console.log('DIAG discovery-current-actor passed');
-    diagnosticStage = 'discovery-github-token';
+      || env.GITHUB_API_HOST && env.GITHUB_API_HOST !== 'api.github.com') return { status: 'unavailable' };
     const token = await getValidGithubToken(env, prepared.session.bucket);
-    if (!token) { console.log('DIAG discovery-github-token denied'); return { status: 'unavailable' }; }
-    console.log('DIAG discovery-github-token passed');
-    diagnosticStage = 'discovery-current-github-proof';
+    if (!token) return { status: 'unavailable' };
     const verified = await verifyCurrentBoundaryAction(prepared, action, signed, input, token);
-    if (!verified || !sameClaim(verified, input, action.workflowId)) { console.log('DIAG discovery-current-github-proof denied'); return { status: 'unavailable' }; }
-    console.log('DIAG discovery-current-github-proof passed');
-    diagnosticStage = 'discovery-d1-generation';
+    if (!verified || !sameClaim(verified, input, action.workflowId)) return { status: 'unavailable' };
     const session = await new D1SessionRepository(env.USAGE_DB).getSession(prepared.session.bucket,
       prepared.session.sessionId);
-    if (session?.lifecycleState !== 'running') { console.log('DIAG discovery-d1-state denied'); return { status: 'unavailable' }; }
-    if (session.lifecycleGeneration !== prepared.session.generation) { console.log('DIAG discovery-d1-generation denied'); return { status: 'unavailable' }; }
-    console.log('DIAG discovery-d1-generation passed');
-    return await currentBoundaryActor(env, prepared)
+    return session?.lifecycleState === 'running'
+      && session.lifecycleGeneration === prepared.session.generation
+      && await currentBoundaryActor(env, prepared)
       ? { status: 'match', contextDigest: prepared.contextDigest } : { status: 'unavailable' };
-  } catch (error) { console.log('DIAG', diagnosticStage, error instanceof Error ? error.name : 'NonError'); return { status: 'unavailable' }; }
+  } catch { return { status: 'unavailable' }; }
 }
 
 /** Parent-only claim: GitHub authenticates the job; sealed Access authenticates the human. */
@@ -372,7 +347,7 @@ export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: s
     if (!token) return false;
     const root = `/repos/${repository}`;
     const branch = await fetch(`https://api.github.com${root}/branches/${encodeURIComponent(
-      action.protectedRef.slice('refs/heads/'.length))}`, { redirect: 'error', signal: AbortSignal.timeout(5_000),
+      action.protectedRef.slice('refs/heads/'.length))}`, { redirect: 'manual', signal: AbortSignal.timeout(5_000),
       headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json',
         'x-github-api-version': '2022-11-28' } });
     if (!branch.ok) return false;

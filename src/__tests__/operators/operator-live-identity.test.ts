@@ -68,7 +68,7 @@ function identityResponse(fault: Fault): Response {
 beforeAll(async () => {
   keys = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
     publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']) as CryptoKeyPair;
-  jwk = { ...await crypto.subtle.exportKey('jwk', keys.publicKey), kid: 'live-identity-key', alg: 'RS256', use: 'sig' };
+  jwk = { ...(await crypto.subtle.exportKey('jwk', keys.publicKey) as JsonWebKey), kid: 'live-identity-key', alg: 'RS256', use: 'sig' };
   for (const sql of `${migration};${boundaryMigration}`.split(';').map(part => part.trim()).filter(Boolean)) await db.prepare(sql).run();
 });
 beforeEach(async () => {
@@ -86,6 +86,7 @@ async function fixture(test: (f: {
   setFault: (fault: Fault) => void; setToken: (token: string) => void; token: string;
   request: (path: string, body?: unknown) => Promise<Response>; registry: OperatorRegistry;
   claim: () => Promise<unknown>; discover: () => Promise<unknown>; activityId: string; startCapability: string;
+  redirectTransport: (target: 'jwks' | 'github' | null) => void;
 }) => Promise<void>) {
   const kv = createMockKV();
   await kv.put(SETUP_KEYS.AUTH_DOMAIN, domain); await kv.put(SETUP_KEYS.ACCESS_AUD, audience);
@@ -97,10 +98,15 @@ async function fixture(test: (f: {
     iat: now - 10, exp: now + 300, groups: ['stale-signed-group'] });
   const initialToken = accessJwt;
   let fault: Fault = 'valid';
+  let redirected: 'jwks' | 'github' | null = null;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const req = new Request(input, init), url = new URL(req.url), path = url.pathname;
-    if (req.url === `${issuer}/cdn-cgi/access/certs` || req.url === 'https://token.actions.githubusercontent.com/.well-known/jwks') {
-      return Response.json({ keys: [jwk] });
+    if (req.url === `${issuer}/cdn-cgi/access/certs`) return Response.json({ keys: [jwk] });
+    if (req.url === 'https://token.actions.githubusercontent.com/.well-known/jwks') {
+      // Native transport contract: never follow a signing-key redirect.
+      expect(req.redirect).toBe('manual');
+      return redirected === 'jwks' ? Response.redirect('https://untrusted.example/jwks', 302)
+        : Response.json({ keys: [jwk] });
     }
     if (req.url === `${issuer}/cdn-cgi/access/get-identity`) {
       if (req.headers.get('cookie') !== `CF_Authorization=${accessJwt}` || req.redirect !== 'manual') return new Response(null, { status: 401 });
@@ -108,6 +114,9 @@ async function fixture(test: (f: {
     }
     if (url.origin !== 'https://api.github.com' || req.headers.get('authorization') !== 'Bearer parent-github-token'
       || req.headers.has('cookie') || req.headers.has('cf-access-jwt-assertion')) throw Error('Unexpected credential destination');
+    // Native transport contract: parent GitHub credentials never follow redirects.
+    expect(req.redirect).toBe('manual');
+    if (redirected === 'github') return Response.redirect('https://untrusted.example/github', 302);
     if (path === '/repos/owner/repo') return Response.json({ id: 138, full_name: 'owner/repo' });
     if (path.endsWith('/pulls/34')) return Response.json({ number: 34, state: 'open',
       head: { sha: head, ref: 'feature', repo: { id: 138 } }, base: { sha: base, ref: 'main', repo: { id: 138 } } });
@@ -185,6 +194,7 @@ async function fixture(test: (f: {
       workflow_sha: workflowSha, run_id: '87', run_attempt: '1' });
     await test({ setFault: value => { fault = value; }, setToken: value => { accessJwt = value; }, token: initialToken, registry,
       activityId, startCapability: prepared.startCapability,
+      redirectTransport: target => { redirected = target; },
       claim: async () => claimVerifiedBoundaryAction(actionEnv, await actionToken('boundary'), request),
       discover: async () => discoverVerifiedBoundaryAction(actionEnv, await actionToken('discovery'), request),
       request: async (path, body) => {
@@ -226,6 +236,16 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
     expect(await f.registry.getBoundaryPreparation(138, 34)).toMatchObject({ phase: 'prepared', activityId: f.activityId });
     expect(await new D1SessionRepository(db).getSession(session.bucket, session.sessionId)).toMatchObject({ boundaryActivityId: undefined });
     f.setFault('valid');
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId, startCapability: f.startCapability });
+  }));
+  it.each(['jwks', 'github'] as const)('rejects redirected %s transport without consuming the protected handoff', async target => fixture(async f => {
+    expect(await f.discover()).toEqual({ status: 'match', contextDigest: 'f'.repeat(64) });
+    f.redirectTransport(target);
+    expect(await f.discover()).toEqual({ status: 'unavailable' });
+    expect(await f.claim()).not.toHaveProperty('startCapability');
+    expect(await f.registry.getBoundaryPreparation(138, 34)).toMatchObject({ phase: 'prepared', activityId: f.activityId });
+    expect(await new D1SessionRepository(db).getSession(session.bucket, session.sessionId)).toMatchObject({ boundaryActivityId: undefined });
+    f.redirectTransport(null);
     expect(await f.claim()).toMatchObject({ activityId: f.activityId, startCapability: f.startCapability });
   }));
   it('allows verified absent groups for email management and admin mutation and for protected discovery/claim', async () => fixture(async f => {

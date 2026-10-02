@@ -5,8 +5,9 @@ import Header from '../../components/Header';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SleepAfterOption } from '../../types';
 import { readFileSync } from 'node:fs';
-const headerStyles = readFileSync(new URL('../../styles/header.css', import.meta.url), 'utf8');
-const designTokens = readFileSync(new URL('../../styles/design-tokens.css', import.meta.url), 'utf8');
+import { resolve } from 'node:path';
+const headerStyles = readFileSync(resolve('src/styles/header.css'), 'utf8');
+const designTokens = readFileSync(resolve('src/styles/design-tokens.css'), 'utf8');
 
 // Mock isMobile - default to desktop (false)
 const isMobileMock = vi.hoisted(() => ({ value: false }));

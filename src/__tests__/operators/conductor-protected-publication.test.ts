@@ -1,11 +1,10 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
 /** Q22: unchanged c40527ee package producer -> real protected Action collection/publication.
  * Parent capability, webhook, ledger and GitHub/artifact I/O are external fixtures;
  * no producer policy, history reconciliation, presentation or publisher validation is mocked. */
 import { createHash } from 'node:crypto';
-import { Buffer } from 'node:buffer';
-import { env } from 'cloudflare:test';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fileURLToPath, URL } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { unstable_dev, type Unstable_DevWorker } from 'wrangler';
 import { parseOperatorBundle } from '../../operators/distribution';
 import { collectBoundaryResult, publishBoundaryResult } from '../../../scripts/operator-boundary-action.mjs';
 import provenance from './fixtures/conductor-review.provenance.json';
@@ -14,8 +13,15 @@ import bundleJson from './fixtures/conductor-review.generated.json?raw';
 // @ts-expect-error Workers test loader supports raw wrapper modules.
 import producerFixture from './fixtures/conductor-publication-producer.js?raw';
 
-beforeEach(() => vi.stubGlobal('Buffer', Buffer));
-afterEach(() => vi.unstubAllGlobals());
+let worker: Unstable_DevWorker | undefined;
+beforeAll(async () => {
+  worker = await unstable_dev(fileURLToPath(new URL('./fixtures/loader-worker.ts', import.meta.url)), {
+    config: fileURLToPath(new URL('./fixtures/wrangler.toml', import.meta.url)),
+    local: true, ip: '127.0.0.1', port: 0, inspectorPort: 0, persist: false, logLevel: 'none',
+    experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
+  });
+});
+afterAll(async () => { await worker?.stop(); });
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const finding = { id: 'code-reviewer-guard', severity: 'HIGH', path: 'src/guard.ts', line: 12,
@@ -26,13 +32,10 @@ async function produce(mode: Mode, previous?: Published, round = 2) {
   // Generated-artifact identity contract: digest validation precedes executing any bytes.
   // This is the existing canonical compiler artifact, not a reconstruction or a package checkout import.
   expect(provenance.sourceCommit).toBe('c40527ee21664012d326d73efcfd26889302deff');
-  const bundle = await parseOperatorBundle(new TextEncoder().encode(bundleJson), provenance.bundleDigest);
-  const loader = (env as unknown as { LOADER: { load(code: unknown): { getEntrypoint(): Fetcher } } }).LOADER;
-  const producer = loader.load({ compatibilityDate: bundle.compatibilityDate, compatibilityFlags: bundle.compatibilityFlags,
-    mainModule: 'producer-fixture.js', modules: { ...bundle.modules, 'producer-fixture.js': { js: producerFixture } },
-    env: {}, globalOutbound: null }).getEntrypoint();
-  const response = await producer.fetch(new Request('https://producer.internal/', { method: 'POST',
-    body: JSON.stringify({ mode, previous, round }) }));
+  await parseOperatorBundle(new TextEncoder().encode(bundleJson), provenance.bundleDigest);
+  const response = await worker!.fetch('/conductor-publication-producer', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bundleJson,
+      bundleDigest: provenance.bundleDigest, producerSource: producerFixture, mode, previous, round }) });
   expect(response.status).toBe(200);
   return response.json() as Promise<any>;
 }

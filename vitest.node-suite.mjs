@@ -41,6 +41,8 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/operator-review-remote.test.ts',
   'src/__tests__/operators/review-published-result.test.ts',
   'src/__tests__/operators/review-connected-lifecycle.test.ts',
+  // Node Action transport plus the existing native Wrangler producer fixture.
+  'src/__tests__/operators/conductor-protected-publication.test.ts',
   'src/__tests__/lib/review-completion-state.test.ts',
   'src/__tests__/lib/review-helpers.test.ts',
   // Executes browser-script bytes after an esbuild keepNames bundle; workerd
