@@ -213,3 +213,38 @@ it('REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies
     }
   }
 });
+
+it.each([
+  'https://auth.kimi.com/api/oauth/device_authorization', 'https://auth.kimi.com/api/oauth/token',
+  'https://auth.meta.com/oidc/device/authorization/', 'https://auth.meta.com/oidc/device/token/',
+  'https://auth.x.ai/oauth2/device/code', 'https://auth.x.ai/oauth2/token',
+])('REQ-ENTERPRISE-088 AC6: native OAuth traffic is bound and warm-strict gated: %s', async url => {
+  for (const mode of ['permitted', 'revoked', 'expired', 'warm-strict-missing', 'warm-strict-inspected']) {
+    const f = fixture();
+    const handlers = new Map<string, Fetcher>();
+    await wireContainerInterception({ env: f.env, logger: { info() {}, warn() {}, error() {} },
+      ctx: { exports: { LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
+        container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
+      _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user, _userGroups: [], _strictEgress: false,
+    } as unknown as InterceptionHost);
+    if (mode === 'revoked') f.policy(false);
+    if (mode === 'expired') f.human.expiresAt = 1;
+    if (mode.startsWith('warm-strict')) (f.env.KV as unknown as ReturnType<typeof createMockKV>)._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
+    if (mode === 'warm-strict-inspected') f.env.EGRESS = { fetch: async (request: Request) => {
+      f.egressRequests.push(request); return new Response('inspected-oauth');
+    } } as unknown as Fetcher;
+    const handler = handlers.get(new URL(url).hostname);
+    if (!handler) throw Error('Native OAuth interception is unavailable');
+    const body = 'grant_type=refresh_token&refresh_token=synthetic-owner-refresh';
+    const response = await handler.fetch(new Request(url, { method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: 'Bearer synthetic-owner-token' }, body }));
+    expect(response.status).toBe(mode === 'permitted' || mode === 'warm-strict-inspected' ? 200 : mode === 'warm-strict-missing' ? 503 : 403);
+    expect(f.requests.map(request => request.url)).toEqual(mode === 'permitted' ? [url] : []);
+    expect(f.egressRequests.map(request => request.url)).toEqual(mode === 'warm-strict-inspected' ? [url] : []);
+    const forwarded = [...f.requests, ...f.egressRequests][0];
+    if (forwarded) {
+      expect(await forwarded.text()).toBe(body);
+      expect(forwarded.headers.get('authorization')).toBe('Bearer synthetic-owner-token');
+    }
+  }
+});

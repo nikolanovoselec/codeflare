@@ -8,7 +8,7 @@ import { isEnterpriseMode } from './subscription';
 import { isPersonalPiCloudFamily, isPersonalPiDestination } from './personal-pi-destinations';
 import { jsonError, STRIPPED_REQUEST_HOP_BY_HOP } from './controller-egress';
 
-export interface PersonalPiReference { bucket: string; sessionId: string; user: string }
+interface PersonalPiReference { bucket: string; sessionId: string; user: string }
 export interface PersonalPiProps {
   personalPi?: PersonalPiReference;
   strict?: boolean;

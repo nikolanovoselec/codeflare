@@ -540,7 +540,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
 
 
 describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () => {
-  it.each([[], [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', comment: 'Migration evidence is incomplete', outcome: 'NOT_MERGED' }]])('shows repository discovery and bounded decisions without raw payloads', async results => {
+  it.each([{ results: [] }, { results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', comment: 'Migration evidence is incomplete', outcome: 'NOT_MERGED' }] }])('shows repository discovery and bounded decisions without raw payloads', async ({ results }) => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
       result: { repository: 'authorized/project', results, privateData: 'do-not-render' } });

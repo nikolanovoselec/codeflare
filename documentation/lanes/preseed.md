@@ -386,7 +386,7 @@ tree slimmed and excludes upstream MCP configuration as specified by
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
 container start, `configure_consult_llm` keeps the skill and MCP server only when
-at least one provider is usable (Codex login or `CODEFLARE_OPENAI_API_KEY` /
+at least one provider is usable (Codex login or `CODEFLARE_OPENAI_API_KEY`/
 `CODEFLARE_GEMINI_API_KEY`); when no provider is usable, and in Enterprise Mode,
 it removes the Claude/Pi skill directories so no agent sees a skill for a missing
 MCP server. Its skill hard-gates use to explicit current user requests naming
@@ -410,7 +410,7 @@ reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. The Pi entrypoint-owned
 `consult-llm` server entry is replaced on each start with `lifecycle: "lazy"`,
-removing the old always-on `keep-alive` / `directTools` fields while preserving
+removing the old always-on `keep-alive`/ `directTools` fields while preserving
 unrelated user MCP servers in the same file ([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
@@ -950,8 +950,8 @@ repo move. Pi receives a dedicated native graphify skill that uses local AST
 extraction plus Pi `Agent` subagents instead of the Claude/MCP-specific transformed
 skill.
 
-The Pi runtime also registers first-party native `graphify_query` /
-`graphify_path` / `graphify_explain` tools through `graphify-native.ts`. Each query
+The Pi runtime also registers first-party native `graphify_query`/
+`graphify_path`/ `graphify_explain` tools through `graphify-native.ts`. Each query
 shells the upstream Graphify CLI and resolves the cwd repo graph first, then the
 active-repo sentinel graph, then the merged global graph. The active repo identity
 injected into Pi context includes repository basename, checked-out branch, and HEAD
@@ -973,8 +973,8 @@ and emits native Pi agent overrides under `~/.pi/agent/agents/`.
 
 Pi adapts Claude agent definitions into `.pi/agent/agents/*.md` for
 `@gotgenes/pi-subagents`. Pi's generated agent frontmatter and body text use
-Pi-native tool names: Graphify MCP references become `graphify_query` /
-`graphify_path` / `graphify_explain`, and context-mode MCP references become
+Pi-native tool names: Graphify MCP references become `graphify_query`/
+`graphify_path`/ `graphify_explain`, and context-mode MCP references become
 `ctx_*` tool names so subagents never try unavailable Claude MCP tools.
 
 Pi PR-boundary reviewers use the public `subagent` tool and the adapted
@@ -1196,7 +1196,7 @@ In advanced session mode, `graph-first-nudge.sh` gives a non-blocking reminder b
 
 ### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
-In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing.
+In advanced session mode, clone triage detects real `git clone`/ `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing.
 
 If no repo graph exists, the agent asks the user which graph action to take before doing graph work: Full repo AST-only, Full repo semantic, or no graph action.
 
@@ -1386,7 +1386,7 @@ Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` excludes specific framework-
 
 Phase 7b is advisory for greenfield. `enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet, but the commit body line is still required so the audit-trail format stays uniform. Implements [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) AC2.
 
-**Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute` / `ctx_batch_execute` in context-mode environments and through Bash in plain environments.
+**Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute`/ `ctx_batch_execute` in context-mode environments and through Bash in plain environments.
 
 While `sdd/.init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. The transition gate condition is the conjunction `transition: true` in config AND `**Status:** open` items in the triage file (case-insensitive on `open`); all enforcement layers test both. During transition the entire review pipeline is suspended:
 
@@ -1498,6 +1498,29 @@ Exhaustive Agents and Memory status remains in the active SDD; section-local lin
 | SDD bootstrap and cleanup | REQ-AGENT-037/039 and related SDD controls | SDD skills/templates/scripts | behavioral contract tests; Phase C owns reusable collection schema |
 
 ---
+
+
+
+### REQ-AGENT-210 preserved clauses
+
+- The image-installed Pi preseed RPIV extensions declare host TypeBox as a wildcard peer, preserving other package metadata.
+- Actual image startup must load advisor, questionnaire and todo tools without host-dependency warnings or extension errors.
+- Startup updates and npm repair reapply the peer correction to the Pi profile extension tree before PTY release.
+- RPIV shadow-pin candidates update matching lock-backed manifests and must pass the patch and actual loading of the preseed extensions through both installed Pi SDKs before any branch push.
+- Incompatible candidates fail the job without publication.
+
+### REQ-AGENT-052 preserved clauses
+
+- The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `biome`, direct Node syntax checks, `prettier`, and `wrangler dev`.
+- Staging a file named after a test runner is not execution.
+- A chained or nested actual runner still blocks.
+
+### REQ-AGENT-069 preserved clauses
+
+- Pi reads `consult-llm` from `~/.pi/agent/mcp-adapter.json` through the pi-mcp-adapter `mcp` proxy.
+- Startup and the signed managed migration extension move a valid legacy `mcp.json` byte-for-byte only when the adapter destination is absent.
+- Existing destinations win and retain the legacy file.
+- Malformed or nonregular paths fail closed without deleting user data.
 
 ## Related Documentation
 

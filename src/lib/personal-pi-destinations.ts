@@ -1,7 +1,7 @@
 import type { Env } from '../types';
 
 /** Native provider destinations from the lock-integrity-verified Pi 0.99.1 catalog and auth transports. */
-export const PERSONAL_PI_HOSTS: readonly string[] = [
+const PERSONAL_PI_HOSTS: readonly string[] = [
   "ai-gateway.vercel.sh",
   "aiplatform.googleapis.com",
   "api.ant-ling.com",
@@ -28,7 +28,10 @@ export const PERSONAL_PI_HOSTS: readonly string[] = [
   "api.x.ai",
   "api.xiaomimimo.com",
   "api.z.ai",
+  "auth.kimi.com",
+  "auth.meta.com",
   "auth.openai.com",
+  "auth.x.ai",
   "chatgpt.com",
   "claude.ai",
   "gateway.ai.cloudflare.com",

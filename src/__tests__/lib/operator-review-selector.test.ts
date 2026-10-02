@@ -37,6 +37,11 @@ function harness(verdicts: Record<string, Mode>) {
 }
 
 describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review extensions', () => {
+  it('REQ-OPERATOR-053 AC1: non-enterprise boundaries keep local Review', async () => {
+    vi.stubEnv('ENTERPRISE_MODE', '');
+    expect(await selectOperatorReviewApplicability({ toolName: 'bash', input: { command: 'git push origin feature' } },
+      { cwd: '/non-enterprise' })).toBe('local');
+  });
   it('trusts only a parent-verified exact PR selection, and treats broken/ambiguous response as unavailable', async () => {
     vi.stubEnv('ENTERPRISE_MODE', 'active');
     const repo = mkdtempSync(join(tmpdir(), 'operator-review-target-'));

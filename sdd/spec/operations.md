@@ -138,8 +138,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
-- On GitHub-hosted Ubuntu, installing host sandbox packages uses the runner's official Ubuntu package sources, not unrelated third-party apt repositories; unavailable required sources or packages fail the host lane. Custom-runner package-source policy remains unchanged and the real bubblewrap/AppArmor sandbox probe still runs. <!-- @impl: scripts/ci/install-approved-packet-packages.sh --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
-- Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane. The Flue native cases run in three isolated processes with complete, non-overlapping case ownership; each executed case retains its fresh workerd and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
+- On GitHub-hosted Ubuntu, installing host sandbox packages uses the runner's official Ubuntu package sources, not unrelated third-party apt repositories; unavailable required sources or packages fail the host lane.
+- Custom-runner package-source policy remains unchanged and the real bubblewrap/AppArmor sandbox probe still runs. <!-- @impl: scripts/ci/install-approved-packet-packages.sh --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
+- Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane.
+- The Flue native cases run in three isolated processes with complete, non-overlapping case ownership; each executed case retains its fresh workerd and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
 - Pull requests use Dependency Review; their reviewed tree remains the dependency-security evidence for the squash result on `main`, while registry audits run only on explicit full dispatches.
 - If GitHub cannot generate the diff, the fallback verifies the exact local base/head commits and selects every lane. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
 - The `summary` job publishes the required `test` status, failing for failed or cancelled lanes and passing skipped lanes.
@@ -408,9 +410,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
 3. Essential developer tools for terminal-based workflows are pre-installed and execute in the packaged runtime. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyDeveloperTools --> <!-- @manual -->
 4. Dedicated Browser IDE build stages enforce their separately pinned Node 22.21.1 compatibility boundary with version assertions before build or assembly work. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::openvscode-official-claude-extension --> <!-- @impl: Dockerfile::openvscode-agent-inventories --> <!-- @manual: Run the image build to execute all three version guards inside their stages. -->
-5. All seven Node base stages use the explicitly approved `mirror.gcr.io/library/node` source with the existing immutable manifest indices for Node 26 (`sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2`) and Node 22.21.1 (`sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c`). The mirror must serve those exact indices and their Linux amd64 child manifests; the image build, packaged smoke, CVE scan, provenance, and push gates remain required. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
+5. Every Node base stage resolves the approved immutable source and platform manifests; publication remains gated on image construction, smoke, scanning and provenance. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
 
-**Constraints:** Base sources and versions remain immutable pins, not mutable-tag fallbacks. Any explicit digest upgrade requires mirror index, Linux amd64 child and layer verification; embedded IDE stages retain their separate Node 22 boundary. The Dockerfile is included in the image input hash ([REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)).
+**Constraints:**
+
+- Base sources and versions remain immutable pins, not mutable-tag fallbacks.
+- Any explicit digest upgrade requires mirror index, Linux amd64 child and layer verification; embedded IDE stages retain their separate Node 22 boundary.
+- The Dockerfile is included in the image input hash ([REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)).
 
 **Priority:** P1
 
@@ -738,13 +744,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every affected committed runtime lock resolves reviewed dependency security floors: all Pi and Browser Run MCP ip-address entries must classify the NAT64 local-use range (10.5.1+ in the 10.x family), and the Pi runtime undici 8.x entries must contain the WebSocket decompression error fix (8.10.2+). Manifest overrides may not reinstall a vulnerable release. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/npm-tools/package.json::overrides --> <!-- @impl: preseed/agents/pi/package.json::overrides --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
+1. Committed runtime locks and overrides cannot reinstall versions below the reviewed security floors. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/npm-tools/package.json::overrides --> <!-- @impl: preseed/agents/pi/package.json::overrides --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 2. Every Claude platform package in the privileged npm runtime lock matches the exact Claude CLI manifest pin. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@anthropic-ai/claude-code --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (locks every Claude platform package at the exact CLI release) -->
 3. The Browser Run MCP, shared npm-tools, and Pi runtime locks resolve fast-uri 3.1.6 or later. <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 4. Affected npm runtime dependency trees exclude the reviewed high-severity libheif out-of-bounds write exposure. <!-- @impl: package-lock.json::node_modules/sharp = 0.35.4 --> <!-- @impl: .github/npm-tools/wrangler/package-lock.json::node_modules/sharp = 0.35.4 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 5. Root and workflow Wrangler undici 7.x locks resolve the fixed WebSocket decompression release (7.29.1+), and the Landing undici 8.x lock resolves 8.10.2+; manifest overrides and the npm lock regeneration security-pin script must not restore a vulnerable version. <!-- @impl: package.json::overrides --> <!-- @impl: .github/npm-tools/wrangler/package.json::overrides --> <!-- @impl: landing/package-lock.json::node_modules/undici --> <!-- @impl: scripts/apply-npm-security-lock-pins.mjs::main --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) --> <!-- @test: host/__tests__/npm-security-lock-pins.test.js (replaces every vulnerable bundled security pin and preserves unrelated packages) -->
 
-**Constraints:** Runtime-lock changes remain subject to normal PR review.
+**Constraints:**
+
+- Runtime-lock changes remain subject to normal PR review.
+
+- Security floors: affected ip-address 10.x ≥10.5.1 for NAT64 local-use classification; Pi undici 8.x ≥8.10.2 for decompression error handling.
 
 **Priority:** P2
 
@@ -1442,7 +1452,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @manual: Confirm exact-head BuildKit output reuses unrelated dependency layers and rebuilds late IDE and seed assembly. -->
 3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm the exact-head deployment retains the uploaded BuildKit timing artifact. -->
 
-**Constraints:** Hosted Ubuntu runner defaults are pinned to `ubuntu-24.04`, including reusable-workflow runner inputs; existing explicit runner overrides remain supported. No self-hosted or larger-runner dependency is introduced. <!-- @test: host/__tests__/ci-runner-os-pin.test.js (REQ-OPS-050: workflow scheduling defaults pin Ubuntu 24.04 while retaining explicit runner overrides) -->
+**Constraints:**
+
+- Hosted Ubuntu runner defaults are pinned to `ubuntu-24.04`, including reusable-workflow runner inputs; existing explicit runner overrides remain supported.
+- No self-hosted or larger-runner dependency is introduced. <!-- @test: host/__tests__/ci-runner-os-pin.test.js (REQ-OPS-050: workflow scheduling defaults pin Ubuntu 24.04 while retaining explicit runner overrides) -->
 
 **Priority:** P1
 

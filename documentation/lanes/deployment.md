@@ -9,6 +9,7 @@ Default deployment execution, verification, rollback, development references, an
 ## Contents
 
 - [Standard Deployment](#standard-deployment)
+- [Dormant Review enrollment](#dormant-review-enrollment)
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Production Rollback](#production-rollback)
@@ -43,6 +44,30 @@ curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "
 Exercise the changed user path after provider discovery returns the expected `{ providers: [...] }` envelope. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
 
 **Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
+
+---
+
+## Dormant Review enrollment
+
+This procedure verifies **inactive** trust, not remote activation. Production use, activation and live publication require separate authorization and end-to-end proof. <!-- @impl: src/operators/boundary-action-installation.ts::verifyBoundaryWorkflow -->
+
+1. Configure `OPERATOR_REVIEW_EXECUTABLE_SHA` to the exact tested Codeflare runtime commit.
+2. Configure `OPERATOR_REVIEW_ORIGINS` with precisely `dev`, `integration` and `production` HTTPS origins maintained by the installer, never derived from a target PR or request. Missing or unverified configuration denies enrollment.
+3. Use a platform administrator's current Codeflare GitHub connection with repository workflow-write permission, authenticated Access and CSRF protection.
+4. Submit the target to `POST /api/operator-management/boundary-actions/propose`:
+
+```json
+{
+  "repositoryUrl": "https://github.com/OWNER/REPO",
+  "protectedRef": "refs/heads/main",
+  "installationId": "APPROVED_CONDUCTOR_INSTALLATION"
+}
+```
+
+5. Inspect and merge the ordinary proposal PR under the target repository's protected-branch policy. This documentation does not authorize that merge.
+6. Submit the same target to `POST /api/operator-management/boundary-actions/verify`. Codeflare rereads protected-base workflow ID, path and bytes before storing an **inactive** binding.
+7. A pending PR, successful test or verification cannot start Review or grant Action claim authority. An inactive binding permits local review only without a competing active Review binding.
+8. Independently verify the maintained runtime pin, target installation and live publication before claiming live acceptance.
 
 ---
 
@@ -170,6 +195,20 @@ The operator procedure, migration bounds, pause/resume behavior, verification, r
 | Enterprise/egress/governed aliases | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | Private operations; public behavior remains in Enterprise/Security SDD | Private promotion/rollback evidence |
 
 ---
+
+
+
+### REQ-OPS-011 preserved clauses
+
+- All seven Node base stages use the explicitly approved `mirror.gcr.io/library/node` source with the existing immutable manifest indices for Node 26 (`sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2`) and Node 22.21.1 (`sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c`).
+- The mirror must serve those exact indices and their Linux amd64 child manifests.
+- The image build, packaged smoke, CVE scan, provenance, and push gates remain required.
+
+### REQ-OPS-054 preserved clauses
+
+- Pi and Browser Run MCP ip-address locks must classify NAT64 local-use addresses: 10.x versions require 10.5.1 or later.
+- Pi runtime undici 8.x locks require the WebSocket decompression error fix in 8.10.2 or later.
+- Manifest overrides may not reinstall a vulnerable release.
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

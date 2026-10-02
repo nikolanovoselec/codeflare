@@ -242,3 +242,60 @@ it('REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alo
     assert.ok(isPersonalPiDestination(endpoint), `native ${model.provider} destination is gated: ${endpoint.hostname}`);
   }
 });
+
+it('REQ-ENTERPRISE-088 AC6: pinned native OAuth login and refresh destinations reach the policy boundary', async t => {
+  const fixture = enterpriseStartup({ personalProviders: true });
+  t.after(fixture.cleanup);
+  const runtime = await ModelRuntime.create({ modelsPath: fixture.modelsPath, authPath: join(fixture.agentDir, 'auth.json'),
+    modelsStorePath: join(fixture.agentDir, 'models-store.json'), allowModelNetwork: false });
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  for (const id of ['kimi-coding', 'meta', 'xai']) {
+    const oauth = runtime.getProvider(id)?.auth.oauth;
+    assert.ok(oauth, `pinned native ${id} supports OAuth`);
+    for (const action of ['login', 'refresh']) {
+      const requests = [];
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        // The genuine SDK starts device authorization, then reaches its token
+        // endpoint. Synthetic rejection stops before credentials are issued.
+        if (requests.length === 1 && action === 'login') return Response.json({ device_code: 'synthetic-device',
+          user_code: 'synthetic-code', verification_uri: 'https://example.test/verify',
+          verification_uri_complete: 'https://example.test/verify?code=synthetic', interval: 0.001, expires_in: 600 });
+        return new Response('offline boundary', { status: 401 });
+      };
+      const signal = AbortSignal.timeout(10000);
+      await assert.rejects(action === 'login' ? oauth.login({ signal, notify() {} })
+        : oauth.refresh({ type: 'oauth', refresh: 'synthetic-refresh', access: 'synthetic-access', expires: 0 }, signal));
+      assert.ok(requests.length >= (action === 'login' ? 2 : 1));
+      for (const request of requests) assert.ok(isPersonalPiDestination(new URL(request.url)),
+        `pinned ${id} ${action} traffic must reach authorization: ${new URL(request.url).hostname}`);
+    }
+  }
+});
+
+it('REQ-AGENT-210 AC6: image-prepared RPIV packages load actual pinned tools without warnings', async t => {
+  const { patchRpivHostPeers } = await import('../../../../scripts/patch-rpiv-host-peers.mjs');
+  const { readFile, writeFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const modules = fileURLToPath(new URL('../node_modules/', import.meta.url));
+  const packages = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo'].map(name => join(modules, '@juicesharp', name));
+  const originals = await Promise.all(packages.map(async path => [join(path, 'package.json'), await readFile(join(path, 'package.json'))]));
+  t.after(async () => { for (const [path, bytes] of originals) await writeFile(path, bytes); });
+  await patchRpivHostPeers(modules);
+  const home = mkdtempSync(join(tmpdir(), 'pi-rpiv-real-startup-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const agentDir = join(home, '.pi/agent');
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ packages }));
+  const loader = new DefaultResourceLoader({ cwd: home, agentDir,
+    noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+  await loader.reload();
+  const result = loader.getExtensions();
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.warnings ?? [], []);
+  // Delivered tool inventory is the generated runtime contract, not a mock count.
+  const tools = new Set(result.extensions.flatMap(extension => [...extension.tools.keys()]));
+  for (const name of ['advisor', 'ask_user_question', 'todo']) assert.ok(tools.has(name));
+});
