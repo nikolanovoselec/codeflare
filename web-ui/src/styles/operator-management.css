@@ -89,6 +89,7 @@
 .operator-list .admin-area-row p { margin: 0; color: var(--color-text-secondary); line-height: 1.5; }
 .operator-identity { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .operator-identity h2 { margin: 0; }
+.operator-list .operator-type-pill { color: var(--color-accent); }
 .operator-catalog-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm); }
 .operator-list .admin-area-row > button { flex-shrink: 0; }
 .operator-message { padding: var(--space-4); margin-block: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); }

@@ -13,6 +13,7 @@ The source boundaries identified below have focused behavioral evidence; the req
 - [Managed Dispatcher host](#managed-dispatcher-host)
 - [Fenced Renovate publication](#fenced-renovate-publication)
 - [Verified human context](#verified-human-context)
+- [Catalog profile pill colors](#catalog-profile-pill-colors)
 - [Distribution validation](#distribution-validation)
 - [Worker Loader boundary](#worker-loader-boundary)
 - [Shared interception restrictions](#shared-interception-restrictions)
@@ -62,6 +63,12 @@ Implements [REQ-OPERATOR-001](../../sdd/spec/operators.md#req-operator-001-verif
 Current Access identity uses the documented `user_uuid` before the legacy `id` fallback; unrelated extra `id` metadata cannot veto a matching UUID and email. Missing memberships still confer no group authority, and failed live identity remains a denial. “Activity unavailable / Last known state cannot be treated as current” is the browser's list-fetch failure fallback, not an Operator-reported execution state. Human-context warnings expose only closed stage/reason labels and optional numeric HTTP status, never credentials or identity payloads. These source-level repairs do not establish the reporting user's live rejection cause or deployed acceptance. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton -->
 
 Bounded group-label strings and name/email-only group records are supported live identity metadata, not stable memberships. They neither invalidate a matching verified human nor grant group-only authority. Explicit email grants remain effective, and verified platform admins can read catalog entries and management details without global or per-Operator management grants. Revoked sessions, failed identity lookups and malformed supplied groups still deny access; administration does not confer another person's activity ownership. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @impl: src/routes/operator-management.ts::scopedManager --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: verified admin with %s reads ungranted catalog entries and management details; other managers and invalid admins cannot) -->
+
+## Catalog profile pill colors
+
+Catalog Conductor and Dispatcher pills use the selected accent. The scoped catalog rule leaves detail pills and muted metadata unchanged. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement -->
+
+For [REQ-OPERATOR-049](../../sdd/spec/operator-registry.md#req-operator-049-operators-management-interface), invoke `checkOperatorPillColors` from `scripts/browser/check-operator-pill-colors.js` in a real browser on the actual catalog and each profile's detail view. Repeat under two selected accents; every returned comparison must match. The read-only check normalizes actual computed colors using the browser renderer, makes no requests and changes no settings. jsdom cannot provide this evidence; deployed rendering verification remains pending.
 
 ## Distribution validation
 

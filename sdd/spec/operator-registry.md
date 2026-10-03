@@ -205,7 +205,10 @@ This release extends the existing Operator foundation with GitHub package instal
 6. Responsive controls retain focus and scrolling for long names and errors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (retains the registration control and visible long error on a narrow viewport) --> <!-- @manual: Verify keyboard focus and scrolling on narrow and wide browser viewports. -->
 7. Mobile sections remain horizontal and retain save feedback beside the action without silently enabling installations. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (confirms a restriction save beside its action without silently enabling the installation) -->
 
-**Constraints:** The management surface cannot grant authority beyond server-side policy.
+**Constraints:**
+
+- The management surface cannot grant authority beyond server-side policy.
+- Catalog profile pills use the selected theme accent; detail pills and muted catalog metadata retain their colors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @manual: Run scripts/browser/check-operator-pill-colors.js in a real browser on the catalog and each profile's detail view under two selected accent themes; every returned color comparison must match. -->
 
 **Priority:** P0
 

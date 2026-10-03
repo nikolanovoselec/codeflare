@@ -20,9 +20,6 @@ vi.mock('../../stores/storage', () => ({ storageStore: { setWorkerName: vi.fn(),
 vi.mock('../../stores/terminal', () => ({ terminalStore: { disposeAll: vi.fn() } }));
 
 import App from '../../App';
-import administrationCss from '../../styles/administration.css?raw';
-import settingsCss from '../../styles/settings-panel.css?raw';
-import operatorCss from '../../styles/operator-management.css?raw';
 
 const longName = 'release-operator-with-an-intentionally-long-name-that-must-remain-actionable-on-every-supported-viewport';
 let width: number;
@@ -59,47 +56,6 @@ afterEach(() => {
 });
 
 describe('REQ-OPERATOR-049: /operators management interface', () => {
-  it.each([
-    { profile: 'conductor', label: 'Conductor', accent: '#e4573d' },
-    { profile: 'dispatcher', label: 'Dispatcher', accent: '#e4573d' },
-    { profile: 'conductor', label: 'Conductor', accent: '#45a0e5' },
-    { profile: 'dispatcher', label: 'Dispatcher', accent: '#45a0e5' },
-  ])('REQ-OPERATOR-049: catalog $label pill follows selected $accent theme without muting detail badges or recoloring metadata', async ({ profile, label, accent }) => {
-    const styles = document.createElement('style');
-    styles.textContent = `${settingsCss}\n${administrationCss}\n${operatorCss}`;
-    const reference = document.createElement('span');
-    reference.style.color = 'var(--color-accent)';
-    const previousAccent = document.documentElement.style.getPropertyValue('--color-accent');
-    const previousSecondary = document.documentElement.style.getPropertyValue('--color-text-secondary');
-    document.documentElement.style.setProperty('--color-accent', accent);
-    document.documentElement.style.setProperty('--color-text-secondary', '#808080');
-    document.head.append(styles);
-    document.body.append(reference);
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : new Request(input, init);
-      if (new URL(request.url, 'https://operators.example.test').pathname === '/api/operator-management/operators') {
-        return response({ items: [{ id: 'operator-1', name: longName, profile, realm: 'internal', enabled: false }], cursor: null });
-      }
-      return response({ error: 'Not found' }, 404);
-    }));
-    try {
-      render(() => <App />);
-      const row = (await screen.findByText(longName)).closest('li')!;
-      const pill = within(row).getByText(label);
-      const expectedColor = getComputedStyle(reference).color;
-      expect(expectedColor).not.toBe('');
-      expect(getComputedStyle(pill).color).toBe(expectedColor);
-      const metadata = within(row).getByText('No version installed');
-      expect(getComputedStyle(metadata).color).not.toBe(expectedColor);
-      reference.className = 'settings-beta-badge';
-      reference.style.removeProperty('color');
-      expect(getComputedStyle(reference).color).toBe(expectedColor);
-    } finally {
-      styles.remove(); reference.remove();
-      document.documentElement.style.setProperty('--color-accent', previousAccent);
-      document.documentElement.style.setProperty('--color-text-secondary', previousSecondary);
-    }
-  });
   it('opens the installed release catalog from the Enterprise Administration Operators URL', async () => {
     window.history.replaceState({}, '', '/admin/operators');
     render(() => <App />);
