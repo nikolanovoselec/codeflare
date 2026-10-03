@@ -6,13 +6,16 @@ import { OperatorActivity, OperatorDispatcherCapability, createOperatorIntentDig
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { setLogLevel } from '../../lib/logger';
 import type { DispatcherBundle } from '../../operators/distribution';
 import type { Env } from '../../types';
 
+let callerSessionCurrent = true;
 vi.mock('../../lib/access', async original => ({ ...await original<typeof import('../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
+  operatorAccessSessionCurrent: async () => callerSessionCurrent,
   loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['approved'], defaultRoute: 'approved', defaultReasoning: 'off' }),
 }));
 vi.mock('../../lib/aig-config', () => ({ getAigConfig: async () => ({ gatewayUrl: 'https://gateway.example.test', token: 'parent-only' }) }));
@@ -23,6 +26,97 @@ const bundle: DispatcherBundle = { schemaVersion: 1, sourceCommit: 'a'.repeat(40
   modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } } };
 const bytes = new TextEncoder().encode(JSON.stringify(bundle));
 const invocation = { repository: 'owner/repo', pullRequest: 17 };
+const genericWire = (path: string, body: unknown) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+
+describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
+  it('exposes the configured API origin only to repository-only Loader code', async () => {
+    for (const repositoryOnly of [false, true]) await fixture(async f => {
+      await start(f);
+      expect((await f.loaderEnv()).GITHUB_API_ORIGIN).toBe(repositoryOnly ? 'https://github.enterprise.test' : undefined);
+      if (repositoryOnly) {
+        for (const body of [
+          { operationId: 'wrong-host', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{}' },
+          { operationId: 'wrong-body', method: 'GET', url: 'https://github.enterprise.test/repos/another/service', body: '{}' },
+          { operationId: 'credential-selector', url: 'https://github.enterprise.test/user', headers: { authorization: 'forged' } },
+        ]) expect((await f.capability.fetch(genericWire('source', body))).status).toBe(403);
+        const controller = new AbortController(); controller.abort();
+        expect((await f.capability.fetch(new Request(genericWire('source', { operationId: 'cancelled-mutation', method: 'POST',
+          url: 'https://github.enterprise.test/repos/another/service/issues/17/comments', body: '{}' }), { signal: controller.signal }))).status).toBe(403);
+        expect(f.sent).toEqual([]);
+        const request = () => genericWire('source', { operationId: 'merge-cas', method: 'PUT',
+          url: 'https://github.enterprise.test/repos/another/service/pulls/17/merge', body: '{"sha":"expected-head"}' });
+        expect((await f.capability.fetch(request())).status).toBe(200);
+        expect((await f.capability.fetch(request())).status).toBe(200);
+        expect(f.sent.filter(value => value.method === 'PUT')).toHaveLength(1);
+        expect(await f.sent.filter(value => value.method === 'PUT')[0].json()).toEqual({ sha: 'expected-head' });
+      }
+    }, { repositoryOnly, githubApiHost: 'github.enterprise.test' });
+  });
+  it('projects actual journal consumption on receipts without charging cached receipt observations', async () => fixture(async f => {
+    await start(f);
+    const source = { operationId: 'budget-read', url: 'https://api.github.com/repos/another/service' };
+    expect((await f.capability.fetch(genericWire('source', source))).status).toBe(200);
+    const first = await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json() as { operationCount: number; operationLimit: number };
+    expect(first.operationLimit).toBe(128);
+    expect(first.operationCount).toBeGreaterThanOrEqual(1);
+    expect((await f.capability.fetch(genericWire('source', { ...source, operationId: 'budget-read-next' }))).status).toBe(200);
+    const next = await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json() as { operationCount: number };
+    expect(next.operationCount).toBe(first.operationCount + 1);
+    expect(await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json()).toEqual(next);
+  }, { repositoryOnly: true }));
+  it('keeps missing or ambiguous package readback unknown and fences revoked installation', async () => {
+    for (const evidence of [[], [{ id: 1 }, { id: 2 }]]) await fixture(async f => {
+      await start(f);
+      const mutation = { operationId: 'ambiguous-comment', method: 'POST',
+        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"judgment"}' };
+      f.loseResponse();
+      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      f.restoreTransport(); f.genericReadback(evidence);
+      const readback = await (await f.capability.fetch(genericWire('source', { operationId: 'ambiguous-read', url: mutation.url }))).json() as { body: string };
+      expect(JSON.parse(readback.body)).toEqual(evidence);
+      // No unique package-validated domain receipt exists: do not call resolve.
+      expect((await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).status).toBe(200);
+      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      f.revoke();
+      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(403);
+      expect(f.sent.filter(value => value.method === 'POST')).toHaveLength(1);
+    }, { repositoryOnly: true });
+  });
+  it('never repeats an uncertain mutation; permits readback and immutable resolution', async () => {
+    await fixture(async f => {
+      await start(f);
+      const mutation = { operationId: 'comment-once', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"judgment"}' };
+      f.loseResponse();
+      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(f.sent.filter(request => request.method === 'POST')).toHaveLength(1);
+      expect(await (await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      const original = await (await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).json() as { requestDigest: string };
+      const unresolved = { operationId: mutation.operationId, requestDigest: original.requestDigest, readbacks: [] };
+      expect((await f.capability.fetch(genericWire('resolve', unresolved))).status).toBe(403);
+      const absent = { operationId: 'missing', requestDigest: 'a'.repeat(64), responseDigest: 'b'.repeat(64) };
+      expect(await (await f.capability.fetch(genericWire('resolve', { ...unresolved, readbacks: [absent] }))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      f.restoreTransport();
+      const readback = { operationId: 'read-comment', url: mutation.url };
+      const evidence = await (await f.capability.fetch(genericWire('source', readback))).json() as { body: string };
+      // Package code validates the remote actor/target/text before asking the generic parent to seal references.
+      expect(JSON.parse(evidence.body)).toEqual([{ id: 91, body: 'judgment', user: { id: 42 } }]);
+      const reference = await (await f.capability.fetch(genericWire('receipt', { operationId: readback.operationId }))).json() as { operationId: string; requestDigest: string; responseDigest: string };
+      const resolution = { ...unresolved, readbacks: [{ operationId: reference.operationId,
+        requestDigest: reference.requestDigest, responseDigest: reference.responseDigest }] };
+      expect(await (await f.capability.fetch(genericWire('resolve', { ...resolution, readbacks: [resolution.readbacks[0], resolution.readbacks[0]] }))).json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      expect(f.sent.filter(request => request.method === 'POST')).toHaveLength(1);
+      f.revokeSession();
+      expect((await f.capability.fetch(genericWire('resolve', resolution))).status).toBe(403);
+    }, { repositoryOnly: true });
+  });
+});
+const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
+const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 async function digest(value: string | Uint8Array) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', typeof value === 'string'
     ? new TextEncoder().encode(value) : value)), b => b.toString(16).padStart(2, '0')).join('');
@@ -30,22 +124,39 @@ async function digest(value: string | Uint8Array) {
 
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
-  activity: OperatorActivity; capability: OperatorDispatcherCapability; environment: Env;
-  artifactDigest: string; settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
+  activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
+  artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
+  deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
+  settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
+  advanceClock: (milliseconds: number) => void;
   revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
-  restart: () => OperatorActivity; loseResponse: () => void; nextAlarm: () => Promise<number | null>;
+  restart: () => OperatorActivity; loseResponse: () => void; restoreTransport: () => void; throwTransport: () => void;
+  emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
-  messages: (value: unknown[]) => void;
-}) => Promise<void>) {
+  messages: (value: unknown[]) => void; input: unknown; revokeSession: () => void;
+  loaderEnv: () => Promise<Record<string, unknown>>; loaderOutbound: () => Promise<Fetcher | null>; genericReadback: (value: unknown) => void;
+  sourceBody: (value: string) => void; files: (value: unknown[]) => void;
+  compose: (value: Record<string, unknown>) => void;
+  release: (value: unknown, status?: number) => void;
+  guide: (value: unknown) => void; tag: (value: unknown) => void;
+  annotatedTag: (value: unknown) => void;
+  moveHeadAfterFiles: () => void;
+  moveHeadAfterRelease: () => void; expireAfterRead: () => void;
+  moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
+  exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
+}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string; sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string } = {}) {
+  callerSessionCurrent = true;
+  const fixtureInvocation = options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
     const artifactDigest = await digest(bytes);
     const now = Date.now();
-    const expiresAt = Math.floor(now / 1000) + 300;
+    const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
-    const policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null };
+    const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
+      ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: 'operator', revision: 1,
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
     operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] } },
@@ -53,10 +164,38 @@ async function fixture(test: (f: {
     let revoked = false;
     let settlements: unknown[] = [];
     let messages: unknown[] = [];
+    let streamBatch = 0;
+    const streamOffset = () => `0000000000000000_${String(streamBatch).padStart(16, '0')}`;
+    let messagesSet = false;
     let aborted: string | undefined;
     let uncertain = false;
+    const genericComments: Array<{ id: number; body: string; user: { id: number } }> = [];
+    let genericReadback: unknown;
+    let loadedEnvironment: Promise<Record<string, unknown>> | undefined;
+    let loadedOutbound: Promise<Fetcher | null> | undefined;
+    let sourceBody = options.sourceBody ?? 'Official migration guidance';
+    let transportThrows = false;
+    let emptyResponse = false;
+    let upstreamConflict = false;
     let oversizedChecks: { count: number; outputBytes: number; overlap: boolean } | null = null;
+    let changedFiles: unknown[] = [];
+    let composeBodies: Record<string, unknown> = {};
+    let releaseBody: unknown = { tag_name: 'v11.1.2', body: 'No configuration changes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' };
+    let releaseStatus = 200;
+    let guideBody: unknown = composeBlob('docs/guide/agent.md', guideBlobSha, guideExcerpt);
+    let tagRef: unknown = { ref: 'refs/tags/v11.1.2', object: { type: 'tag', sha: '3'.repeat(40) } };
+    let annotatedTag: unknown = { tag: 'v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } };
+    let headSha = 'b'.repeat(40);
+    let baseSha = 'a'.repeat(40);
+    let moveAfterContents = false;
+    let moveBaseAfterGuide = false;
+    let moveAfterFiles = false;
+    let moveAfterRelease = false;
+    let expireAfterRead = false;
+    let exceedDeadline = false;
     const sent: Request[] = [];
+    const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
+    let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
     const child = {
@@ -68,8 +207,27 @@ async function fixture(test: (f: {
           aborted = (await activity.getBrowserDetail())?.executionStatus;
           return Response.json({ ok: true });
         }
-        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1' }, { status: 202 });
-        return Response.json({ settlements, messages });
+        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1', offset: streamOffset(),
+          uid: 'fixture-incarnation', streamUrl: request.url }, { status: 202, headers: { 'stream-next-offset': streamOffset() } });
+        const snapshot = { v: 1, conversationId: 'fixture-conversation', offset: streamOffset(), settlements,
+          messages: messages.map((value, index) => ({ id: `fixture-message-${index}`, role: 'assistant',
+            purpose: 'assistant', display: 'visible', ...value as object })) };
+        const url = new URL(request.url);
+        if (url.searchParams.get('view') === 'updates') {
+          if (options.pagedStatus && settlements.length) {
+            const pageOffset = '0000000000000000_0000000000000100';
+            if (url.searchParams.get('offset') !== pageOffset) return Response.json([{ type: 'conversation-reset',
+              conversationId: snapshot.conversationId, position: { batch: streamBatch, index: 0 },
+              snapshot: { ...snapshot, settlements: [] } }], { headers: { 'stream-next-offset': pageOffset } });
+            return Response.json(settlements.map((settlement, index) => ({ type: 'submission-settled',
+              conversationId: snapshot.conversationId, position: { batch: streamBatch + 1, index }, ...settlement as object })),
+            { headers: { 'stream-next-offset': '0000000000000000_0000000000000101', 'stream-up-to-date': 'true' } });
+          }
+          const chunks = url.searchParams.get('offset') === streamOffset() ? [] : [{ type: 'conversation-reset',
+            conversationId: snapshot.conversationId, position: { batch: streamBatch, index: 0 }, snapshot }];
+          return Response.json(chunks, { headers: { 'stream-next-offset': streamOffset(), 'stream-up-to-date': 'true' } });
+        }
+        return Response.json(snapshot, { headers: { 'stream-next-offset': streamOffset(), 'stream-up-to-date': 'true' } });
       },
     };
     // Agent validates the native DurableObjectState brand and SQLite capability.
@@ -77,9 +235,59 @@ async function fixture(test: (f: {
     Object.defineProperties(native, {
       facets: { configurable: true, value: { get: () => child } },
       exports: { configurable: true, value: {
-        OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
-        GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-          sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+        OperatorDispatcherCapability: ({ props }: { props: { activityId: string; generation: number } }) =>
+          new OperatorDispatcherCapability({ props } as unknown as ExecutionContext,
+            environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]),
+        OperatorDispatcherTail: ({ props }: { props: { activityId: string; generation: number } }) => ({
+          tail: async (events: unknown) => {
+            const stage = (events as Array<{ logs: Array<{ message: Array<{ stage?: string }> }> }>)[0]?.logs?.[0]?.message?.[1]?.stage;
+            if (stage) deliveredTail.push({ ...props, stage });
+          },
+        }),
+        EgressController: () => ({ fetch: async () => new Response(sourceBody, {
+          headers: { 'content-type': 'text/plain', etag: 'guide-v3', 'set-cookie': 'private-session' },
+        }) }),
+        GitHubInterceptor: ({ props }: { props: { bucket: string } }) => ({ fetch: async (request: Request) => {
+          if (request.url.includes('/repos/community/compiler')) return Response.json({
+            tag_name: 'v3.2.1', guidance: props.bucket === 'owner-bucket' ? 'Owned authenticated research' : 'Foreign private data',
+          });
+          sent.push(request);
+          if (request.url.endsWith('/issues/17/comments') && request.method === 'POST') {
+            const data = await request.json() as { body: string };
+            genericComments.push({ id: 91, body: data.body, user: { id: 42 } });
+            if (uncertain) throw new Error('Lost mutation response');
+            return Response.json(genericComments[0], { status: 201 });
+          }
+          if (request.url.endsWith('/issues/17/comments') && request.method === 'GET') return Response.json(genericReadback ?? genericComments);
+          if (transportThrows) throw new Error('private transport failure');
+          if (emptyResponse) return new Response(null, { status: 200 });
+          if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
+          if (upstreamConflict) return Response.json({ error: 'upstream-conflict' }, { status: 409 });
+          if (request.url.includes('/releases/tags/')) {
+            if (moveAfterRelease) headSha = 'c'.repeat(40);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
+            return Response.json(releaseBody, { status: releaseStatus });
+          }
+          if (request.url.includes('/git/ref/tags/')) return Response.json(tagRef);
+          if (request.url.includes('/git/tags/')) return Response.json(annotatedTag);
+          if (request.url.includes('/contents/docs/guide/agent.md')) {
+            if (moveAfterRelease) headSha = 'c'.repeat(40);
+            if (moveBaseAfterGuide) baseSha = 'c'.repeat(40);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 19_000);
+            return guideBody instanceof Response ? guideBody : Response.json(guideBody);
+          }
+          if (request.url.includes('/contents/')) {
+            const url = new URL(request.url);
+            const key = `${url.searchParams.get('ref')}:${decodeURIComponent(url.pathname.split('/contents/')[1])}`;
+            const body = composeBodies[key];
+            if (moveAfterContents) baseSha = 'c'.repeat(40);
+            return body instanceof Response ? body : body ? Response.json(body)
+              : Response.json({ message: 'Missing' }, { status: 404 });
+          }
+          if (request.url.includes('/pulls/17/files')) {
+            if (moveAfterFiles) headSha = 'c'.repeat(40);
+            return Response.json(changedFiles);
+          }
           const checks = oversizedChecks;
           if (checks && request.url.includes('/check-runs?')) {
             const url = new URL(request.url);
@@ -94,11 +302,14 @@ async function fixture(test: (f: {
               headers: first + count < checks.count ? { link: '<https://api.github.com/next>; rel="next"' } : {},
             });
           }
-          return Response.json({ number: 17, user: { login: 'fork-specific-bot[bot]', id: 42 }, head: { sha: 'b'.repeat(40) } });
+          if (expireAfterRead) vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1);
+          return Response.json({ number: 17, body: 'inline-secret',
+            user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
+            base: { sha: baseSha }, head: { sha: headSha } });
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
-          return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+          return new Response(options.inferenceBody ?? 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
       waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
@@ -110,13 +321,21 @@ async function fixture(test: (f: {
       admitManagement: async (input: unknown) => ({ ok: true, value: { ...input as object, admittedAt: now, selection } }),
       upsertOwnedActivity: async () => {},
     };
-    const environment = { ...encryption, ENTERPRISE_MODE: 'active',
+    const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
       OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
-      LOADER: { get: () => ({ getDurableObjectClass: () => ({}) }) },
+      LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; globalOutbound: Fetcher | null; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
+        getDurableObjectClass: () => {
+          const code = factory();
+          loadedEnvironment = code.then(value => value.env);
+          loadedOutbound = code.then(value => value.globalOutbound);
+          configuredTail = code.then(value => value.tails?.[0] as { tail(events: unknown): Promise<void> });
+          return {};
+        },
+      }) },
     } as unknown as Env;
     const activityEnvironment = environment as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     activity = new OperatorActivity(context, activityEnvironment);
-    const invocationJson = JSON.stringify(invocation);
+    const invocationJson = JSON.stringify(fixtureInvocation);
     const execution = await createOperatorExecutionContext({ activityId, operatorId: 'operator', artifactDigest,
       policyDigest: await digest(JSON.stringify(policy)), human, accessJwt: 'private.jwt' }, encryption);
     await activity.prepareAuthorized({ activityId, operatorId: 'operator', installationId: 'installation',
@@ -126,14 +345,48 @@ async function fixture(test: (f: {
     expect(await activity.start('s'.repeat(43))).toEqual({ ok: true, phase: 'queued' });
     const capability = new OperatorDispatcherCapability({ props: { activityId, generation: 1 } } as unknown as ExecutionContext,
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
+    const staleCapability = new OperatorDispatcherCapability({ props: { activityId, generation: 2 } } as unknown as ExecutionContext,
+      environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
-      await test({ activity, capability, environment, artifactDigest, sent,
-        settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => { settlements = [{ submissionId: id, outcome, error }]; },
-        messages: value => { messages = value; },
+      await test({ activity, capability, staleCapability, environment, artifactDigest, activityId, deliveredTail,
+        deliverTail: async events => { if (!configuredTail) throw new Error('No configured Dispatcher tail');
+          await (await configuredTail).tail(events); }, sent,
+        settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
+          streamBatch++;
+          settlements = [{ submissionId: id, outcome, error }];
+          if (id === 'submission-1' && outcome === 'completed' && !messagesSet) {
+            messages = [{ submissionId: id, parts: [{ type: 'data-assessment', data: {
+              repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
+              assessment: { classification: 'unknown', reasons: ['No verified compatibility declaration'] },
+            } }] }];
+          }
+        },
+        input: fixtureInvocation, revokeSession: () => { callerSessionCurrent = false; },
+        messages: value => { streamBatch++; messages = value; messagesSet = true; },
+        sourceBody: value => { sourceBody = value; },
+        files: value => { changedFiles = value; }, compose: value => { composeBodies = value; },
+        release: (value, status = 200) => { releaseBody = value; releaseStatus = status; },
+        guide: value => { guideBody = value; }, tag: value => { tagRef = value; },
+        annotatedTag: value => { annotatedTag = value; },
+        moveHeadAfterFiles: () => { moveAfterFiles = true; },
+        moveHeadAfterRelease: () => { moveAfterRelease = true; },
+        expireAfterRead: () => { expireAfterRead = true; },
+        moveBaseAfterContents: () => { moveAfterContents = true; },
+        moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
+        exceedReleaseDeadline: () => { exceedDeadline = true; },
+        exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
+        advanceClock: milliseconds => { vi.spyOn(Date, 'now').mockReturnValue(now + milliseconds); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         loseResponse: () => { uncertain = true; },
+        restoreTransport: () => { uncertain = false; transportThrows = false; },
+        genericReadback: value => { genericReadback = value; },
+        loaderEnv: async () => { if (!loadedEnvironment) throw new Error('Loader not started'); return loadedEnvironment; },
+        loaderOutbound: async () => { if (!loadedOutbound) throw new Error('Loader not started'); return loadedOutbound; },
+        throwTransport: () => { transportThrows = true; },
+        emptyResponse: () => { emptyResponse = true; },
+        upstreamConflict: enabled => { upstreamConflict = enabled; },
         oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
           oversizedChecks = { count, outputBytes, overlap };
         },
@@ -146,16 +399,467 @@ async function fixture(test: (f: {
     }
   });
 }
+function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, path = '/v1/dispatcher/diagnostic', method = 'POST') {
+  const url = `https://operator.internal${path}`;
+  if (method === 'GET') return new Request(url, { method: 'GET' });
+  return new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+function composeRead(operationId = 'compose-1', extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'changed-compose', ...extra }) });
+}
+function releaseRead(operationId = 'release-1', extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'release-notes', ...extra }) });
+}
+function guideRead(operationId = 'guide-1', extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'upstream-guide', ...extra }) });
+}
+function changedCompose(path: string, sha = 'd'.repeat(40)) {
+  return { filename: path, status: 'modified', sha, additions: 1, deletions: 1,
+    patch: '-    image: amir20/dozzle:v11.1.1\n+    image: amir20/dozzle:v11.1.2' };
+}
+function composeBlob(path: string, sha: string, content: string) {
+  return { path, sha, type: 'file', size: new TextEncoder().encode(content).byteLength,
+    encoding: 'base64', content: btoa(content) };
+}
+function dozzleFiles(before = 'v11.1.1', after = 'v11.1.2') {
+  return [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
+    patch: `-    image: amir20/dozzle:${before}\n+    image: amir20/dozzle:${after}` }];
+}
 function read(operationId = 'read-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'pull-request', ...extra }) });
 }
 async function start(f: Parameters<Parameters<typeof fixture>[0]>[0]) {
   return driveDispatcherRuntime({ activity: f.activity, deadline: Date.now() + 25_000,
-    bundle, artifactDigest: f.artifactDigest, invocation });
+    bundle, artifactDigest: f.artifactDigest, invocation: f.input });
 }
 
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
+  it('binds only this Activity and generation into the child Tail Worker', () => fixture(async f => {
+    await start(f);
+    await f.deliverTail([{ logs: [{ message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] }] }]);
+    expect(f.deliveredTail).toEqual([{ activityId: f.activityId, generation: 1, stage: 'fetch-rejected' }]);
+  }));
+  it('REQ-OPERATOR-048: bounded diagnostic report uses trusted Activity/generation and leaves execution running', () => fixture(async f => {
+    await start(f);
+    const before = await f.activity.getBrowserDetail();
+    setLogLevel('warn');
+    const events: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
+      expect((await f.capability.fetch(diagnosticReport({ stage: 'http-rejected', status: 422 }))).status).toBe(204);
+      const reports = events.map(value => JSON.parse(value) as { module: string; data: Record<string, unknown> })
+        .filter(value => value.module === 'dispatcher-inference-report');
+      expect(reports.map(value => value.data)).toEqual([
+        { activityId: f.activityId, generation: 1, stage: 'fetch-rejected' },
+        { activityId: f.activityId, generation: 1, stage: 'http-rejected', status: 422 },
+      ]);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: before!.executionStatus,
+        cleanupStatus: before!.cleanupStatus, checkpoint: before!.checkpoint, result: before!.result });
+      expect((await f.capability.fetch(read('after-valid-report'))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+
+  it.each([
+    { stage: 'fetch-rejected', activityId: 'forged' }, { stage: 'fetch-rejected', reason: 'PRIVATE_PROVIDER_BODY_SENTINEL' },
+    { stage: 'http-rejected', status: '422' }, { stage: 'http-rejected', status: 200 },
+    { stage: 'http-rejected', status: 600 }, { stage: 'http-rejected', status: 422.5 },
+    { stage: 'unknown' }, { stage: 'fetch-rejected', status: 422 }, 'PRIVATE_PROVIDER_BODY_SENTINEL',
+  ])('REQ-OPERATOR-048: bounded diagnostic report rejects malformed child payload %#', body => fixture(async f => {
+    await start(f);
+    setLogLevel('warn');
+    const events: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      expect((await f.capability.fetch(diagnosticReport(body))).status).toBe(403);
+      expect(events.join('')).not.toContain('PRIVATE_PROVIDER_BODY_SENTINEL');
+      expect(events.some(value => value.includes('dispatcher-inference-report'))).toBe(false);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report denies wrong route, method, content-type, syntax, byte size and stale generation', () => fixture(async f => {
+    await start(f);
+    const url = 'https://operator.internal/v1/dispatcher/diagnostic';
+    for (const request of [diagnosticReport(undefined, '/v1/dispatcher/unrelated'),
+      diagnosticReport(undefined, '/v1/dispatcher/diagnostic', 'GET'),
+      new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{"stage":"fetch-rejected"}' }),
+      new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"stage":' }),
+      new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: `${' '.repeat(300)}{"stage":"fetch-rejected"}` }),
+      diagnosticReport({ stage: 'http-rejected' })]) {
+      expect((await f.capability.fetch(request)).status).toBe(403);
+    }
+    expect((await f.staleCapability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    expect((await f.capability.fetch(read('after-rejected-report'))).status).toBe(200);
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report refuses an unfinished body without holding the Activity', () => fixture(async f => {
+    await start(f);
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"stage":"fetch-rejected"'));
+    }, cancel() { canceled = true; } });
+    const request = new Request('https://operator.internal/v1/dispatcher/diagnostic', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit);
+    const startedAt = performance.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([f.capability.fetch(request),
+        new Promise<'pending'>(resolve => { timer = setTimeout(() => resolve('pending'), 700); })]);
+      expect(response).not.toBe('pending');
+      expect((response as Response).status).toBe(403);
+      expect(performance.now() - startedAt).toBeLessThan(400);
+    } finally { clearTimeout(timer); }
+    expect(canceled).toBe(true);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report denies revoked authority without relying on cancellation', () => fixture(async f => {
+    await start(f);
+    f.revoke();
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report denies cancellation without relying on expiry', () => fixture(async f => {
+    await start(f);
+    await f.activity.cancelDrive();
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report never extends its original human deadline', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
+    f.expire();
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+    expect((await f.capability.fetch(read('after-report-expiry'))).status).toBe(403);
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report caps concurrent valid reports at eight per live Activity generation', () => fixture(async f => {
+    await start(f);
+    const responses = await Promise.all(Array.from({ length: 12 }, () => f.capability.fetch(diagnosticReport())));
+    expect(responses.map(response => response.status).sort()).toEqual([
+      ...Array.from({ length: 8 }, () => 204), ...Array.from({ length: 4 }, () => 429),
+    ]);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  }));
+
+  it('REQ-OPERATOR-048: bounded diagnostic report tolerates unavailable owner logging without publishing a result', () => fixture(async f => {
+    await start(f);
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_REPORT_FAILURE'); });
+    try {
+      expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+
+  it('exposes only PR identity, never a secret-bearing description', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(read('project-pr'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) }, base: { sha: 'a'.repeat(40) },
+      user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' } });
+    expect(JSON.stringify(body)).not.toContain('inline-secret');
+  }));
+  it('passes only complete image deltas from PR files, never secret-bearing patch context or other changes', () => fixture(async f => {
+    await start(f);
+    f.files([{ ...changedCompose('middleware/dozzle/compose.yaml'),
+      patch: '@@ -1,3 +1,3 @@\n- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2\n  password: inline-secret' },
+    { ...changedCompose('tools/dozzle_agent/compose.yaml'), additions: 2, deletions: 2,
+      patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2\n- DOZZLE_AUTH_TOKEN=inline-secret\n+ DOZZLE_AUTH_TOKEN=other-secret' },
+    { filename: 'private/inline-secret.txt', status: 'modified', additions: 1, deletions: 1,
+      patch: '-password=inline-secret\n+password=other-secret' }]);
+    const response = await f.capability.fetch(read('safe-files', { resource: 'files' }));
+    expect(response.status).toBe(200);
+    const result = await response.json() as { data: Array<{ patch: string | null; filename: string }> };
+    expect(result.data).toMatchObject([
+      { filename: 'middleware/dozzle/compose.yaml', patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2' },
+      { filename: 'tools/dozzle_agent/compose.yaml', patch: null },
+      { filename: '[other-changed-file]', patch: null },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('inline-secret');
+    expect(JSON.stringify(result)).not.toContain('other-secret');
+  }));
+  it('projects version-relevant default server and agent configuration without disclosing stable private values', () => fixture(async f => {
+    await start(f);
+    const paths = ['middleware/dozzle/compose.yaml', 'ai_llm/dozzle_agent/compose.yaml'];
+    f.files(paths.map(path => changedCompose(path)));
+    const bodies: Record<string, unknown> = {};
+    for (const [index, path] of paths.entries()) {
+      for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+        ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+        bodies[`${ref}:${path}`] = composeBlob(path, sha, index === 0
+          ? `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    environment:\n      DOZZLE_REMOTE_AGENT: agent.internal:7007\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`
+          : `services:\n  dozzle-agent:\n    image: amir20/dozzle:${tag}\n    command: agent\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '7007:7007'\n`);
+      }
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ files: [
+      { path: paths[0], unchangedConfiguration: true,
+        before: { services: [{ mode: 'server', redacted: true, environmentKeys: ['DOZZLE_REMOTE_AGENT'] }] },
+        after: { services: [{ mode: 'server', redacted: true, environmentKeys: ['DOZZLE_REMOTE_AGENT'] }] } },
+      { path: paths[1], unchangedConfiguration: true,
+        before: { services: [{ mode: 'agent', redacted: false }] },
+        after: { services: [{ mode: 'agent', redacted: false }] } },
+    ] });
+    expect(JSON.stringify(result)).not.toContain('agent.internal');
+    expect(JSON.stringify(result)).not.toContain('/private/docker.sock');
+  }));
+  it('does not hide harmless unchanged ports and Docker socket mounts on a default server', () => fixture(async f => {
+    await start(f); const path = 'middleware/dozzle/compose.yaml'; f.files([changedCompose(path)]);
+    const bodies: Record<string, unknown> = {};
+    for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+      ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+      bodies[`${ref}:${path}`] = composeBlob(path, sha,
+        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    container_name: private-dozzle\n    restart: unless-stopped\n    network_mode: bridge\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`);
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const output = await response.json();
+    expect(output).toMatchObject({ files: [{ unchangedConfiguration: true,
+      before: { services: [{ mode: 'server', redacted: false }] },
+      after: { services: [{ mode: 'server', redacted: false }] } }] });
+    expect(JSON.stringify(output)).not.toContain('/private/docker.sock');
+    expect(JSON.stringify(output)).not.toContain('private-dozzle');
+  }));
+  it.each([
+    { name: 'persistent /data', property: "    volumes:\n      - /private/dozzle:/data\n" },
+    { name: 'external env file', property: "    env_file: /private/agent.env\n" },
+    { name: 'interpolated settings', property: "    environment:\n      DOZZLE_REMOTE_AGENT: ${DOZZLE_AGENTS}\n" },
+    { name: 'external override', property: "    extends:\n      file: /private/shared.yml\n      service: dozzle\n" },
+  ])('keeps $name unresolved despite unchanged image-excluded configuration', ({ property }) => fixture(async f => {
+    await start(f); const path = 'middleware/dozzle/compose.yaml'; f.files([changedCompose(path)]);
+    const bodies: Record<string, unknown> = {};
+    for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+      ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+      bodies[`${ref}:${path}`] = composeBlob(path, sha,
+        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n${property}`);
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const output = await response.json();
+    expect(output).toMatchObject({ files: [{ unchangedConfiguration: true,
+      after: { services: [{ redacted: true }] } }] });
+    expect(JSON.stringify(output)).not.toContain('/private/');
+    expect(JSON.stringify(output)).not.toContain('${DOZZLE_AGENTS}');
+  }));
+  it('projects every admitted server and agent Compose blob at pinned base/head without leaking inline secrets', () => fixture(async f => {
+    await start(f);
+    const paths = ['middleware/dozzle/compose.yaml', 'tools/dozzle_agent/compose.yaml'];
+    f.files(paths.map(path => changedCompose(path)));
+    const bodies: Record<string, unknown> = {};
+    for (const [index, path] of paths.entries()) {
+      const service = index === 0 ? 'dozzle' : 'dozzle-agent';
+      for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
+        ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
+        bodies[`${ref}:${path}`] = composeBlob(path, sha,
+          `services:\n  ${service}:\n    image: amir20/dozzle:${tag}\n    command: ${index === 0 ? 'server' : 'agent'}\n    environment:\n      DOZZLE_AUTH_TOKEN: inline-secret\n`);
+      }
+    }
+    f.compose(bodies);
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    const result = await response.json() as { files: unknown[] };
+    expect(result).toMatchObject({ repository: 'owner/repo', pullRequest: 17,
+      baseSha: 'a'.repeat(40), observedHead: 'b'.repeat(40), files: paths.map(path => ({ path,
+        before: { sha: 'e'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.1', mode: path.includes('agent') ? 'agent' : 'server', redacted: true }] },
+        after: { sha: 'd'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.2', mode: path.includes('agent') ? 'agent' : 'server', redacted: true }] } })) });
+    expect(JSON.stringify(result)).not.toContain('inline-secret');
+    expect(JSON.stringify(result)).toContain('DOZZLE_AUTH_TOKEN');
+  }));
+  it('reads pinned Compose blobs despite an omitted diff patch without inferring safety', () => fixture(async f => {
+    await start(f);
+    const path = 'middleware/dozzle/compose.yaml';
+    f.files([{ ...changedCompose(path), patch: undefined }]);
+    f.compose({ [`${'a'.repeat(40)}:${path}`]: composeBlob(path, 'e'.repeat(40),
+      'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n'),
+    [`${'b'.repeat(40)}:${path}`]: composeBlob(path, 'd'.repeat(40),
+      'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n') });
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ files: [{ path, unchangedConfiguration: true,
+      before: { sha: 'e'.repeat(40), services: [{ mode: 'server', redacted: false }] },
+      after: { sha: 'd'.repeat(40), services: [{ mode: 'server', redacted: false }] } }] });
+  }));
+  it.each(['missing', 'wrong-sha', 'oversized', 'redirect', 'moved-base', 'moved-head', 'pagination', 'foreign-path'])('rejects $name changed Compose provenance', name => fixture(async f => {
+    await start(f);
+    const path = 'middleware/dozzle/compose.yaml';
+    f.files(name === 'pagination' ? Array.from({ length: 101 }, (_, index) => changedCompose(`group-${index}/compose.yaml`))
+      : [changedCompose(name === 'foreign-path' ? '../secrets/compose.yaml' : path)]);
+    const before = composeBlob(path, 'e'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n');
+    const after = composeBlob(path, name === 'wrong-sha' ? 'f'.repeat(40) : 'd'.repeat(40),
+      name === 'oversized' ? `services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n    labels: ${'x'.repeat(70_000)}`
+        : 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n');
+    f.compose({ [`${'a'.repeat(40)}:${path}`]: before,
+      ...name === 'missing' ? {} : { [`${'b'.repeat(40)}:${path}`]: name === 'redirect'
+        ? new Response(null, { status: 302, headers: { location: 'https://evil.invalid/' } }) : after } });
+    if (name === 'moved-base') f.moveBaseAfterContents();
+    if (name === 'moved-head') f.moveHeadAfterFiles();
+    expect((await f.capability.fetch(composeRead())).status).toBe(409);
+  }));
+  it('rejects child-selected paths, refs and URLs before protected Compose I/O', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(composeRead('chosen', { path: 'other/compose.yaml' }))).status).toBe(403);
+    expect((await f.capability.fetch(composeRead('chosen-ref', { ref: 'a'.repeat(40) }))).status).toBe(403);
+    expect((await f.capability.fetch(composeRead('chosen-url', { url: 'https://evil.invalid/' }))).status).toBe(403);
+  }));
+  it('reads only the release identified by the admitted PR diff and returns a pinned receipt', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ observedHead: 'b'.repeat(40),
+      source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2',
+      repository: 'amir20/dozzle', tag: 'v11.1.2', body: 'No configuration changes' });
+    expect(f.sent.map(r => r.url)).toEqual([
+      'https://api.github.com/repos/owner/repo/pulls/17',
+      'https://api.github.com/repos/owner/repo/pulls/17/files?per_page=100&page=1',
+      'https://api.github.com/repos/owner/repo/pulls/17',
+      'https://api.github.com/repos/amir20/dozzle/releases/tags/v11.1.2',
+      'https://api.github.com/repos/owner/repo/pulls/17',
+    ]);
+    expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
+  }));
+  it('reads one cited upstream release for thirteen compose image changes of Komodo #1299', () => fixture(async f => {
+    await start(f);
+    f.files(['ai_llm', 'dns_ntp', 'komodo_core', 'media_servers', 'minecraft', 'nextcloud',
+      'openziti-i', 'openziti-ii', 'openziti-iii', 'servarr', 'storage', 'tools']
+      .map(group => ({ ...dozzleFiles()[0], filename: `${group}/dozzle_agent/compose.yaml` }))
+      .concat([{ ...dozzleFiles()[0], filename: 'middleware/dozzle/compose.yaml' }]));
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ tag: 'v11.1.2', repository: 'amir20/dozzle',
+      observedHead: 'b'.repeat(40) });
+  }));
+  it('derives a later eligible upstream release from the admitted PR rather than hardcoding #1299', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles('v11.1.2', 'v11.1.3'));
+    f.release({ tag_name: 'v11.1.3', body: 'New migration notes',
+      html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3' });
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ tag: 'v11.1.3', body: 'New migration notes',
+      source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3', observedHead: 'b'.repeat(40) });
+  }));
+  it('reads an immutable version-tagged official agent guide through a fixed parent source', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    const response = await f.capability.fetch(guideRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ repository: 'amir20/dozzle', tag: 'v11.1.2',
+      observedHead: 'b'.repeat(40), commitSha: '1'.repeat(40),
+      source: `https://github.com/amir20/dozzle/blob/${'1'.repeat(40)}/docs/guide/agent.md`,
+      body: expect.stringContaining('run Dozzle with the `agent` subcommand') });
+    expect(f.sent.map(r => r.url)).toContain(
+      `https://api.github.com/repos/amir20/dozzle/contents/docs/guide/agent.md?ref=${'1'.repeat(40)}`);
+    expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
+  }));
+  it('also binds a lightweight tag directly to a pinned guide commit', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    f.tag({ ref: 'refs/tags/v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } });
+    const response = await f.capability.fetch(guideRead());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ tag: 'v11.1.2', commitSha: '1'.repeat(40) });
+    expect(f.sent.some(r => r.url.includes('/git/tags/'))).toBe(false);
+  }));
+  it.each([
+    { name: 'wrong version tag', replace: (f: { tag: (value: unknown) => void }) =>
+      f.tag({ ref: 'refs/tags/v11.1.1', object: { type: 'tag', sha: '3'.repeat(40) } }) },
+    { name: 'unresolved tag object', replace: (f: { annotatedTag: (value: unknown) => void }) =>
+      f.annotatedTag({ tag: 'v11.1.2', object: { type: 'tag', sha: '1'.repeat(40) } }) },
+    { name: 'mismatched annotated tag', replace: (f: { annotatedTag: (value: unknown) => void }) =>
+      f.annotatedTag({ tag: 'v11.1.1', object: { type: 'commit', sha: '1'.repeat(40) } }) },
+    { name: 'wrong guide path', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(composeBlob('docs/other.md', '2'.repeat(40), 'not an agent guide')) },
+    { name: 'redirected guide', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(Response.json({ message: 'Moved' }, { status: 302 })) },
+    { name: 'missing guide', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(Response.json({ message: 'Missing' }, { status: 404 })) },
+    { name: 'invalid guide encoding', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide({ ...composeBlob('docs/guide/agent.md', '2'.repeat(40), 'agent'), content: '$not-base64' }) },
+    { name: 'mismatched guide blob SHA', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), guideExcerpt)) },
+    { name: 'oversized guide', replace: (f: { guide: (value: unknown) => void }) =>
+      f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), 'x'.repeat(70_000))) },
+  ])('rejects a $name without exposing a guide to the child', ({ replace }) => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); replace(f);
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('rejects a moved PR while reading the version-tagged guide', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('rejects a moved base while reading the version-tagged guide', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveBaseAfterGuide();
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('rejects a late guide even when the upstream transport ignores abort', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.exceedGuideDeadline();
+    expect((await f.capability.fetch(guideRead())).status).toBe(409);
+  }));
+  it('denies child-selected guide URL, repository and ref before upstream I/O', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    for (const extra of [{ url: 'https://evil.invalid/' }, { repository: 'other/repo' }, { ref: 'main' }]) {
+      expect((await f.capability.fetch(guideRead('chosen', extra))).status).toBe(403);
+    }
+    expect(f.sent.every(r => !r.url.includes('/git/ref/tags/'))).toBe(true);
+  }));
+  it('rejects release evidence when the PR head changes after the files read', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveHeadAfterFiles();
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
+  it('rejects release evidence when the PR head changes during the upstream read', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
+  it('does not return late upstream notes even when a transport ignores abort', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
+  it.each([
+    { files: [], name: 'no matching diff' },
+    { files: [...dozzleFiles(), { filename: 'agent/compose.yaml', status: 'modified', additions: 1,
+      deletions: 1 }], name: 'unavailable Compose patch' },
+    { files: [{ ...dozzleFiles()[0], additions: 2,
+      patch: `${dozzleFiles()[0].patch}\n+ image: amir20/dozzle:v11.1.3` }], name: 'mixed edits in one Compose patch' },
+    { files: [{ ...dozzleFiles()[0], additions: 2 }], name: 'truncated Compose patch' },
+    { files: [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
+      patch: '- image: amir20/dozzle:v11.1.1\n+ image: attacker/dozzle:v11.1.2' }], name: 'foreign image' },
+    { files: [...dozzleFiles(), { filename: 'other/compose.yaml', status: 'modified', additions: 1, deletions: 1,
+      patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.3' }], name: 'conflicting image tag' },
+  ])('does not fetch upstream for $name', ({ files }) => fixture(async f => {
+    await start(f); f.files(files);
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+    expect(f.sent.every(r => !r.url.includes('/releases/'))).toBe(true);
+  }));
+  it.each([
+    { value: { tag_name: 'v11.1.2', body: 'notes', html_url: 'https://evil.test/note' }, status: 200 },
+    { value: { tag_name: 'v11.1.1', body: 'notes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.1' }, status: 200 },
+    { value: { message: 'Moved' }, status: 302 },
+    { value: { tag_name: 'v11.1.2', body: 'x'.repeat(70_000), html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' }, status: 200 },
+  ])('rejects unverified, redirecting or oversized upstream notes', ({ value, status }) => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.release(value, status);
+    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+  }));
+  it('denies child URL, repository and credential selection on release read', () => fixture(async f => {
+    await start(f); f.files(dozzleFiles());
+    expect((await f.capability.fetch(releaseRead('release-foreign', { url: 'https://evil.test/' }))).status).toBe(403);
+    expect((await f.capability.fetch(releaseRead('release-other', { repository: 'other/repo' }))).status).toBe(403);
+    expect(f.sent.every(r => !r.url.includes('/releases/tags/'))).toBe(true);
+  }));
   it('reserves once; admission and unrelated settlement remain running; exact settlement alone permits continuation', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-active' });
@@ -179,17 +883,180 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     vi.spyOn(Date, 'now').mockReturnValue(alarm! + 1_000);
     await f.activity.alarm();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
+    } });
+  }));
+  it('REQ-OPERATOR-048: repeated SDK alarms retain one pending recheck and the original deadline', () => fixture(async f => {
+    await start(f);
+    const deadline = (await f.activity.listSchedules()).find(row =>
+      row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled');
+    expect(deadline).toBeDefined();
+    await f.activity.reconcileDispatcherLease();
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    for (let i = 0; i < 12; i++) {
+      const next = await f.nextAlarm();
+      expect(next).not.toBeNull();
+      expect(next!).toBeLessThan(now + 10_000);
+      now = Math.max(now + 1_000, next! + 1_000);
+      clock.mockReturnValue(now);
+      await f.activity.alarm();
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      const scheduled = await f.activity.listSchedules();
+      expect(scheduled.filter(row => row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled')
+        .map(row => row.time)).toEqual([deadline?.time]);
+      expect(scheduled.filter(row => row.callback === 'reconcileDispatcherLease' && row.type === 'delayed').length)
+        .toBe(1);
+    }
+    f.settle();
+    const next = await f.nextAlarm();
+    expect(next).not.toBeNull();
+    now = Math.max(now + 1_000, next! + 1_000);
+    clock.mockReturnValue(now);
+    await f.activity.alarm();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
+    } });
+  }));
+  it('REQ-OPERATOR-048: the original deadline still fences a pending SDK recheck', () => fixture(async f => {
+    await start(f);
+    const deadline = (await f.activity.listSchedules()).find(row =>
+      row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled');
+    expect(deadline?.type).toBe('scheduled');
+    await f.activity.reconcileDispatcherLease();
+    vi.spyOn(Date, 'now').mockReturnValue(deadline!.time * 1_000 + 1_000);
+    await f.activity.alarm();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }));
+  it('collects two inference turns and the exact assessment past the former 90-second budget while authority remains current', () => fixture(async f => {
+    await start(f);
+    const inference = (operationId: string) => new Request('https://operator.internal/v1/dispatcher/inference', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId, input: { messages: [{ role: 'user', content: 'assess cited evidence' }] } }),
+    });
+    expect((await f.capability.fetch(inference('first-inference'))).status).toBe(200);
+    f.advanceClock(112_000);
+    expect((await f.capability.fetch(inference('second-inference'))).status).toBe(200);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', result: { assessment: { classification: 'unknown' } },
+    } });
+  }));
+  it('fences a late assessment after the original human authorization expires', () => fixture(async f => {
+    await start(f);
+    f.advanceClock(301_000);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.capability.fetch(read('late-assessment'))).status).toBe(403);
+  }));
+  it('never outlives a shorter original human-authorization deadline', () => fixture(async f => {
+    await start(f);
+    f.advanceClock(43_000);
+    expect((await f.capability.fetch(read('before-human-expiry'))).status).toBe(200);
+    f.advanceClock(46_000);
+    expect((await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'after-human-expiry', input: { messages: [{ role: 'user', content: 'assess' }] } }),
+    }))).status).toBe(403);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { humanLifetimeSeconds: 45 }));
+  it('denies a revoked invoker past the former 90-second cutoff while human authority is otherwise current', () => fixture(async f => {
+    await start(f);
+    f.advanceClock(112_000);
+    expect((await f.capability.fetch(read('before-revocation'))).status).toBe(200);
+    f.revoke();
+    expect((await f.capability.fetch(read('after-revocation'))).status).toBe(403);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+  }));
+  it('fences a completed model turn with no submitted assessment instead of advertising waiting', () => fixture(async f => {
+    await start(f);
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'text', text: 'Assessment incomplete' }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
   }));
   it('fences failed settlement rather than granting a continuation', () => fixture(async f => {
     await start(f); f.settle('submission-1', 'failed'); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
   }));
+  for (const { name, error, errorType, operation, classification } of [
+    { name: 'known model completion failure', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption)' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'model-completion' },
+    { name: 'durable direct model completion failure', error: { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1)', reason: 'Stream ended without finish_reason (retryable_interruption)' } },
+      errorType: 'operation_failed', operation: 'direct', classification: 'model-completion' },
+    { name: 'durable direct persistence failure', error: { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1)', reason: 'the input could not be persisted' } },
+      errorType: 'operation_failed', operation: 'direct', classification: 'persistence' },
+    { name: 'untrusted direct label suffix', error: { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1) private.jwt', reason: 'the input could not be persisted' } },
+      errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'other submission direct label', error: { type: 'operation_failed', meta: {
+      operation: 'direct(other-submission)', reason: 'the input could not be persisted' } },
+      errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'known input supersession', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'the session advanced past this input before it completed' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'superseded' },
+    { name: 'known input persistence failure', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'the input could not be persisted' } }, errorType: 'operation_failed', operation: 'prompt', classification: 'persistence' },
+    { name: 'secret-suffixed completion lookalike', error: { type: 'operation_failed', meta: {
+      operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption) private.jwt' } },
+      errorType: 'operation_failed', operation: 'prompt', classification: 'unknown' },
+    { name: 'unrecognized metadata', error: { type: 'operation_failed', meta: {
+      operation: 'arbitrary-secret', reason: 'inline-secret' } }, errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'malformed metadata', error: { type: 'operation_failed', meta: { operation: { secret: 'private.jwt' }, reason: { secret: 'inline-secret' } } },
+      errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'absent error', error: undefined, errorType: 'other', operation: 'unknown', classification: 'unknown' },
+    { name: 'absent metadata', error: { type: 'operation_failed' }, errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'null metadata', error: { type: 'operation_failed', meta: null }, errorType: 'operation_failed', operation: 'unknown', classification: 'unknown' },
+    { name: 'unrecognized error type', error: { type: 'inline-secret', meta: { operation: 'prompt', reason: 'Stream ended without finish_reason (retryable_interruption)' } },
+      errorType: 'other', operation: 'unknown', classification: 'unknown' },
+  ]) {
+    it(`REQ-OPERATOR-048: diagnoses ${name} without leaking settlement metadata or replaying`, () => fixture(async f => {
+      await start(f);
+      const emitted: string[] = [];
+      setLogLevel('warn');
+      try {
+        vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+        f.settle('submission-1', 'failed', error);
+        await f.activity.reconcileDispatcherLease();
+        const events = emitted.map(value => JSON.parse(value) as { module: string; message: string;
+          data?: Record<string, unknown> }).filter(event => event.module === 'dispatcher-settlement'
+          && event.message === 'Dispatcher settlement rejected' && event.data?.stage === 'outcome');
+        expect(events).toHaveLength(1);
+        const detail = await f.activity.getBrowserDetail();
+        expect(detail?.activityId).toMatch(/^activity-[0-9a-f-]{36}$/);
+        expect(events[0].data).toMatchObject({ activityId: detail?.activityId,
+          generation: 1, outcome: 'failed', errorType, operation, failureClass: classification });
+        expect(Object.keys(events[0].data ?? {}).sort()).toEqual([
+          'activityId', 'errorType', 'failureClass', 'generation', 'operation', 'outcome',
+          'reasonAvailable', 'reasonClass', 'stage',
+        ]);
+        expect(JSON.stringify(events)).not.toMatch(/private\.jwt|inline-secret|arbitrary-secret/);
+        expect(detail?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+        expect((await f.capability.fetch(read('after-failed'))).status).toBe(403);
+      } finally { setLogLevel('silent'); }
+    }));
+  }
   it('collects the settled pinned assessment once as a terminal result without another submission', () => fixture(async f => {
     await start(f);
     const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
       evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
-      bounds: { files: 3, checks: 76 } };
+      bounds: { files: 3, checks: 76 }, assessment: { classification: 'unknown',
+        observedHead: 'b'.repeat(40), baseSha: 'a'.repeat(40), checks: { state: 'unconfigured', observedHead: null },
+        reasons: ['No complete upstream evidence'], compatibility: 'Compatibility cannot be established',
+        citations: [], gaps: ['Migration guidance unavailable'] } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
@@ -230,10 +1097,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         ? [{ submissionId: 'foreign', parts: [part] }]
         : [{ submissionId: 'submission-1', parts: variant === 'duplicate' ? [part, part]
           : [{ type: 'data-assessment', data: { payload: 'x'.repeat(70 * 1024) } }] }];
-      if (variant !== 'oversized') f.messages(messages);
+      f.messages(messages);
       f.settle(); await f.activity.reconcileDispatcherLease();
-      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
-      if (variant === 'oversized') f.messages(messages);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     }));
@@ -316,6 +1182,83 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.capability.fetch(read('read-1', { resource: 'files' }))).status).toBe(409);
     expect(f.sent.map(r => r.method)).toEqual(['GET']);
   }));
+  it.each([
+    { name: 'conflict', stage: 'reservation', resource: 'files', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        await f.capability.fetch(read('diagnostic-conflict'));
+        return f.capability.fetch(read('diagnostic-conflict', { resource: 'files' }));
+      } },
+    { name: 'rejected transport uncertain operation', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.throwTransport(); return f.capability.fetch(read('diagnostic-uncertain'));
+      } },
+    { name: 'unreadable completed response', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.emptyResponse(); return f.capability.fetch(read('diagnostic-empty'));
+      } },
+    { name: 'expired authority', stage: 'authority', resource: 'unparsed', deadline: 'expired', status: 403,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.expire(); return f.capability.fetch(read('diagnostic-expired'));
+      } },
+    { name: 'stale generation with current deadline', stage: 'authority', resource: 'unparsed', deadline: 'current', status: 403,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => f.staleCapability.fetch(read('diagnostic-stale')) },
+    { name: 'upstream non-success response', stage: 'upstream', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.loseResponse(); return f.capability.fetch(read('diagnostic-upstream'));
+      } },
+    { name: 'inference upstream non-success response', stage: 'upstream', resource: 'inference', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.loseResponse(); return f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operationId: 'diagnostic-inference', input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT_NOT_LOGGED' }] } }),
+        }));
+      } },
+    { name: 'forwarded upstream HTTP 409', stage: 'forwarded-upstream', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.upstreamConflict(true); return f.capability.fetch(read('diagnostic-forwarded'));
+      } },
+    { name: 'expired result commit', stage: 'commit', resource: 'pull-request', deadline: 'expired', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
+        f.expireAfterRead(); return f.capability.fetch(read('diagnostic-commit'));
+      } },
+  ])('REQ-OPERATOR-047/048: emits bounded $name diagnostic with its fenced response', ({ name, stage, resource, deadline, status, exercise }) => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      const response = await exercise(f);
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(name === 'forwarded upstream HTTP 409'
+        ? { error: 'upstream-conflict' } : { code: status === 403 ? 'OPERATOR_CAPABILITY_DENIED'
+          : stage === 'reservation' ? 'OPERATOR_OPERATION_CONFLICT' : 'OPERATOR_OPERATION_UNKNOWN' });
+      const events = emitted.map(value => JSON.parse(value) as { module: string; message: string;
+        data?: Record<string, unknown> }).filter(event => event.module === 'dispatcher-settlement'
+        && event.message === 'Dispatcher operation rejected');
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ data: { stage, resource, deadline, status } });
+      expect(Object.keys(events[0].data ?? {}).sort()).toEqual(stage === 'upstream'
+        ? ['deadline', 'resource', 'stage', 'status', 'upstreamStatus'] : ['deadline', 'resource', 'stage', 'status']);
+      if (stage === 'upstream') expect(events[0].data?.upstreamStatus).toBe(502);
+      expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-empty|diagnostic-expired|diagnostic-stale|diagnostic-upstream|diagnostic-forwarded|diagnostic-commit|diagnostic-inference|PRIVATE_PROMPT_NOT_LOGGED|private\.jwt|inline-secret/);
+      if (name === 'forwarded upstream HTTP 409') {
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+        f.upstreamConflict(false);
+        const replay = await f.capability.fetch(read('diagnostic-forwarded'));
+        expect(replay.status).toBe(409);
+        expect(await replay.json()).toEqual({ error: 'upstream-conflict' });
+        expect(emitted.filter(value => value.includes('Dispatcher operation rejected'))).toHaveLength(1);
+        expect((await f.capability.fetch(read('diagnostic-fresh'))).status).toBe(200);
+      } else if (stage === 'effect' || stage === 'upstream' || stage === 'commit') {
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect((await f.capability.fetch(read('diagnostic-followup'))).status).toBe(403);
+      } else if (stage === 'reservation' || deadline === 'current') {
+        expect((await f.capability.fetch(read('diagnostic-fresh'))).status).toBe(200);
+      } else {
+        expect(f.sent.some(request => request.url.startsWith('https://api.github.com/'))).toBe(false);
+      }
+    } finally { setLogLevel('silent'); }
+  }));
   it('does not replay uncertain effects and cannot commit waiting afterward', () => fixture(async f => {
     await start(f); f.loseResponse(); expect((await f.capability.fetch(read())).status).toBe(409);
     expect((await f.capability.fetch(read())).status).toBe(403);
@@ -379,4 +1322,200 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await runOperatorActivity(plan!.activityId, f.environment, () => { throw new Error('default capability must not be selected'); });
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
   }));
+});
+
+function sourceRead(operationId: string, url: string, extra = {}) {
+  return new Request('https://operator.internal/v1/dispatcher/source', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, url, ...extra }) });
+}
+describe('REQ-OPERATOR-047: package-selected research under managed parent authority', () => {
+  it('reads an independently selected GitHub repository with the original owner, without a Dozzle allowlist', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(sourceRead('source-gh', 'https://api.github.com/repos/community/compiler/releases/tags/v3.2.1'));
+    expect(response.status).toBe(200);
+    const receipt = await response.json() as { status: number; body: string };
+    expect(receipt.status).toBe(200);
+    expect(JSON.parse(receipt.body)).toEqual({ tag_name: 'v3.2.1', guidance: 'Owned authenticated research' });
+  }, { repositoryOnly: true }));
+  it('returns bounded Internet content and provenance without upstream session cookies', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(sourceRead('source-web', 'https://docs.example.test/migration'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: 'https://docs.example.test/migration', status: 200,
+      headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
+  }, { repositoryOnly: true }));
+  it('serves standard fetch through the same generation-bound capability without passing session cookies', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(new Request('https://docs.example.test/migration', {
+      headers: { 'x-codeflare-operator-operation-id': 'standard-fetch' },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toBe('guide-v3');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await response.text()).toBe('Official migration guidance');
+  }, { repositoryOnly: true }));
+  it('denies direct outbound without stable operation identity or with caller credentials', () => fixture(async f => {
+    await start(f);
+    const deniedHeaders: HeadersInit[] = [{}, { 'x-codeflare-operator-operation-id': 'forged', authorization: 'foreign' }];
+    for (const headers of deniedHeaders) {
+      const response = await f.capability.fetch(new Request('https://docs.example.test/migration', { headers }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    }
+  }, { repositoryOnly: true }));
+  it('denies identity, credential and write substitution while allowing the legitimate source read', () => fixture(async f => {
+    await start(f);
+    for (const extra of [{ user: 'foreign@example.test' }, { headers: { authorization: 'foreign' } }, { method: 'POST' }]) {
+      expect((await f.capability.fetch(sourceRead('forged', 'https://docs.example.test/migration', extra))).status).toBe(403);
+    }
+    expect((await f.capability.fetch(sourceRead('valid', 'https://docs.example.test/migration'))).status).toBe(200);
+  }, { repositoryOnly: true }));
+  it('collects only after the documented updates pages reach the durable head', () => fixture(async f => {
+    await start(f);
+    const output = { repository: 'another/service', results: [] };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: output }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: output });
+  }, { repositoryOnly: true, pagedStatus: true }));
+  it('collects compact output through the real Activity from a large SDK reset', () => fixture(async f => {
+    await start(f);
+    const output = { repository: 'another/service', results: [] };
+    f.messages([{ id: 'irrelevant', submissionId: 'foreign', parts: [{ type: 'text', text: 'x'.repeat(2 * 1024 * 1024) }] },
+      { submissionId: 'submission-1', parts: [{ type: 'text', text: 'y'.repeat(2 * 1024 * 1024) }, { type: 'data-result', data: output }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: output });
+  }, { repositoryOnly: true }));
+  it('reconciles concurrent identical reads without losing the generation or changing the stored receipt', () => fixture(async f => {
+    await start(f);
+    const replies = await Promise.all([1, 2].map(() => f.capability.fetch(sourceRead('same-read', 'https://docs.example.test/migration'))));
+    expect(replies.map(response => response.status)).toEqual([200, 200]);
+    const receipts = await Promise.all(replies.map(response => response.json()));
+    expect(receipts[0]).toEqual(receipts[1]);
+    const cached = await f.capability.fetch(sourceRead('same-read', 'https://docs.example.test/migration'));
+    expect(cached.status).toBe(200);
+    expect(await cached.json()).toEqual(receipts[0]);
+  }, { repositoryOnly: true }));
+  it('denies a missing registered fetch capability', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(sourceRead('denied', 'https://docs.example.test/migration'))).status).toBe(403);
+  }, { repositoryOnly: true, capabilities: ['inference'] }));
+  it('denies research after the original caller session is revoked', () => fixture(async f => {
+    await start(f);
+    f.revokeSession();
+    expect((await f.capability.fetch(sourceRead('revoked', 'https://docs.example.test/migration'))).status).toBe(403);
+  }, { repositoryOnly: true }));
+  it('keeps the legacy single-PR package confined to its original interface', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(sourceRead('legacy', 'https://docs.example.test/migration'))).status).toBe(403);
+  }));
+});
+
+
+describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () => {
+  it.each([undefined, 131072])('REQ-OPERATOR-047: exposes source allowance %s only to repository Loader', async sourceResponseBytes => {
+    for (const repositoryOnly of [false, true]) await fixture(async f => {
+      await start(f);
+      expect((await f.loaderEnv()).OPERATOR_SOURCE_RESPONSE_BYTES)
+        .toBe(repositoryOnly ? String(sourceResponseBytes ?? 65536) : undefined);
+    }, { repositoryOnly, sourceResponseBytes });
+  });
+
+  it.each([undefined, 131072])('REQ-OPERATOR-047: enforces source allowance %s through Activity and immutable cache', sourceResponseBytes => fixture(async f => {
+    await start(f);
+    const request = () => sourceRead('large-source', 'https://docs.example.test/migration');
+    const response = await f.capability.fetch(request());
+    expect(response.status).toBe(sourceResponseBytes === undefined ? 422 : 200);
+    const body = await response.json();
+    expect(body).toEqual(sourceResponseBytes === undefined ? { code: 'OPERATOR_SOURCE_INCOMPLETE' } : {
+      url: 'https://docs.example.test/migration', status: 200,
+      headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'x'.repeat(100 * 1024),
+    });
+    f.sourceBody('Changed upstream content must not replace a completed receipt');
+    f.restart();
+    const cached = await f.capability.fetch(request());
+    expect(cached.status).toBe(response.status);
+    expect(await cached.json()).toEqual(body);
+  }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
+
+  it('REQ-OPERATOR-047: SQL-backed Activity journals and reloads an exact 1 MiB source envelope', async () => {
+    const url = 'https://docs.example.test/migration';
+    const headers = { 'content-type': 'text/plain', etag: 'guide-v3' };
+    const overhead = new TextEncoder().encode(JSON.stringify({ url, status: 200, headers, body: '' })).byteLength;
+    const sourceBody = 'x'.repeat(1024 * 1024 - overhead);
+    await fixture(async f => {
+      await start(f);
+      const request = () => sourceRead('near-max-source', url);
+      const response = await f.capability.fetch(request());
+      expect(response.status).toBe(200);
+      const serialized = await response.text();
+      expect(new TextEncoder().encode(serialized).byteLength).toBe(1024 * 1024);
+      expect(JSON.parse(serialized)).toEqual({ url, status: 200, headers, body: sourceBody });
+      f.sourceBody('Changed upstream content must not replace the near-max journal receipt');
+      f.restart();
+      const cached = await f.capability.fetch(request());
+      expect(cached.status).toBe(200);
+      expect(await cached.text()).toBe(serialized);
+    }, { repositoryOnly: true, sourceResponseBytes: 1024 * 1024, sourceBody });
+  });
+
+  it('REQ-OPERATOR-047: rejects escaped UTF-8 envelope overflow through Activity', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(sourceRead('escaped-source', 'https://docs.example.test/migration'));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, sourceBody: 'é\n'.repeat(33000) }));
+
+  it('REQ-OPERATOR-047: actual Loader outbound unwraps the approved large source without cookies', () => fixture(async f => {
+    await start(f);
+    const outbound = await f.loaderOutbound();
+    if (!outbound) throw new Error('Repository Loader outbound missing');
+    const response = await outbound.fetch(new Request('https://docs.example.test/migration', {
+      headers: { 'x-codeflare-operator-operation-id': 'large-outbound' },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toBe('guide-v3');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await response.text()).toBe('x'.repeat(100 * 1024));
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, sourceBody: 'x'.repeat(100 * 1024) }));
+
+  it.each(['source', 'inference'])('REQ-OPERATOR-047: raising source responses leaves %s request limit at 64 KiB', path => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(genericWire(path, path === 'source' ? {
+      operationId: 'oversized-source-request', method: 'POST',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: 'x'.repeat(65537),
+    } : { operationId: 'oversized-inference-request', input: { messages: [{ role: 'user', content: 'x'.repeat(65537) }] } }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
+
+  it('REQ-OPERATOR-047: raising source responses leaves inference response limit at 64 KiB', () => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(genericWire('inference', {
+      operationId: 'oversized-inference-response', input: { messages: [{ role: 'user', content: 'assess' }] },
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceBody: 'x'.repeat(65537) }));
+
+  it.each([64512, 65537])('REQ-OPERATOR-048: source allowance preserves final-result admission for %s bytes', resultBytes => fixture(async f => {
+    await start(f);
+    const empty = { repository: 'another/service', results: [], padding: '' };
+    const overhead = new TextEncoder().encode(JSON.stringify(empty)).byteLength;
+    const result = { ...empty, padding: 'x'.repeat(resultBytes - overhead) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: result }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    if (resultBytes === 64512) {
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    } else {
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }
+  }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
 });

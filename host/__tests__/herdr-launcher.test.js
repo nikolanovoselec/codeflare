@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const launcher = join(root, 'image/herdr/codeflare-herdr-terminal');
 
-function harness(command, tabConfig) {
+function harness(command, tabConfig, fastStart = undefined) {
   const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-launcher-'));
   const bin = join(dir, 'bin');
   const runtime = join(dir, 'runtime');
@@ -42,6 +42,7 @@ fi
       CODEFLARE_RUNTIME_ROOT: runtime,
       CODEFLARE_HERDR_PERSIST_ROOT: persistent,
       SESSION_ID: 'abc12345',
+      FAST_CLI_START: fastStart,
       TAB_CONFIG: JSON.stringify([{ id: '1', command, label: 'Terminal 1' }]),
       HERDR_TEST_AGENT: command.startsWith('claude') ? 'claude'
         : command === 'codex' ? 'codex'
@@ -64,6 +65,14 @@ fi
 }
 
 describe('Codeflare Herdr launcher', () => {
+  it('REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration', () => {
+    for (const fastStart of [undefined, 'true', 'false']) {
+      const { result, calls } = harness('codex', undefined, fastStart);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(calls.find(call => call.startsWith('pane run ')),
+        `pane run w1:p1 codex${fastStart === 'false' ? '' : ' --no-daemon'}`);
+    }
+  });
   it('rejects malformed session identity before invoking Herdr', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-invalid-'));
     const result = spawnSync(launcher, ['bootstrap'], {
@@ -215,7 +224,7 @@ fi
 set -eu
 printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\n' 'herdr 0.9.0'
+  printf '%s\n' 'herdr 0.9.3'
 elif [ "$*" = "api snapshot" ]; then
   printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$1 $2" = "agent get" ]; then
@@ -349,7 +358,7 @@ fi
 set -eu
 printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\n' 'herdr 0.9.0'
+  printf '%s\n' 'herdr 0.9.3'
 elif [ "$*" = "api snapshot" ]; then
   printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$1 $2" = "agent get" ]; then
@@ -456,7 +465,7 @@ fi
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\\n' 'herdr 0.9.0'
+  printf '%s\\n' 'herdr 0.9.3'
 elif [ "$*" = "api snapshot" ]; then
   current=0
   [ ! -f "$HERDR_API_COUNT" ] || current=$(cat "$HERDR_API_COUNT")
@@ -515,7 +524,7 @@ fi
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\\n' 'herdr 0.9.0'
+  printf '%s\\n' 'herdr 0.9.3'
 elif [ "$*" = "api snapshot" ]; then
   [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
   printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'

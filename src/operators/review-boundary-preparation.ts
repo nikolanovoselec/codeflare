@@ -59,7 +59,10 @@ export async function selectVerifiedBoundaryAction(
     if (!action) {
       // An explicit binding on another base is not evidence of an absent Action here.
       const controls = await registry.getManagementControls();
-      if (controls.boundaryActions?.some(binding => binding.repositoryId === repository.id)) return 'unavailable';
+      const bindings = controls.boundaryActions?.filter(binding => binding.repositoryId === repository.id) ?? [];
+      if (bindings.some(binding => binding.protectedRef === protectedRef && binding.enabled === false)
+        && bindings.every(binding => binding.enabled === false)) return 'local';
+      if (bindings.length) return 'unavailable';
       // A 404 alone can conceal missing permissions. Require a readable parent listing
       // establishing that the protected workflow file is genuinely absent.
       for (const [directory, next] of [

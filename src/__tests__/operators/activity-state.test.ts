@@ -4,7 +4,7 @@
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
  * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
@@ -16,7 +16,7 @@ import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 // The separate Wrangler fixture remains the authority for cross-DO RPC and eviction.
 async function withActivity(
   test: (objects: { activity: OperatorActivity; registry: OperatorRegistry; token: string;
-    ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1] }) => Promise<void>,
+    ctx: DurableObjectState; activityEnv: ConstructorParameters<typeof OperatorActivity>[1]; deadline: number }) => Promise<void>,
   admitted = true,
   started = true,
 ): Promise<void> {
@@ -31,6 +31,7 @@ async function withActivity(
     } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     const activity = new OperatorActivity(ctx, activityEnv);
     const token = 's'.repeat(43);
+    const deadline = Date.now() + 60_000;
     if (admitted) {
       expect((await registry.create('operator')).ok).toBe(true);
       expect((await registry.approve('operator', 'a'.repeat(64), 1)).ok).toBe(true);
@@ -38,10 +39,10 @@ async function withActivity(
       const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))))
         .map(byte => byte.toString(16).padStart(2, '0')).join('');
       await activity.prepare({ operatorId: 'operator', activityId: 'activity', intentDigest: 'b'.repeat(64),
-        expectedRevision: 3, deadline: Date.now() + 60_000, startExpiresAt: Date.now() + 60_000, startVerifier: verifier });
+        expectedRevision: 3, deadline, startExpiresAt: Date.now() + 60_000, startVerifier: verifier });
       if (started) expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
     }
-    await test({ activity, registry, token, ctx, activityEnv });
+    await test({ activity, registry, token, ctx, activityEnv, deadline });
   });
 }
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
@@ -65,6 +66,151 @@ function ownedSessionFixture() {
 }
 
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
+  it('REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates', async () => withActivity(async ({ activity, ctx }) => {
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    expect(admission).toBeTruthy();
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['account-audience'] });
+    await ctx.storage.put('admission', { ...admission, ownerKey, boundary: { repositoryId: 123, pullRequest: 42,
+      contextDigest: 'd'.repeat(64), session: { bucket: 'owner-bucket', sessionId: 'session-1', generation: 1 } },
+      receipt: { ...admission!.receipt, manifestJson: JSON.stringify({ name: 'Trusted Reviewer' }) },
+      invocationJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+        consumerId: 'boundary-reviews', input: { context: { repositoryId: 123, pullRequest: 42,
+          head: 'a'.repeat(40), base: 'b'.repeat(40), mergeBase: 'c'.repeat(40) } },
+        source: { kind: 'session', reference: 'owner/repo' }, accessToken: 'secret-token', notes: 'private notes' }),
+      drive: { generation: 1, status: 'waiting', checkpoint: { stage: 'checking' },
+        result: { privateReport: 'private report bytes' } } });
+    const detail = await activity.getBrowserDetail();
+    expect(detail).toMatchObject({ operatorName: 'Trusted Reviewer', context: 'owner/repo · PR #42',
+      progress: 'checking' });
+    expect(JSON.stringify(detail)).not.toContain('secret-token');
+    expect(JSON.stringify(detail)).not.toContain('private notes');
+    const readSummary = (key: string) => (activity as unknown as {
+      getBrowserSummary: (ownerKey: string) => Promise<unknown> }).getBrowserSummary(key);
+    const historical = await readSummary(ownerKey);
+    expect(historical).toMatchObject({ operatorName: 'Trusted Reviewer', context: 'owner/repo · PR #42' });
+    expect(JSON.stringify(historical)).not.toContain('secret-token');
+    expect(JSON.stringify(historical)).not.toContain('private notes');
+    expect(JSON.stringify(historical)).not.toContain('private report bytes');
+    expect(historical).not.toHaveProperty('checkpoint');
+    expect(historical).not.toHaveProperty('result');
+    expect(await readSummary('f'.repeat(64))).toBeNull();
+    const longRepository = `${'a'.repeat(128)}/${'b'.repeat(127)}`;
+    const currentAdmission = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...currentAdmission!,
+      invocationJson: JSON.stringify({ input: { context: { repositoryId: 123, pullRequest: 42 } },
+        source: { kind: 'session', reference: longRepository } }) });
+    const longDetail = await activity.getBrowserDetail();
+    expect(longDetail?.context?.length).toBeLessThanOrEqual(256);
+    expect(longDetail?.context).toContain('PR #42');
+    const unowned = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...unowned, ownerKey: undefined });
+    expect(await readSummary(ownerKey)).toBeNull();
+  }));
+
+  it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {
+    const owner = 'c'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'older-still-working' });
+    for (let i = 1; i <= 100; i++) await registry.upsertOwnedActivity(owner,
+      { ...base, activityId: `finished-${i}`, executionStatus: 'completed' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(1);
+    await registry.upsertOwnedActivity(owner,
+      { ...base, activityId: 'older-still-working', executionStatus: 'completed' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(0);
+  }));
+
+  it('REQ-OPERATOR-027: recovers persisted working count beyond 1,000 historical summaries', async () => withActivity(async ({ registry, ctx }) => {
+    const owner = 'f'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const,
+      collectionStatus: 'ready' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    for (let start = 0; start <= 1000; start += 100) {
+      const saved = Object.fromEntries(Array.from({ length: Math.min(100, 1001 - start) }, (_, offset) => {
+        const i = start + offset;
+        return [`owner-activity:${owner}:past-${i}`, { ...base, activityId: `past-${i}`,
+          executionStatus: i === 0 || i === 1000 ? 'running' : 'completed' }];
+      }));
+      await ctx.storage.put(saved);
+    }
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-activity', executionStatus: 'running' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(3);
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'past-0' });
+    expect((await registry.listOwnedActivityPage(owner, null)).workingCount).toBe(2);
+  }));
+
+  it('REQ-OPERATOR-027: retains at most 20 browsable summaries per operator without discarding owned results', async () => withActivity(async ({ registry }) => {
+    const owner = 'e'.repeat(64);
+    const base = { executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const,
+      collectionStatus: 'ready' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    for (let i = 1; i <= 26; i++) await registry.upsertOwnedActivity(owner, { ...base,
+      activityId: `alpha-${i}`, operatorId: 'alpha' });
+    for (let i = 1; i <= 22; i++) await registry.upsertOwnedActivity(owner, { ...base,
+      activityId: `beta-${i}`, operatorId: 'beta' });
+    const browsable = await registry.listOwnedActivities(owner);
+    expect(browsable.filter(item => item.operatorId === 'alpha')).toHaveLength(20);
+    expect(browsable.filter(item => item.operatorId === 'beta')).toHaveLength(20);
+    expect(await registry.getOwnedActivity(owner, 'alpha-1')).toMatchObject({ activityId: 'alpha-1' });
+  }));
+
+  it('REQ-OPERATOR-059: counts only new admissions, resets through the observed revision and preserves later arrivals', async () => withActivity(async ({ registry }) => {
+    const owner = 'd'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-1' });
+    const first = await registry.listOwnedActivityPage(owner, null);
+    expect(first).toMatchObject({ unreadCount: 1, latestSequence: 1 });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-1', executionStatus: 'completed' });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-2' });
+    expect(await registry.acknowledgeOwnedActivities(owner, first.latestSequence)).toEqual({ unreadCount: 1 });
+    expect(await registry.acknowledgeOwnedActivities(owner, 999)).toEqual({ unreadCount: 0 });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'new-3' });
+    expect((await registry.listOwnedActivityPage(owner, null)).unreadCount).toBe(1);
+    expect(await registry.acknowledgeOwnedActivities('a'.repeat(64), 999)).toEqual({ unreadCount: 0 });
+    expect((await registry.listOwnedActivityPage(owner, null)).unreadCount).toBe(1);
+  }));
+
+  it('REQ-OPERATOR-059: does not acknowledge an admission arriving during page construction', async () => withActivity(async ({ registry }) => {
+    const owner = '7'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'before' });
+    const originalList = registry.listOwnedActivities.bind(registry);
+    registry.listOwnedActivities = async (key) => {
+      const items = await originalList(key);
+      await registry.upsertOwnedActivity(owner, { ...base, activityId: 'during' });
+      return items;
+    };
+    const page = await registry.listOwnedActivityPage(owner, null);
+    expect(page.items.map(item => item.activityId)).toEqual(['before']);
+    expect(page.latestSequence).toBe(1);
+    expect(await registry.acknowledgeOwnedActivities(owner, page.latestSequence)).toEqual({ unreadCount: 1 });
+  }));
+
+  it('REQ-OPERATOR-027: retains only 20 per operator and pages by last seen ID across a new arrival and status update', async () => withActivity(async ({ registry }) => {
+    const owner = 'a'.repeat(64);
+    const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
+      collectionStatus: 'unavailable' as const, attention: false, sessionId: null, source: null, updatedAt: Date.now() };
+    for (let i = 1; i <= 103; i++) await registry.upsertOwnedActivity(owner, { ...base, activityId: `run-${i}` });
+    const page = await registry.listOwnedActivityPage(owner, null);
+    expect(page.items.map(item => item.activityId)).toEqual(['run-103', 'run-102', 'run-101', 'run-100', 'run-99']);
+    expect(page.workingCount).toBe(103);
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'run-102', executionStatus: 'completed' });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'run-98', executionStatus: 'completed' });
+    await registry.upsertOwnedActivity(owner, { ...base, activityId: 'run-104' });
+    const older = await registry.listOwnedActivityPage(owner, page.nextCursor);
+    expect(older.items.map(item => item.activityId)).toEqual(['run-98', 'run-97', 'run-96', 'run-95', 'run-94']);
+    expect(older.workingCount).toBe(102);
+    let cursor = older.nextCursor;
+    let last = older;
+    while (cursor) { last = await registry.listOwnedActivityPage(owner, cursor); cursor = last.nextCursor; }
+    expect(last.items.at(-1)?.activityId).toBe('run-85');
+    await registry.upsertOwnedActivity('b'.repeat(64), { ...base, activityId: 'other-owner' });
+    expect((await registry.listOwnedActivityPage('b'.repeat(64), null)).items.map(item => item.activityId)).toEqual(['other-owner']);
+    await expect(registry.listOwnedActivityPage('b'.repeat(64), page.nextCursor)).rejects.toThrow('Activity history changed');
+    await expect(registry.listOwnedActivityPage(owner, 'run-4')).rejects.toThrow('Activity history changed');
+  }));
+
   it('exposes the production activity namespace and reconstructs a safe empty projection', async () => {
     const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace<OperatorActivity> }).OPERATOR_ACTIVITY;
     expect(namespace).toBeDefined();
@@ -342,6 +488,43 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.getWebhookStatus(started.readCapability)).toEqual({ ok: false, reason: 'consumed' });
     expect(await reconstructed.continueWebhook(started.readCapability, 1)).toEqual({ ok: false, reason: 'consumed' });
     expect(await reconstructed.startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it('REQ-OPERATOR-053: original read authority survives only until activity deadline plus two hours', () => withActivity(async ({ activity, token, deadline }) => {
+    const started = await activity.startWebhook(token);
+    if (!started.ok) throw Error('Expected start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(deadline + 2 * 60 * 60_000 - 1);
+      expect(await activity.redeemWebhookResult(started.readCapability))
+        .toMatchObject({ ok: true, terminal: true, result: { output: 'bounded' } });
+      vi.setSystemTime(deadline + 2 * 60 * 60_000);
+      expect(await activity.redeemWebhookResult(started.readCapability))
+        .toEqual({ ok: false, reason: 'capability-expired' });
+    } finally { vi.useRealTimers(); }
+  }, true, false));
+
+  it('caps an already-issued read capability at the deadline plus two hours', () => withActivity(async ({ activity, token, ctx, deadline }) => {
+    const started = await activity.startWebhook(token);
+    if (!started.ok) throw Error('Expected start');
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'bounded' } })).toMatchObject({ ok: true });
+    // A previously issued capability may carry the older seven-day persisted expiry.
+    const existing = await ctx.storage.get<{ webhook: { expiresAt: number } }>('admission');
+    await ctx.storage.put('admission', { ...existing, webhook: { ...existing!.webhook,
+      expiresAt: deadline + 7 * 24 * 60 * 60_000 } });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(deadline + 2 * 60 * 60_000);
+      expect(await activity.redeemWebhookResult(started.readCapability))
+        .toEqual({ ok: false, reason: 'capability-expired' });
+      expect(await activity.getWebhookStatus(started.readCapability))
+        .toEqual({ ok: false, reason: 'capability-expired' });
+    } finally { vi.useRealTimers(); }
   }, true, false));
 
   it('rejects terminal reread when its original read authority has expired', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {

@@ -73,14 +73,18 @@ The Worker's deployment/account-management token never enters a session containe
 
 Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
 
-Enterprise interception withholds supported real credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+Enterprise interception withholds Worker-managed/platform credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+
+The default-off [personal Pi provider permission](configuration.md#container-environment) is a separate human-session exception under [REQ-ENTERPRISE-090](../../sdd/spec/enterprise-mode.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission). Current Administration permission uses the bound session's trusted configured groups or enabled fallback. The credential-free `getPersonalPiSession` Container DO RPC returns only `{generation, groups}` after owner/session, active D1 lifecycle, durable-generation, memory/durable shutdown and Operator checks; interception props pin that generation. Native device/token/inference forwarding and reused WebSocket effects reauthorize permission and session context, denying revocation or stale generations before provider effects. <!-- @impl: src/container/container-interception.ts::getPersonalPiSession --> <!-- @impl: src/container/index.ts::getPersonalPiSession --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi -->
+
+Native forwarding under [REQ-ENTERPRISE-090](../../sdd/spec/enterprise-mode.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission) preserves owner API/OAuth credentials and wire bodies without requiring a browser-derived human-authority lease, sealed Review credential or Access identity fetch. Review's sealed authority, immutable-principal `same()` check and browser renewal remain unchanged but do not authorize native provider effects. Strict network policy and cross-origin redirect isolation remain enforced. This exception neither exposes platform credentials nor authorizes Operators or stale sanctioned selectors ([REQ-ENTERPRISE-091](../../sdd/spec/enterprise-mode.md#req-enterprise-091-operator-personal-provider-isolation)); Dynamic and managed Native Routes retain their existing AI Gateway path. Source repair is separate from acceptance and exact-head CI, which remain pending; no deployment or live-fix verification is claimed. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @impl: src/container/review-session-human.ts::bindReviewSessionHuman --> <!-- @impl: src/container/review-session-human.ts::openReviewSessionHuman --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 A compromised container can still exercise any legitimate capability represented by a credential or boundary interceptor. Prompt isolation is not authorization; provider scope and branch/deployment policy remain necessary.
 
 <a id="non-enterprise-cloudflare-oauth-token"></a>
 ### Session-bound resolution
 
-Boundary interceptors resolve credentials from the session-bound bucket/configuration, never a caller-selected bucket header. Missing, expired, unrefreshable, wrong-account, or wrong-host requests fail before an upstream credential is attached. OAuth placeholders are distinct from Enterprise placeholders so modes cannot collide.
+For mediated platform routes, boundary interceptors resolve credentials from the session-bound bucket/configuration, never a caller-selected bucket header. Missing, expired, unrefreshable, wrong-account, or wrong-host requests fail before an upstream credential is attached. OAuth placeholders are distinct from Enterprise placeholders so modes cannot collide.
 
 <a id="github-token-handling"></a>
 ### GitHub credentials
@@ -292,7 +296,7 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 
 <!-- Preserved source-evidence anchors for the controls summarized above. -->
 <!-- @impl: .github/workflows/sign-release.yml::sign -->
-<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.137.0" -->
+<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.140.0" -->
 <!-- @impl: Dockerfile::CODE_SERVER_SHA256 -->
 <!-- @impl: entrypoint.sh::_openvscode_launch_once -->
 <!-- @impl: entrypoint.sh::_openvscode_prepare_agent -->

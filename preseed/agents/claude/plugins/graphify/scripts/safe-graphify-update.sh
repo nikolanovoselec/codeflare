@@ -47,5 +47,6 @@ ulimit -v "$CAP_KB"
 
 export GRAPHIFY_MAX_WORKERS="$WORKERS"
 export GRAPHIFY_NO_TIPS=1
+export GRAPHIFY_NO_AUTO_REFRESH=1
 
 exec graphify update "$@"

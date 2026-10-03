@@ -12,7 +12,7 @@
  * They are NOT Pi's only Browser Run path: the INTERACTIVE surface (navigate,
  * click, screenshot, viewport) is the chrome-devtools MCP server, which Pi
  * reaches through the pi-mcp-adapter `mcp` proxy (wired in entrypoint.sh into
- * ~/.pi/agent/mcp.json, the same chrome-devtools server Claude Code uses). So Pi
+ * ~/.pi/agent/mcp-adapter.json, the same chrome-devtools server Claude Code uses). So Pi
  * has full parity with Claude — read via these native tools, interact via
  * chrome-devtools. See the browser-run / browser-e2e skills for when to use which.
  *

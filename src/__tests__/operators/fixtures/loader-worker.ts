@@ -4,8 +4,8 @@
  * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { flueFixture } from './flue-native-fixture';
-export { FixtureFlueRoot, FixtureFlueTransport } from './flue-native-fixture';
+import { flueFixture, type FixtureTailInbox } from './flue-native-fixture';
+export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe, FixtureTailInbox } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
@@ -13,6 +13,7 @@ import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
+export { OperatorDispatcherTail } from '../../../operators/activity';
 /** Native eviction fixture proves state survives a new DO instance, not isolate memory. */
 export class FixtureActivity extends OperatorActivity {
   private readonly instanceId = crypto.randomUUID();
@@ -71,6 +72,7 @@ interface FixtureEnv {
   PARENT_SECRET: string;
   OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
+  TAIL_INBOX: DurableObjectNamespace<FixtureTailInbox>;
 }
 
 /** Test-only RPC capability. Identity comes from the parent binding, not arguments. */
@@ -98,7 +100,7 @@ export class ConductorFixtureCapability extends WorkerEntrypoint<FixtureEnv> {
       const files = [];
       for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
         const bytes = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, lane, packetDigest,
-          generation: 1, complete: true, omissions: [], findings: [] }));
+          head: 'b'.repeat(40), generation: 1, complete: true, omissions: [], findings: [] }));
         const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
           .map(byte => byte.toString(16).padStart(2, '0')).join('');
         conductorObjects.set(`Operators/reports/${lane}.json`, bytes);
@@ -168,6 +170,11 @@ export default {
       if (url.pathname === '/flue') {
         return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
       }
+      if (url.pathname === '/flue-tail' && request.method === 'GET') {
+        const activityId = url.searchParams.get('activity');
+        if (!activityId || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)) return new Response('Invalid activity', { status: 400 });
+        return Response.json(await env.TAIL_INBOX.getByName(activityId).snapshot());
+      }
       if (url.pathname === '/activity') {
         const activity = env.ACTIVITY.getByName(url.searchParams.get('activity') ?? 'default');
         const command = await request.json<ActivityFixtureCommand>();
@@ -232,9 +239,21 @@ export default {
         const second = await create().fetch(new Request('https://child.test/count'));
         return Response.json([await first.json(), await second.json()]);
       }
+      if (url.pathname === '/conductor-publication-producer' && request.method === 'POST') {
+        const input = await request.json<{ bundleJson: string; bundleDigest: string; producerSource: string;
+          mode: string; previous: unknown; round: number }>();
+        const compiled = await parseOperatorBundle(new TextEncoder().encode(input.bundleJson), input.bundleDigest);
+        const producer = (env.LOADER as unknown as WorkerLoader).load({ compatibilityDate: compiled.compatibilityDate,
+          compatibilityFlags: compiled.compatibilityFlags, mainModule: 'producer-fixture.js',
+          modules: { ...compiled.modules, 'producer-fixture.js': { js: input.producerSource } },
+          env: {}, globalOutbound: null }).getEntrypoint();
+        return producer.fetch(new Request('https://producer.internal/', { method: 'POST',
+          body: JSON.stringify({ mode: input.mode, previous: input.previous, round: input.round }) }));
+      }
       if (url.pathname === '/conductor-bundle') {
         const loaded = await loadConductorBundle(env, entrypoints.ConductorFixtureCapability({ props }));
-        const invocation = { input: { packet: { reference: 'prepared-review-packet-1', digest: 'a'.repeat(64) } },
+        const invocation = { input: { roundGeneration: 1,
+          packet: { reference: 'prepared-review-packet-1', digest: 'a'.repeat(64) } },
           attachments: [{ name: 'packet.json', mediaType: 'application/json', size: 128,
             sha256: 'a'.repeat(64), locator: 'packet-1' }] };
         return loaded.fetch(new Request('https://operator.internal/drive', { method: 'POST',

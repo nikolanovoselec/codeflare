@@ -7,6 +7,7 @@ import { authenticateRequest, requireOperatorHumanContext, canManageOperator, ha
 import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
+import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -14,6 +15,7 @@ import { createLogger } from '../lib/logger';
 import type { OperatorRegistry, ManagementOperatorProjection, ManagementPolicy, ManagementAuthority, ManagementControls,
   ManagementInstallation } from '../operators/registry';
 import { registerGithubOperator, refreshGithubReleases, updateGithubOperatorSource } from '../operators/github-release-management';
+import { proposeBoundaryWorkflow, verifyBoundaryWorkflow } from '../operators/boundary-action-installation';
 
 const logger = createLogger('operator-management');
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -27,6 +29,7 @@ const grant = z.strictObject({
 const policy = z.strictObject({
   capabilities: z.array(z.string().trim().min(1).max(128)).max(32).refine(values => new Set(values).size === values.length),
   resourceProfileId: z.string().regex(ID).nullable(),
+  sourceResponseBytes: z.number().int().min(1).max(MAX_SOURCE_RESPONSE_BYTES).optional(),
 });
 const githubPat = z.string().min(1).max(16384).refine(value => !!value.trim() && !/[\r\n\0]/.test(value));
 const repositoryUrl = z.string().min(1).max(2048);
@@ -38,18 +41,24 @@ const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
-const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities });
+const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes });
 const configureBody = z.strictObject({ policy, configuration, revision });
+const boundaryEnrollmentBody = z.strictObject({
+  repositoryUrl: z.string().min(1).max(2048),
+  protectedRef: z.enum(['refs/heads/main', 'refs/heads/develop', 'refs/heads/master']),
+  installationId: z.string().regex(ID),
+});
 const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), managers: grant,
   ceiling: z.strictObject({ capabilities: policy.shape.capabilities, resourceProfileIds: z.array(z.string().regex(ID)).max(128)
-    .refine(values => new Set(values).size === values.length) }),
+    .refine(values => new Set(values).size === values.length), sourceResponseBytes: policy.shape.sourceResponseBytes }),
   boundaryActions: z.array(z.strictObject({
     repositoryId: z.number().int().positive().safe(), installationId: z.string().regex(ID),
     workflowId: z.number().int().positive().safe(),
     workflowPath: z.string().regex(/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/),
     protectedRef: z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/),
     workflowDigest: z.string().regex(/^[a-f0-9]{64}$/i),
-    events: z.array(z.enum(['pull_request', 'push'])).min(1).max(2),
+    events: z.array(z.enum(['pull_request_target', 'pull_request', 'push'])).min(1).max(3),
+    enabled: z.literal(false),
   })).max(100).optional() });
 
 type HumanContext = Awaited<ReturnType<typeof requireOperatorHumanContext>> & { controls: ManagementControls; platformAdmin: boolean };
@@ -114,7 +123,8 @@ function scopedManager(context: HumanContext, operator: Pick<ManagementOperatorP
 }
 function withinCeiling(context: HumanContext, policy: ManagementPolicy): void {
   if (context.controls.revision === 0 || !policy.capabilities.every(capability => context.controls.ceiling.capabilities.includes(capability))
-    || (policy.resourceProfileId !== null && !context.controls.ceiling.resourceProfileIds.includes(policy.resourceProfileId))) denied();
+    || (policy.resourceProfileId !== null && !context.controls.ceiling.resourceProfileIds.includes(policy.resourceProfileId))
+    || sourceResponseBytes(policy) > sourceResponseBytes(context.controls.ceiling)) denied();
 }
 function authority(c: Context<RouteEnv>, operator: ManagementOperatorProjection, expectedRevision = operator.revision): ManagementAuthority {
   return { operatorRevision: expectedRevision, controlsRevision: c.get('operatorHuman').controls.revision, expiresAt: c.get('operatorHuman').human.expiresAt * 1000 };
@@ -176,6 +186,30 @@ app.get('/options', async c => {
     throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
   }
   return c.json(value);
+});
+
+async function enrollmentContext(c: Context<RouteEnv>) {
+  if (!c.get('operatorHuman').platformAdmin) denied();
+  const initial = c.get('operatorHuman').human;
+  return { env: c.env, registry: c.get('registry'), bucket: c.get('bucketName'), reauthorize: async () => {
+    const current = await managementContext(c, true);
+    if (!current.platformAdmin || current.human.subject !== initial.subject
+      || current.human.issuer !== initial.issuer || current.human.email !== initial.email
+      || current.human.expiresAt * 1000 <= Date.now()) denied();
+    return { email: current.human.email, expiresAt: current.human.expiresAt * 1000 };
+  } };
+}
+
+app.post('/boundary-actions/propose', async c => {
+  const context = await enrollmentContext(c);
+  const input = await parseJsonBody(c, boundaryEnrollmentBody);
+  return c.json(await proposeBoundaryWorkflow(input, context), 202);
+});
+
+app.post('/boundary-actions/verify', async c => {
+  const context = await enrollmentContext(c);
+  const input = await parseJsonBody(c, boundaryEnrollmentBody);
+  return c.json(await verifyBoundaryWorkflow(input, context));
 });
 
 app.get('/access', c => {
@@ -248,8 +282,9 @@ app.post('/operators/:operatorId/capabilities', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   requireMutationCsrf(c);
   const input = await parseJsonBody(c, capabilitiesBody);
-  withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities });
-  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision)));
+  withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities,
+    ...(input.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: input.sourceResponseBytes }) });
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes));
   logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);
 });

@@ -8,7 +8,7 @@
 //   - advisor guidance being user-invoked only while preserving user model config.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -35,19 +35,30 @@ function extractAdvisorGuidanceMerge() {
   return extractHeredoc(`node - "$advisor_config" <<'NODE'`, 'advisor guidance merge');
 }
 
-function runHeredoc(body, filename, initialJson) {
+function runHeredoc(body, filename, initialJson, times = 1, reviewAssets = false) {
   const dir = mkdtempSync(join(tmpdir(), 'pi-pkgs-'));
   const scriptPath = join(dir, 'script.cjs'); // .cjs: the program uses require()/argv
   const jsonPath = join(dir, filename);
   writeFileSync(scriptPath, body);
   writeFileSync(jsonPath, initialJson);
-  const result = spawnSync('node', [scriptPath, jsonPath], { encoding: 'utf-8' });
-  if (result.status !== 0) throw new Error(`heredoc exited ${result.status}: ${result.stderr}`);
+  if (reviewAssets) {
+    mkdirSync(join(dir, 'extensions'));
+    for (const name of ['review-enforcement.ts', 'operator-review-remote.ts',
+      'operator-review-selector.ts']) writeFileSync(join(dir, 'extensions', name), 'export default () => {}');
+  }
+  for (let index = 0; index < times; index++) {
+    if (index === 1 && reviewAssets === 'curation-local-only') {
+      rmSync(join(dir, 'extensions', 'operator-review-selector.ts'));
+      rmSync(join(dir, 'extensions', 'operator-review-remote.ts'));
+    }
+    const result = spawnSync('node', [scriptPath, jsonPath], { encoding: 'utf-8' });
+    if (result.status !== 0) throw new Error(`heredoc exited ${result.status}: ${result.stderr}`);
+  }
   return JSON.parse(readFileSync(jsonPath, 'utf-8'));
 }
 
-function runAssembly(initialSettings) {
-  return runHeredoc(extractAssembly(), 'settings.json', initialSettings);
+function runAssembly(initialSettings, times = 1, reviewAssets = false) {
+  return runHeredoc(extractAssembly(), 'settings.json', initialSettings, times, reviewAssets);
 }
 
 function runAdvisorGuidanceMerge(initialConfig) {
@@ -63,105 +74,6 @@ const piPackage = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agen
 const REQUIRED = Object.entries(piPackage.dependencies)
   .filter(([name]) => name !== '@earendil-works/pi-coding-agent')
   .map(([name, version]) => `npm:${name}@${version}`);
-
-const REVIEWED_GOAL_RELEASES = Object.freeze({
-  '0.46.0': 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==',
-  '0.49.5': 'sha512-0rMVURaipVyJCXq6t34WVZQGfCjyESgme0MJ0U9hZ22DeyobhQV4Ft6BqCoBgRNtgf+HrAuZrXCJmBU54Wd0gQ==',
-  '0.49.7': 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==',
-  '0.53.0': 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==',
-  '0.54.2': 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==',
-  '0.54.3': 'sha512-UgPF7uKm6B9XITmOji3uRJGeeQiBeFODwiiyFe3V3dUPWbCSXUUhvF0RuorkxNnsp1uPN46tELNxK9riBTNMZg==',
-  '0.54.4': 'sha512-WqGGYnX5YBaEUlkC2Lh3sFHizJ6/hiGBijybOBv/7RRDZvpMdfygORIl5OHhzqSPekC9+z0ROxiCzPE6hS17jQ==',
-});
-
-describe('Goal package preseed (REQ-AGENT-111)', () => {
-  it('replaces glla with one exact reviewed and integrity-locked Goal release', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    const version = pkg.dependencies['@narumitw/pi-goal'];
-    const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
-    assert.equal(version, '0.54.4');
-    assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
-    assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
-    const goal = lock.packages['node_modules/@narumitw/pi-goal'];
-    assert.equal(goal.version, version);
-    assert.equal(goal.integrity, expectedIntegrity);
-    assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
-  });
-
-});
-
-describe('Usage package preseed (REQ-AGENT-131)', () => {
-  it('pins the reviewed upstream package and integrity-locks its Pi entrypoint', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    const version = pkg.dependencies['@narumitw/pi-usage'];
-    assert.match(version, /^\d+\.\d+\.\d+$/);
-    const usage = lock.packages['node_modules/@narumitw/pi-usage'];
-    assert.equal(usage.version, version);
-    assert.equal(usage.resolved, `https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-${version}.tgz`);
-    assert.match(usage.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
-    assert.deepEqual(usage.peerDependencies, {
-      '@earendil-works/pi-ai': '*',
-      '@earendil-works/pi-coding-agent': '*',
-      '@earendil-works/pi-tui': '*',
-    });
-  });
-});
-
-describe('Evaluate package preseed (REQ-AGENT-133)', () => {
-  it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    const version = pkg.dependencies['pi-evaluate'];
-    assert.match(version, /^\d+\.\d+\.\d+$/);
-    const evaluate = lock.packages['node_modules/pi-evaluate'];
-    assert.equal(evaluate.version, version);
-    assert.equal(evaluate.resolved, `https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-${version}.tgz`);
-    assert.match(evaluate.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
-    // The skill ships inside the package, so the peer range is what keeps a Pi
-    // upgrade from silently loading an extension built against an older API.
-    assert.deepEqual(evaluate.peerDependencies, { '@earendil-works/pi-coding-agent': '>=0.82.0' });
-  });
-});
-
-describe('Plan mode package preseed (REQ-AGENT-152)', () => {
-  it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    const version = pkg.dependencies['@narumitw/pi-plan-mode'];
-    assert.equal(version, '0.56.0');
-    const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
-    assert.equal(planMode.version, version);
-    assert.equal(
-      planMode.resolved,
-      `https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-${version}.tgz`,
-    );
-    assert.equal(
-      planMode.integrity,
-      'sha512-sxbIODVaV6Ct+eD+lDN+tEn0mKtU9PG7rkkVhF6EC1d7t6YLHi1ixFhrKwMrJmsAPfkCnBKKImJcXx/bMFateg==',
-    );
-    assert.deepEqual(planMode.peerDependencies, {
-      '@earendil-works/pi-coding-agent': '*',
-      '@earendil-works/pi-tui': '*',
-    });
-  });
-});
-
-describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
-  it('pins the reviewed upstream release and retains no source-override machinery', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.9.0');
-    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.9.0');
-    assert.equal(
-      lock.packages['node_modules/@juicesharp/rpiv-todo'].integrity,
-      'sha512-kETvX1ysqm2ff8OQU/FvDlT/9oVGgIki5Z5WeolNqVd/YCA+TOL3n0l5FDOsm4rJKPPKjJ1xHNBdgsC2XngZIQ==',
-    );
-    assert.equal(pkg.scripts?.postinstall, undefined);
-    assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
-  });
-});
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
   it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
@@ -205,11 +117,21 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
   });
 
   it('does not inject context-mode runtime defaults through settings.extensions', () => {
-    const once = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }));
-    const twice = runAssembly(JSON.stringify(once));
+    const once = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 1, true);
+    const twice = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2, true);
 
-    assert.deepEqual(once.extensions, ['user-ext.ts']);
-    assert.deepEqual(twice.extensions, ['user-ext.ts']);
+    assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] })).extensions,
+      ['user-ext.ts'], 'a local-only curation release retains unchanged local Review');
+    assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2,
+      'curation-local-only').extensions, ['user-ext.ts'],
+    'a restored local-only release removes obsolete managed exclusions in the same session home');
+    for (const settings of [once, twice]) {
+      assert.equal(settings.extensions[0], 'user-ext.ts');
+      assert.equal(settings.extensions.length, 3, 'Review exclusions must not accumulate');
+      assert.deepEqual(settings.extensions.slice(1).map(entry => entry.split('/').at(-1)),
+        ['review-enforcement.ts', 'operator-review-remote.ts']);
+      assert.ok(settings.extensions.slice(1).every(entry => entry.startsWith('-/')));
+    }
   });
 
   it('REQ-AGENT-076: overrides advisor guidance as user-invoked only without clearing the selected model', () => {

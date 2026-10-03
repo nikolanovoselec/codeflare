@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.3';
-const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0'];
+const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0', '0.58.3'];
 const PARSED_POLICY_MARKER = 'CODEFLARE_PLAN_PARSED_COMMAND_POLICY';
 export const REGISTERED_HELPERS_MARKER = 'CODEFLARE_PLAN_REGISTERED_HELPERS';
 export const REGISTERED_POLICY_MARKER = 'CODEFLARE_PLAN_REGISTERED_POLICY';
@@ -47,8 +47,9 @@ export function patchPiPlanModeSource(source, kind) {
   if (count(source, ACTIVE_HELPERS) !== 2) {
     throw new Error(`Plan Mode ${kind} helper anchor count ${count(source, ACTIVE_HELPERS)}; expected 2`);
   }
-  const activePolicy = kind === 'source' ? SOURCE_ACTIVE_POLICY : DIST_ACTIVE_POLICY;
-  const registeredPolicy = kind === 'source' ? SOURCE_REGISTERED_POLICY : DIST_REGISTERED_POLICY;
+  const usesTabs = kind === 'source' && source.includes(SOURCE_ACTIVE_POLICY);
+  const activePolicy = usesTabs ? SOURCE_ACTIVE_POLICY : DIST_ACTIVE_POLICY;
+  const registeredPolicy = usesTabs ? SOURCE_REGISTERED_POLICY : DIST_REGISTERED_POLICY;
   if (count(source, activePolicy) !== 1) {
     throw new Error(`Plan Mode ${kind} policy anchor count ${count(source, activePolicy)}; expected 1`);
   }
@@ -81,10 +82,10 @@ export function patchPiPlanModeDirectory(version, root) {
     const source = patchPiPlanModeSource(readFileSync(path, 'utf8'), kind);
     return { path, source };
   });
-  if (version === '0.56.0') {
+  if (version === '0.56.0' || version === '0.58.3') {
     const path = join(root, 'src', 'tool-policy.ts');
     patched.push({ path, source: patchParsedCommandPolicy(readFileSync(path, 'utf8')) });
-    const chunk = join(root, 'dist', 'chunks', 'chunk-57OBPS7P.js');
+    const chunk = join(root, 'dist', 'chunks', version === '0.58.3' ? 'chunk-L2CXUWCH.ts' : 'chunk-57OBPS7P.js');
     patched.push({ path: chunk, source: patchParsedCommandPolicy(readFileSync(chunk, 'utf8'), 'void 0') });
   }
   for (const file of patched) writeFileSync(file.path, file.source);

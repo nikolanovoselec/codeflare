@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { nativeWorkerRuntime } from '../helpers/native-worker-runtime';
 
 // CF-045
 // Direct unit tests for src/routes/vault/native-sw.ts. The graft logic was
@@ -24,7 +25,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   });
 
   async function runInstallPrecache(sw: string) {
-    const marker = 'self.addEventListener("install",a=>{';
+    const marker = 'self.addEventListener("install",o=>{';
     const start = sw.indexOf(marker);
     const end = sw.indexOf('});self.addEventListener("activate"', start);
     if (start < 0 || end < 0) throw new Error('install precache handler not found');
@@ -43,11 +44,11 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const listener = new Function(
       'self',
       'caches',
-      'ce',
-      'Ce',
+      'De',
+      'gt',
       'Request',
       'console',
-      `return (a)=>{${body}};`,
+      `return (o)=>{${body}};`,
     )(
       { skipWaiting: async () => {} },
       { open: async () => ({ addAll: async (values: Array<{ url: string; cache?: string }>) => requests.push(...values) }) },
@@ -70,51 +71,132 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     ]);
   });
 
-  it('the graft calls __cfRecover before the get-encryption-key reply', () => {
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-      'case"get-encryption-key":{if(v===void 0)await __cfRecover()',
-    );
-  });
-
-  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', () => {
-    expect(VAULT_NATIVE_SW_VERBATIM).toContain('No clients are listening for messages, dropping message');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toContain('No clients are listening for messages, dropping message');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.info("[service proxy auth]",c)');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.warn("Sync space error",t.message)');
-  });
-
-  // REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the graft NEUTERS the upstream proactive
-  // 5s "no window clients" key flush so the in-memory AES key `y` is retained while
-  // the worker lives. Upstream wiped `y` during the bootstrap-hop -> editor 0-client
-  // transition, racing cold opens into a `.auth` 403. These slice the ACTUAL no-client
-  // flush callback out of each worker string and run it with zero clients, so
-  // reinstating the wipe (or gutting the graft) flips them red.
-  function runNoClientFlush(sw: string): string | undefined {
-    const NEEDLE = '.matchAll().then(a=>{';
-    const open = sw.indexOf(NEEDLE + 'a.length===0');
-    if (open < 0) throw new Error('no-client flush callback not found in served worker');
-    const keyVariable =
-      /async function __cfRecover\(\)\{if\(([A-Za-z_$][\w$]*)!==void 0\)/.exec(sw)?.[1]
-      ?? /a\.length===0&&([A-Za-z_$][\w$]*)&&\(console\.info\("No more clients, flushing encryption key"\),\1=void 0\)/.exec(sw)?.[1];
-    if (!keyVariable) throw new Error('encryption-key variable not found in worker');
-    const exprStart = open + NEEDLE.length;
-    const exprEnd = sw.indexOf('}', exprStart);
-    const expr = sw.slice(exprStart, exprEnd);
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(keyVariable, `const a = []; ${expr}; return ${keyVariable};`) as (
-      key: string,
-    ) => string | undefined;
-    return fn('AES-KEY');
+  const aesKey = btoa('a'.repeat(32));
+  const config = { enableClientEncryption: true, spaceFolderPath: '/vault', syncDocuments: true, syncIgnore: '' };
+  const runtimes = new Set<ReturnType<typeof nativeWorkerRuntime>>();
+  afterEach(() => { for (const runtime of runtimes) runtime.dispose(); runtimes.clear(); });
+  function servedRuntime(recover: () => Promise<Response> = async () => Response.json({ key: aesKey })) {
+    const requests: Array<{ url: string; credentials?: string }> = [];
+    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SERVICE_WORKER_JS, async (input, options) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push({ url, credentials: options?.credentials });
+      if (url === 'https://vault.test/.vault-key') return recover();
+      if (url === '/.fs') return Response.json([]);
+      throw new Error(`Unexpected native worker transport: ${url}`);
+    });
+    runtimes.add(runtime);
+    return { ...runtime, requests };
   }
 
-  it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
-    expect(runNoClientFlush(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe('AES-KEY');
+  it('REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler', async () => {
+    const runtime = servedRuntime();
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+    expect(runtime.requests).toEqual([{ url: 'https://vault.test/.vault-key', credentials: 'same-origin' }]);
   });
 
-  it('the flush-neuter is load-bearing: the verbatim (pre-graft) worker DOES wipe the key on no clients', () => {
-    // Negative control — proves the retained key above comes from the graft, not the
-    // harness. Upstream sets y=void 0 when clients.matchAll() resolves to [].
-    expect(runNoClientFlush(VAULT_NATIVE_SW_VERBATIM)).toBeUndefined();
+  it('REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler', async () => {
+    const runtime = servedRuntime();
+    expect(await runtime.message({ type: 'config', config })).toEqual([]); // config has no key reply
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+    // Intentional native database identity: scope, space and recovered key bind storage.
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`/vault:https://vault.test:${aesKey}`));
+    const name = `sb_files_${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    // Public logout preparation reports the configured sync database, not a private router field.
+    expect(await runtime.message({ type: 'logout-sync', id: 'configured' })).toEqual([{ ok: true, databases: [name] }]);
+    expect(await runtime.message({ type: 'logout-cancel', id: 'configured' })).toEqual([]);
+    await runtime.message({ type: 'shutdown' });
+  });
+
+  it.each(['get-encryption-key', 'config'])('REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration', async type => {
+    let release!: (response: Response) => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const runtime = servedRuntime(() => { entered(); return pending; });
+    const recovery = runtime.message({ type, config });
+    await started;
+    expect(await runtime.message({ type: 'logout-force' })).toEqual([{ ok: true }]);
+    expect(runtime.isRegistered()).toBe(false);
+    release(Response.json({ key: aesKey }));
+    expect(await recovery).toEqual([]);
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([]);
+    expect([...runtime.databases.keys()]).toEqual([]);
+  });
+
+  it('REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state', async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const runtime = servedRuntime(async () => { entered(); await pending; return Response.json({ key: aesKey }); });
+    const recovery = runtime.message({ type: 'get-encryption-key' });
+    await started;
+    expect(await runtime.message({ type: 'logout-sync', id: 'pending' })).toEqual([{ ok: true, databases: [] }]);
+    release();
+    expect(await recovery).toEqual([]);
+    await runtime.message({ type: 'logout-cancel', id: 'pending' });
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+  });
+
+  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', async () => {
+    const worker = VAULT_NATIVE_SERVICE_WORKER_JS;
+    const logs: string[] = [];
+    const output = {
+      info: () => logs.push('info'),
+      error: () => logs.push('error'),
+      warn: () => logs.push('warn'),
+    };
+    const received: unknown[] = [];
+    const clients: Array<{ postMessage(value: unknown): void }> = [];
+    const start = worker.indexOf('function b(o){');
+    const end = worker.indexOf('var Ei=', start);
+    const broadcast = new Function('self', 'console', `${worker.slice(start, end)}return b;`)(
+      { clients: { matchAll: async () => clients } }, output,
+    );
+    broadcast({ type: 'auth-error', message: 'AUTH_GATE', actionOrRedirectHeader: '.auth' });
+    await Promise.resolve();
+    expect(logs).toEqual([]);
+
+    clients.push({ postMessage(value) { received.push(value); } });
+    const callbackEnd = worker.indexOf('},void 0,d,"sync")');
+    const callbackStart = worker.lastIndexOf('(f,y)=>{', callbackEnd) + '(f,y)=>{'.length;
+    for (const [error, expectedLevel, configured] of [
+      ['AUTH_GATE', 'info', false], ['UNEXPECTED_FAILURE', 'error', true],
+    ] as const) {
+      logs.length = 0;
+      received.length = 0;
+      const router = { configured: true, reset() { this.configured = false; } };
+      const proxyError = new Function('console', 'se', 'g', 'b', `return (f,y)=>{${worker.slice(callbackStart, callbackEnd)}};`)(
+        output, { message: 'AUTH_GATE' }, router, broadcast,
+      );
+      proxyError(error, '.auth');
+      await Promise.resolve();
+      expect(logs).toEqual([expectedLevel]);
+      expect(router.configured).toBe(configured);
+      // Intentional auth-error wire envelope is preserved through the real broadcaster.
+      expect(received).toEqual([{ type: 'auth-error', message: error, actionOrRedirectHeader: '.auth' }]);
+    }
+    logs.length = 0;
+    const syncStart = worker.indexOf('console.warn("Sync space error",');
+    const syncEnd = worker.indexOf('}', syncStart);
+    new Function('console', 'n', worker.slice(syncStart, syncEnd))(output, new Error('retry'));
+    expect(logs).toEqual(['warn']);
+    expect(() => graftVaultKeyRecovery('invalid upstream artifact')).toThrow(/anchor/);
+  });
+
+  it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval', async () => {
+    const runtime = servedRuntime(async () => new Response(null, { status: 403 }));
+    expect(await runtime.message({ type: 'set-encryption-key', key: aesKey })).toEqual([{ type: 'encryption-key-set' }]);
+    await runtime.noClientInterval();
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+    expect(runtime.requests).toEqual([]); // retained AES, not a successful recovery hiding a wipe
+  });
+
+  it('the verbatim worker loses real AES across its registered zero-client interval', async () => {
+    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SW_VERBATIM, async () => { throw new Error('No external recovery allowed'); });
+    await runtime.message({ type: 'set-encryption-key', key: aesKey });
+    await runtime.noClientInterval();
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: undefined }]);
   });
 
   it('throws when an anchor substring is missing (SilverBullet version drift guard)', () => {
@@ -141,8 +223,8 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   // ACTUAL grafted bytes. The guard reads `s` (already-bound primary list) and `t` (the
   // snapshot param of the enclosing `syncFiles(t)`); `t` is threaded in as a closure arg.
   function makeSyncCycleRunner(sw: string) {
-    const start = sw.indexOf('s=await this.primary.fetchFileList()');
-    const endMarker = 'c=new Map(o.map(f=>[f.name,f]))';
+    const start = sw.indexOf('a=await this.primary.fetchFileList()');
+    const endMarker = 'l=new Map(s.map(u=>[u.name,u]))';
     const endIdx = sw.indexOf(endMarker, start);
     if (start < 0 || endIdx < 0) {
       throw new Error('full-sync-cycle remote-list consumer chain not found in served worker');
@@ -150,9 +232,9 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const chain = sw.slice(start, endIdx + endMarker.length);
     // eslint-disable-next-line no-new-func
     const fn = new Function('t', `return (async function(){
-      let s,o,r,l,c;
+      let a,s,c,r,l;
       ${chain};
-      return { candidateCount: r.size, remoteMapCount: c.size };
+      return { candidateCount: c.size, remoteMapCount: l.size };
     });`) as unknown as (
       t: unknown,
     ) => (this: unknown) => Promise<{ candidateCount: number; remoteMapCount: number }>;
@@ -199,14 +281,9 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   it('the guard is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
     // Negative control — proves the served no-op above comes from the graft, not
     // from upstream behavior. The pristine verbatim has no `Array.isArray` guard.
-    expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('Array.isArray(a)?a:[]');
     const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
     await expect(runVerbatim({ error: 'transient 5xx' })).rejects.toThrow(/forEach is not a function|is not a function/);
-    // The served worker carries the structural not-ready guard (array-normalize plus the
-    // empty-while-populated abort condition). Assert the functional contract tokens, not
-    // the human-readable error message.
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Array.isArray(a)');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('a.length===0&&(s.length>0||t.files.size>0)');
+
   });
 
   // REQ-VAULT-023 AC2: a 2nd-session start has a POPULATED persistent local store, but
@@ -277,8 +354,8 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(() => new Function(VAULT_NATIVE_SERVICE_WORKER_JS)).not.toThrow();
     // Negative control: the duplicate-`let` form the graft must NOT produce.
     const duplicateLetForm = VAULT_NATIVE_SW_VERBATIM.replace(
-      'o=await this.secondary.fetchFileList(),r=this.getNonSyncCandidates(o)',
-      'o=await this.secondary.fetchFileList(),o=Array.isArray(o)?o:[],r=this.getNonSyncCandidates(o)',
+      's=await this.secondary.fetchFileList(),c=this.getNonSyncCandidates(s)',
+      's=await this.secondary.fetchFileList(),s=Array.isArray(s)?s:[],c=this.getNonSyncCandidates(s)',
     );
     // eslint-disable-next-line no-new-func
     expect(() => new Function(duplicateLetForm)).toThrow(/already been declared|declare a let variable twice/i);
@@ -292,7 +369,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const hex = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    expect(VAULT_NATIVE_SW_SHA256).toBe('caae72f32c92e402e08199def85840b56e1aad0377dc418e521dc1b1be20eff8');
+    expect(VAULT_NATIVE_SW_SHA256).toBe('be8d1d2def7568b3440f15128a213a54f21e3b9aa43672c388597bfe808c512a');
     expect(hex).toBe(VAULT_NATIVE_SW_SHA256);
   });
 });

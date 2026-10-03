@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { Env } from '../../types';
 import {
   validateVaultRoute,
+  handleVaultRequest,
   maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
@@ -349,37 +351,22 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
     }
 
-    it('REQ-VAULT-024 AC5 / T1: serves the native SilverBullet worker with the key-recovery graft', () => {
-      // The native worker carries SB's sync engine + offline precache, which
-      // is what restores the persistent sb_files_* store (#445); asserting the
-      // served bytes contain `precache`/`addAll` fails the moment serving is
-      // swapped for anything without the sync engine.
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS.length).toBeGreaterThan(50_000);
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('precache');
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('addAll');
-      // Cold-boot encryption rides the native worker's own key handlers.
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('set-encryption-key');
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('get-encryption-key');
-      // REQ-VAULT-024 AC5: the served worker carries the codeflare recovery
-      // graft (the verbatim upstream worker does NOT) - without it the key is
-      // lost between the bootstrap-hop and shell boot and SB bounces to .auth.
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('.vault-key');
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Recovered encryption key from codeflare');
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
-      // The recovery must be wired at BOTH key-empty checkpoints: the helper is
-      // defined, the config auth-gate calls it before posting auth-error (the
-      // path that actually fires the .auth bounce), and get-encryption-key calls
-      // it before replying. The verbatim worker has none of these.
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(';var v;async function __cfRecover()');
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-        'if(t.enableClientEncryption&&!v){await __cfRecover()}if(t.enableClientEncryption&&!v){console.error("Supposed',
-      );
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(v===void 0)await __cfRecover()');
-      expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('__cfRecover');
+    it('REQ-VAULT-024 AC5 / T1: serves the native SilverBullet worker with the key-recovery graft', async () => {
+      const request = createRequest('/api/vault/abcdef12/service_worker.js', { 'Service-Worker': 'script' });
+      const response = await handleVaultRequest(request, {} as Env, {} as ExecutionContext, validateVaultRoute(request));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/javascript; charset=utf-8');
+      expect(response.headers.get('Service-Worker-Allowed')).toBe('/');
+      // Generated-artifact wire contract: registration receives the exact served worker,
+      // not a shim or an unmodified upstream worker. Recovery behavior has direct cases.
+      const body = await response.text();
+      expect(body).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
+      expect(body).not.toBe(VAULT_NATIVE_SW_VERBATIM);
+      expect(() => new Function(body)).not.toThrow();
     });
 
     it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
-      // The guard pins the upstream SB 2.10.0 bytes (pre-graft); a SilverBullet
+      // The guard pins the upstream SB 2.11.1 bytes (pre-graft); a SilverBullet
       // version bump that changes the worker must be a deliberate re-vendor
       // (update the constant AND the hash), never a silent drift. The verbatim
       // bytes are what is hashed - the graft is applied deterministically on top.

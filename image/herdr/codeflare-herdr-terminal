@@ -108,7 +108,7 @@ wait_for_process() {
 }
 
 supports_pi_live_readiness() {
-    timeout 1 "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.9.0'
+    timeout 1 "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.9.3'
 }
 
 wait_for_live_pi() {
@@ -207,7 +207,9 @@ bootstrap() {
     case "$command" in
         '') ;;
         'claude'|'claude --dangerously-skip-permissions') run_agent "$pane" "$command" claude claude ;;
-        'codex') run_agent "$pane" "$command" codex codex ;;
+        'codex')
+            if [ "${FAST_CLI_START:-true}" != "false" ]; then command='codex --no-daemon'; fi
+            run_agent "$pane" "$command" codex codex ;;
         'opencode') run_agent "$pane" "$command" opencode opencode ;;
         'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
         'pi') run_agent "$pane" 'pi --tui-mode fullscreen' pi pi ;;

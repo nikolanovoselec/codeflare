@@ -5,33 +5,20 @@ import { fileURLToPath } from 'node:url';
 
 const REVIEWED_FINDINGS = [
   {
-    // Observed in integration runs 34897440885/34897443967 at head 0a5f222b.
-    // Owner accepts this exact bundled-npm copy pending an upstream rebuild.
-    // Crafted brace patterns can exhaust memory/CPU in the user's container;
-    // this is a risk exception, not a claim that the package is patched.
-    // Remove when the bundled copy reaches the fixed 5.0.9 release.
+    // Owner-authorized deployment exception, 2026-10-02, run 37016354448.
+    // GHSA-c475-qrg2-pj4r: a malicious FTP listing can freeze the Node event
+    // loop through quadratic Unix-list parsing. Reachability is not disproved;
+    // accepted risk is denial of service in the user's session/IDE process.
+    // Upstream fix 6.2.1 requires a major upgrade from the vendored 5.3.1.
+    // Accept only this exact code-server copy, never an image-wide suppression.
+    // Review by 2026-10-09; retire when upstream bundles the fixed dependency.
     target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-69152',
-    packageName: 'brace-expansion',
-    packagePath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
-    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
-    installedVersion: '5.0.7',
-    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
-    severity: 'HIGH',
-  },
-  {
-    // Same two integration scans: npm actually bundles vulnerable 10.2.0.
-    // Leading-zero IPv4 parsing disagreement can bypass SSRF/trust boundaries;
-    // reachability here is unproven, not asserted absent. Owner accepts only
-    // this exact npm copy; application and code-server copies remain rejected.
-    // Remove when the bundled copy reaches the fixed 10.3.1 release.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-69192',
-    packageName: 'ip-address',
-    packagePath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
-    packagePurl: 'pkg:npm/ip-address@10.2.0',
-    installedVersion: '10.2.0',
-    fixedVersion: '10.3.1',
+    vulnerabilityId: 'CVE-2026-102990',
+    packageName: 'basic-ftp',
+    packagePath: 'opt/code-server/node_modules/basic-ftp/package.json',
+    packagePurl: 'pkg:npm/basic-ftp@5.3.1',
+    installedVersion: '5.3.1',
+    fixedVersion: '6.2.1',
     severity: 'HIGH',
   },
 ];

@@ -1,7 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "scripts/operator-boundary-action.mjs"
+  ],
   "project": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "scripts/operator-boundary-action.mjs"
   ],
   "ignore": [
     "src/lib/contact-topics.ts"

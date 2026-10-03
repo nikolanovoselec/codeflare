@@ -116,7 +116,7 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const catalog = await request('/operators');
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ items: [expect.objectContaining({ id: operator.id, installationCount: 2,
-      installedGithubReleaseId: release.githubReleaseId, description: verifiedPurpose })] });
+      installedGithubReleaseId: release.githubReleaseId, installedTagName: 'v1', installedPublishedAt: '2026-09-21T12:00:00Z', description: verifiedPurpose })] });
     // Simulate a catalog written before package-authored metadata was searchable.
     ctx.storage.sql.exec('UPDATE operator_catalog SET search=? WHERE id=?', `${registration.repositoryUrl} ${operator.id}`, operator.id);
     ctx.storage.sql.exec('DELETE FROM operator_search WHERE id=?', operator.id);

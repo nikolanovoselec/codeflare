@@ -16,6 +16,15 @@ const generatedPath = join(repoRoot, 'src/lib/agent-seed.generated.ts');
 // deleting the core, restoring import-time generation, or changing generated
 // bytes makes them fail.
 describe('shared agent seed compiler', () => {
+  it('REQ-AGENT-081 AC2: generated seed delivers no retired todo source override or install hook', async () => {
+    const { compileAgentSeed } = await import(coreUrl);
+    const compiled = await compileAgentSeed({ rootDir: repoRoot });
+    // Intentional generated-artifact retirement contract: upstream task state
+    // must not be replaced by a managed source payload or installation hook.
+    assert.deepEqual(compiled.documents.filter(({ key }) => key.includes('rpiv-todo-session-isolation')), []);
+    const piManifest = JSON.parse(await readFile(join(repoRoot, 'preseed/agents/pi/package.json'), 'utf8'));
+    assert.equal(piManifest.scripts?.postinstall, undefined);
+  });
   it('imports without generating or rewriting the committed image artifact', async () => {
     const before = await stat(generatedPath);
     const beforeBytes = await readFile(generatedPath);
@@ -50,6 +59,11 @@ describe('shared agent seed compiler', () => {
 
       const compiled = await generateAgentSeed({ rootDir: repoRoot, outputFile, log: () => undefined });
 
+      assert.equal(compiled.retiredKeys.includes('.pi/agent/mcp.json'), false,
+        'generated retirement contract must preserve legacy adapter credentials before migration');
+      const migration = compiled.documents.find(({ key }) => key === '.pi/agent/extensions/00-mcp-adapter-config.ts');
+      assert.ok(migration, 'image generated artifact must deliver the adapter filename migration');
+      assert.deepEqual([...migration.modes].sort(), ['advanced', 'default']);
       assert.match(compiled.runtimeHash, /^[0-9a-f]{64}$/);
       assert.match(compiled.source, new RegExp(`export const PRESEED_RUNTIME_DEPENDENCY_HASH = '${compiled.runtimeHash}';`));
       const licenses = compiled.documents.filter((document) => document.key.endsWith('/LICENSE'));

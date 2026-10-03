@@ -18,11 +18,12 @@
  * URL, or token ever enters the container.
  */
 import type { Env, ManagedResourcePolicy } from '../types';
-import { toError } from '../lib/error-types';
+import { ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
 import { getAigConfig } from '../lib/aig-config';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
+import { PERSONAL_PI_HOST_PATTERNS, personalPiConfiguredGithubHosts } from '../lib/personal-pi-destinations';
 import { interceptedGithubHosts } from '../github-interceptor';
 import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
@@ -32,6 +33,7 @@ import type { OperatorPolicy } from '../operators/policy';
 import type { OperatorContainerProfile } from './operator-context';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import { D1SessionRepository } from '../lib/session-repository';
+import { SHUTDOWN_REQUESTED_KEY } from './container-metrics';
 
 /** The DO surface the interception registry consumes (explicit interface, not inheritance). */
 export interface InterceptionHost {
@@ -42,6 +44,7 @@ export interface InterceptionHost {
   _sessionId: string | null;
   _userEmail: string | null;
   _userGroups: string[];
+  _shutdownStartedAt?: number;
   _cloudflareApiToken: string | null;
   _r2AccountId: string | null;
   _r2AccessKeyId: string | null;
@@ -62,6 +65,46 @@ export interface InterceptionHost {
 }
 
 /** One resolved outbound-interception transport, ready to register. */
+async function personalPiProps(host: InterceptionHost): Promise<Record<string, unknown>> {
+  if (!host._bucketName || !host._sessionId || !host._userEmail) return {};
+  let generation: number | undefined;
+  try {
+    const session = await new D1SessionRepository(host.env.USAGE_DB).getSession(host._bucketName, host._sessionId);
+    if (session && (session.lifecycleState === 'starting' || session.lifecycleState === 'running')
+      && Number.isSafeInteger(session.lifecycleGeneration) && session.lifecycleGeneration > 0) {
+      generation = session.lifecycleGeneration;
+    }
+  } catch { /* Missing session authority denies native access, not managed routing. */ }
+  return {
+    personalPi: { bucket: host._bucketName, sessionId: host._sessionId, user: host._userEmail, generation },
+    strict: host._strictEgress === true,
+    ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
+    ...(host._operatorContainerProfile ? { operatorInference: { activityId: host._operatorContainerProfile.activityId } } : {}),
+  };
+}
+
+/** Parent-only native context: no browser credential or Review authority is required. */
+export async function getPersonalPiSession(host: InterceptionHost, ref: {
+  bucket: string; sessionId: string; email: string;
+}): Promise<{ generation: number; groups: string[] }> {
+  const owned = () => host._bucketName === ref.bucket && host._sessionId === ref.sessionId
+    && host._userEmail?.toLowerCase() === ref.email.toLowerCase()
+    && !host._operatorPolicy && !host._operatorContainerProfile;
+  if (!owned()) throw new ForbiddenError('Session ownership mismatch');
+  const session = await new D1SessionRepository(host.env.USAGE_DB).getSession(ref.bucket, ref.sessionId);
+  const [generation, shutdown] = await Promise.all([
+    host.ctx.storage.get<number>('lifecycleGeneration'), host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY),
+  ]);
+  if (!owned() || (host._shutdownStartedAt ?? 0) > 0 || shutdown || !session
+    || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running')
+    || session.terminationIntentId
+    || typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation <= 0
+    || generation !== session.lifecycleGeneration) {
+    throw new ForbiddenError('Session authority unavailable');
+  }
+  return { generation, groups: [...host._userGroups] };
+}
+
 function jwtProps(host: InterceptionHost): Record<string, unknown> {
   return host._jwtStamping ? {
     jwtStamping: host._jwtStamping,
@@ -144,6 +187,7 @@ const llm: InterceptorSpec = {
     return {
       entrypoint: 'LlmInterceptor',
       props: {
+        ...await personalPiProps(host),
         user,
         ...(host._sessionId ? { sessionId: host._sessionId } : {}),
         ...(host._userGroups.length > 0 ? { groups: host._userGroups } : {}),
@@ -159,7 +203,7 @@ const llm: InterceptorSpec = {
         } } : {}),
         ...jwtProps(host),
       },
-      hosts: INTERCEPTED_LLM_HOSTS,
+      hosts: [...new Set([...INTERCEPTED_LLM_HOSTS, ...PERSONAL_PI_HOST_PATTERNS.filter(pattern => !(host._operatorPolicy || host._operatorContainerProfile) || !pattern.startsWith('*')), ...personalPiConfiguredGithubHosts(host.env)])],
       mandatory: true,
       wiredLog: 'Enterprise LLM interception wired',
       wiredLogData: { hostCount: INTERCEPTED_LLM_HOSTS.length },
@@ -199,6 +243,7 @@ const github: InterceptorSpec = {
     return {
       entrypoint: 'GitHubInterceptor',
       props: {
+        ...await personalPiProps(host),
         user, bucket,
         ...(host._sessionId && !host._operatorPolicy ? { sessionId: host._sessionId } : {}),
         ...(lifecycleGeneration ? { lifecycleGeneration } : {}),
@@ -236,7 +281,7 @@ const browserRendering: InterceptorSpec = {
       }
       return {
         entrypoint: 'CloudflareBrowserInterceptor',
-        props: { browserAccountId: accountId, browserToken: token, strict: host._strictEgress,
+        props: { ...await personalPiProps(host), browserAccountId: accountId, browserToken: token, strict: host._strictEgress,
           ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
         hosts: INTERCEPTED_CF_BROWSER_HOSTS,
         wiredLog: 'Enterprise Browser Rendering interception wired',
@@ -270,7 +315,7 @@ interface StrictEgressSecurityProps {
   r2SseDisabled?: boolean;
 }
 
-function resolveStrictEgress(
+async function resolveStrictEgress(
   host: InterceptionHost,
   security: StrictEgressSecurityProps = {
     bucket: host._bucketName ?? undefined,
@@ -281,11 +326,12 @@ function resolveStrictEgress(
     ...(host._managedResourcePathsDigest ? { pathsDigest: host._managedResourcePathsDigest } : {}),
     ...(host._r2SseDisabled ? { r2SseDisabled: true } : {}),
   },
-): InterceptorRegistration | null {
+): Promise<InterceptorRegistration | null> {
   if (!host._strictEgress && !host._operatorPolicy) return null;
   return {
     entrypoint: 'EgressController',
     props: {
+      ...await personalPiProps(host),
       accountId: host._r2AccountId ?? undefined,
       ...security,
       strict: true,
@@ -360,7 +406,7 @@ export async function refreshStrictEgressInterception(
   host: InterceptionHost,
   security: StrictEgressSecurityProps,
 ): Promise<void> {
-  const reg = resolveStrictEgress(host, security);
+  const reg = await resolveStrictEgress(host, security);
   if (reg) await applyInterception(host, reg, true);
 }
 

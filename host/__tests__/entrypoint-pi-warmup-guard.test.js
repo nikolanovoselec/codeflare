@@ -1,13 +1,8 @@
 // REQ-SESSION-015: container readiness must not be blocked by a failed
 // best-effort startup step.
 //
-// Verifies the Pi warm-up and Fast Start update paths are guarded so a non-zero
-// exit cannot abort the entrypoint (under `set -euo pipefail`) before the
-// init-complete flag is written — the production regression fixed in PR #440.
-//
-// Strategy (same family as entrypoint-pi-transcript-cleanup.test.js): execute the
-// real guarded warm-up call and the real update/readiness wrapper with failing
-// stubs. A negative control reconstructs the unguarded warm-up form.
+// Pi dependency warm-up and Fast Start update paths are best-effort under
+// `set -euo pipefail`; their failure must not block the init-complete flag.
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';

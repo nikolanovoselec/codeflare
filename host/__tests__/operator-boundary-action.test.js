@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { collectBoundaryResult, publishBoundaryResult } from '../../scripts/operator-boundary-action.mjs';
+import { collectBoundaryResult, publishBoundaryResult, resolvePublisherIdentity, selectBoundaryOrigin } from '../../scripts/operator-boundary-action.mjs';
 
 const activityId = 'activity-one';
 const startCapability = 's'.repeat(43);
@@ -14,6 +14,72 @@ const result = { schemaVersion: 1, activityId, activityGeneration: 1, generation
     check: { name: 'Boundary Reviews (shadow)', conclusion: 'success', summary: 'Complete' } } };
 
 function endpoint(request) { return new URL(request.url).pathname.split('/').at(-1); }
+
+test('REQ-OPERATOR-056: independent publisher discovers GitHub Actions identity without per-repository variables', async () => {
+  const identity = await resolvePublisherIdentity('job-token', async request => {
+    if (request.url === 'https://api.github.com/users/github-actions%5Bbot%5D')
+      return Response.json({ id: 41898282, login: 'github-actions[bot]', type: 'Bot' });
+    if (request.url === 'https://api.github.com/apps/github-actions')
+      return Response.json({ id: 15368, slug: 'github-actions' });
+    throw Error('Unexpected publisher identity endpoint');
+  });
+  assert.deepEqual(identity, { commentAuthorId: 41898282, checkAppId: 15368 });
+  await assert.rejects(() => resolvePublisherIdentity('job-token', async request =>
+    request.url.endsWith('/apps/github-actions') ? Response.json({ id: 15368, slug: 'other-app' })
+      : Response.json({ id: 41898282, login: 'github-actions[bot]', type: 'Bot' })));
+});
+
+test('REQ-OPERATOR-053: exactly one observed affirmative selects its fixed origin despite an errored or timed-out peer', async () => {
+  const origins = ['https://dev.example.test', 'https://integration.example.test', 'https://production.example.test'];
+  const audiences = [];
+  const requests = [];
+  const selected = await selectBoundaryOrigin(origins, { repositoryId: 138, pullRequest: 34,
+    head: 'a'.repeat(40), base: 'b'.repeat(40), mergeBase: 'c'.repeat(40), runId: 42, runAttempt: 1 }, {
+    oidc: async audience => { audiences.push(audience); return `proof-${audience}`; },
+    fetch: async request => {
+      requests.push({ url: request.url, body: await request.text() });
+      if (request.url.startsWith(origins[0])) throw Error('Development unavailable');
+      if (request.url.startsWith(origins[1])) return Response.json({ status: 'match', contextDigest: 'd'.repeat(64) });
+      return new Promise(() => {});
+    },
+  }, { deadlineMs: 300 });
+  assert.deepEqual(selected, { origin: origins[1], contextDigest: 'd'.repeat(64) });
+  assert.deepEqual(new Set(audiences), new Set(origins.map(value => `${value}/operator-webhook/v1/activities/claims/discovery`)));
+  assert.deepEqual(new Set(requests.map(request => request.url)), new Set(audiences));
+  assert.equal(requests.every(request => !request.body.includes(startCapability) && !request.body.includes(readCapability)), true);
+});
+
+test('REQ-OPERATOR-053: bounded non-consuming re-observation sees a preparation that arrives after the PR event', async () => {
+  const origins = ['https://dev.example.test', 'https://integration.example.test', 'https://production.example.test'];
+  let prepared = false;
+  setTimeout(() => { prepared = true; }, 20);
+  const result = await selectBoundaryOrigin(origins, { repositoryId: 138, pullRequest: 34,
+    head: 'a'.repeat(40), base: 'b'.repeat(40), mergeBase: 'c'.repeat(40), runId: 42, runAttempt: 1 }, {
+    oidc: async () => 'signed-proof',
+    fetch: async request => Response.json(prepared && request.url.startsWith(origins[1])
+      ? { status: 'match', contextDigest: 'd'.repeat(64) } : { status: 'no-match' }),
+  }, { deadlineMs: 1000, reobserveMs: 10 });
+  assert.deepEqual(result, { origin: origins[1], contextDigest: 'd'.repeat(64) });
+});
+
+test('REQ-OPERATOR-053: no confirmation, duplicate confirmation or invalid fixed origins never select a claim target', async () => {
+  const origins = ['https://dev.example.test', 'https://integration.example.test', 'https://production.example.test'];
+  const input = { repositoryId: 138, pullRequest: 34, head: 'a'.repeat(40), base: 'b'.repeat(40),
+    mergeBase: 'c'.repeat(40), runId: 42, runAttempt: 1 };
+  for (const matches of [[], [0, 1]]) {
+    const selected = await selectBoundaryOrigin(origins, input, {
+      oidc: async () => 'signed-proof',
+      fetch: async request => Response.json(matches.some(index => request.url.startsWith(origins[index]))
+        ? { status: 'match', contextDigest: 'd'.repeat(64) } : { status: 'no-match' }),
+    }, { deadlineMs: 30 });
+    assert.equal(selected, null);
+  }
+  const denied = await selectBoundaryOrigin([...origins.slice(0, 2), 'https://attacker.example.test/path'], input, {
+    oidc: async () => { throw Error('Invalid origin must not receive OIDC'); },
+    fetch: async () => { throw Error('Invalid origin must not be fetched'); },
+  }, { deadlineMs: 30 });
+  assert.equal(denied, null);
+});
 
 test('REQ-OPERATOR-053: lost result delivery rereads the identical terminal bytes without another start', async () => {
   const actions = [];

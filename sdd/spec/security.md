@@ -346,6 +346,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 - Image scanning is part of the deploy pipeline, not a runtime check.
 - The vulnerability-exception allowlist is reviewed periodically.
+- Retire a tuple when its runtime dependency is patched; absence then passes, while recurrence is an unexpected finding. <!-- @test: host/__tests__/trivy-exception-gate.test.js (accepts a patched image without the retired npm brace finding) --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects recurrence of the retired npm brace vulnerability) -->
 - Identical-input deploys reuse the already-pushed (already-scanned) image without rescanning; the input-hash tag carries a weekly salt, so any reused image was scanned green within the past seven days.
 
 **Priority:** P1

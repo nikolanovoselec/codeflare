@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
@@ -67,11 +67,60 @@ describe('Impeccable managed runtime policy', () => {
     assert.deepEqual(result.stdout.trim().split('\n'), ['context', '--target', 'file.ts']);
   }));
 
+  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11']]) {
+    it(`REQ-AGENT-181: reviewed ${skillVersion} dispatches only to its matching image engine ${engineVersion}`, () => withTempDir(root => {
+      const source = join(root, 'source');
+      cpSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}`), source, { recursive: true });
+      applyCodeflareImpeccableOverlay(source);
+      const targets = ['claude', 'pi'].map(agent => ({ agent, root: join(root, agent),
+        runtimePath: agent === 'claude' ? '~/.claude/skills/impeccable' : '~/.pi/agent/skills/impeccable' }));
+      replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), targets);
+      const engines = join(root, 'engines');
+      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11'].filter(version => version !== engineVersion)) {
+        const other = join(engines, otherVersion, 'impeccable');
+        mkdirSync(dirname(other), { recursive: true });
+        writeFileSync(other, '#!/bin/sh\necho incorrect-fallback\n', { mode: 0o755 });
+      }
+      const engine = join(engines, engineVersion, 'impeccable');
+      mkdirSync(dirname(engine), { recursive: true });
+      writeFileSync(engine, `#!/bin/sh\nprintf '%s\\n' '${engineVersion}' "$@"\n`, { mode: 0o755 });
+      for (const target of targets) {
+        const launcher = join(target.root, 'scripts/impeccable');
+        writeFileSync(launcher, managedImpeccableLauncher(engines), { mode: 0o755 });
+        chmodSync(launcher, 0o755);
+        const result = spawnSync(launcher, ['context', '--target', 'a file.ts'], { encoding: 'utf8' });
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+        assert.deepEqual(result.stdout.trim().split('\n'), [engineVersion, 'context', '--target', 'a file.ts']);
+        for (const command of ['install', 'update']) {
+          const denied = spawnSync(launcher, ['skills', command], { encoding: 'utf8' });
+          assert.equal(denied.status, 1);
+          assert.match(denied.stderr, /image-owned/);
+        }
+      }
+      rmSync(engine);
+      for (const target of targets) {
+        const missing = spawnSync(join(target.root, 'scripts/impeccable'), ['context'], { encoding: 'utf8' });
+        assert.equal(missing.status, 127);
+        assert.equal(missing.stdout, '');
+        assert.match(missing.stderr, /missing from this Codeflare image/);
+      }
+    }));
+  }
+
   it('REQ-AGENT-181: unreviewed native engine fails before source mutation', () => withTempDir((source) => {
     cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.3.1'), source, { recursive: true });
     const before = readFileSync(join(source, 'SKILL.md'), 'utf8');
     writeFileSync(join(source, 'scripts/VERSION'), '0.1.4\n');
     assert.throws(() => applyCodeflareImpeccableOverlay(source), /engine version/);
+    assert.equal(readFileSync(join(source, 'SKILL.md'), 'utf8'), before);
+  }));
+
+  it('REQ-AGENT-181: 4.5.0 rejects an older engine before source mutation', () => withTempDir(source => {
+    cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.5.0'), source, { recursive: true });
+    const before = readFileSync(join(source, 'SKILL.md'), 'utf8');
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.10\n');
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /expected image-owned 0\.1\.11/);
     assert.equal(readFileSync(join(source, 'SKILL.md'), 'utf8'), before);
   }));
 

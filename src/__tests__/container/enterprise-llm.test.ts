@@ -187,7 +187,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await instance.startAndWaitForPorts(8080);
 
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', fetcher);
-      expect(callOrder).toEqual(['interceptOutboundHttps', 'super.startAndWaitForPorts']);
+      expect(callOrder.at(-1)).toBe('super.startAndWaitForPorts');
+      expect(callOrder.slice(0, -1).every(step => step === 'interceptOutboundHttps')).toBe(true);
     });
 
     it('does NOT wire interception on a non-enterprise start (SaaS start path byte-identical)', async () => {
@@ -230,7 +231,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await instance.startAndWaitForPorts(8080);
 
       // Native replay isolation carries both the authenticated user and bound session.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', sessionId: 'session-1', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: expect.objectContaining({ user: 'nikola@novoselec.ch', sessionId: 'session-1', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' }) });
     });
 
     it('passes the matched Access groups as the interceptor groups prop when set', async () => {

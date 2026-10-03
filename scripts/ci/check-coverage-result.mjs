@@ -269,9 +269,13 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold, r
   // rejects it below), so exclude it in Git rather than buffering a potentially
   // multi-megabyte seed diff only to discard it after spawnSync returns.
   const generatedTypeScriptPathspec = `:(top,exclude,glob)${sourceRoot}/**/*.generated.ts`;
+  // Test fixtures are excluded by isProductionPath as well. Filter them before
+  // buffering: compiled child JSON can exceed the budget without changing any
+  // production lines. The production diff and coverage bounds remain unchanged.
+  const testFixturesPathspec = `:(top,exclude,glob)${sourceRoot}/**/__tests__/**`;
   const diffResult = spawnSync(
     'git',
-    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec, generatedTypeScriptPathspec],
+    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec, generatedTypeScriptPathspec, testFixturesPathspec],
     { encoding: 'utf8', maxBuffer: CHANGED_COVERAGE_LIMITS.maxDiffBytes + 1 },
   );
   if (diffResult.status !== 0 || diffResult.error) {

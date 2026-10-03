@@ -9,7 +9,7 @@ permissions: {}
 jobs:
   promotion-source:
     name: Develop promotion source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
       - name: Require develop as the promotion source

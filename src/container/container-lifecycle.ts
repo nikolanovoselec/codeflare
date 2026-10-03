@@ -55,6 +55,7 @@ export interface LifecycleHost extends ContainerHost {
 
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
+  const shutdownAtEntry = host._shutdownStartedAt;
   updateEnvVars(host);
   if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
   const repository = new D1SessionRepository(host.env.USAGE_DB);
@@ -65,20 +66,28 @@ export async function onStart(host: LifecycleHost): Promise<void> {
 
   const isFreshStart = session.lifecycleState === 'starting';
   if (isFreshStart) {
-    host.containerStartedAt = Date.now();
-    // Alarms can wake a fresh Durable Object instance after the container
-    // starts. Persist the fallback idle reference for that reconstruction.
-    await host.ctx.storage.put('containerStartedAt', host.containerStartedAt);
-    // A fresh start owns a new lifecycle generation, so it alone may clear
-    // shutdown and transport-recovery state from the previous generation.
-    try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
-    await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
-    await host.ctx.storage.put('lifecycleGeneration', session.lifecycleGeneration);
-    await host.ctx.storage.put('observationSequence', 0);
+    const startedAt = Date.now();
+    // Retire old authority with the generation handoff even if exit cleanup
+    // is delayed. Same-generation authority and newer executions remain intact.
+    await host.ctx.storage.transaction(async txn => {
+      const previous = await txn.get<number>('lifecycleGeneration');
+      if (previous !== undefined && (!Number.isSafeInteger(previous) || previous < 0
+        || previous > session.lifecycleGeneration)) throw new Error('D1 start generation handoff unavailable');
+      if (previous !== session.lifecycleGeneration) {
+        await discardReviewSessionHuman({ ctx: { storage: txn } });
+      }
+      await txn.delete(SHUTDOWN_REQUESTED_KEY);
+      await txn.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
+      await txn.put('lifecycleGeneration', session.lifecycleGeneration);
+      await txn.put('observationSequence', 0);
+      await txn.put('containerStartedAt', startedAt);
+    });
+    host.containerStartedAt = startedAt;
     const observedAt = new Date().toISOString();
     if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
       lifecycleState: 'running', observedAt,
     })) throw new Error('D1 running projection rejected');
+    if (host._shutdownStartedAt === shutdownAtEntry) host._shutdownStartedAt = 0;
   } else {
     // The Containers SDK can replay onStart after the first hook projected the
     // generation. Only the same durable generation is a harmless replay.
@@ -421,10 +430,16 @@ export async function confirmMonitoredExit(
   if (confirmed) {
     try {
       // A replacement may claim a new generation while the exit callback
-      // completes. Never leave the replacement with the old shutdown marker.
+      // completes. Never fence or discard authority belonging to the replacement.
       await ctx.storage.transaction(async (txn) => {
         if (await txn.get<number>('lifecycleGeneration') === generation) {
           await txn.put(SHUTDOWN_REQUESTED_KEY, Date.now());
+        }
+      });
+      // Cleanup rollback must not roll back the already-committed shutdown fence.
+      await ctx.storage.transaction(async (txn) => {
+        if (await txn.get<number>('lifecycleGeneration') === generation) {
+          await discardReviewSessionHuman({ ctx: { storage: txn } });
         }
       });
     } catch { /* D1 exit confirmation, not best-effort coordinator cleanup, owns authority */ }

@@ -6,6 +6,7 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import type { DispatcherBundle, OperatorBundle } from './distribution';
+import { DEFAULT_SOURCE_RESPONSE_BYTES } from './dispatcher-source-limits';
 
 /** Minimal documented Worker Loader surface; no cached get() or inherited env. */
 interface OperatorLoaderCode {
@@ -13,8 +14,9 @@ interface OperatorLoaderCode {
   compatibilityFlags: string[];
   mainModule: string;
   modules: OperatorBundle['modules'];
-  env: { OPERATOR: Fetcher };
+  env: { OPERATOR: Fetcher; GITHUB_API_ORIGIN?: string; OPERATOR_SOURCE_RESPONSE_BYTES?: string };
   globalOutbound: Fetcher | null;
+  tails?: Array<{ tail(events: unknown): Promise<void> }>;
 }
 
 export interface OperatorLoaderBinding {
@@ -62,6 +64,10 @@ export function loadOperatorDispatcherClass(
   activityId: string,
   generation: number,
   capability: Fetcher,
+  tail: { tail(events: unknown): Promise<void> },
+  outbound: Fetcher | null = null,
+  githubApiOrigin?: string,
+  sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES,
 ): unknown {
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1) {
@@ -72,7 +78,9 @@ export function loadOperatorDispatcherClass(
     compatibilityFlags: bundle.compatibilityFlags,
     mainModule: bundle.mainModule,
     modules: bundle.modules,
-    env: { OPERATOR: capability },
-    globalOutbound: null,
+    env: { OPERATOR: capability, ...(githubApiOrigin ? { GITHUB_API_ORIGIN: githubApiOrigin,
+      OPERATOR_SOURCE_RESPONSE_BYTES: String(sourceBytes) } : {}) },
+    globalOutbound: outbound,
+    tails: [tail],
   })).getDurableObjectClass(bundle.className);
 }

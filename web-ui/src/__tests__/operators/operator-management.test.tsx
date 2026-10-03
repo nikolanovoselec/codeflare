@@ -61,6 +61,8 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     render(() => <App />);
 
     await waitFor(() => expect(window.location.pathname).toBe('/operators'));
+    // Navigation does not await the real management component's lazy import.
+    await vi.dynamicImportSettled();
     expect(await screen.findByText(longName)).toBeInTheDocument();
     expect(screen.queryByText('Endpoint URL')).not.toBeInTheDocument();
   });
@@ -68,7 +70,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
   it('renders the separate management area for an authorized manager rather than Administration navigation', async () => {
     render(() => <App />);
 
-    expect(await screen.findByRole('heading', { name: /operators/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Operators', level: 1 })).toBeInTheDocument();
     expect(await screen.findByText(longName)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /register operator/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: new RegExp(`manage ${longName}`, 'i') })).toBeInTheDocument();
@@ -224,12 +226,18 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.queryByRole('heading', { name: 'My activity', level: 2 })).not.toBeInTheDocument();
   });
 
-  it('keeps a denied catalog non-enumerating and presents a recoverable access state without operator details', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Not found' }, 404)));
+  it.each([403, 404])('REQ-AUTH-009/REQ-OPERATOR-049: denied catalog %i offers native session renewal without operator details', async status => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Access denied' }, status)));
     render(() => <App />);
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/not authorized|access denied/i);
+    const signIn = within(alert).getByRole('link', { name: 'Sign in again' });
+    // Intentional navigation contract: the backend, not SPA routing, renews the session.
+    expect(signIn).toHaveAttribute('href', '/auth/logout');
+    const navigation = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    fireEvent(signIn, navigation);
+    expect(navigation.defaultPrevented).toBe(false);
     expect(screen.queryByText(longName)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /register operator/i })).not.toBeInTheDocument();
   });

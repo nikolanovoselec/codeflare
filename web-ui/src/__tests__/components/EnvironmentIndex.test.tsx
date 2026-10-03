@@ -787,8 +787,9 @@ describe('REQ-OPERATOR-008: one Environment identity and operator-limit area', (
     }));
     mount();
     fireEvent.click(await screen.findByText('Operator eligibility and limits'));
-    const panel = await screen.findByRole('heading', { name: 'Operator eligibility and limits' });
+    const panel = await screen.findByRole('region', { name: 'Operator eligibility and limits' });
     expect(panel).toBeVisible();
+    expect(screen.getAllByText('Operator eligibility and limits')).toHaveLength(1);
     expect(await screen.findByRole('checkbox', { name: /admin@example.test/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /inference/i })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Eligible manager users' })).not.toBeInTheDocument();

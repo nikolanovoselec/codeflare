@@ -414,6 +414,7 @@ const App: Component = () => {
       <Route path="/app/onboarding" component={OnboardingPage} />
       <Route path="/app/usage" component={UsagePage} />
       <Route path="/operators" component={() => <SetupGuard><OperatorManagementRoute /></SetupGuard>} />
+      <Route path="/admin/operators" component={() => <Navigate href="/operators" />} />
       <Route path="/admin" component={AdministrationShell}>
         <Route path="/" component={AdministrationOverview} />
         <Route path="/environment" component={EnvironmentIndex} />
@@ -424,7 +425,6 @@ const App: Component = () => {
         <Route path="/analytics/users/:userKey" component={AnalyticsUserDetail} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity" component={ActivityPage} />
-        <Route path="/operators" component={() => <Navigate href="/operators" />} />
       </Route>
       <Route
         path="/*"

@@ -50,12 +50,14 @@ When public workflows or consumers change, update the owning document in the [pr
 | [Configuration](lanes/configuration.md) | Default-mode configuration and public runtime behavior | Operators |
 | [Administration and historical usage](lanes/administration-analytics.md) | Environment changes, D1 history, reports, retention, and rollout checks | Operators, Developers |
 | [Operator Interface foundation](lanes/operators.md) | Phase-1 ownership, trust boundaries and reusable operator primitives | Operators, Developers, Security |
+| [Repository-only Dispatcher transport](lanes/dispatcher-generic-transport.md) | Generic parent transport, operation receipts, response bounds and recovery fencing | Developers |
 | [Target capability discovery](lanes/target-capability-discovery.md) | Explicit discovery, shared contracts, evidence grades, and bounded qualification | Operators, Developers |
 | [Generic Anthropic Bedrock model support](lanes/bedrock-generic-model-support.md) | Reusable native contract, reasoning semantics, authority, and upgrades | Operators, Developers |
 | [Bedrock prompt caching](lanes/bedrock-prompt-caching.md) | Native checkpoints, usage accounting, and historical cache/stream evidence | Operators, Developers |
 | [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
 | [D1 Session Lifecycle](lanes/session-lifecycle-d1.md) | D1 session authority, runtime recovery, status projection, and clean-slate cutover boundary | Operators, Developers |
 | [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
+| [Dependency consolidation: October 2026](lanes/dependency-consolidation-2026-10-01.md) | Captured proposal disposition, compatibility constraints and release evidence | Developers, Operators |
 | [CI/CD & Testing](lanes/ci-cd.md) | Public workflow behavior and test-suite structure | Developers |
 | [Development & Deployment](lanes/deployment.md) | Deployment execution, verification, rollback, development references, dated cost evidence | Developers, Operators |
 | [Troubleshooting](lanes/troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |

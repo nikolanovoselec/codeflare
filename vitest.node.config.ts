@@ -20,13 +20,15 @@ export default defineConfig({
     // it would make a pool switch or a major bump an opaque suite failure.
     pool: 'forks',
     include: nodeSuiteFiles(process.env.VITEST_NODE_SUITE_GROUP),
+    // Three isolated Flue files run concurrently; never share a case's workerd.
+    maxWorkers: process.env.VITEST_NODE_SUITE_GROUP === 'flue' ? 3 : undefined,
     slowTestThreshold: 5000,
     testTimeout: 30000,
     hookTimeout: 30000,
-    // One native failure can leave workerd intentionally fenced or evicted.
-    // Do not spend another 30 seconds on every later case against that failed
-    // fixture; the dedicated native report still records the first real failure.
-    bail: ['native', 'flue'].includes(process.env.VITEST_NODE_SUITE_GROUP ?? '') ? 1 : 0,
+    // The flue suite uses a fresh workerd for each case: report standalone
+    // controls and every compiled diagnostic even if one case fails.
+    // The authority/native suite retains its first-failure fence.
+    bail: process.env.VITEST_NODE_SUITE_GROUP === 'native' ? 1 : 0,
     // Compact per-test output in CI (dots + summary); full reporter locally.
     reporters: process.env.CI ? ['dot'] : ['default'],
   },

@@ -7,7 +7,7 @@ import { parseOperatorAttachmentProjection } from '../../operators/attachments';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { prepareOperatorActivity } from '../../operators/orchestrator';
 import { operatorOwnerKey } from '../../operators/browser-activity';
-import { claimVerifiedBoundaryAction, operateBoundaryPublication, prepareBoundaryPublication,
+import { claimVerifiedBoundaryAction, discoverVerifiedBoundaryAction, operateBoundaryPublication, prepareBoundaryPublication,
   verifyCurrentClaimedBoundaryPacket, type BoundaryPublicationRequest } from '../../operators/review-boundary-claim';
 import webhookRoutes from '../../routes/operator-webhook';
 import { fencePendingBoundaryStart } from '../../routes/session/boundary-stop';
@@ -66,6 +66,7 @@ beforeEach(async () => {
 async function scenario(run: (fixture: {
   registry: OperatorRegistry; activity: OperatorActivity; repo: D1SessionRepository;
   claim: (change?: Partial<typeof request>) => Promise<unknown>;
+  discover: (change?: Partial<typeof request>) => Promise<unknown>;
   publish: (change?: Partial<BoundaryPublicationRequest>) => Promise<unknown>;
   packetCurrent: () => Promise<boolean>;
   expireBoundary: () => Promise<void>; activityId: string; startCapability: string; rehydrate: () => OperatorActivity;
@@ -209,6 +210,8 @@ async function scenario(run: (fixture: {
       })}.signature`;
       const claim = (change: Partial<typeof request> = {}) => claimVerifiedBoundaryAction(actionEnv,
         signedFixture, { ...request, ...change });
+      const discover = (change: Partial<typeof request> = {}) => discoverVerifiedBoundaryAction(actionEnv,
+        signedFixture, { ...request, ...change });
       const publish = (change: Partial<BoundaryPublicationRequest> = {}) => operateBoundaryPublication(actionEnv,
         signedFixture, { ...request, workflowId: 531, activityId, contextDigest: 'f'.repeat(64),
           sessionGeneration: 1, activityGeneration: 2, effect: 'check', digest: 'e'.repeat(64),
@@ -220,7 +223,7 @@ async function scenario(run: (fixture: {
         ctx.storage.sql.exec(`UPDATE operator_boundary_preparations SET data=json_set(data,'$.deadline',?)
           WHERE repository_id=? AND pull_request=?`, Date.now() - 1, 138, 34);
       });
-      try { await run({ registry: registryOwner, activity, repo, claim, publish,
+      try { await run({ registry: registryOwner, activity, repo, claim, discover, publish,
         packetCurrent: () => verifyCurrentClaimedBoundaryPacket(actionEnv, activityId, 'owner/repo'), expireBoundary,
         activityId, startCapability: prepared.startCapability, preparePublication,
         rehydrate: () => new OperatorActivity(activityCtx,
@@ -452,6 +455,16 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
       expect(await f.publish({ effect: 'comment', digest: '4'.repeat(64) }))
         .not.toMatchObject({ status: 'new' });
     }, { baseRef }));
+
+  it('REQ-OPERATOR-053: discovers a verified actor-bound match without consuming start authority', () => scenario(async f => {
+    expect(await f.discover()).toEqual({ status: 'match', contextDigest: 'f'.repeat(64) });
+    expect((await f.registry.getBoundaryPreparation(138, 34))?.phase).toBe('prepared');
+    trust.human = false;
+    expect(await f.discover()).toEqual({ status: 'unavailable' });
+    trust.human = true;
+    expect(await f.discover({ head: '9'.repeat(40) })).toEqual({ status: 'unavailable' });
+    expect(await f.claim()).toMatchObject({ activityId: f.activityId, startCapability: f.startCapability });
+  }));
 
   it('claims once for the exact current run, then only the Action webhook start admits the bound activity', () => scenario(async f => {
     expect(await f.activity.start(f.startCapability)).toMatchObject({ ok: false });

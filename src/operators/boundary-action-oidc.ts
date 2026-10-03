@@ -13,7 +13,7 @@ export interface BoundaryActionIdentity {
 /** Fetch only GitHub's fixed signing origin; neither token headers nor request data can select a key URL. */
 async function fetchBoundaryActionKeys(): Promise<unknown> {
   const response = await fetch(KEYS_URL, { signal: AbortSignal.timeout(5_000),
-    headers: { accept: 'application/json' }, redirect: 'error' });
+    headers: { accept: 'application/json' }, redirect: 'manual' });
   if (!response.ok) throw Error('Action signing keys unavailable');
   return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
     await readBoundedResponse(response, 64 * 1024, 'GitHub Action signing keys'))) as unknown;
@@ -34,6 +34,7 @@ function numeric(value: unknown, expected: number): boolean {
 export async function verifyBoundaryActionOidc(token: string, expected: {
   audience: string; repositoryId: number; repository: string; workflowPath: string;
   protectedRef: string; workflowSha: string; runId: number; runAttempt: number;
+  jobWorkflowRef?: string;
 }, fetchKeys: () => Promise<unknown> = fetchBoundaryActionKeys): Promise<BoundaryActionIdentity | null> {
   if (typeof token !== 'string' || token.length > 8_192 || !TOKEN.test(token)
     || !expected.audience.startsWith('https://') || !Number.isSafeInteger(expected.repositoryId)
@@ -42,7 +43,8 @@ export async function verifyBoundaryActionOidc(token: string, expected: {
     || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(expected.repository)
     || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(expected.workflowPath)
     || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(expected.protectedRef)
-    || !SHA.test(expected.workflowSha)) return null;
+    || !SHA.test(expected.workflowSha)
+    || (expected.jobWorkflowRef !== undefined && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@[a-f0-9]{40}$/i.test(expected.jobWorkflowRef))) return null;
   try {
     const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
     const header = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(decode(encodedHeader))) as unknown;
@@ -61,6 +63,7 @@ export async function verifyBoundaryActionOidc(token: string, expected: {
       || payload.repository !== expected.repository || !numeric(payload.repository_id, expected.repositoryId)
       || payload.event_name !== 'pull_request_target'
       || payload.workflow_ref !== workflowRef || payload.workflow_sha !== expected.workflowSha
+      || (expected.jobWorkflowRef !== undefined && payload.job_workflow_ref !== expected.jobWorkflowRef)
       || !numeric(payload.run_id, expected.runId) || !numeric(payload.run_attempt, expected.runAttempt)) return null;
     const jwks = await fetchKeys();
     if (!object(jwks) || !Array.isArray(jwks.keys) || jwks.keys.length > 64) return null;

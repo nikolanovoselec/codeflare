@@ -9,7 +9,7 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { canonicalHash, selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { canonicalHash, isPiReasoningLevel, selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
@@ -167,15 +167,45 @@ export async function requireOperatorHumanContext(
 ): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string }> {
   if (!isEnterpriseMode(env)) throw new ForbiddenError();
   const accessJwt = extractAccessJwt(request);
-  if (!accessJwt) throw new ForbiddenError('Human Access authentication required');
+  if (!accessJwt) {
+    operatorHumanDenied('credential', 'missing');
+    throw new ForbiddenError('Human Access authentication required');
+  }
   const config = await loadAuthConfig(env);
-  if (!config.authConfigured || !config.authDomain) throw new ForbiddenError('Human Access authentication required');
+  if (!config.authConfigured || !config.authDomain) {
+    operatorHumanDenied('configuration', 'missing');
+    throw new ForbiddenError('Human Access authentication required');
+  }
+  let stage: 'jwt' | 'principal' = 'jwt';
+  let reason: 'invalid' | 'email' | 'expired' = 'invalid';
   for (const audience of config.accessAudList) {
     const human = await verifyHumanAccessJWT(accessJwt, config.authDomain, audience);
-    if (human && human.email.trim().toLowerCase() === authenticatedEmail.trim().toLowerCase()
-      && human.expiresAt * 1000 > Date.now()) return { human: await resolveOperatorGroupIdentity(human, accessJwt), accessJwt };
+    if (!human) continue;
+    if (normalizeEmail(human.email) !== normalizeEmail(authenticatedEmail)) {
+      stage = 'principal'; reason = 'email';
+      continue;
+    }
+    if (!(human.expiresAt * 1000 > Date.now())) {
+      stage = 'principal'; reason = 'expired';
+      continue;
+    }
+    const groups = await currentOperatorIdentity(human, accessJwt);
+    if (groups === null) throw new ForbiddenError('Human Access authentication required');
+    return { human: { ...human, groups }, accessJwt };
   }
+  operatorHumanDenied(stage, reason);
   throw new ForbiddenError('Human Access authentication required');
+}
+
+/** Closed diagnostics only: never accept credentials, identity data or exception text. */
+function operatorHumanDenied(
+  stage: 'credential' | 'configuration' | 'jwt' | 'principal' | 'identity',
+  reason: 'missing' | 'invalid' | 'email' | 'expired' | 'http' | 'transport' | 'response' | 'subject' | 'groups',
+  status?: number,
+): null {
+  logger.warn('Operator human authentication denied', { stage, reason,
+    ...(status === undefined ? {} : { status }) });
+  return null;
 }
 
 /**
@@ -184,36 +214,64 @@ export async function requireOperatorHumanContext(
  * This is deliberately separate from legacy display-name based enterprise gates.
  * Only the verified issuer receives the credential; redirects are never followed.
  */
-export async function resolveOperatorGroupIdentity(
-  human: VerifiedHumanAccessClaims, accessJwt: string,
-): Promise<VerifiedHumanAccessClaims> {
-  const denied = { ...human, groups: [] as string[] };
+async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)
-    || !accessJwt || human.expiresAt * 1000 <= Date.now()) return denied;
+    || !accessJwt) return operatorHumanDenied('identity', 'invalid');
+  if (human.expiresAt * 1000 <= Date.now()) return operatorHumanDenied('identity', 'expired');
+  let failure: 'transport' | 'response' = 'transport';
   try {
     const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
       method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
       redirect: 'manual', signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok || !response.body) return denied;
+    if (!response.ok) return operatorHumanDenied('identity', 'http', response.status);
+    failure = 'response';
+    if (!response.body) return operatorHumanDenied('identity', 'response');
     const bytes = await readBoundedResponse(response, 65536, 'Access identity');
     const identity: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return denied;
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return operatorHumanDenied('identity', 'response');
     const record = identity as Record<string, unknown>;
     const subject = record.user_uuid ?? record.id;
-    if (subject !== human.subject || (record.id !== undefined && record.id !== human.subject)
-      || typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)
-      || !Array.isArray(record.groups) || record.groups.length > 1024) return denied;
+    if (subject !== human.subject) return operatorHumanDenied('identity', 'subject');
+    if (typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)) {
+      return operatorHumanDenied('identity', 'email');
+    }
+    // Cloudflare's documented identity has no required groups field. A verified
+    // session without it asserts no memberships; malformed supplied groups still deny.
+    if (!Object.hasOwn(record, 'groups')) return [];
+    if (!Array.isArray(record.groups) || record.groups.length > 1024) return operatorHumanDenied('identity', 'groups');
     const groups: string[] = [];
+    const validLabel = (value: unknown): value is string =>
+      typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
     for (const value of record.groups) {
-      // Names and bare strings are not stable identifiers in this transport.
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return denied;
-      const id = (value as { id?: unknown }).id;
-      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return denied;
+      // Supported IdP labels describe a valid live session but confer no stable-ID grant.
+      if (typeof value === 'string') {
+        if (!validLabel(value)) return operatorHumanDenied('identity', 'groups');
+        continue;
+      }
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return operatorHumanDenied('identity', 'groups');
+      const member = value as Record<string, unknown>;
+      if (!Object.hasOwn(member, 'id')) {
+        if (!validLabel(member.name) && !validLabel(member.email)) return operatorHumanDenied('identity', 'groups');
+        continue;
+      }
+      const id = member.id;
+      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return operatorHumanDenied('identity', 'groups');
       groups.push(id);
     }
-    return { ...human, groups: [...new Set(groups)] };
-  } catch { return denied; }
+    return [...new Set(groups)];
+  } catch { return operatorHumanDenied('identity', failure); }
+}
+
+/** Unlike the grant projection, an absent/revoked Access session cannot be treated as empty groups. */
+export async function operatorAccessSessionCurrent(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<boolean> {
+  return await currentOperatorIdentity(human, accessJwt) !== null;
+}
+
+export async function resolveOperatorGroupIdentity(
+  human: VerifiedHumanAccessClaims, accessJwt: string,
+): Promise<VerifiedHumanAccessClaims> {
+  return { ...human, groups: await currentOperatorIdentity(human, accessJwt) ?? [] };
 }
 
 /** A persisted operator ACL. It is data, never an asserted current identity. */
@@ -862,6 +920,26 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
  * Returns empty fields when not enterprise so a non-enterprise body is unchanged.
  * REQ-ENTERPRISE-005 (revised: the route name + reasoning grade ARE fanned now).
  */
+/** REQ-ENTERPRISE-088: permission selection is independent of model eligibility. */
+export async function resolvePersonalPiPermission(kv: KVNamespace, groups: string[] = []): Promise<boolean> {
+  try {
+    const [rawGroups, rawConfiguration] = await Promise.all([kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.REASONING_CONFIGURATION)]);
+    const policies: unknown = JSON.parse(rawGroups ?? '{}');
+    if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return false;
+    const configuration = parseReasoningConfiguration(rawConfiguration);
+    const first = groups.find(group => Object.hasOwn(policies, group));
+    if (first === undefined) return configuration.fallbackRouting?.enabled === true
+      && configuration.fallbackRouting.allowPersonalPiProviders === true;
+    const policy = (policies as Record<string, unknown>)[first];
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return false;
+    const entry = policy as GroupRoutingEntry & { allowPersonalPiProviders?: unknown };
+    return Array.isArray(entry.routes) && entry.routes.every(route => typeof route === 'string')
+      && typeof entry.defaultRoute === 'string' && isPiReasoningLevel(entry.reasoning)
+      && (entry.routes.length ? entry.routes.includes(entry.defaultRoute) : entry.defaultRoute === '' && entry.reasoning === 'off')
+      && entry.allowPersonalPiProviders === true;
+  } catch { return false; }
+}
+
 export async function loadEnterpriseRouteConfig(
   env: Env,
   groups?: string[],
@@ -873,12 +951,15 @@ export async function loadEnterpriseRouteConfig(
   routeReasoningLevels: Record<string, PiReasoningLevel[]>;
   modelDisplayNames: Record<string, string>;
   promptCacheTargets?: string[];
+  allowPersonalPiProviders?: boolean;
 }> {
   if (!isEnterpriseMode(env)) {
     return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   }
+  const permission = await resolvePersonalPiPermission(env.KV, groups);
+  const personal = permission ? { allowPersonalPiProviders: true as const } : {};
   const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env));
-  if (resolved.routeCatalog.length === 0) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
+  if (resolved.routeCatalog.length === 0) return { ...personal, routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
     env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
     env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
@@ -911,7 +992,7 @@ export async function loadEnterpriseRouteConfig(
   // Publish capability only, never provider/model/credential coordinates. Compat
   // and Dynamic Routes have no certified block-level cache forwarding contract.
   const promptCacheTargets = resolved.routeCatalog.filter((handle) => resolved.nativeTargets[handle]?.promptCacheSupported === true);
-  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
+  return { ...personal, routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
     ...(promptCacheTargets.length && { promptCacheTargets }) };
 }
 

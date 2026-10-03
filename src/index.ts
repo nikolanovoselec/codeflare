@@ -49,7 +49,7 @@ import { getOrImportKey, warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './lib/onboarding';
 import { buildRobotsTxt, buildSitemapXml, buildLlmsTxt } from './lib/seo';
 import { isActiveUser } from './lib/access-tier';
-import { getEffectiveTier } from './lib/subscription';
+import { getEffectiveTier, isEnterpriseMode } from './lib/subscription';
 import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
 import githubAuthRoutes from './routes/github-auth';
@@ -247,9 +247,10 @@ app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
 // SaaS mode: show GitHub only + any custom IdPs listed by UUID in SAAS_EXTRA_IDPS.
-// Non-SaaS: show all social IdPs + extra IdPs.
+// Default/onboarding: show social IdPs + extra IdPs; Enterprise sign-in stays with Access.
 const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
 app.get('/public/auth/providers', async (c) => {
+  if (isEnterpriseMode(c.env)) return c.json({ providers: [] });
   const saas = isSaasModeActive(c.env.SAAS_MODE);
 
   // SaaS mode with GitHub OIDC: return hardcoded provider with direct login URL
@@ -564,7 +565,7 @@ export default {
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
-export { OperatorActivity, OperatorDispatcherCapability } from './operators/activity';
+export { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail } from './operators/activity';
 export { OperatorRuntimeCapability } from './operators/operator-runtime-capability';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the

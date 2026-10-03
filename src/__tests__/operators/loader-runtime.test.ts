@@ -59,7 +59,7 @@ describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
     const response = await worker!.fetch('/conductor-bundle');
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ schemaVersion: 1, status: 'completed', result: {
-      operationId: 'review-generation-1', cleanup: 'stopped', reports: [
+      operationId: `review-${'a'.repeat(64)}`, cleanup: 'stopped', originalReports: [
         { lane: 'code-reviewer', packetDigest: 'a'.repeat(64) },
         { lane: 'spec-reviewer', packetDigest: 'a'.repeat(64) },
         { lane: 'doc-updater', packetDigest: 'a'.repeat(64) },

@@ -2,6 +2,34 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { mdiViewDashboardOutline, mdiMicrosoftVisualStudioCode } from '@mdi/js';
 import Header from '../../components/Header';
+import { createSignal } from 'solid-js';
+import type { SessionWithStatus, SleepAfterOption } from '../../types';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const headerStyles = readFileSync(resolve('src/styles/header.css'), 'utf8');
+const designTokens = readFileSync(resolve('src/styles/design-tokens.css'), 'utf8');
+
+// jsdom retains a selected var(...) rather than resolving inherited custom
+// properties. Read the actual cascade and let CSSOM normalize the literal;
+// this is not a substitute for real-browser rendering acceptance.
+function renderedColor(element: Element): string {
+  let color = getComputedStyle(element).color;
+  const variable = /^var\((--[\w-]+)\)$/.exec(color);
+  if (variable) {
+    let owner: Element | null = element;
+    color = '';
+    while (owner && !color) {
+      color = getComputedStyle(owner).getPropertyValue(variable[1]).trim();
+      owner = owner.parentElement;
+    }
+    if (!color) throw new Error(`Missing rendered color property ${variable[1]}`);
+  }
+  const probe = document.createElement('span');
+  probe.style.color = color;
+  document.body.append(probe);
+  try { return getComputedStyle(probe).color; }
+  finally { probe.remove(); }
+}
 
 // Mock isMobile - default to desktop (false)
 const isMobileMock = vi.hoisted(() => ({ value: false }));
@@ -35,6 +63,7 @@ const sessionStoreState = vi.hoisted(() => ({
   error: null as string | null,
   saasMode: false as boolean,
   enterpriseMode: false as boolean,
+  sleepAfter: '30m' as SleepAfterOption,
 }));
 
 // Mock getUsageState - returns usage data for the header dropdown display
@@ -56,6 +85,11 @@ vi.mock('../../stores/session', () => ({
     },
     get enterpriseMode() {
       return sessionStoreState.enterpriseMode;
+    },
+    preferences: {
+      get sleepAfter() {
+        return sessionStoreState.sleepAfter;
+      },
     },
   },
   getUsageState: () => usageStateMock.value,
@@ -81,6 +115,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     sessionStoreState.error = null;
     sessionStoreState.saasMode = false;
     sessionStoreState.enterpriseMode = false;
+    sessionStoreState.sleepAfter = '30m';
     isMobileMock.value = false;
     terminalStoreMock.authUrl = null;
     usageStateMock.value = { monthlySeconds: 0, monthlyQuotaSeconds: null };
@@ -100,6 +135,128 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     render(() => <Header {...defaultSessionProps} />);
     await fireEvent.click(screen.getByTestId('header-user-menu'));
     expect(screen.queryByTestId('header-user-dropdown-operators')).not.toBeInTheDocument();
+  });
+
+  describe('REQ-SESSION-036: Header sleep countdown', () => {
+    const now = Date.parse('2026-09-22T12:00:00Z');
+    const minutesAgo = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+    const runningSession = (overrides: Partial<SessionWithStatus> = {}): SessionWithStatus => ({
+      id: 'session-1', name: 'Current session', status: 'running',
+      createdAt: minutesAgo(60), lastAccessedAt: minutesAgo(1),
+      lastStartedAt: minutesAgo(29), lastActiveAt: minutesAgo(22), ...overrides,
+    });
+    let stylesheet: HTMLStyleElement;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      // Apply the production stylesheet so severity assertions observe rendered
+      // treatment, rather than inspecting classes or recreating CSS in the test.
+      stylesheet = document.createElement('style');
+      stylesheet.textContent = `${designTokens}\n${headerStyles}`;
+      document.head.append(stylesheet);
+    });
+
+    afterEach(() => {
+      cleanup();
+      stylesheet.remove();
+      vi.useRealTimers();
+    });
+
+    it.each([
+      { remainingMs: 600_001, visible: false },
+      { remainingMs: 600_000, visible: false },
+      { remainingMs: 599_999, visible: true },
+      { remainingMs: 1, visible: true },
+      { remainingMs: 0, visible: false },
+    ])('REQ-SESSION-036 AC2: shows the Header countdown only below ten minutes and before expiry ($remainingMs ms remaining)', ({ remainingMs, visible }) => {
+      const session = runningSession({ lastStartedAt: minutesAgo(31), lastActiveAt: new Date(now - (1_800_000 - remainingMs)).toISOString() });
+      render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id} />);
+
+      if (visible) expect(screen.getByTestId('header-timer-button')).toBeVisible();
+      else expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+    });
+
+    it('REQ-SESSION-036 AC1: opens the active running session countdown and explains idle stopping', () => {
+      const active = runningSession();
+      const other = runningSession({ id: 'other-session', lastActiveAt: minutesAgo(26) });
+      render(() => <Header {...defaultSessionProps} sessions={[other, active]} activeSessionId={active.id} />);
+
+      const timer = screen.getByRole('button', { name: '< 10 min' });
+      expect(screen.queryByTestId('header-timer-dropdown')).not.toBeInTheDocument();
+      fireEvent.click(timer);
+      expect(screen.getByTestId('header-timer-dropdown')).toBeVisible();
+      expect(screen.getByTestId('header-timer-dropdown')).toHaveTextContent('< 10 min');
+      expect(screen.getByTestId('header-timer-dropdown')).toHaveTextContent('When this timer expires, your session will stop.');
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByTestId('header-timer-dropdown')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { remainingMs: 300_000, bucket: '< 10 min', color: 'rgb(245, 158, 11)', pulse: '2s', ac: 'AC3' },
+      { remainingMs: 299_999, bucket: '< 5 min', color: 'rgb(239, 68, 68)', pulse: '1s', ac: 'AC4' },
+    ])('REQ-SESSION-036 $ac: renders $bucket with its warning or critical treatment ($remainingMs ms remaining)', ({ remainingMs, bucket, color, pulse }) => {
+      const session = runningSession({ lastActiveAt: new Date(now - (1_800_000 - remainingMs)).toISOString() });
+      render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id} />);
+
+      const timer = screen.getByRole('button', { name: bucket });
+      expect(timer).toBeVisible();
+      const treatment = getComputedStyle(timer);
+      expect(renderedColor(timer)).toBe(color);
+      expect(treatment.animation).toContain(pulse);
+      fireEvent.click(timer);
+      expect(screen.getByTestId('header-timer-dropdown')).toHaveTextContent(bucket);
+    });
+
+    it.each([{ state: 'absent' }, { state: 'stopped' }])('REQ-SESSION-036 AC5: hides the Header countdown when the active session is $state even when another session is running', ({ state }) => {
+      const active = runningSession({ status: 'stopped' });
+      const other = runningSession({ id: 'other-session' });
+      render(() => <Header {...defaultSessionProps} sessions={state === 'absent' ? [other] : [active, other]} activeSessionId={active.id} />);
+
+      expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-timer-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('REQ-SESSION-036 AC6: recomputes the configured idle countdown as time passes without session updates', () => {
+      sessionStoreState.sleepAfter = '15m';
+      const session = runningSession({ lastStartedAt: minutesAgo(6), lastActiveAt: minutesAgo(5) });
+      render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id} />);
+      expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+
+      vi.advanceTimersByTime(15_000);
+      fireEvent.click(screen.getByRole('button', { name: '< 10 min' }));
+      expect(screen.getByTestId('header-timer-dropdown')).toHaveTextContent('< 10 min');
+      vi.advanceTimersByTime(300_000);
+      expect(screen.getByRole('button', { name: '< 5 min' })).toBeVisible();
+      expect(screen.getByTestId('header-timer-dropdown')).toHaveTextContent('< 5 min');
+      vi.advanceTimersByTime(285_000);
+      expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-timer-dropdown')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { context: 'no terminal input', lastStartedAt: minutesAgo(25), lastActiveAt: undefined, bucket: '< 10 min' },
+      { context: 'expired prior-run input', lastStartedAt: minutesAgo(25), lastActiveAt: minutesAgo(40), bucket: '< 10 min' },
+      { context: 'recent restart with prior-run input', lastStartedAt: minutesAgo(1), lastActiveAt: minutesAgo(25), bucket: null },
+    ])('REQ-SESSION-036 AC7: uses current-run start before new input ($context)', ({ lastStartedAt, lastActiveAt, bucket }) => {
+      const session = runningSession({ lastStartedAt, lastActiveAt });
+      render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id} />);
+
+      if (bucket) expect(screen.getByRole('button', { name: bucket })).toBeVisible();
+      else expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+    });
+
+    it('REQ-SESSION-036 AC7: uses current-run terminal input instead of run start and resets after new input', () => {
+      const [session, setSession] = createSignal(runningSession({ lastStartedAt: minutesAgo(29), lastActiveAt: minutesAgo(22) }));
+      render(() => <Header {...defaultSessionProps} sessions={[session()]} activeSessionId={session().id} />);
+      expect(screen.getByRole('button', { name: '< 10 min' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '< 10 min' }));
+      expect(screen.getByTestId('header-timer-dropdown')).toBeVisible();
+
+      setSession({ ...session(), lastActiveAt: new Date(now).toISOString() });
+      expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-timer-dropdown')).not.toBeInTheDocument();
+    });
   });
 
   describe('Default Rendering', () => {

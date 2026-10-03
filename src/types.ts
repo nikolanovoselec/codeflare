@@ -141,6 +141,10 @@ interface EnterpriseEnv {
   OPERATOR_REGISTRY?: DurableObjectNamespace<OperatorRegistry>;
   /** Durable activity owner; never exposed as a child Worker capability. */
   OPERATOR_ACTIVITY?: DurableObjectNamespace<OperatorActivity>;
+  /** Installer-owned fixed dev/Integration/production HTTPS origins; never PR input. */
+  OPERATOR_REVIEW_ORIGINS?: string;
+  /** Exact maintained Codeflare reusable workflow commit, unavailable until published. */
+  OPERATOR_REVIEW_EXECUTABLE_SHA?: string;
   /** Fresh private Worker constructor; children receive only explicit bindings. */
   LOADER?: OperatorLoaderBinding & OperatorDispatcherLoaderBinding;
   // Enterprise mode: when 'active', codeflare is deployed inside a customer's
@@ -479,6 +483,7 @@ export interface ContainerConfigPayload {
   userGroups?: string[];
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
   routeCatalog?: string[];
+  allowPersonalPiProviders?: boolean;
   /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
   defaultRoute?: string;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */

@@ -33,7 +33,7 @@ import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
-import { wireContainerInterception, type InterceptionHost } from './container-interception';
+import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
 import type { OperatorPolicy } from '../operators/policy';
 import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
   type OperatorPackageResourceProjection } from '../operators/package-resources';
@@ -61,6 +61,8 @@ import {
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
+import { listProspectiveRenovatePrs } from '../operators/renovate-prospective';
+import { prepareOperatorActivity, runOperatorActivity, bindOperatorRuntimeCapability } from '../operators/orchestrator';
 import { parseBoundedBoundaryInput, type BoundaryInput } from '../operators/boundary-input';
 import {
   onStart as lifecycleOnStart,
@@ -97,6 +99,21 @@ type ExitEvidence = { owner: string; session: string; generation: number };
 
 export class container extends Container<Env> implements ContainerEnvState {
   logger = createLogger('container');
+  private renovateScheduling: Promise<void> = Promise.resolve();
+
+  private async ensureRenovateSchedule(rearm = false): Promise<void> {
+    const previous = this.renovateScheduling;
+    let release!: () => void;
+    this.renovateScheduling = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try {
+      // The SDK deletes the due row *after* this callback returns. Rearming
+      // must insert the successor even while that due row is still visible.
+      if (rearm || (await this.listSchedules('scanRenovate')).length === 0) {
+        await this.schedule(3600, 'scanRenovate');
+      }
+    } finally { release(); }
+  }
 
   // Port where the container's HTTP server listens
   // Terminal server handles all endpoints: WebSocket, health check, metrics
@@ -198,6 +215,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * ENTERPRISE_ROUTE_CATALOG / ENTERPRISE_DEFAULT_ROUTE / ENTERPRISE_DEFAULT_REASONING.
    */
   _routeCatalog: string[] = [];
+  _allowPersonalPiProviders = false;
   _defaultRoute: string | null = null;
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
@@ -374,6 +392,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // REQ-ENTERPRISE-005 (revised): restore the dynamic-route config so a DO wake
       // re-emits the entrypoint env (matches the userGroups / userEmail pattern).
       this._routeCatalog = await this.ctx.storage.get<string[]>('routeCatalog') || [];
+      this._allowPersonalPiProviders = await this.ctx.storage.get<boolean>('allowPersonalPiProviders') === true;
       this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};
@@ -521,6 +540,109 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
   }
 
+  /** Arm only an explicitly activated, identity-pinned admin session. */
+  async armRenovateScan(input: { registrationId: string; installationId: string; bucket: string;
+    sessionId: string; sessionGeneration: number }): Promise<{ ok: boolean }> {
+    if (!this.env.OPERATOR_REGISTRY || !this.env.OPERATOR_ACTIVITY
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(input.registrationId)
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(input.installationId)
+      || !/^[A-Za-z0-9._-]{1,128}$/.test(input.bucket)
+      || !/^[a-z0-9]{8,24}$/.test(input.sessionId)
+      || !Number.isSafeInteger(input.sessionGeneration) || input.sessionGeneration < 1
+      || this.env.CONTAINER?.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
+      return { ok: false };
+    }
+    const current = await this.env.OPERATOR_REGISTRY.getByName('registry')
+      .currentProspectiveRenovateRegistration(input.registrationId);
+    if (!current || current.installationId !== input.installationId || current.bucket !== input.bucket
+      || current.sessionId !== input.sessionId || current.sessionGeneration !== input.sessionGeneration) return { ok: false };
+    await this.ctx.storage.put('renovate:scan', input);
+    // SDK schedule rows survive a lost response; serialize overlapping retries.
+    await this.ensureRenovateSchedule();
+    return { ok: true };
+  }
+
+  /** Scheduled callback is only a trigger; Registry and live session authority decide every operation. */
+  async scanRenovate(): Promise<void> {
+    const pin = await this.ctx.storage.get<{ registrationId: string; installationId: string; bucket: string;
+      sessionId: string; sessionGeneration: number }>('renovate:scan');
+    if (!pin || !this.env.OPERATOR_REGISTRY || !this.env.OPERATOR_ACTIVITY || !this.env.CONTAINER
+      || this.env.CONTAINER.idFromName(`${pin.bucket}-${pin.sessionId}`).toString() !== this.ctx.id.toString()) return;
+    const registry = this.env.OPERATOR_REGISTRY.getByName('registry');
+    const registration = async (id = pin.registrationId) => {
+      const current = await registry.currentProspectiveRenovateRegistration(id);
+      return current && current.installationId === pin.installationId && current.bucket === pin.bucket
+        && current.sessionId === pin.sessionId && current.sessionGeneration === pin.sessionGeneration ? current : null;
+    };
+    try {
+      const initial = await registration();
+      if (!initial) return;
+      const exports = (this.ctx as unknown as { exports?: Record<string,
+        (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
+      if (!exports) return;
+      const candidates = await listProspectiveRenovatePrs({ env: this.env, exports, registration: initial,
+        current: async () => !!await registration() });
+      for (const candidate of candidates) {
+        if (!await registration()) return;
+        const activityId = `scan-${crypto.randomUUID()}`;
+        const reserved = await registry.reserveProspectiveRenovateActivity({ ...candidate,
+          registrationId: pin.registrationId, activityId });
+        if (!reserved.ok) continue;
+        try {
+        const actor = reserved.actor;
+        if (actor.bucket !== pin.bucket || actor.sessionId !== pin.sessionId
+          || actor.sessionGeneration !== pin.sessionGeneration || actor.registrationId !== pin.registrationId) continue;
+        const winner = await registry.currentProspectiveRenovateRegistration(actor.registrationId);
+        if (!winner || winner.installationId !== pin.installationId || winner.bucket !== actor.bucket
+          || winner.sessionId !== actor.sessionId || winner.sessionGeneration !== actor.sessionGeneration) continue;
+        const proof = await registry.readProspectiveRenovateAdmission(reserved.activityId);
+        if (!proof || proof.repositoryId !== candidate.repositoryId || proof.pullRequest !== candidate.pullRequest
+          || proof.head !== candidate.head || proof.actor.registrationId !== actor.registrationId) continue;
+        const activity = this.env.OPERATOR_ACTIVITY.getByName(reserved.activityId);
+        if (!await activity.bindProspectiveRenovateAdmission(reserved.activityId)) continue;
+        let plan = await activity.getRuntimePlan();
+        // Null plan can also be an uncertain, already-prepared admission. Never
+        // re-prepare it or replace its Activity identity merely for a missing plan.
+        if (!plan && !await activity.getBrowserDetail()) {
+          let prepared;
+          try {
+            prepared = await prepareOperatorActivity({ installationId: pin.installationId,
+              invocation: { repository: 'nikolanovoselec/komodo', pullRequest: candidate.pullRequest } },
+            { human: winner.human, accessJwt: winner.accessJwt }, this.env,
+            { activityId: reserved.activityId });
+          } catch { continue; }
+          if (!await registry.currentProspectiveRenovateRegistration(actor.registrationId)) continue;
+          try { await activity.start(prepared.startCapability); } catch { /* Reconcile accepted start below. */ }
+          plan = await activity.getRuntimePlan();
+        }
+        if (!plan || plan.activityId !== reserved.activityId) continue;
+        let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
+        if (detail?.executionStatus === 'waiting'
+          && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
+          await activity.collectBrowserResult();
+          detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
+        }
+        if (detail?.executionStatus === 'queued' && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
+          this.ctx.waitUntil(runOperatorActivity(reserved.activityId, this.env,
+            bindOperatorRuntimeCapability(this.ctx)).catch(error => {
+            this.logger.warn('Prospective Renovate drive unavailable', { error: toErrorMessage(error) });
+          }));
+        } else if (detail?.executionStatus === 'completed') {
+          const refreshed = await registry.currentProspectiveRenovateRegistration(actor.registrationId);
+          if (refreshed) await activity.publishRenovateAssessment({ bucket: actor.bucket,
+            sessionId: actor.sessionId, sessionGeneration: actor.sessionGeneration,
+            operationId: `scan-${reserved.activityId}` }, { human: refreshed.human,
+            accessJwt: refreshed.accessJwt, platformAdmin: true });
+        }
+        } catch (error) {
+          this.logger.warn('Prospective Renovate activity unavailable', { error: toErrorMessage(error) });
+        }
+      }
+    } finally {
+      if (await registration()) await this.ensureRenovateSchedule(true);
+    }
+  }
+
   /** Set the bucket name for this container (called by worker on first access). */
   async setBucketName(name: string, r2Creds?: SetBucketNameCreds): Promise<void> {
     await configSetBucketName(this.host, name, r2Creds);
@@ -601,9 +723,10 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
     // WebSocket responses cannot cross the DO RPC serialization boundary.
-    // Stub.fetch has native WebSocket response transport; keep the terminal
-    // path on the same no-start private-port forwarding used for health probes.
-    if (new URL(request.url).pathname === '/terminal' &&
+    // Stub.fetch has native WebSocket response transport; keep terminal and IDE
+    // sockets on the same no-start private-port forwarding used for health probes.
+    const pathname = new URL(request.url).pathname;
+    if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
         request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       return this.forwardExisting(request);
     }
@@ -732,12 +855,18 @@ export class container extends Container<Env> implements ContainerEnvState {
   async bindReviewHuman(input: {
     bucket: string; sessionId: string; generation: number;
     human: VerifiedHumanAccessClaims; accessJwt: string;
-  } | null): Promise<void> {
-    await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input);
+  } | null, expected?: Parameters<typeof bindReviewSessionHuman>[2]): Promise<void> {
+    await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
+  }
+
+  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+    generation: number; groups: string[];
+  }> {
+    return await getPersonalPiSession(this.interceptionHost, ref);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{
-    human: VerifiedHumanAccessClaims; accessJwt: string;
+    human: VerifiedHumanAccessClaims; accessJwt: string; generation: number;
   }> {
     return openReviewSessionHuman(this as unknown as Parameters<typeof openReviewSessionHuman>[0], ref);
   }

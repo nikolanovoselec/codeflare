@@ -28,6 +28,10 @@ Both are Pro (advanced) only, and only when a Cloudflare API token with the **Br
 - **Read:** `browser_markdown { "url": "https://example.com/guide" }`. For JS-heavy / SPA pages pass `wait_until: "networkidle0"` so content has rendered. Narrow huge pages with `browser_scrape` + selectors.
 - **Interact:** `navigate_page` → `take_snapshot` / `evaluate_script` to observe → `take_screenshot` when a visual is needed → `click` / `fill` to step. Keep a fetch task read-only; full flows belong in `browser-e2e`.
 
+## Version and tool discovery
+
+The consolidation source pins Chrome DevTools MCP 1.10.1; verify the installed version independently. Use the configured remote CDP server and discover its current tool names and input schemas; do not install `npx @latest`, implicitly launch a local browser, or replace the user's MCP configuration to make a tool appear. Missing interactive tools do not authorize bypassing authentication. Performance tools may send trace URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+
 ## Notes
 
 - Extract just what you need (markdown, scoped selectors, targeted snapshot) over dumping whole pages — protect the context window. Output is capped (~120k chars).

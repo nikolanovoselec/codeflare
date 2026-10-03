@@ -24,10 +24,10 @@ import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { warnStressTestBypass } from '../middleware/rate-limit';
 import { getContainerId, safeCheckContainerHealth, forwardExisting } from '../lib/container-helpers';
-import { authenticateRequest } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext } from '../lib/access';
 import { isSaasModeActive } from '../lib/onboarding';
 import { isActiveUser } from '../lib/access-tier';
-import { getEffectiveTier } from '../lib/subscription';
+import { getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 import { getContainerSessionsCB } from '../lib/circuit-breakers';
 import { isAllowedOrigin } from '../lib/cors-cache';
@@ -260,6 +260,40 @@ export async function handleWebSocketUpgrade(
           headers: { ...jsonHeaders, 'Retry-After': String(wsRateResult.retryAfterSec) },
           webSocket: undefined,
         });
+      }
+    }
+
+    // A warm reconnect carries fresh browser authority even when Start is not
+    // called. Refresh only after owner/lifecycle/readiness/rate-limit gates;
+    // the parent RPC retains immutable-principal and generation enforcement.
+    if (isEnterpriseMode(env)) {
+      const parent = container as unknown as {
+        bindReviewHuman(input: Awaited<ReturnType<typeof requireOperatorHumanContext>> & {
+          bucket: string; sessionId: string; generation: number;
+        } | null, expected?: { bucket: string; sessionId: string; email: string; generation: number }): Promise<void>;
+      };
+      let stage: 'human-context' | 'parent-bind' = 'human-context';
+      try {
+        const human = await requireOperatorHumanContext(request, env, user.email);
+        stage = 'parent-bind';
+        await parent.bindReviewHuman({ ...human, bucket: bucketName,
+          sessionId: baseSessionId, generation: session.lifecycleGeneration });
+      } catch (error) {
+        // Ordinary terminal access remains independent of optional native
+        // provider permission. Revoke credentials, never the session principal.
+        try { await parent.bindReviewHuman(null, { bucket: bucketName, sessionId: baseSessionId,
+          email: user.email, generation: session.lifecycleGeneration }); } catch {
+          logger.warn('Native Pi human authority revocation unavailable on terminal reconnect');
+          const pair = new WebSocketPair();
+          pair[1].accept();
+          pair[1].close(1011, 'Session authority unavailable');
+          return new Response(null, { status: 101, webSocket: pair[0] });
+        }
+        const reason = stage === 'parent-bind' && error instanceof Error
+          ? error.message === 'Session human mismatch' ? 'principal-mismatch'
+            : error.message === 'Session is shutting down' ? 'shutdown' : 'unclassified'
+          : 'unclassified';
+        logger.warn('Native Pi human authority unavailable on terminal reconnect', { stage, reason });
       }
     }
 

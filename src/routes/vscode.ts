@@ -280,7 +280,10 @@ export async function handleVscodeRequest(
     // independently compares it with the canonical external Host; synthesizing
     // a same-origin value here would neutralize that defense-in-depth check.
     if (!request.headers.has('Origin')) forwardedRequest.headers.delete('Origin');
-    const response = await forwardExisting(container, forwardedRequest);
+    // Upgraded responses require native Stub.fetch transport, not DO RPC serialization.
+    const response = isWebSocket
+      ? await container.fetch(forwardedRequest)
+      : await forwardExisting(container, forwardedRequest);
 
     // Successful proxy traffic proves this editor is ready. Fresh-read after
     // the container response so this activity write cannot restore a stale

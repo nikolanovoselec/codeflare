@@ -23,7 +23,7 @@ describe('REQ-OPERATOR-053: parent-only Enterprise session authority', () => {
     const { host, records } = session();
     await bindReviewSessionHuman(host, bound);
     expect(JSON.stringify([...records])).not.toContain('private.jwt');
-    expect(await openReviewSessionHuman({ ...host }, { bucket, sessionId, email: human.email })).toEqual({ human, accessJwt: 'private.jwt' });
+    expect(await openReviewSessionHuman({ ...host }, { bucket, sessionId, email: human.email })).toEqual({ human, accessJwt: 'private.jwt', generation });
     await expect(openReviewSessionHuman({ ...host, _sessionId: 'other-session' }, { bucket, sessionId, email: human.email })).rejects.toThrow();
     await expect(openReviewSessionHuman(host, { bucket, sessionId, email: 'foreign@example.test' })).rejects.toThrow();
   });
@@ -53,7 +53,7 @@ describe('REQ-OPERATOR-053: parent-only Enterprise session authority', () => {
     await expect(bindReviewSessionHuman(host, bound)).rejects.toThrow();
     await bindReviewSessionHuman(host, { ...bound, generation: 2 });
     expect(await openReviewSessionHuman(host, { bucket, sessionId, email: human.email }))
-      .toEqual({ human, accessJwt: 'private.jwt' });
+      .toEqual({ human, accessJwt: 'private.jwt', generation: 2 });
   });
   it('REQ-OPERATOR-053: an old prepared Action cannot reopen human authority after stop or generation replacement', async () => {
     const { host, records } = session();

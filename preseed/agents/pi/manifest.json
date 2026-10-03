@@ -31,6 +31,12 @@
       "advanced"
     ]
   },
+  "extensions/00-mcp-adapter-config.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/active-repo-memory.ts": {
     "modes": [
       "default",
@@ -174,6 +180,18 @@
       "advanced"
     ]
   },
+  "extensions/operator-review-remote.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/operator-review-selector.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/review-helpers.ts": {
     "modes": [
       "default",
@@ -248,12 +266,6 @@
   },
   "rules/design-routing.md": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "rules/engineering-constitution.md": {
-    "modes": [
-      "default",
       "advanced"
     ]
   },
@@ -407,6 +419,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/component-review.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/craft-floor.md": {
     "modes": [
       "advanced"
@@ -467,6 +484,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/generate.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/harden.md": {
     "modes": [
       "advanced"
@@ -502,6 +524,21 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/mode-operate.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/mode-persuade.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/mode-read.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/new-work.md": {
     "modes": [
       "advanced"
@@ -533,6 +570,11 @@
     ]
   },
   "skills/impeccable/reference/quieter.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/region-map.md": {
     "modes": [
       "advanced"
     ]

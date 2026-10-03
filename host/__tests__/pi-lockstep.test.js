@@ -27,6 +27,23 @@ function readArgs(path) {
   return readFileSync(path, 'utf8').trim().split('\n');
 }
 
+describe('REQ-AGENT-152: reviewed Plan Mode release-lock contract', () => {
+  it('REQ-AGENT-152 AC2: reviewed Plan Mode archive matches the declared release and SHA-512 lock', () => {
+    const root = fileURLToPath(new URL('../../', import.meta.url));
+    const manifest = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package.json'), 'utf8'));
+    const lock = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
+    const version = manifest.dependencies['@narumitw/pi-plan-mode'];
+    const declared = lock.packages['node_modules/@narumitw/pi-plan-mode'];
+    const bytes = readFileSync(join(root, `host/__fixtures__/narumitw-pi-plan-mode-${version}.tgz`));
+    // The reviewed archive identity is the intentional release-lock contract,
+    // not a proxy assertion for planning behavior.
+    assert.equal(declared.version, version);
+    assert.equal(declared.resolved,
+      `https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-${version}.tgz`);
+    assert.equal(`sha512-${createHash('sha512').update(bytes).digest('base64')}`, declared.integrity);
+  });
+});
+
 describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () => {
   it('rejects an installed Pi package whose required image dependency is missing', () => {
     const directory = mkdtempSync(join(tmpdir(), 'pi-health-'));
@@ -233,7 +250,7 @@ const piPackage = JSON.parse(
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
-  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
+  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'dist/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
@@ -241,7 +258,7 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'advisor', package: '@juicesharp/rpiv-advisor', entrypoint: 'index.ts' },
   { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
-  { variable: 'web', package: 'pi-web-access', entrypoint: 'index.ts' },
+  { variable: 'web', package: 'pi-web-access', entrypoint: 'dist/index.js' },
   { variable: 'context', package: 'context-mode', entrypoint: 'build/adapters/pi/extension.js' },
 ];
 
@@ -338,7 +355,10 @@ describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
         assert.notEqual(fixture.result.status, 0);
         const { source } = fixture.sources.find((entry) => entry.name === name);
         const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-warm-tmp/jiti'));
-        assert.ok(fixture.result.stderr.includes(`jiti cache artifact is missing at ${artifact}`), fixture.result.stderr);
+        const expected = source.endsWith('.js')
+          ? `native import missing for ${source}`
+          : `jiti cache artifact is missing at ${artifact}`;
+        assert.ok(fixture.result.stderr.includes(expected), fixture.result.stderr);
       } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
     }
   });

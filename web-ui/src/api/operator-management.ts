@@ -8,11 +8,15 @@ const revision = z.number().int().positive();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const grantSchema = z.object({ users: z.array(z.string()).max(128),
   groups: z.array(z.object({ issuer: z.string(), id: z.string() })).max(128) });
-export const policySchema = z.object({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable() });
+export const DEFAULT_SOURCE_RESPONSE_BYTES = 65_536;
+export const MAX_SOURCE_RESPONSE_BYTES = 1_048_576;
+const sourceResponseBytes = z.number().int().positive().optional();
+export const policySchema = z.object({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable(), sourceResponseBytes });
 export type ManagementGrant = z.infer<typeof grantSchema>;
 export type ManagementPolicy = z.infer<typeof policySchema>;
 const summarySchema = z.object({ id, name: z.string().optional(), description: z.string().optional(),
-  installedGithubReleaseId: z.number().int().positive().optional(), installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(),
+  installedGithubReleaseId: z.number().int().positive().optional(), installedTagName: z.string().optional(), installedPublishedAt: z.string().datetime().optional(),
+  installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(), repositoryId: z.number().int().positive().optional(),
   profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), enabled: z.boolean() });
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
   repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema, policy: policySchema,
@@ -48,11 +52,11 @@ export function listManagedOperators(query: CatalogQuery = {}) {
 }
 const choicesSchema = z.object({ users: z.array(z.string()), groups: z.array(z.object({ issuer: z.string(), id: z.string() })),
   unresolvedGroups: z.array(z.string()).default([]), capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()),
-  ceiling: z.object({ capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()) }) });
+  ceiling: z.object({ capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()), sourceResponseBytes }) });
 export type ManagementChoices = z.infer<typeof choicesSchema>;
 export const getManagementChoices = () => request('/options', choicesSchema);
 const accessSchema = z.object({ revision: z.number().int().nonnegative(), managers: grantSchema,
-  ceiling: z.object({ capabilities: z.array(z.string()).max(32), resourceProfileIds: z.array(z.string()).max(128) }) });
+  ceiling: z.object({ capabilities: z.array(z.string()).max(32), resourceProfileIds: z.array(z.string()).max(128), sourceResponseBytes }) });
 export type ManagementAccess = z.infer<typeof accessSchema>;
 export const getManagementAccess = () => request('/access', accessSchema);
 export const saveManagementAccess = (input: ManagementAccess) => request('/access', accessSchema, input);
@@ -72,7 +76,7 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
-export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number }) =>
+export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number }) =>
   request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.
@@ -83,7 +87,8 @@ function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown
 }
 export const getOwnedActivities = () => activityRequest('', z.object({ items: z.array(operatorActivitySummarySchema).max(100) }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
-  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean() }));
+  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
+    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
 export const startInstallationActivity = (activityId: string, capability: string) =>

@@ -1,19 +1,41 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
-  resolveOperatorGroupIdentity, canInvokeOperator } from '../lib/access';
+  resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
+import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
+import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
 import { openOperatorExecutionAccess } from './execution-context';
+import { operatorOwnerKey } from './browser-activity';
 import { parseOperatorPolicy } from './policy';
+import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const dispatcherSourceSchema = z.strictObject({ operationId: dispatcherOperationId,
+  method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().max(64 * 1024).optional(),
+  url: z.string().max(4096).refine(value => {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password && !url.hash
+        && !url.port && url.hostname !== 'operator.internal';
+    } catch { return false; }
+  }) });
+const dispatcherTargetSchema = z.strictObject({ pullRequest: z.number().safe().int().positive(),
+  headSha: z.string().regex(/^[0-9a-f]{40}$/) });
 const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId,
-  resource: z.enum(['pull-request', 'files', 'checks']) });
+  resource: z.enum(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose', 'open-pull-requests']),
+  target: dispatcherTargetSchema.optional(),
+  pullRequest: z.number().safe().int().positive().optional(), headSha: z.string().regex(/^[0-9a-f]{40}$/).optional() });
+const dispatcherCommentSchema = z.strictObject({ operationId: dispatcherOperationId,
+  target: dispatcherTargetSchema, decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
+  comment: z.string().min(1).max(3500).refine(value => value.trim().length > 0) });
+const dispatcherMergeSchema = dispatcherCommentSchema.extend({ decision: z.literal('MERGE') });
 const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperationId,
   input: z.strictObject({
     messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
@@ -22,37 +44,69 @@ const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperat
     stream_options: z.strictObject({ include_usage: z.literal(true) }).optional(),
   }) });
 
-export type DispatcherOperation = { operationId: string; path: string; body: unknown };
+const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId });
+const dispatcherResolutionSchema = z.strictObject({ operationId: dispatcherOperationId,
+  requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  readbacks: z.array(z.strictObject({ operationId: dispatcherOperationId,
+    requestDigest: z.string().regex(/^[0-9a-f]{64}$/), responseDigest: z.string().regex(/^[0-9a-f]{64}$/) })).min(1).max(16),
+});
 
-/** Bounded transport wire: no arbitrary destination, headers, identity, model or resource selection. */
+export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): string {
+  const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
+  const origin = `https://${host}`;
+  if (new URL(origin).hostname !== host || host.split('.').some(label => !label || label.startsWith('-') || label.endsWith('-'))) {
+    throw new Error('GitHub host invalid');
+  }
+  return origin;
+}
+
+export type DispatcherOperation = { operationId: string; path: string; body: unknown; signal?: AbortSignal };
+
+/** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request): Promise<DispatcherOperation> {
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
-  const value = JSON.parse(await readDispatcherBody(request));
+  const value = JSON.parse(await readDispatcherBody(request, request.signal));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
-    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema : null;
+    : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
+    : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema
+    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema
+    : url.pathname === '/v1/dispatcher/source' ? dispatcherSourceSchema
+    : url.pathname === '/v1/dispatcher/receipt' ? dispatcherReceiptSchema
+    : url.pathname === '/v1/dispatcher/resolve' ? dispatcherResolutionSchema : null;
   if (!schema) throw new Error('Dispatcher route denied');
   const body = schema.parse(value);
-  return { operationId: body.operationId, path: url.pathname, body };
+  if (url.pathname === '/v1/dispatcher/source') {
+    const source = dispatcherSourceSchema.parse(body);
+    if ((source.method ?? 'GET') === 'GET' && source.body !== undefined) throw new Error('GET body denied');
+    if ((source.method ?? 'GET') !== 'GET' && source.body === undefined) throw new Error('Mutation body required');
+  }
+  return { operationId: body.operationId, path: url.pathname, body, signal: request.signal };
 }
 
-/** Shared byte ceiling for requests, child admission/status and persisted effect output. */
-export async function readDispatcherBody(message: Request | Response): Promise<string> {
+/** Default bound for requests/status/inference/results; only approved source-response readers select another bound. */
+export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal,
+  byteLimit = DEFAULT_SOURCE_RESPONSE_BYTES): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let size = 0;
   let value = '';
+  const abort = () => { void reader.cancel(signal?.reason).catch(() => {}); };
+  signal?.addEventListener('abort', abort, { once: true });
   try {
     for (;;) {
+      if (signal?.aborted) throw signal.reason;
       const chunk = await reader.read();
+      if (signal?.aborted) throw signal.reason;
       if (chunk.done) return value + decoder.decode();
       size += chunk.value.byteLength;
-      if (size > 64 * 1024) throw new Error('Dispatcher body exceeds limit');
+      if (size > byteLimit) throw new Error('Dispatcher body exceeds limit');
       value += decoder.decode(chunk.value, { stream: true });
     }
-  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
 /** Current management authority is re-opened for each effect; receipt pins are never refreshed. */
@@ -70,9 +124,33 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
   if (!canInvokeOperator(human, selected.value.operator)) throw new Error('Dispatcher invoker denied');
   const parent = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
-    pullRequest: z.number().safe().int().positive() }).parse(JSON.parse(plan.invocationJson));
+    pullRequest: z.number().safe().int().positive().optional() }).parse(JSON.parse(plan.invocationJson));
   // No resource resolver is introduced: only the direct read/inference profile is supported.
   if (pinned.installation.policy.resourceProfileId !== null) throw new Error('Dispatcher resource profile unavailable');
+  if (plan.prospectiveAdmissionId) {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const proof = await registry.readProspectiveRenovateAdmission(plan.prospectiveAdmissionId);
+    if (!proof || plan.prospectiveAdmissionId !== plan.activityId || proof.activityId !== plan.activityId
+      || proof.repositoryId !== 973175879
+      || proof.pullRequest !== parent.pullRequest || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo'
+      || proof.installationId !== pinned.installation.id || proof.createdAt <= proof.activatedAt
+      || proof.ownerKey !== await operatorOwnerKey(human)
+      || proof.actor.subject !== human.subject || proof.actor.issuer !== human.issuer
+      || proof.actor.email.toLowerCase() !== human.email.toLowerCase()
+      || JSON.stringify([...proof.actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) {
+      throw new Error('Prospective admission changed');
+    }
+    const selectedActor = await registry.currentProspectiveRenovateRegistration(proof.actor.registrationId);
+    if (!selectedActor || selectedActor.installationId !== proof.installationId
+      || selectedActor.bucket !== proof.actor.bucket || selectedActor.sessionId !== proof.actor.sessionId
+      || selectedActor.sessionGeneration !== proof.actor.sessionGeneration
+      || selectedActor.human.subject !== human.subject || selectedActor.human.issuer !== human.issuer
+      || selectedActor.human.email.toLowerCase() !== human.email.toLowerCase()
+      || JSON.stringify([...selectedActor.human.audiences].sort()) !== JSON.stringify([...human.audiences].sort())
+      || !await operatorAccessSessionCurrent(human, authority.accessJwt)) {
+      throw new Error('Prospective actor expired');
+    }
+  }
   return { authority: { ...authority, human }, parent, policy: pinned.installation.policy };
 }
 
@@ -80,6 +158,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
 export async function createDispatcherOperation(input: {
   plan: OperatorRuntimePlan; env: Env; exports: Record<string, (options: { props: Record<string, unknown> }) => Fetcher>;
   operation: DispatcherOperation; current: () => Promise<boolean>;
+  effectContext?: { authorize: () => Promise<void>; reconcileOnly: boolean };
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const { authority, parent, policy: installationPolicy } = await authorizeDispatcherPlan(plan, env);
@@ -89,8 +168,97 @@ export async function createDispatcherOperation(input: {
   };
   const inference = operation.path === '/v1/dispatcher/inference';
   if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
+  if (operation.path === '/v1/dispatcher/source') {
+    // Repository-only packages own source selection. Legacy single-PR profiles retain their fixed reads.
+    if (parent.pullRequest !== undefined) throw new Error('Legacy Dispatcher source selection denied');
+    const sourceCurrent = async () => {
+      if (operation.signal?.aborted) throw new Error('Dispatcher caller cancelled');
+      await current();
+      if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
+        throw new Error('Dispatcher caller session expired');
+      }
+    };
+    await sourceCurrent();
+    const source = dispatcherSourceSchema.parse(operation.body);
+    const responseBytes = sourceResponseBytes(installationPolicy);
+    const url = new URL(source.url);
+    const method = source.method ?? 'GET';
+    const github = interceptedGithubHosts(env).includes(url.hostname);
+    if (method !== 'GET' && (!github || url.origin !== dispatcherGithubApiOrigin(env))) {
+      throw new Error('Mutation transport denied');
+    }
+    const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
+    if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
+    const bucket = await resolveBucketName(env, authority.human.email);
+    // Managed installations grant capabilities, not a manufactured legacy OperatorPolicy.
+    // No resource credentials or account-scoped Gateway exemption are granted by fetch.
+    const transport = entrypoint({ props: github
+      ? { user: authority.human.email, bucket, strict: true }
+      : { bucket, strict: true } });
+    return async () => {
+      await sourceCurrent();
+      const timeout = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
+      const signal = operation.signal ? AbortSignal.any([timeout, operation.signal]) : timeout;
+      let response: Response;
+      try {
+        response = await transport.fetch(new Request(url, { method, body: source.body, redirect: 'manual', signal,
+          headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher',
+            ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}) } }));
+      } catch {
+        await sourceCurrent();
+        if (method !== 'GET') throw new Error('Mutation response unknown');
+        return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
+      }
+      let body: string;
+      try { body = response.body ? await readDispatcherBody(response, signal, responseBytes) : ''; }
+      catch {
+        await sourceCurrent();
+        if (method !== 'GET') throw new Error('Mutation body unknown');
+        return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
+      }
+      await sourceCurrent();
+      if (method !== 'GET' && (signal.aborted || response.status >= 500 || (response.status >= 300 && response.status < 400))) {
+        throw new Error('Mutation outcome unknown');
+      }
+      if (signal.aborted) return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
+      // Only response metadata needed for provenance, paging and explicit redirects crosses the boundary.
+      const headers: Record<string, string> = {};
+      for (const name of ['content-type', 'etag', 'last-modified', 'date', 'link', 'location']) {
+        const value = response.headers.get(name);
+        if (value !== null) headers[name] = value;
+      }
+      const envelope = JSON.stringify({ url: url.href, status: response.status, headers, body });
+      if (envelope.includes(authority.accessJwt)) {
+        if (method !== 'GET') throw new Error('Mutation receipt unavailable');
+        return Response.json({ code: 'OPERATOR_SOURCE_CREDENTIAL_REFLECTION' }, { status: 422 });
+      }
+      if (new TextEncoder().encode(envelope).byteLength > responseBytes) {
+        if (method !== 'GET') throw new Error('Mutation receipt incomplete');
+        return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
+      }
+      return new Response(envelope, { headers: { 'content-type': 'application/json' } });
+    };
+  }
+  const phase = operation.path === '/v1/dispatcher/github/comment' ? 'comment'
+    : operation.path === '/v1/dispatcher/github/merge' ? 'merge' : undefined;
+  const effect = phase === 'comment' ? dispatcherCommentSchema.parse(operation.body)
+    : phase === 'merge' ? dispatcherMergeSchema.parse(operation.body) : undefined;
+  const read = !inference && !phase ? dispatcherReadSchema.parse(operation.body) : undefined;
+  const resource = read?.resource;
+  if (read?.target && (read.pullRequest !== undefined || read.headSha !== undefined)) {
+    throw new Error('Contradictory read target');
+  }
+  const target = effect?.target ?? read?.target ?? read;
+  const pullRequest = target?.pullRequest ?? parent.pullRequest;
+  if (resource === 'open-pull-requests' && (read?.target || read?.pullRequest !== undefined || read?.headSha !== undefined)) {
+    throw new Error('Discovery target denied');
+  }
+  if (!inference && resource !== 'open-pull-requests' && (!pullRequest
+    || (parent.pullRequest !== undefined && pullRequest !== parent.pullRequest)
+    || (parent.pullRequest === undefined && !target?.headSha))) throw new Error('Pull request target denied');
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
-    github: { repositories: [parent.repository.toLowerCase()], methods: ['GET'] },
+    github: { repositories: resource === 'release-notes' || resource === 'upstream-guide'
+      ? [parent.repository.toLowerCase(), 'amir20/dozzle'] : [parent.repository.toLowerCase()], methods: ['GET'] },
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
@@ -106,7 +274,9 @@ export async function createDispatcherOperation(input: {
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
     const aig = await getAigConfig(env);
     const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
-      sessionId: `operator-${plan.activityId}`, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
+      // Existing native replay storage needs a stable owner-scoped namespace, not a workspace session.
+      sessionId: plan.activityId,
+      gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
       operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted } } });
     const value = dispatcherInferenceSchema.parse(operation.body);
     return async () => {
@@ -119,29 +289,225 @@ export async function createDispatcherOperation(input: {
   if (!input.exports.GitHubInterceptor) throw new Error('GitHub interceptor unavailable');
   const bucket = await resolveBucketName(env, authority.human.email);
   const transport = input.exports.GitHubInterceptor({ props: { user: authority.human.email, bucket, strict: true, operatorPolicy: policy } });
-  const { resource } = dispatcherReadSchema.parse(operation.body);
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
+  const readDeadline = resource === 'release-notes' ? Date.now() + 8000
+    : resource === 'upstream-guide' || resource === 'changed-compose' ? Date.now() + 18_000 : null;
+  const readSignal = () => {
+    if (readDeadline === null) return AbortSignal.timeout(8000);
+    const remaining = readDeadline - Date.now();
+    if (remaining <= 0) throw new Error('Dispatcher evidence deadline exceeded');
+    return AbortSignal.timeout(remaining);
+  };
   const get = async (path: string) => {
     await current();
-    return transport.fetch(new Request(base + path, { headers: {
+    return await transport.fetch(new Request(base + path, { redirect: 'manual', signal: readSignal(), headers: {
       accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
     } }));
   };
   return async () => {
-    const pull = await get(`/pulls/${parent.pullRequest}`);
+    if (resource === 'open-pull-requests') return Response.json(await discoverRenovatePulls(parent.repository, get));
+    const pull = await get(`/pulls/${pullRequest}`);
     if (!pull.ok) return pull;
     const pullBody = await readDispatcherBody(pull);
     const observed = JSON.parse(pullBody);
-    // Bot identity and assessment semantics belong to the forkable Dispatcher
-    // package. The parent validates only the bounded admitted PR/read scope.
+    if (target?.headSha && observed?.head?.sha !== target.headSha) throw new Error('Pull request head changed');
+    if (parent.pullRequest === undefined || phase) {
+      const candidate = phase && input.effectContext?.reconcileOnly && observed?.state === 'closed'
+        ? { ...observed, state: 'open' } : observed;
+      if (!eligibleRenovatePull(candidate, parent.repository) || observed.number !== pullRequest) {
+        throw new Error('Pull request outside discovery scope');
+      }
+    }
+    if (phase && effect) {
+      if (!input.effectContext) throw new Error('Dispatcher effect authority unavailable');
+      const effectCurrent = async () => { await current(); await input.effectContext!.authorize(); };
+      await effectCurrent();
+      const github = renovateGithub({ env, exports: input.exports, user: authority.human.email, bucket,
+        repository: parent.repository, pullRequest: effect.target.pullRequest, current: effectCurrent,
+        prospective: false, repositoryDiscovery: true });
+      return executeRenovateDecision({ github, activityId: plan.activityId, phase, value: effect, observed,
+        reconcileOnly: input.effectContext.reconcileOnly });
+    }
     if (!/^[0-9a-f]{40}$/.test(observed?.head?.sha ?? '')) throw new Error('Pull request evidence unavailable');
-    if (resource === 'pull-request') return new Response(pullBody, { headers: { 'content-type': 'application/json' } });
+    if (resource === 'pull-request') return Response.json({ number: observed.number,
+      head: { sha: observed.head.sha }, base: { sha: observed?.base?.sha ?? null },
+      user: { id: observed?.user?.id ?? null, login: observed?.user?.login ?? null,
+        type: observed?.user?.type ?? null } });
+    if (resource === 'release-notes' || resource === 'upstream-guide') {
+      const files = await get(`/pulls/${pullRequest}/files?per_page=100&page=1`);
+      if (!files.ok || /rel="next"/.test(files.headers.get('link') ?? '')) throw new Error('Release diff unavailable');
+      const changes = JSON.parse(await readDispatcherBody(files));
+      if (!Array.isArray(changes) || changes.length > 100) throw new Error('Release diff unavailable');
+      const targets: string[] = [];
+      for (const file of changes) {
+        if (!/(?:^|\/)compose[^/]*\.ya?ml$/.test(file?.filename ?? '')) continue;
+        if (file.status !== 'modified' || typeof file.patch !== 'string'
+          || !Number.isSafeInteger(file.additions) || !Number.isSafeInteger(file.deletions)) {
+          throw new Error('Release diff incomplete');
+        }
+        const lines = file.patch.split('\n');
+        if (lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length !== file.additions
+          || lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length !== file.deletions) {
+          throw new Error('Release diff truncated');
+        }
+        const removed = lines.filter((line: string) => /^-\s*image:\s*amir20\/dozzle:/.test(line));
+        const added = lines.filter((line: string) => /^\+\s*image:\s*amir20\/dozzle:/.test(line));
+        if (!removed.length && !added.length) continue;
+        if (removed.length !== 1 || added.length !== 1) throw new Error('Release diff ambiguous');
+        const before = /^-\s*image:\s*amir20\/dozzle:(v[0-9]+\.[0-9]+\.[0-9]+)\s*$/.exec(removed[0]);
+        const after = /^\+\s*image:\s*amir20\/dozzle:(v[0-9]+\.[0-9]+\.[0-9]+)\s*$/.exec(added[0]);
+        if (!before || !after || before[1] === after[1]) throw new Error('Release diff ambiguous');
+        targets.push(`${before[1]}:${after[1]}`);
+      }
+      if (!targets.length || targets.some(target => target !== targets[0])) throw new Error('Release diff ambiguous');
+      const tag = targets[0].split(':')[1];
+      const assertHead = async () => {
+        const response = await get(`/pulls/${pullRequest}`);
+        if (!response.ok) throw new Error('Upstream PR revision unavailable');
+        const reread = JSON.parse(await readDispatcherBody(response));
+        if (reread?.head?.sha !== observed.head.sha
+          || (resource === 'upstream-guide' && reread?.base?.sha !== observed?.base?.sha)) {
+          throw new Error('Upstream PR revision changed');
+        }
+      };
+      await assertHead();
+      if (resource === 'upstream-guide') {
+        const upstreamGet = async (path: string) => {
+          await current();
+          return transport.fetch(new Request(`https://${host}/repos/amir20/dozzle${path}`, {
+            redirect: 'manual', signal: readSignal(), headers: {
+              accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
+            },
+          }));
+        };
+        const tagResponse = await upstreamGet(`/git/ref/tags/${tag}`);
+        if (tagResponse.status !== 200) throw new Error('Upstream guide tag unavailable');
+        const tagIdentity = JSON.parse(await readDispatcherBody(tagResponse));
+        const reference = tagIdentity?.object;
+        if (tagIdentity?.ref !== `refs/tags/${tag}` || !/^[0-9a-f]{40}$/.test(reference?.sha ?? '')
+          || !['tag', 'commit'].includes(reference?.type)) throw new Error('Upstream guide tag unverified');
+        let commitSha: string = reference.sha;
+        if (reference.type === 'tag') {
+          const annotated = await upstreamGet(`/git/tags/${reference.sha}`);
+          if (annotated.status !== 200) throw new Error('Upstream guide annotated tag unavailable');
+          const tagged = JSON.parse(await readDispatcherBody(annotated));
+          if (tagged?.tag !== tag || tagged?.object?.type !== 'commit'
+            || !/^[0-9a-f]{40}$/.test(tagged?.object?.sha ?? '')) {
+            throw new Error('Upstream guide commit unverified');
+          }
+          commitSha = tagged.object.sha;
+        }
+        const path = 'docs/guide/agent.md';
+        const guideResponse = await upstreamGet(`/contents/${path}?ref=${commitSha}`);
+        if (guideResponse.status !== 200) throw new Error('Upstream agent guide unavailable');
+        const guide = JSON.parse(await readDispatcherBody(guideResponse));
+        if (guide?.path !== path || guide?.type !== 'file' || guide?.encoding !== 'base64'
+          || !/^[0-9a-f]{40}$/.test(guide?.sha ?? '') || typeof guide?.content !== 'string'
+          || !Number.isSafeInteger(guide?.size) || guide.size < 1 || guide.size > 24 * 1024) {
+          throw new Error('Upstream agent guide unverified');
+        }
+        const encoded = guide.content.replace(/\s/g, '');
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          throw new Error('Upstream agent guide encoding invalid');
+        }
+        const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
+        if (bytes.length !== guide.size) throw new Error('Upstream agent guide size mismatch');
+        const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
+        const blob = new Uint8Array(header.length + bytes.length);
+        blob.set(header); blob.set(bytes, header.length);
+        const blobSha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', blob)),
+          byte => byte.toString(16).padStart(2, '0')).join('');
+        if (blobSha !== guide.sha) throw new Error('Upstream agent guide blob mismatch');
+        const body = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+        if (!body.trim()) throw new Error('Upstream agent guide empty');
+        await assertHead();
+        if (readDeadline === null || Date.now() >= readDeadline) throw new Error('Upstream guide deadline exceeded');
+        return Response.json({ repository: 'amir20/dozzle', tag, commitSha, blobSha: guide.sha,
+          observedHead: observed.head.sha,
+          source: `https://github.com/amir20/dozzle/blob/${commitSha}/${path}`, body });
+      }
+      const release = await transport.fetch(new Request(`https://${host}/repos/amir20/dozzle/releases/tags/${tag}`, {
+        redirect: 'manual', signal: readSignal(), headers: {
+          accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher',
+        },
+      }));
+      if (release.status !== 200) throw new Error('Release notes unavailable');
+      const evidence = JSON.parse(await readDispatcherBody(release));
+      const source = `https://github.com/amir20/dozzle/releases/tag/${tag}`;
+      if (evidence?.tag_name !== tag || evidence?.html_url !== source || typeof evidence?.body !== 'string'
+        || !evidence.body.trim()) throw new Error('Release notes unverified');
+      await assertHead();
+      if (readDeadline === null || Date.now() >= readDeadline) throw new Error('Release read deadline exceeded');
+      return Response.json({ repository: 'amir20/dozzle', tag, source, observedHead: observed.head.sha,
+        body: evidence.body });
+    }
+    if (resource === 'changed-compose') {
+      const baseSha = observed?.base?.sha;
+      if (!/^[0-9a-f]{40}$/.test(baseSha ?? '')) throw new Error('Compose base unavailable');
+      const response = await get(`/pulls/${pullRequest}/files?per_page=100&page=1`);
+      if (response.status !== 200 || /rel="next"/.test(response.headers.get('link') ?? '')) {
+        throw new Error('Compose file list incomplete');
+      }
+      const files = JSON.parse(await readDispatcherBody(response));
+      if (!Array.isArray(files) || files.length === 0 || files.length > 100) throw new Error('Compose file list incomplete');
+      const changed = files.filter(file => /(?:^|\/)compose[^/]*\.ya?ml$/.test(file?.filename ?? ''));
+      if (!changed.length || changed.length > 20) throw new Error('Compose scope unavailable');
+      const paths = new Set<string>();
+      for (const file of changed) {
+        const path = file?.filename;
+        if (file?.status !== 'modified' || typeof path !== 'string' || path.length > 256
+          || path.split('/').some(segment => !/^[A-Za-z0-9_.-]+$/.test(segment) || segment === '.' || segment === '..')
+          || !/^[0-9a-f]{40}$/.test(file?.sha ?? '') || paths.has(path)) {
+          throw new Error('Compose path unavailable');
+        }
+        paths.add(path);
+      }
+      const decodeBlob = async (file: { filename: string; sha: string }, ref: string) => {
+        const encoded = file.filename.split('/').map(encodeURIComponent).join('/');
+        const blobResponse = await get(`/contents/${encoded}?ref=${ref}`);
+        if (blobResponse.status !== 200) throw new Error('Compose blob unavailable');
+        const body = JSON.parse(await readDispatcherBody(blobResponse));
+        if (body?.path !== file.filename || body?.type !== 'file' || body?.encoding !== 'base64'
+          || !/^[0-9a-f]{40}$/.test(body?.sha ?? '') || typeof body?.content !== 'string'
+          || !Number.isSafeInteger(body?.size) || body.size < 0 || body.size > 32 * 1024) {
+          throw new Error('Compose blob unverified');
+        }
+        const encodedBody = body.content.replace(/\s/g, '');
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encodedBody)) {
+          throw new Error('Compose blob invalid');
+        }
+        const bytes = Uint8Array.from(atob(encodedBody), char => char.charCodeAt(0));
+        if (bytes.length !== body.size) throw new Error('Compose blob size mismatch');
+        return { sha: body.sha as string, content: new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes) };
+      };
+      const projected = await Promise.all(changed.map(async file => {
+        const [before, after] = await Promise.all([
+          decodeBlob(file, baseSha), decodeBlob(file, observed.head.sha),
+        ]);
+        if (after.sha !== file.sha) throw new Error('Compose head blob mismatch');
+        return projectChangedCompose({ repository: parent.repository, pullRequest: pullRequest!,
+          baseSha, headSha: observed.head.sha, path: file.filename }, before, after);
+      }));
+      const reread = await get(`/pulls/${pullRequest}`);
+      if (reread.status !== 200) throw new Error('Compose revision unavailable');
+      const currentPull = JSON.parse(await readDispatcherBody(reread));
+      if (currentPull?.head?.sha !== observed.head.sha || currentPull?.base?.sha !== baseSha) {
+        throw new Error('Compose revision moved');
+      }
+      const output = { repository: parent.repository, pullRequest, baseSha,
+        observedHead: observed.head.sha, files: projected };
+      if (readDeadline === null || Date.now() >= readDeadline
+        || new TextEncoder().encode(JSON.stringify(output)).length > 48 * 1024) {
+        throw new Error('Compose projection exceeds bound');
+      }
+      return Response.json(output);
+    }
     if (resource === 'files') {
-      const response = await get(`/pulls/${parent.pullRequest}/files?per_page=100&page=1`);
+      const response = await get(`/pulls/${pullRequest}/files?per_page=100&page=1`);
       if (!response.ok) return response;
-      const data = JSON.parse(await readDispatcherBody(response));
+      const data = projectDispatcherFiles(JSON.parse(await readDispatcherBody(response)));
       return Response.json({ data, observedHead: observed.head.sha,
         truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
     }

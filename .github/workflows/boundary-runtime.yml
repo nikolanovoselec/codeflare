@@ -1,16 +1,27 @@
-name: Boundary Reviews (shadow)
+name: Protected Review Runtime
 
-on: # zizmor: ignore[dangerous-triggers] Protected base Codeflare code only; never checkout PR content.
-  pull_request_target:
-    branches: [develop, master, main]
-    types: [opened, reopened, synchronize, ready_for_review]
+on:
+  workflow_call:
+    inputs:
+      runtime_sha:
+        required: true
+        type: string
+      dev_origin:
+        required: true
+        type: string
+      integration_origin:
+        required: true
+        type: string
+      production_origin:
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
   collect:
-    if: github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.state == 'open'
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       contents: read
@@ -20,20 +31,24 @@ jobs:
     outputs:
       artifact_id: ${{ steps.transfer.outputs.artifact-id }}
     steps:
+      # Only the immutable Codeflare implementation is executed. No target-repository checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.sha }}
+          repository: nikolanovoselec/codeflare
+          ref: ${{ inputs.runtime_sha }}
+          path: .review-runtime
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
       - name: Collect exact claimed operator result
-        run: node scripts/operator-boundary-action.mjs collect
+        run: node .review-runtime/scripts/operator-boundary-action.mjs collect
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          CODEFLARE_ORIGIN: ${{ vars.CODEFLARE_ENTERPRISE_ORIGIN }}
+          CODEFLARE_DEV_ORIGIN: ${{ inputs.dev_origin }}
+          CODEFLARE_INTEGRATION_ORIGIN: ${{ inputs.integration_origin }}
+          CODEFLARE_PRODUCTION_ORIGIN: ${{ inputs.production_origin }}
           REVIEW_TRANSFER_FILE: ${{ runner.temp }}/boundary-result.json
       - name: Transfer bounded terminal bytes, not authority
         id: transfer
@@ -46,7 +61,7 @@ jobs:
 
   publish:
     needs: collect
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -58,25 +73,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.sha }}
+          repository: nikolanovoselec/codeflare
+          ref: ${{ inputs.runtime_sha }}
+          path: .review-runtime
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+          cache-dependency-path: .review-runtime/package-lock.json
+      - run: npm ci --prefix .review-runtime
       - name: Read bounded collector transfer
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           artifact-ids: ${{ needs.collect.outputs.artifact_id }}
           path: ${{ runner.temp }}/review-transfer
       - name: Publish with independent protected identity
-        run: node scripts/operator-boundary-action.mjs publish
+        run: node .review-runtime/scripts/operator-boundary-action.mjs publish
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          CODEFLARE_ORIGIN: ${{ vars.CODEFLARE_ENTERPRISE_ORIGIN }}
-          REVIEW_COMMENT_AUTHOR_ID: ${{ vars.REVIEW_COMMENT_AUTHOR_ID }}
-          REVIEW_CHECK_APP_ID: ${{ vars.REVIEW_CHECK_APP_ID }}
+          CODEFLARE_DEV_ORIGIN: ${{ inputs.dev_origin }}
+          CODEFLARE_INTEGRATION_ORIGIN: ${{ inputs.integration_origin }}
+          CODEFLARE_PRODUCTION_ORIGIN: ${{ inputs.production_origin }}
           REVIEW_TRANSFER_FILE: ${{ runner.temp }}/review-transfer/boundary-result.json

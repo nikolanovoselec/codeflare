@@ -80,7 +80,10 @@ const Header: Component<HeaderProps> = (props) => {
     timerTick(); // subscribe to tick for periodic recomputation
     const session = activeSession();
     if (!session || session.status !== 'running') return null;
-    return getSleepTimerInfo(session.lastActiveAt, sessionStore.preferences.sleepAfter);
+    const lastActiveAt = session.lastStartedAt && (!session.lastActiveAt
+      || Date.parse(session.lastActiveAt) < Date.parse(session.lastStartedAt))
+      ? session.lastStartedAt : session.lastActiveAt;
+    return getSleepTimerInfo(lastActiveAt, sessionStore.preferences.sleepAfter);
   });
   const handleClickOutside = (e: MouseEvent) => {
     if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {

@@ -13,9 +13,7 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = MAX_BUNDLE_BYTES + 256 * 1024;
 const API = 'https://api.github.com';
-const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com',
-  'productionresultssa1.blob.core.windows.net', 'productionresultssa3.blob.core.windows.net',
-  'productionresultssa8.blob.core.windows.net', 'productionresultssa16.blob.core.windows.net']);
+const CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com']);
 const FILES = ['operator-manifest.json', 'operator-bundle.json', 'operator-provenance.json'] as const;
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
@@ -114,7 +112,11 @@ async function githubBytes(path: string, pat: string, limit: number, deadline: n
       const location = response.headers.get('location');
       if (!location || location.length > 8192) throw new Error('Invalid GitHub redirect');
       const redirect = new URL(location);
-      if (redirect.protocol !== 'https:' || !CDN_HOSTS.has(redirect.hostname) || redirect.port || redirect.username || redirect.password || redirect.hash) throw new Error('Unsafe GitHub redirect');
+      // GitHub documents *.blob.core.windows.net for Actions artifacts; account names are not stable.
+      // Accept that transport only from our authenticated artifact endpoint, never arbitrary release URLs.
+      const artifactCdn = /^\/repositories\/[1-9]\d*\/actions\/artifacts\/[1-9]\d*\/zip$/.test(path)
+        && /^[a-z0-9]{3,24}\.blob\.core\.windows\.net$/.test(redirect.hostname);
+      if (redirect.protocol !== 'https:' || !(CDN_HOSTS.has(redirect.hostname) || artifactCdn) || redirect.port || redirect.username || redirect.password || redirect.hash) throw new Error('Unsafe GitHub redirect');
       void response.body?.cancel().catch(() => {});
       response = await fetch(new Request(redirect.href, { method: 'GET', redirect: 'manual', signal: controller.signal,
         headers: { accept: 'application/octet-stream' } }));
@@ -220,6 +222,16 @@ async function resolveSource(repositoryUrl: string, pat: string, deadline: numbe
     approvedWorkflow: { id: workflow.id, ref: `${workflowPath}@refs/heads/${resolved.default_branch}` } };
 }
 
+async function releaseTagCommit(repositoryId: number, tagName: string, pat: string, deadline: number): Promise<string> {
+  // Both new and retained releases must still resolve to their verified source commit.
+  let tag = z.object({ object: z.object({ type: z.enum(['commit', 'tag']), sha: commit }) }).parse(
+    await githubJson(`/repositories/${repositoryId}/git/ref/tags/${encodeURIComponent(tagName)}`, pat, deadline)).object;
+  if (tag.type === 'tag') tag = z.object({ object: z.object({ type: z.literal('commit'), sha: commit }) }).parse(
+    await githubJson(`/repositories/${repositoryId}/git/tags/${tag.sha}`, pat, deadline)).object;
+  if (tag.type !== 'commit') throw new Error('GitHub release commit unavailable');
+  return tag.sha;
+}
+
 async function acquireRelease(value: unknown, source: { id: string; repositoryId: number; sourceRevision: number; profile: ManagementOperatorProfile; approvedWorkflow: { id: number; ref: string } }, pat: string, deadline: number,
   allowLegacyProvenance = false): Promise<ManagementReleaseCandidate> {
   const remote = releaseSchema.parse(value);
@@ -255,13 +267,9 @@ async function acquireRelease(value: unknown, source: { id: string; repositoryId
   if (run.id !== provenance.workflow.runId || run.run_attempt !== provenance.workflow.runAttempt || run.workflow_id !== source.approvedWorkflow.id
     || run.head_sha !== provenance.sourceCommit || run.repository.id !== source.repositoryId || run.head_repository.id !== source.repositoryId
     || run.path !== workflowPath || `${workflowPath}@refs/heads/${run.head_branch}` !== source.approvedWorkflow.ref) throw new Error('GitHub build identity mismatch');
-  // Resolve the immutable release tag to a commit (including one annotated tag),
-  // never treat target_commitish/main as an immutable source identity.
-  let tag = z.object({ object: z.object({ type: z.enum(['commit', 'tag']), sha: commit }) }).parse(
-    await githubJson(`/repositories/${source.repositoryId}/git/ref/tags/${encodeURIComponent(remote.tag_name)}`, pat, deadline)).object;
-  if (tag.type === 'tag') tag = z.object({ object: z.object({ type: z.literal('commit'), sha: commit }) }).parse(
-    await githubJson(`/repositories/${source.repositoryId}/git/tags/${tag.sha}`, pat, deadline)).object;
-  if (tag.type !== 'commit' || tag.sha !== provenance.sourceCommit) throw new Error('GitHub release commit mismatch');
+  if (await releaseTagCommit(source.repositoryId, remote.tag_name, pat, deadline) !== provenance.sourceCommit) {
+    throw new Error('GitHub release commit mismatch');
+  }
   const artifacts = z.object({ total_count: positive, artifacts: z.array(z.unknown()).max(100) }).parse(
     await githubJson(`/repositories/${source.repositoryId}/actions/runs/${run.id}/artifacts?name=operator-package&per_page=100`, pat, deadline));
   if (artifacts.total_count !== 1 || artifacts.artifacts.length !== 1) throw new Error('Ambiguous GitHub build artifact');
@@ -338,14 +346,37 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
     // One bounded page; never silently walk unbounded release history. Retained
     // releases already in the registry remain available without GitHub I/O.
     const remote = z.array(z.unknown()).max(10).parse(await githubJson(`/repositories/${source.repositoryId}/releases?per_page=10`, pat, deadline));
-    const retainedLegacyIds = new Set((await context.registry.getManagementReleases(operatorId))
-      .filter(release => release.provenance.compilerCommit === undefined)
-      .map(release => release.githubReleaseId));
+    const retained = new Map((await context.registry.getManagementReleases(operatorId)).map(release => [release.id, release]));
+    const unchanged = new Map<number, ManagementRelease>();
     const candidates: ManagementReleaseCandidate[] = [];
     let aggregateBytes = 0;
-    for (const release of remote) {
-      const releaseId = z.object({ id: positive }).parse(release).id;
-      const candidate = await acquireRelease(release, source, pat, deadline, retainedLegacyIds.has(releaseId));
+    for (const value of remote) {
+      const release = releaseSchema.parse(value);
+      if (new Set(release.assets.map(asset => asset.name)).size !== 3
+        || new Set(release.assets.map(asset => asset.id)).size !== 3) throw new Error('Duplicate GitHub asset');
+      const prior = retained.get(`${source.id}-${source.sourceRevision}-${release.id}`);
+      if (prior && prior.tagName !== undefined && prior.publishedAt !== undefined) {
+        const sameAssets = prior.assets.length === FILES.length && FILES.every(name => {
+          const asset = release.assets.find(item => item.name === name);
+          const old = prior.assets.find(item => item.name === name);
+          return !!asset && !!old && asset.id === old.id && asset.digest === `sha256:${old.digest}`
+            && asset.size <= (name === 'operator-bundle.json' ? MAX_BUNDLE_BYTES : 64 * 1024);
+        });
+        if (prior.operatorId !== source.id || prior.repositoryId !== source.repositoryId
+          || prior.sourceRevision !== source.sourceRevision || prior.githubReleaseId !== release.id
+          || prior.provenance.workflowId !== source.approvedWorkflow.id
+          || prior.provenance.workflowRef !== source.approvedWorkflow.ref
+          || prior.tagName !== release.tag_name || prior.publishedAt !== release.published_at || !sameAssets
+          || await releaseTagCommit(source.repositoryId, release.tag_name, pat, deadline) !== prior.sourceCommit) {
+          throw new Error('Immutable release identity changed');
+        }
+        const verified = { ...prior };
+        delete verified.name; delete verified.description;
+        unchanged.set(release.id, verified);
+        continue;
+      }
+      const candidate = await acquireRelease(value, source, pat, deadline,
+        prior?.provenance.compilerCommit === undefined && prior !== undefined);
       aggregateBytes += candidate.bundleBytes.length;
       if (aggregateBytes > 16 * 1024 * 1024) throw new Error('Release acquisition aggregate limit');
       candidates.push(candidate);
@@ -356,7 +387,12 @@ export async function refreshGithubReleases(context: GitHubContext, operatorId: 
     }, candidates);
     if (!stored.ok) throw new AppError(stored.reason === 'not-found' || stored.reason === 'authority-expired' ? 'NOT_FOUND' : 'CONFLICT',
       stored.reason === 'not-found' || stored.reason === 'authority-expired' ? 404 : 409, 'Operator release refresh conflicted');
-    return stored.value;
+    return remote.map(value => {
+      const id = z.object({ id: positive }).parse(value).id;
+      const release = unchanged.get(id) ?? stored.value.find(item => item.githubReleaseId === id);
+      if (!release) throw new Error('Verified release unavailable');
+      return release;
+    });
   } catch (error) {
     unavailable(error);
   }

@@ -9,6 +9,8 @@ export const NODE_SUITE_FILES = [
   // Isolated Wrangler/workerd fixture verifies the real Worker Loader boundary.
   'src/__tests__/operators/loader-runtime.test.ts',
   'src/__tests__/operators/loader-flue.test.ts',
+  'src/__tests__/operators/loader-flue-1.test.ts',
+  'src/__tests__/operators/loader-flue-2.test.ts',
   // Phase-1 regression fence for canonical local-review packet bytes.
   'src/__tests__/operators/legacy-review-unchanged.test.ts',
   'src/__tests__/operators/approved-git-pack.test.ts',
@@ -33,6 +35,14 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/pi-review-scope.test.ts',
   'src/__tests__/lib/pi-sidebar-approval.test.ts',
   'src/__tests__/lib/review-enforcement.test.ts',
+  // The dedicated Pi selector/consumer import the native shell-backed local
+  // Review extension; workerd has no node:child_process module.
+  'src/__tests__/lib/operator-review-selector.test.ts',
+  'src/__tests__/lib/operator-review-remote.test.ts',
+  'src/__tests__/operators/review-published-result.test.ts',
+  'src/__tests__/operators/review-connected-lifecycle.test.ts',
+  // Node Action transport plus the existing native Wrangler producer fixture.
+  'src/__tests__/operators/conductor-protected-publication.test.ts',
   'src/__tests__/lib/review-completion-state.test.ts',
   'src/__tests__/lib/review-helpers.test.ts',
   // Executes browser-script bytes after an esbuild keepNames bundle; workerd
@@ -46,7 +56,11 @@ export const NODE_SUITE_FILES = [
 export function nodeSuiteFiles(group = 'all') {
   if (group === 'all') return NODE_SUITE_FILES;
   if (group === 'native') return ['src/__tests__/operators/loader-runtime.test.ts'];
-  if (group === 'flue') return ['src/__tests__/operators/loader-flue.test.ts'];
+  if (group === 'flue') return [
+    'src/__tests__/operators/loader-flue.test.ts',
+    'src/__tests__/operators/loader-flue-1.test.ts',
+    'src/__tests__/operators/loader-flue-2.test.ts',
+  ];
   if (group === 'rest') return NODE_SUITE_FILES.filter(file => !nodeSuiteFiles('native').includes(file) && !nodeSuiteFiles('flue').includes(file));
   throw new Error(`Unsupported Node test group: ${group}`);
 }

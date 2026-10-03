@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
+import { selectVerifiedBoundaryAction } from '../../operators/review-boundary-preparation';
 
 const empty = { revision: 0, managers: { users: [], groups: [] },
   ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: [] };
@@ -29,6 +30,22 @@ describe('REQ-OPERATOR-053: target Action trust is admin-owned and distinct from
     expect(await registry.setManagementControls({ ...empty, boundaryActions: [] }, authorized))
       .toMatchObject({ ok: false, reason: 'revision-conflict' });
     expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toEqual({ ...action, controlsRevision: 1 });
+  }));
+  it('REQ-OPERATOR-053: an explicitly inactive verified workflow leaves local review available without granting claim trust', () => withRegistry(async registry => {
+    const inactive = { ...action, events: ['pull_request_target'], enabled: false,
+      verified: true, runtimeSha: 'd'.repeat(40) };
+    expect((await registry.setManagementControls({ ...empty, boundaryActions: [inactive] },
+      { email: 'admin@example.test', expiresAt: Date.now() + 60_000 }, true)).ok).toBe(true);
+    expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
+    const selection = await selectVerifiedBoundaryAction({ OPERATOR_REGISTRY: { getByName: () => registry },
+      OPERATOR_ACTIVITY: { getByName: () => ({}) } } as never,
+    { subject: 'human', email: 'human@example.test', issuer: 'https://issuer.example.test', audiences: ['aud'],
+      issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.floor(Date.now() / 1000) + 300 },
+    { owner: 'owner', repository: 'repo', repositoryId: 138, baseRef: 'main', baseSha: 'a'.repeat(40) },
+    async path => path === '/repos/owner/repo'
+      ? Response.json({ id: 138, full_name: 'owner/repo', default_branch: 'main' })
+      : Response.json({ name: 'main', protected: true, commit: { sha: 'a'.repeat(40) } }));
+    expect(selection).toBe('local');
   }));
   it('refuses duplicate bindings and expired configuration authority', () => withRegistry(async registry => {
     await expect(registry.setManagementControls({ ...empty, boundaryActions: [action, action] },

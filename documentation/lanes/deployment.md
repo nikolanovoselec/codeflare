@@ -9,6 +9,7 @@ Default deployment execution, verification, rollback, development references, an
 ## Contents
 
 - [Standard Deployment](#standard-deployment)
+- [Dormant Review enrollment](#dormant-review-enrollment)
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Production Rollback](#production-rollback)
@@ -43,6 +44,30 @@ curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "
 Exercise the changed user path after provider discovery returns the expected `{ providers: [...] }` envelope. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
 
 **Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
+
+---
+
+## Dormant Review enrollment
+
+This procedure verifies **inactive** trust, not remote activation. Production use, activation and live publication require separate authorization and end-to-end proof. <!-- @impl: src/operators/boundary-action-installation.ts::verifyBoundaryWorkflow -->
+
+1. Configure `OPERATOR_REVIEW_EXECUTABLE_SHA` to the exact tested Codeflare runtime commit.
+2. Configure `OPERATOR_REVIEW_ORIGINS` with precisely `dev`, `integration` and `production` HTTPS origins maintained by the installer, never derived from a target PR or request. Missing or unverified configuration denies enrollment.
+3. Use a platform administrator's current Codeflare GitHub connection with repository workflow-write permission, authenticated Access and CSRF protection.
+4. Submit the target to `POST /api/operator-management/boundary-actions/propose`:
+
+```json
+{
+  "repositoryUrl": "https://github.com/OWNER/REPO",
+  "protectedRef": "refs/heads/main",
+  "installationId": "APPROVED_CONDUCTOR_INSTALLATION"
+}
+```
+
+5. Inspect and merge the ordinary proposal PR under the target repository's protected-branch policy. This documentation does not authorize that merge.
+6. Submit the same target to `POST /api/operator-management/boundary-actions/verify`. Codeflare rereads protected-base workflow ID, path and bytes before storing an **inactive** binding.
+7. A pending PR, successful test or verification cannot start Review or grant Action claim authority. An inactive binding permits local review only without a competing active Review binding.
+8. Independently verify the maintained runtime pin, target installation and live publication before claiming live acceptance.
 
 ---
 
@@ -170,6 +195,16 @@ The operator procedure, migration bounds, pause/resume behavior, verification, r
 | Enterprise/egress/governed aliases | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | Private operations; public behavior remains in Enterprise/Security SDD | Private promotion/rollback evidence |
 
 ---
+
+
+
+### REQ-OPS-011 preserved clauses
+
+The authoritative Node source, immutable indices and Linux amd64 manifest boundary are [REQ-OPS-011 AC5](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim); deployment evidence must cover that boundary plus the existing image build, packaged smoke, CVE scan, provenance and push gates.
+
+### REQ-OPS-054 preserved clauses
+
+The authoritative NAT64 classification and undici decompression floors, override and regeneration constraints are [REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity). Verify committed lock integrity and clean packaged-runtime installation separately; static pin agreement is not deployment or alert-clearance evidence.
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

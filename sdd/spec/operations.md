@@ -100,8 +100,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Each fixable vulnerable dependency in an immutable runtime is replaced at every affected path from an exact integrity-verified package artifact. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @manual: Dispatch a fresh integration image build and confirm each overlay integrity check succeeds before extraction. -->
 2. Before scan or push, packaged-image smoke verifies the fixed version at every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyJsYamlRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
-3. Packaged-image smoke loads each replacement through every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyJsYamlRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) -->
+3. Packaged-image smoke loads each replacement through every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyBundledSecurityRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC3: bundled brace runtimes must expand patterns correctly at every path) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC3: bundled undici runtimes must complete an HTTP body round trip at every path) --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyJsYamlRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) -->
 4. Each archive-capable replacement completes an archive creation and extraction round trip. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @manual: Confirm fresh-image smoke reports both node-tar paths before Trivy scan and image push. -->
+
+5. Every affected bundled brace runtime expands patterns correctly. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyBundledSecurityRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC3: bundled brace runtimes must expand patterns correctly at every path) -->
+6. Every affected bundled undici runtime completes an HTTP response/body round trip. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyBundledSecurityRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC3: bundled undici runtimes must complete an HTTP body round trip at every path) -->
 
 **Constraints:**
 
@@ -130,7 +133,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
 3. A failing owned backend, frontend, landing, or host test lane prevents the required `test` status from passing. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-5. A PR that changes a production dependency lockfile cannot pass when the changed dependency set contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (lists every job except itself in needs, so no lane escapes the merge gate) --> <!-- @manual -->
+5. A PR that changes a production dependency lockfile cannot pass when the changed dependency set contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (lists every job except itself in needs, so no lane escapes the merge gate) --> <!-- @test: host/__tests__/npm-security-lock-pins.test.js (keeps host transport lock above the patched GHSA-vp8m-p9jh-q5pm floor) --> <!-- @test: host/__tests__/npm-security-lock-pins.test.js (keeps UI transport lock above the patched GHSA-vp8m-p9jh-q5pm floor) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
 
@@ -138,7 +141,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
+- On GitHub-hosted Ubuntu, installing host sandbox packages uses the runner's official Ubuntu package sources, not unrelated third-party apt repositories; unavailable required sources or packages fail the host lane.
+- Custom-runner package-source policy remains unchanged and the real bubblewrap/AppArmor sandbox probe still runs. <!-- @impl: scripts/ci/install-approved-packet-packages.sh --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
 - Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane.
+- The Flue native cases run in three isolated processes with complete, non-overlapping case ownership; each executed case retains its fresh workerd and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
 - Pull requests use Dependency Review; their reviewed tree remains the dependency-security evidence for the squash result on `main`, while registry audits run only on explicit full dispatches.
 - If GitHub cannot generate the diff, the fallback verifies the exact local base/head commits and selects every lane. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
 - The `summary` job publishes the required `test` status, failing for failed or cancelled lanes and passing skipped lanes.
@@ -149,7 +155,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI
+**Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI. Hosted sandbox package-source tests failed expected RED at `f97bbbd7` / `36499479383`; final exact-head hosted apt installation and bubblewrap/AppArmor probe pending.
 
 **Status:** Implemented
 
@@ -407,8 +413,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
 3. Essential developer tools for terminal-based workflows are pre-installed and execute in the packaged runtime. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyDeveloperTools --> <!-- @manual -->
 4. Dedicated Browser IDE build stages enforce their separately pinned Node 22.21.1 compatibility boundary with version assertions before build or assembly work. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::openvscode-official-claude-extension --> <!-- @impl: Dockerfile::openvscode-agent-inventories --> <!-- @manual: Run the image build to execute all three version guards inside their stages. -->
+5. Every Node base stage resolves the approved immutable source and platform manifests; publication remains gated on image construction, smoke, scanning and provenance. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
 
-**Constraints:** None.
+**Constraints:**
+
+- Base sources and versions remain immutable pins, not mutable-tag fallbacks.
+- Any explicit digest upgrade requires mirror index, Linux amd64 child and layer verification; embedded IDE stages retain their separate Node 22 boundary.
+- The Dockerfile is included in the image input hash ([REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)).
 
 **Priority:** P1
 
@@ -736,18 +747,25 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every affected committed runtime lock resolves reviewed dependency security floors, including undici 8.9.0 in both Pi runtime trees and ip-address 10.3.1 or later in all three affected runtime trees. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
+1. Committed runtime locks and overrides cannot reinstall versions below the reviewed security floors. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/npm-tools/package.json::overrides --> <!-- @impl: preseed/agents/pi/package.json::overrides --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 2. Every Claude platform package in the privileged npm runtime lock matches the exact Claude CLI manifest pin. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@anthropic-ai/claude-code --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (locks every Claude platform package at the exact CLI release) -->
 3. The Browser Run MCP, shared npm-tools, and Pi runtime locks resolve fast-uri 3.1.6 or later. <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 4. Affected npm runtime dependency trees exclude the reviewed high-severity libheif out-of-bounds write exposure. <!-- @impl: package-lock.json::node_modules/sharp = 0.35.4 --> <!-- @impl: .github/npm-tools/wrangler/package-lock.json::node_modules/sharp = 0.35.4 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
+5. Root and workflow Wrangler undici 7.x locks resolve the fixed WebSocket decompression release (7.29.1+), and the Landing undici 8.x lock resolves 8.10.2+; manifest overrides cannot restore a vulnerable version. <!-- @impl: package.json::overrides --> <!-- @impl: .github/npm-tools/wrangler/package.json::overrides --> <!-- @impl: landing/package-lock.json::node_modules/undici --> <!-- @impl: scripts/apply-npm-security-lock-pins.mjs::main --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) --> <!-- @test: host/__tests__/npm-security-lock-pins.test.js (replaces every vulnerable bundled security pin and preserves unrelated packages) -->
 
-**Constraints:** Runtime-lock changes remain subject to normal PR review.
+6. Npm lock regeneration preserves reviewed security floors and unrelated package records rather than restoring vulnerable versions. <!-- @impl: scripts/apply-npm-security-lock-pins.mjs::main --> <!-- @test: host/__tests__/npm-security-lock-pins.test.js (replaces every vulnerable bundled security pin and preserves unrelated packages) -->
+
+**Constraints:**
+
+- Runtime-lock changes remain subject to normal PR review.
+
+- Security floors: affected ip-address 10.x ≥10.5.1 for NAT64 local-use classification; Pi undici 8.x ≥8.10.2 for decompression error handling.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
 
-**Verification:** Automated committed runtime-lock integrity tests
+**Verification:** Automated committed runtime-lock integrity tests. Security-floor RED `78d3ec471dc8454ad694b36bbfde836e37fb1a9f` / PR Checks `36537064228` failed as intended on the old Pi undici 8.9.0 resolution and the old 7.29.0 regeneration pin. The ip-address regeneration fixture assertion was added during implementation, not in the remote RED batch. The bounded correction at `2c26635230c36441f9d85bb2af255a345fab1eca` passed exact-head PR Checks `36538120579`: generated-seed drift guard, host security-pin and dependency-integrity suites, Node-Flue, Typecheck, and aggregate. Root `npm ci` was observed in tested lanes; complete clean installation of the image-packaged preseed trees and default-branch alert clearance remain separate.
 
 **Status:** Implemented
 
@@ -791,8 +809,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) -->
 3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
 4. A Pi runtime-agent bump updates the shared image-tools lock, both prewarm dependency/override pins and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
-5. A Pi-extension bump updates every matching exact-version sentinel. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-025 AC5: Pi extension bumps update every exact-version sentinel) -->
-6. Goal and Plan package bumps run their exact-version transforms before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-152: Plan Mode shadow bumps execute the locked tool-policy preflight) -->
+5. A Pi-extension bump aligns matching pins in both runtime manifests and installation specifications, preserving unrelated dependencies. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-025 AC5: Pi extension bumps align both runtime manifests and install specs) -->
+6. Goal and Plan package bumps run their exact-version transforms before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual: Actual locked candidate transforms must fail before publication on rejected input; workflow text or recorded fake commands do not establish this outcome. -->
 
 **Constraints:** None.
 
@@ -800,7 +818,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/npm-package-lock-regeneration.test.js); workflow execution manual)
+**Verification:** Automated lifecycle-safe lockfile test at the adjacent anchor; workflow execution remains manual. AC6 still needs actual latest-pinned candidate-transform/rejection and pre-publication failure coverage; source-only workflow checks are not acceptance.
 
 **Status:** Implemented
 
@@ -857,6 +875,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
 - Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
 - Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence.
+- Generated TypeScript and `__tests__` fixture trees are excluded before Git diff buffering, so large ignored fixtures cannot exhaust the production-diff budget; uncovered production lines still fail the existing floor. <!-- @impl: scripts/ci/check-coverage-result.mjs::changedCoverageFromGit --> <!-- @test: host/__tests__/changed-coverage-fixtures.test.js (REQ-OPS-022 AC6: ignored large test fixtures preserve covered production coverage enforcement) --> <!-- @test: host/__tests__/changed-coverage-fixtures.test.js (REQ-OPS-022 AC6: ignored large test fixtures preserve uncovered production coverage enforcement) -->
 - Manual-validation exceptions do not extend to backend contracts, shared frontend infrastructure, or non-Administration production code.
 
 **Priority:** P1
@@ -1439,7 +1458,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @manual: Confirm exact-head BuildKit output reuses unrelated dependency layers and rebuilds late IDE and seed assembly. -->
 3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm the exact-head deployment retains the uploaded BuildKit timing artifact. -->
 
-**Constraints:** The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
+**Constraints:**
+
+- Hosted Ubuntu runner defaults are pinned to `ubuntu-24.04`, including reusable-workflow runner inputs; existing explicit runner overrides remain supported.
+- No self-hosted or larger-runner dependency is introduced. <!-- @test: host/__tests__/ci-runner-os-pin.test.js (REQ-OPS-050: workflow scheduling defaults pin Ubuntu 24.04 while retaining explicit runner overrides) -->
 
 **Priority:** P1
 

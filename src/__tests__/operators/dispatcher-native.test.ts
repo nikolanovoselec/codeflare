@@ -92,9 +92,10 @@ describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
       return { getDurableObjectClass };
     }) };
     const capability = { fetch: vi.fn() } as unknown as Fetcher;
+    const tail = { tail: async (_events: unknown) => {} };
 
     const digest = 'b'.repeat(64);
-    const loaded = loadOperatorDispatcherClass(loader, bundle, digest, 'activity-1', 3, capability);
+    const loaded = loadOperatorDispatcherClass(loader, bundle, digest, 'activity-1', 3, capability, tail);
 
     expect(loaded).toBe(generatedClass);
     expect(loader.get).toHaveBeenCalledWith(`dispatcher:activity-1:${digest}:3`, expect.any(Function));
@@ -102,16 +103,18 @@ describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
     return expect(codeFactory!()).resolves.toEqual({
       compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
       mainModule: 'index.js', modules: bundle.modules, env: { OPERATOR: capability }, globalOutbound: null,
+      tails: [tail],
     });
   });
 
   it('rejects invalid activity identities and generations before asking Loader for a class', () => {
     const loader = { get: vi.fn() };
     const capability = {} as Fetcher;
+    const tail = { tail: async (_events: unknown) => {} };
 
-    expect(() => loadOperatorDispatcherClass(loader, bundle, 'b'.repeat(64), '../other', 1, capability)).toThrow();
-    expect(() => loadOperatorDispatcherClass(loader, bundle, 'b'.repeat(64), 'activity-1', 0, capability)).toThrow();
-    expect(() => loadOperatorDispatcherClass(loader, bundle, 'not-a-digest', 'activity-1', 1, capability)).toThrow();
+    expect(() => loadOperatorDispatcherClass(loader, bundle, 'b'.repeat(64), '../other', 1, capability, tail)).toThrow();
+    expect(() => loadOperatorDispatcherClass(loader, bundle, 'b'.repeat(64), 'activity-1', 0, capability, tail)).toThrow();
+    expect(() => loadOperatorDispatcherClass(loader, bundle, 'not-a-digest', 'activity-1', 1, capability, tail)).toThrow();
     expect(loader.get).not.toHaveBeenCalled();
   });
 });

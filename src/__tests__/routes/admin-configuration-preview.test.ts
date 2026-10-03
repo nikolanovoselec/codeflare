@@ -82,6 +82,29 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     mockAuthReject = false;
   });
 
+  it('REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'saved-token', AIG_GATEWAY_URL: routingGatewayUrl });
+    const base = { ...enterpriseAiValues, dynamicRoutes: [], defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {}, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+      fallbackRouting: { enabled: false }, groupRouting: [{ accessGroup: 'engineering', routes: [], defaultRoute: '', reasoning: 'off' }] };
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [], defaultRoute: '', reasoning: 'off' } });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, base.reasoningConfiguration);
+    for (const [index, enabled] of [true, false].entries()) {
+      const values = { ...base, groupRouting: [{ ...base.groupRouting[0], allowPersonalPiProviders: enabled }] };
+      const response = await post(app, { section: 'aiRouting', baseRevision: index, values });
+      expect(response.status).toBe(200);
+      const preview = await response.json() as { changes: { field: string }[]; warnings: { code: string }[] };
+      expect(preview.changes.some(change => change.field === 'groupRouting')).toBe(true);
+      const saved = await app.request('/admin/configuration-runs', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ section: 'aiRouting', baseRevision: index, values, confirmedWarnings: preview.warnings.map(item => item.code) }) });
+      expect(saved.status).toBe(200);
+      const events = (await saved.text()).trim().split('\n').map(line => JSON.parse(line));
+      expect(events.at(-1).run.state).toBe('succeeded');
+      const reloaded = await app.request('/admin/configuration');
+      expect(await reloaded.json()).toMatchObject({ sections: { aiRouting: { groupRouting: { engineering: { allowPersonalPiProviders: enabled } } } } });
+    }
+  });
+
   it('rejects unauthenticated and non-admin requests', async () => {
     const { app } = createApp();
     mockAuthReject = true;

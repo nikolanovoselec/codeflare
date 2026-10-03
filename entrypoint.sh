@@ -2442,6 +2442,9 @@ CASE_EOF
 CASE_EOF
                     ;;
                 codex|opencode|copilot*|agy|agy\ *)
+                    if [ "$cmd" = "codex" ] && [ "${FAST_CLI_START:-true}" != "false" ]; then
+                        cmd="codex --no-daemon"
+                    fi
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
@@ -3000,52 +3003,25 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
-warm_pi_npm_dependencies() {
-    local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
-    local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
-    if [ ! -d "$pi_npm_preseed/node_modules" ]; then
-        return 0
-    fi
-    mkdir -p "$pi_npm_dir"
-    if [ ! -f "$pi_npm_dir/package.json" ] && [ -f "$pi_npm_preseed/package.json" ]; then
-        cp "$pi_npm_preseed/package.json" "$pi_npm_dir/package.json"
-    fi
-    if [ ! -f "$pi_npm_dir/package-lock.json" ] && [ -f "$pi_npm_preseed/package-lock.json" ]; then
-        cp "$pi_npm_preseed/package-lock.json" "$pi_npm_dir/package-lock.json"
-    fi
-    # Symlink node_modules to the image-local preseed cache instead of copying
-    # 433MB on every boot. The symlink is instant; PI_OFFLINE=1 prevents Pi
-    # from writing to it. R2 excludes **/node_modules/** so the symlink is
-    # recreated on each container start.
-    if [ -L "$pi_npm_dir/node_modules" ]; then
-        echo "[entrypoint] Pi extension npm dependencies symlinked (already present)"
-    elif [ -d "$pi_npm_dir/node_modules" ]; then
-        rm -rf "$pi_npm_dir/node_modules"
-        ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
-        echo "[entrypoint] Pi extension npm dependencies symlinked (replaced stale copy)"
-    else
-        ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
-        echo "[entrypoint] Pi extension npm dependencies symlinked"
-    fi
-
+configure_pi_packages_and_review_inventory() {
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"
     mkdir -p "$(dirname "$pi_settings")"
     node - "$pi_settings" <<'NODE'
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@21.4.5',
+  'npm:@gotgenes/pi-subagents@21.8.1',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.9.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.9.0',
-  'npm:@juicesharp/rpiv-todo@2.9.0',
-  'npm:pi-web-access@0.28.0',
-  'npm:pi-mcp-adapter@2.32.1',
+  'npm:@juicesharp/rpiv-advisor@2.11.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.11.0',
+  'npm:@juicesharp/rpiv-todo@2.11.0',
+  'npm:pi-web-access@0.34.0',
+  'npm:pi-mcp-adapter@3.3.0',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.54.4',
-  'npm:@narumitw/pi-plan-mode@0.56.0',
-  'npm:@narumitw/pi-usage@0.60.3',
+  'npm:@narumitw/pi-goal@0.54.8',
+  'npm:@narumitw/pi-plan-mode@0.58.3',
+  'npm:@narumitw/pi-usage@0.61.1',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
@@ -3081,8 +3057,52 @@ for (const spec of required) {
   if (source) byName.set(identity(source), spec);
 }
 for (const spec of defaultPackages) byName.set(identity(spec.source), spec);
-fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
+// A prior managed curation release may still deliver only the unchanged local
+// Review. Do not exclude it until the selector and remote implementation have
+// been delivered together; partial delivery fails closed instead of dual-loading.
+const reviewDir = require('path').join(require('path').dirname(path), 'extensions');
+const selectorReady = fs.existsSync(require('path').join(reviewDir, 'operator-review-selector.ts'));
+const remoteReady = fs.existsSync(require('path').join(reviewDir, 'operator-review-remote.ts'));
+const reviewExclusions = !selectorReady && !remoteReady ? []
+  : ['review-enforcement.ts', 'operator-review-remote.ts']
+    .map(name => `-${require('path').join(reviewDir, name)}`);
+const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts']
+  .map(name => `-${require('path').join(reviewDir, name)}`);
+const extensions = Array.isArray(settings.extensions)
+  ? settings.extensions.filter(item => !managedReviewPaths.includes(item)) : [];
+fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
+  extensions: [...extensions, ...reviewExclusions] }, null, 2) + '\n');
 NODE
+}
+
+warm_pi_npm_dependencies() {
+    configure_pi_packages_and_review_inventory || return 1
+
+    local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
+    local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
+    if [ -d "$pi_npm_preseed/node_modules" ]; then
+        mkdir -p "$pi_npm_dir"
+        if [ ! -f "$pi_npm_dir/package.json" ] && [ -f "$pi_npm_preseed/package.json" ]; then
+            cp "$pi_npm_preseed/package.json" "$pi_npm_dir/package.json"
+        fi
+        if [ ! -f "$pi_npm_dir/package-lock.json" ] && [ -f "$pi_npm_preseed/package-lock.json" ]; then
+            cp "$pi_npm_preseed/package-lock.json" "$pi_npm_dir/package-lock.json"
+        fi
+        # Symlink node_modules to the image-local preseed cache instead of copying
+        # 433MB on every boot. The symlink is instant; PI_OFFLINE=1 prevents Pi
+        # from writing to it. R2 excludes **/node_modules/** so the symlink is
+        # recreated on each container start.
+        if [ -L "$pi_npm_dir/node_modules" ]; then
+            echo "[entrypoint] Pi extension npm dependencies symlinked (already present)"
+        elif [ -d "$pi_npm_dir/node_modules" ]; then
+            rm -rf "$pi_npm_dir/node_modules"
+            ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
+            echo "[entrypoint] Pi extension npm dependencies symlinked (replaced stale copy)"
+        else
+            ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
+            echo "[entrypoint] Pi extension npm dependencies symlinked"
+        fi
+    fi
 
     # The rpiv-advisor npm package ships proactive prompt guidance by default.
     # Codeflare policy is stricter: only the user may invoke advisor or /advisor.
@@ -3198,6 +3218,14 @@ update_pi_and_codex_when_fast_start_disabled() {
             update_failed=1
         fi
     fi
+    if [ "$pi_installed" = true ]; then
+        # Extension updates and npm repair can restore upstream package metadata.
+        # RPIV belongs to the agent preseed, not the shared CLI tools tree.
+        if ! node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}/node_modules"; then
+            echo "[entrypoint] ERROR: RPIV host dependency compatibility repair failed"
+            update_failed=1
+        fi
+    fi
     rm -rf -- "$update_cache"
 
     if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then
@@ -3235,9 +3263,40 @@ release_agent_pty_after_fast_start_updates() {
 # Dependency warm-up remains non-fatal: aborting before the init-complete flag
 # leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
 # keep that established degradation policy.
+# Pi Subagents: disable the upstream notify_parent / <subagent-update> channel.
+# Completion results and ask_parent remain available; only mid-run chatter is off.
+# Apply after home restore and before Pi loads its extensions, on EVERY startup:
+# a restored midRunUpdates:true must not re-enable the channel. This is the
+# image-owned default for all workspaces, not a change to just the current Pi.
+# Merge only this setting so concurrency, retention and other user preferences
+# survive. Invalid files are left intact and produce a content-free warning.
+# Upstream explicit per-project overrides still take precedence over this global
+# default; do not rewrite users' repository-local configuration files.
+configure_pi_subagent_defaults() {
+    local subagent_config="$USER_HOME/.pi/agent/subagents.json"
+    mkdir -p "$(dirname "$subagent_config")" || return 1
+    node - "$subagent_config" <<'NODE'
+const fs = require('node:fs');
+const path = process.argv[2];
+try {
+  let settings = {};
+  if (fs.existsSync(path)) {
+    const stat = fs.lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('invalid configuration');
+    settings = JSON.parse(fs.readFileSync(path, 'utf8'));
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('invalid configuration');
+  }
+  fs.writeFileSync(path, JSON.stringify({ ...settings, midRunUpdates: false }, null, 2) + '\n', { mode: 0o600 });
+} catch {
+  // Never print preference contents or credential-bearing parse errors.
+  process.exitCode = 1;
+}
+NODE
+}
+configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
-warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
+warm_pi_npm_dependencies || echo "[entrypoint] WARNING: Pi dependency warm-up failed; continuing startup"
 
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
@@ -3282,10 +3341,34 @@ echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 # Wrapped in a function called with `|| echo WARNING` so a jq/IO failure can never
 # abort the entrypoint before the init-complete flag (would crash-loop the
 # container, the AD-class bug fixed for the enterprise block).
+# Reuse the same no-clobber migration delivered by the signed managed Pi seed.
+# A rejected user file blocks Pi bootstrap writes/removals, not container startup.
+configure_pi_mcp_adapter() {
+    local module="${1:-/opt/codeflare/pi-agent/extensions/00-mcp-adapter-config.ts}"
+    PI_MCP_CONFIG_READY=0
+    if node --input-type=module - "$module" "$USER_HOME/.pi/agent" <<'PI_MCP_MIGRATION'
+import { pathToFileURL } from 'node:url';
+const { migratePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
+process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true) ? 0 : 1;
+PI_MCP_MIGRATION
+    then
+        PI_MCP_CONFIG_READY=1
+        # Restore has finished; only subsequent baseline/bisync excludes this
+        # obsolete root path. Active config and custom recovery files still sync.
+        RCLONE_FILTERS+=(--filter "- /.pi/agent/mcp.json")
+    else
+        echo "[entrypoint] WARNING: Pi MCP config migration skipped; user files preserved"
+    fi
+}
+configure_pi_mcp_adapter
+
 _merge_consult_llm_mcp() {
     # $1 target json, $2 config json, $3 human label
     local target="$1" cfg="$2" label="$3" tmp
     if [ -f "$target" ]; then
+        if [ "${4:-0}" = "1" ] && jq -e '.mcpServers | has("consult-llm")' "$target" >/dev/null 2>&1; then
+            return 0
+        fi
         tmp=$(mktemp)
         if jq --argjson mcp "$cfg" '.mcpServers = ((.mcpServers // {}) + {"consult-llm": $mcp.mcpServers["consult-llm"]})' "$target" > "$tmp" 2>/dev/null; then
             mv "$tmp" "$target"
@@ -3317,7 +3400,8 @@ _remove_consult_llm_mcp() {
 
 _remove_disabled_consult_llm() {
     _remove_consult_llm_mcp "$USER_CLAUDE_JSON" "Claude Code"
-    _remove_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" "Pi"
+    # Successful Pi preparation already removes recognizable generated entries.
+    # Anything remaining is customized; do not repeat Claude's name-only cleanup.
     rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
 }
 
@@ -3366,17 +3450,19 @@ configure_consult_llm() {
         "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
         "Claude Code"
 
-    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Adapter
+    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp-adapter.json (same shape). Adapter
     # 2.15+ interprets a leading `!` as a command-backed secret and `!!` as a
     # literal leading bang, so encode only Pi's copy; Claude receives raw env.
     # Keep the server behind the adapter's lazy `mcp` proxy so consult-llm-mcp
     # starts only when the user explicitly asks to consult an external LLM.
     pi_env_obj=$(printf '%s' "$env_obj" | jq -c \
         'with_entries(.value |= if type == "string" and startswith("!") then "!" + . else . end)')
-    mkdir -p "$USER_HOME/.pi/agent"
-    _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-        "$(jq -n --argjson env "$pi_env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
-        "Pi"
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        mkdir -p "$USER_HOME/.pi/agent"
+        _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp-adapter.json" \
+            "$(jq -n --argjson env "$pi_env_obj" '{"settings":{"deferWithMissingMetadata":true},"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
+            "Pi" "1"
+    fi
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
 
@@ -3811,8 +3897,15 @@ COPILOT_BYOK_EOF
     # auth.json leaves the dynamic routes as the only selectable models. Authoritative on
     # every enterprise start so a restored/synced home dir cannot reintroduce a built-in
     # provider's stored token (e.g. the seeded openai-codex entry).
-    echo '{}' > "$USER_HOME/.pi/agent/auth.json"
-    echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
+    ENTERPRISE_PI_PERSONAL_PROVIDERS="${ENTERPRISE_PI_PERSONAL_PROVIDERS:-false}"
+    if [ "$ENTERPRISE_PI_PERSONAL_PROVIDERS" = "true" ] && [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
+        [ ! -f "$USER_HOME/.pi/agent/auth.json" ] || chmod 0600 "$USER_HOME/.pi/agent/auth.json"
+        echo "[entrypoint] Enterprise Mode: native Pi authentication retained under group policy"
+    else
+        echo '{}' > "$USER_HOME/.pi/agent/auth.json"
+        chmod 0600 "$USER_HOME/.pi/agent/auth.json"
+        echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
+    fi
 fi
 
 # --- TLS: trust the Cloudflare containers CA for NON-ENTERPRISE OAuth sessions ---
@@ -4013,7 +4106,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # (navigate, click, fill, take_screenshot, take_snapshot, resize_page for a
 # mobile viewport) — the foundation the browser-e2e skill rests on:
 #   - Claude Code: registered in ~/.claude.json mcpServers (canonical MCP path).
-#   - Pi: registered in ~/.pi/agent/mcp.json; Pi's pi-mcp-adapter bridges it in
+#   - Pi: registered in ~/.pi/agent/mcp-adapter.json; Pi's pi-mcp-adapter bridges it in
 #     (reachable through the `mcp` proxy tool), exactly as consult-llm is wired
 #     for Pi above. lifecycle:lazy so an idle session does not pin a remote
 #     browser open. Pi ALSO keeps its native browser_* tools (the REST Quick
@@ -4082,7 +4175,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     fi
     echo "[entrypoint] chrome-devtools MCP server registered in .claude.json (Cloudflare Browser Run)"
 
-    # Pi (~/.pi/agent/mcp.json) - the SAME chrome-devtools server, bridged in by
+    # Pi (~/.pi/agent/mcp-adapter.json) - the SAME chrome-devtools server, bridged in by
     # the pi-mcp-adapter (reachable via the `mcp` proxy). Mirrors the Claude merge
     # above and the consult-llm Pi merge in configure_consult_llm. lifecycle:lazy
     # connects on first use and disconnects on idle, so an idle Pi session does
@@ -4090,20 +4183,50 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # cheap one-shot REST read path); chrome-devtools adds the interactive flow.
     BROWSER_MCP_PI=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
         '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
-    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
-    mkdir -p "$USER_HOME/.pi/agent"
-    if [ -f "$PI_MCP_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$PI_MCP_JSON"
+    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp-adapter.json"
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        mkdir -p "$USER_HOME/.pi/agent"
+        if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
+            # Keep custom server settings and credentials, but cap Codeflare's
+            # Cloudflare Browser Run inactivity window at THREE MINUTES. This
+            # also repairs restored/migrated ten-minute endpoints without
+            # rewriting unrelated browser services or authorization headers.
+            node - "$PI_MCP_JSON" <<'NODE'
+const fs = require('node:fs');
+const path = process.argv[2];
+const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+const browser = config.mcpServers['chrome-devtools'];
+let changed = false;
+if (Array.isArray(browser?.args)) {
+  browser.args = browser.args.map(arg => {
+    if (typeof arg !== 'string' || !arg.startsWith('--wsEndpoint=')) return arg;
+    try {
+      const url = new URL(arg.slice('--wsEndpoint='.length));
+      if (url.protocol !== 'wss:' || url.hostname !== 'api.cloudflare.com'
+        || url.port || url.username || url.password
+        || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
+      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '180000') return arg;
+      url.searchParams.set('keep_alive', '180000');
+      changed = true;
+      return '--wsEndpoint=' + url.toString();
+    } catch { return arg; }
+  });
+}
+if (changed) fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+NODE
+        elif [ -f "$PI_MCP_JSON" ]; then
+            TMP_JSON=$(mktemp)
+            if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
+                mv "$TMP_JSON" "$PI_MCP_JSON"
+            else
+                echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp-adapter.json (malformed?)"
+                rm -f "$TMP_JSON"
+            fi
         else
-            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp.json (malformed?)"
-            rm -f "$TMP_JSON"
+            echo "$BROWSER_MCP_PI" | jq '.' > "$PI_MCP_JSON"
         fi
-    else
-        echo "$BROWSER_MCP_PI" | jq '.' > "$PI_MCP_JSON"
+        echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp-adapter.json (Cloudflare Browser Run)"
     fi
-    echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp.json (Cloudflare Browser Run)"
 
     # Claude (~/.claude.json) - the cheap one-shot page-read surface (markdown /
     # content / scrape), giving Claude parity with Pi's native browser_* tools.
@@ -4130,7 +4253,9 @@ else
     # untouched, while stale bearer-bearing Browser Run entries cannot survive a mode
     # or credential change.
     remove_owned_browser_mcp_servers "$USER_CLAUDE_JSON" '["chrome-devtools","browser-run"]'
-    remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp.json" '["chrome-devtools"]'
+    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
+        remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp-adapter.json" '["chrome-devtools"]'
+    fi
     rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
            "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
     echo "[entrypoint] Browser Run not configured; owned MCP registrations and browser skills removed"
@@ -4513,6 +4638,10 @@ complete_managed_curation_startup() {
     # release and --resync so Pi never loads a missing companion; protected filters keep the image
     # file outside R2. Copy failure logs a warning without aborting PID 1.
     relay_managed_pi_extensions || true
+    # Curation and baked seed delivery can alter the actual Review inventory
+    # after early dependency warm-up; reselect only once delivery is settled.
+    configure_pi_packages_and_review_inventory || \
+        echo "[entrypoint] WARNING: Pi Review settings unavailable; Review is not ready"
 
     # The terminal server has been polling this flag before spawning tab 1. Run
     # requested updates, prune restored transcripts, then release the agent PTY.
@@ -4612,12 +4741,22 @@ NODE
     )
     install -d -m 0700 "$operator_root" "$operator_root/work" "$operator_root/agent" \
         "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare" "$USER_HOME/Operators"
-    for trusted_file in models.json settings.json auth.json; do
+    # Use the image-owned routing publication, never a user-editable provider
+    # document: even the managed provider alias may contain personal inline keys.
+    local operator_routing="${PI_PROVIDER_CONFIG:-}"
+    if [ -z "${operator_routing//[[:space:]]/}" ]; then
+        echo "[entrypoint] Managed Operator routing unavailable" >&2
+        return 1
+    fi
+    printf '%s\n' "$operator_routing" | jq -e '{providers: {"codeflare-gateway": (.providers["codeflare-gateway"] // error("managed Operator routing unavailable"))}}' > "$operator_root/agent/models.json"
+    chmod 0600 "$operator_root/agent/models.json"
+    for trusted_file in settings.json; do
         if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
             install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"
         fi
     done
-    [ -f "$operator_root/agent/auth.json" ] || printf '{}\n' > "$operator_root/agent/auth.json"
+    # Personal human credentials never enter an Operator activity root.
+    printf '{}\n' > "$operator_root/agent/auth.json"
     chmod 0600 "$operator_root/agent/auth.json"
     # Verified parent-owned inputs must reach the restricted tool root before readiness.
     node /opt/codeflare/scripts/materialize-operator-inputs.mjs

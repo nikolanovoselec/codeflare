@@ -89,6 +89,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // the empty reset and leave applyPrefsOnRestart stranded on a stale grade.
     ...(params.routeCatalog !== undefined && {
       routeCatalog: params.routeCatalog,
+      allowPersonalPiProviders: params.allowPersonalPiProviders === true,
       defaultRoute: params.defaultRoute ?? '',
       defaultReasoning: params.defaultReasoning ?? '',
       routeContextWindows: params.routeContextWindows ?? {},

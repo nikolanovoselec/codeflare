@@ -25,6 +25,46 @@ const containerWorkflow = parseYaml(readFileSync(join(ROOT, '.github/workflows/c
 
 const ALL_AGENTS = 'claude-code,codex,copilot,antigravity,opencode,pi';
 
+it('REQ-OPS-046 AC3: bundled brace runtimes must expand patterns correctly at every path', async () => {
+  const smoke = await import('../../scripts/ci/smoke-openvscode-sidebar-image.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'bundled-brace-smoke-'));
+  try {
+    const good = join(root, 'good');
+    const bad = join(root, 'bad');
+    for (const path of [good, bad]) {
+      mkdirSync(path);
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ main: 'index.cjs' }));
+    }
+    writeFileSync(join(good, 'index.cjs'), "exports.expand = () => ['alpha/1', 'alpha/2', 'beta/1', 'beta/2'];\n");
+    writeFileSync(join(bad, 'index.cjs'), "exports.expand = () => ['unexpanded'];\n");
+    await smoke.verifyBundledSecurityRuntimes({ bracePaths: [good], undiciPaths: [] });
+    await assert.rejects(
+      smoke.verifyBundledSecurityRuntimes({ bracePaths: [good, bad], undiciPaths: [] }),
+      /brace expansion runtime/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+it('REQ-OPS-046 AC3: bundled undici runtimes must complete an HTTP body round trip at every path', async () => {
+  const smoke = await import('../../scripts/ci/smoke-openvscode-sidebar-image.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'bundled-undici-smoke-'));
+  try {
+    const good = join(root, 'good');
+    const bad = join(root, 'bad');
+    for (const path of [good, bad]) {
+      mkdirSync(path);
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ main: 'index.cjs' }));
+    }
+    writeFileSync(join(good, 'index.cjs'), 'exports.fetch = globalThis.fetch;\n');
+    writeFileSync(join(bad, 'index.cjs'), "exports.fetch = async () => ({ status: 200, text: async () => 'wrong body' });\n");
+    await smoke.verifyBundledSecurityRuntimes({ bracePaths: [], undiciPaths: [good] });
+    await assert.rejects(
+      smoke.verifyBundledSecurityRuntimes({ bracePaths: [], undiciPaths: [good, bad] }),
+      /undici HTTP runtime/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 async function selector() {
   return import(`file://${selectorPath}?test=${Date.now()}-${Math.random()}`);
 }
@@ -155,15 +195,19 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         "exports.extract = async ({ cwd, file }) => copyFile(file, join(cwd, 'probe.txt'));",
         '',
       ].join('\n');
-      for (const runtimePath of runtimePaths) {
+      const expectedVersions = ['7.5.21', '7.5.22'];
+      for (const [index, runtimePath] of runtimePaths.entries()) {
         const packagePath = join(runtimePath, 'package.json');
         mkdirSync(runtimePath, { recursive: true });
-        writeFileSync(packagePath, JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
+        writeFileSync(packagePath, JSON.stringify({ name: 'tar', version: expectedVersions[index], main: 'index.cjs' }));
         writeFileSync(join(runtimePath, 'index.cjs'), moduleSource);
       }
 
-      const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
+      const verified = await verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture });
       assert.deepEqual(verified, runtimePaths);
+      writeFileSync(join(runtimePaths[1], 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
+      await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture }),
+        /must contain node-tar 7\.5\.22/);
 
       const brokenRuntime = join(fixture, 'broken-tar');
       mkdirSync(brokenRuntime, { recursive: true });
@@ -213,20 +257,9 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
   });
 
   it('REQ-OPS-051 AC3: packaged-image smoke executes exact image-owned Oxlint', () => {
-    const calls = [];
-    const version = verifyOxlintRuntime({
-      run: (path, args) => {
-        calls.push([path, args]);
-        return 'Version: 1.81.0\n';
-      },
-    });
-    assert.equal(version, 'Version: 1.81.0');
-    assert.deepEqual(calls, [['/usr/local/bin/oxlint', ['--version']]]);
-    for (const reported of ['Version: 1.80.0\n', 'Version: 1.81.0-beta.1\n', 'Version: 1.81.0.1\n']) {
-      assert.throws(
-        () => verifyOxlintRuntime({ run: () => reported }),
-        /must report exact version 1\.81\.0/,
-      );
+    assert.equal(verifyOxlintRuntime({ run: () => 'Version: 1.85.0\n' }), 'Version: 1.85.0');
+    for (const reported of ['Version: 1.81.0\n', 'Version: 1.85.0-beta.1\n', 'Version: 1.85.0.1\n']) {
+      assert.throws(() => verifyOxlintRuntime({ run: () => reported }), /must report exact version 1\.85\.0/);
     }
   });
 

@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 
 const script = fileURLToPath(new URL('../../scripts/apply-npm-security-lock-pins.mjs', import.meta.url));
 
-describe('REQ-OPS-019: bounded npm security lock pins', () => {
+describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
   it('replaces every vulnerable bundled security pin and preserves unrelated packages', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-security-lock-'));
     const lockPath = join(directory, 'package-lock.json');
@@ -26,14 +26,20 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
             dependencies: { 'balanced-match': '^4.0.2' },
           },
           'node_modules/vendor-7/node_modules/undici': {
-            version: '7.28.0',
+            version: '7.29.0',
             resolved: 'old-7',
             integrity: 'old-7',
           },
           'node_modules/vendor-8/node_modules/undici': {
-            version: '8.5.0',
+            version: '8.9.0',
             resolved: 'old-8',
             integrity: 'old-8',
+            dev: true,
+          },
+          'node_modules/vendor/node_modules/ip-address': {
+            version: '10.4.0',
+            resolved: 'old-ip',
+            integrity: 'old-ip',
           },
           'node_modules/scoped': {
             version: '2.0.0',
@@ -61,24 +67,32 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
 
       const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
       const patched = lock.packages['node_modules/vendor/node_modules/brace-expansion'];
-      assert.equal(patched.version, '5.0.9');
+      assert.equal(patched.version, '5.0.12');
       assert.equal(
         patched.integrity,
-        'sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==',
+        'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
       );
       assert.deepEqual(lock.packages['node_modules/vendor-7/node_modules/undici'], {
-        version: '7.29.0',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-7.29.0.tgz',
-        integrity: 'sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==',
+        version: '7.30.0',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.0.tgz',
+        integrity: 'sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==',
         license: 'MIT',
         engines: { node: '>=20.18.1' },
       });
       assert.deepEqual(lock.packages['node_modules/vendor-8/node_modules/undici'], {
-        version: '8.9.0',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-8.9.0.tgz',
-        integrity: 'sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==',
+        version: '8.11.2',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-8.11.2.tgz',
+        integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
         license: 'MIT',
         engines: { node: '>=22.19.0' },
+        dev: true,
+      });
+      assert.deepEqual(lock.packages['node_modules/vendor/node_modules/ip-address'], {
+        version: '10.7.3',
+        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.3.tgz',
+        integrity: 'sha512-A1kdq/tSb5QjvKvAMgIoEvDBIgL7qaqVP/jkvSwYYRZ9iEzvPpopxp2wQfu3SuZRHtpHNxMn8Fs0bS+gf5Xmwg==',
+        license: 'MIT',
+        engines: { node: '>= 12' },
       });
       assert.equal(
         lock.packages['node_modules/vendor/node_modules/scoped'].integrity,
@@ -97,6 +111,27 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  function assertPatchedTransportLock(relativePath) {
+    const lock = JSON.parse(readFileSync(new URL(relativePath, import.meta.url), 'utf8'));
+    const transports = Object.entries(lock.packages).filter(([path]) =>
+      path === 'node_modules/undici' || path.endsWith('/node_modules/undici'));
+    assert.ok(transports.length > 0, `${relativePath} must include the audited transport`);
+    for (const [path, metadata] of transports) {
+      const [major, minor, patch] = metadata.version.split('.').map(Number);
+      assert.ok(major > 8 || (major === 8 && (minor > 10 || (minor === 10 && patch >= 2))),
+        `${relativePath}:${path} must include the 8.10.2 security fix`);
+      assert.equal(metadata.dev, true, `${relativePath}:${path} remains a development-only dependency`);
+    }
+  }
+
+  it('keeps host transport lock above the patched GHSA-vp8m-p9jh-q5pm floor', () => {
+    assertPatchedTransportLock('../package-lock.json');
+  });
+
+  it('keeps UI transport lock above the patched GHSA-vp8m-p9jh-q5pm floor', () => {
+    assertPatchedTransportLock('../../web-ui/package-lock.json');
   });
 
   it('fails closed for malformed lockfiles', () => {

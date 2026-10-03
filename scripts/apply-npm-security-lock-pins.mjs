@@ -3,29 +3,37 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const BRACE_EXPANSION_5_0_9 = Object.freeze({
-  version: '5.0.9',
-  resolved: 'https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz',
-  integrity: 'sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==',
+const BRACE_EXPANSION_5_0_12 = Object.freeze({
+  version: '5.0.12',
+  resolved: 'https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz',
+  integrity: 'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
   license: 'MIT',
   dependencies: { 'balanced-match': '^4.0.2' },
   engines: { node: '20 || >=22' },
 });
 
-const UNDICI_7_29_0 = Object.freeze({
-  version: '7.29.0',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-7.29.0.tgz',
-  integrity: 'sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==',
+const UNDICI_7_30_0 = Object.freeze({
+  version: '7.30.0',
+  resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.0.tgz',
+  integrity: 'sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==',
   license: 'MIT',
   engines: { node: '>=20.18.1' },
 });
 
-const UNDICI_8_9_0 = Object.freeze({
-  version: '8.9.0',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-8.9.0.tgz',
-  integrity: 'sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==',
+const UNDICI_8_11_2 = Object.freeze({
+  version: '8.11.2',
+  resolved: 'https://registry.npmjs.org/undici/-/undici-8.11.2.tgz',
+  integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
   license: 'MIT',
   engines: { node: '>=22.19.0' },
+});
+
+const IP_ADDRESS_10_7_3 = Object.freeze({
+  version: '10.7.3',
+  resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.3.tgz',
+  integrity: 'sha512-A1kdq/tSb5QjvKvAMgIoEvDBIgL7qaqVP/jkvSwYYRZ9iEzvPpopxp2wQfu3SuZRHtpHNxMn8Fs0bS+gf5Xmwg==',
+  license: 'MIT',
+  engines: { node: '>= 12' },
 });
 
 // Pi's published shrinkwrap omits these nested registry integrities. Keep the
@@ -59,14 +67,16 @@ function main() {
 
     let securityPin;
     if (packagePath === 'node_modules/brace-expansion' || packagePath.endsWith('/node_modules/brace-expansion')) {
-      securityPin = BRACE_EXPANSION_5_0_9;
+      securityPin = BRACE_EXPANSION_5_0_12;
     } else if (packagePath === 'node_modules/undici' || packagePath.endsWith('/node_modules/undici')) {
-      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_29_0;
-      if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_9_0;
+      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_0;
+      if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_11_2;
+    } else if (packagePath === 'node_modules/ip-address' || packagePath.endsWith('/node_modules/ip-address')) {
+      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_3;
     }
 
     if (!securityPin || compareVersions(metadata.version, securityPin.version) >= 0) continue;
-    lock.packages[packagePath] = { ...securityPin };
+    lock.packages[packagePath] = { ...securityPin, ...(metadata.dev === true ? { dev: true } : {}) };
     changed = true;
   }
 

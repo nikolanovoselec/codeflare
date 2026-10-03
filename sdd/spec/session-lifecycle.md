@@ -516,24 +516,54 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Clock icon on session cards and header toolbar shows countdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (Sleep timer icon) -->
-2. Visible when < 10 min remaining. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows warning timer when remaining < 10 min) -->
+1. A clock icon on session cards shows the countdown. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (Sleep timer icon) -->
+2. The card countdown is visible when less than 10 minutes remain. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows warning timer when remaining < 10 min) -->
 3. The countdown uses the warning treatment below 10 minutes remaining. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows warning timer when remaining < 10 min) -->
 4. The countdown uses the critical treatment below 5 minutes remaining. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows critical timer when remaining < 5 min) -->
-5. The countdown is hidden for stopped sessions. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (hides timer for stopped sessions) -->
+5. The card countdown is hidden for stopped sessions. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (hides timer for stopped sessions) -->
 6. The countdown is computed from the configured idle timeout minus elapsed idle time. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/lib/sleep-timer.test.ts (getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)) -->
+7. A running session's warning/critical display uses D1 terminal input from its current run, or that run's start time before new input; it never uses old input from an earlier run. <!-- @impl: src/lib/session-repository.ts::fromRow --> <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: list and detail use D1 input time for a resumed running session) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: batch status uses fresh D1 terminal input for the countdown without changing lifecycle) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: a restarted run without new input uses its current start rather than prior input) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-013: batch status uses the current start when a restarted run has no new input) -->
 
 **Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 
 **Constraints:**
 
-None.
+- Non-running sessions retain lifecycle `lastActiveAt` for context expiry.
+- Countdown projection cannot change stop authority.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
 **Verification:** Automated test ([sleep-timer](../../web-ui/src/__tests__/lib/sleep-timer.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-036: Header sleep countdown presentation
+
+**Intent:** The active running session's header independently presents its remaining idle time.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The header clock control shows the active running session's countdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 AC1: opens the active running session countdown and explains idle stopping) -->
+2. The header countdown is visible below ten minutes remaining. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 AC2: shows the Header countdown only below ten minutes and before expiry ($remainingMs ms remaining)) -->
+3. The header countdown uses warning treatment below ten minutes remaining. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 $ac: renders $bucket with its warning or critical treatment ($remainingMs ms remaining)) -->
+4. The header countdown uses critical treatment below five minutes remaining. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 $ac: renders $bucket with its warning or critical treatment ($remainingMs ms remaining)) -->
+5. Stopped or absent active sessions show no header countdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 AC5: hides the Header countdown when the active session is $state even when another session is running) -->
+6. The header recomputes remaining time from configured timeout minus elapsed idle time as time passes. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 AC6: recomputes the configured idle countdown as time passes without session updates) -->
+7. The header uses current-run terminal input or current-run start before new input, never prior-run input. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-SESSION-036 AC7: uses current-run start before new input ($context)) -->
+
+**Constraints:** Header presentation cannot change Stop authority; non-running lifecycle context remains governed by [REQ-SESSION-013](#req-session-013-sleep-timer-countdown-ui).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-SESSION-013](#req-session-013-sleep-timer-countdown-ui)
+
+**Verification:** Actual Header regressions cover each countdown predicate independently of card tests. Execution remains unverified pending exact-head CI; computed stylesheet observations are not rendered-browser/manual acceptance.
 
 **Status:** Implemented
 
@@ -693,7 +723,7 @@ None.
 **Acceptance Criteria:**
 
 1. A replay for an already-running generation preserves established lifecycle ownership. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (preserves generation ownership and idle baseline on a duplicate onStart) -->
-2. Stale or stopping start callbacks cannot clear lifecycle ownership or re-arm lifecycle work. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
+2. Stale or stopping start callbacks cannot clear lifecycle ownership or re-arm lifecycle work. <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-SESSION-033: fresh-start completion preserves a newer shutdown when durable fencing fails) --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-SESSION-033: stale fresh-start handoff cannot clear an assigned generation shutdown fence) --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-SESSION-033: %s onStart preserves the %s shutdown fence and sealed principal) --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stale onStart replay without clearing shutdown ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (rejects a stopping onStart callback without clearing shutdown ownership) -->
 
 **Constraints:** Same-generation replays and rejected stale or stopping callbacks do not project lifecycle transitions.
 

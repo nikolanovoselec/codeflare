@@ -59,7 +59,7 @@ permissions:
 
 jobs:
   context-mode:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -250,7 +250,7 @@ jobs:
             --body "$BODY"
 
   graphify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -374,7 +374,7 @@ jobs:
             --body "$BODY"
 
   herdr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -461,7 +461,7 @@ jobs:
             --body "Bumps Herdr from $CUR to $LAT, including its commit, checksum, provenance, launcher pin, and packaged API contract check."
 
   zoxide:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -569,7 +569,7 @@ jobs:
           )"
 
   yazi:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -677,7 +677,7 @@ jobs:
           )"
 
   lazygit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -785,7 +785,7 @@ jobs:
           )"
 
   silverbullet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -928,7 +928,7 @@ jobs:
           )"
 
   code-server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
@@ -1086,7 +1086,7 @@ jobs:
   uv:
     # uv is downloaded as an immutable GitHub release archive and verified
     # against GitHub's authoritative asset digest before extraction.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -1153,7 +1153,7 @@ jobs:
   bun:
     # Bun is installed from the shared lock because context-mode
     # autodetects it for faster ctx_execute/ctx_batch_execute subprocess starts.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -1280,7 +1280,7 @@ jobs:
   # (Graphify is no longer an npm pin, it ships as the first-party
   # graphify-native.ts extension.)
   pi-extensions-discover:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       packages: ${{ steps.list.outputs.packages }}
@@ -1306,7 +1306,7 @@ jobs:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.pi-extensions-discover.outputs.packages) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -1401,11 +1401,24 @@ jobs:
           }
           for (const f of [
             'preseed/agents/pi/package.json',
+            'preseed/npm-tools/package.json',
             'entrypoint.sh',
             'host/__tests__/pi-settings-packages.test.js',
           ]) {
             const before = fs.readFileSync(f, 'utf-8');
-            const after = bump(before);
+            let after;
+            if (f.endsWith('/package.json')) {
+              const manifest = JSON.parse(before);
+              if (manifest.dependencies?.[PKG] === CUR) {
+                manifest.dependencies[PKG] = LAT;
+                if (manifest.overrides?.[PKG] === CUR) manifest.overrides[PKG] = LAT;
+                after = JSON.stringify(manifest, null, 2) + '\n';
+              } else {
+                after = before;
+              }
+            } else {
+              after = bump(before);
+            }
             if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
           }
           NODE
@@ -1415,6 +1428,7 @@ jobs:
           # not programmatically invokable; reject a bump before opening its PR
           # when that exact candidate no longer satisfies the reviewed anchors.
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
+          node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
           if [ "$PKG" = '@narumitw/pi-goal' ]; then
             (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
             node scripts/patch-pi-goal-review-control.mjs \
@@ -1425,6 +1439,14 @@ jobs:
             node scripts/patch-pi-plan-mode-tool-policy.mjs \
               "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-plan-mode
           fi
+          case "$PKG" in
+            @juicesharp/rpiv-advisor|@juicesharp/rpiv-ask-user-question|@juicesharp/rpiv-todo)
+              (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+              (cd preseed/npm-tools && npm ci --ignore-scripts --no-audit --no-fund)
+              node scripts/verify-rpiv-host-peers.mjs preseed/agents/pi/node_modules
+              node scripts/verify-rpiv-host-peers.mjs preseed/agents/pi/node_modules preseed/npm-tools/node_modules
+              ;;
+          esac
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -1474,7 +1496,7 @@ jobs:
     # The Impeccable skill is vendored into both Claude Code and Pi preseed trees.
     # It is not an npm dependency; the canonical skill bundle version is exposed
     # by impeccable.style and must be copied into both runtimes together.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -1580,7 +1602,7 @@ jobs:
   consult-llm-mcp:
     # consult-llm-mcp is the MCP server Claude Code + Pi use for consultation.
     # Its shared lock pin keeps the pre-warmed binary reproducible.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -1700,7 +1722,7 @@ jobs:
     # chrome-devtools-mcp is the interactive Browser Run MCP server Claude Code
     # and Pi use (Pi through pi-mcp-adapter). It is installed from the shared
     # lock and exposed through a stable image bin path.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -1820,7 +1842,7 @@ jobs:
     # The Claude-side browser-run MCP server pins @modelcontextprotocol/sdk exact
     # in its dedicated manifest and committed lock. The pi-extensions job reads
     # only Pi's package.json, so this job updates the Browser Run pair weekly.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -1942,7 +1964,7 @@ jobs:
     # The official extension is a privileged proprietary package bundled into
     # the server image from Open VSX. Its metadata file is the one source of
     # truth for Docker, staging validation, and deployment image smoke.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -2075,7 +2097,7 @@ jobs:
     # the cooldown dependabot.yml spends 40 lines justifying. The shared
     # npm-tools manifest and lock now own them, so they still update weekly but
     # through a PR that CI has run against.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
@@ -2229,7 +2251,7 @@ jobs:
     # payload it downloads is sha512-verified against a manifest, but the
     # manifest comes from the same host, so the script itself is the only thing
     # worth pinning — and it was not pinned at all.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
@@ -2321,7 +2343,7 @@ jobs:
             --body "$BODY"
 
   zizmor:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps
@@ -2455,7 +2477,7 @@ jobs:
             --body "$BODY"
 
   actionlint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
     # connection burns six runner-hours before GitHub kills it. install-deps

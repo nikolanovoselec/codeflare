@@ -44,6 +44,7 @@
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import { ForbiddenError } from './lib/error-types';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
@@ -121,7 +122,7 @@ const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
 ];
 
 /** Per-session props attached when the DO instantiates this entrypoint. */
-interface InterceptorProps {
+interface InterceptorProps extends PersonalPiProps {
   /** The user's email — stamped into cf-aig-metadata for per-user gateway analytics. */
   user: string;
   /** Bound container session identity used only to isolate confidential native replay state. */
@@ -330,6 +331,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // AI Gateway URL/token come from the DO props (wizard-first KV with deploy-secret env
     // fallback — REQ-ENTERPRISE-017); fall back to env directly when a prop is absent.
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
+    const personal = await forwardPersonalPi(request, this.env, props);
+    if (personal) return personal;
     const aigToken = props?.token ?? this.env.AIG_TOKEN;
     const gw = gatewayCoordinates({
       gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,

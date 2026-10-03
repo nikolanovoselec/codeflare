@@ -269,6 +269,7 @@ None. Authentication is foundational; other domains depend on it.
 **Constraints:**
 
 - Logout redirect responses carry the full security header set.
+- Operator catalog denial recovery navigates natively to `/auth/logout`; SPA navigation to `/` cannot substitute for session renewal. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-AUTH-009/REQ-OPERATOR-049: denied catalog %i offers native session renewal without operator details) -->
 - After logout, the user always lands on the appropriate login page for the deployment mode.
 - The CF Access logout endpoint rejects a `returnTo` pointing at an onboarding/SaaS origin as an invalid redirect URL, so any mode issuing a `codeflare_session` must use the GitHub logout path instead.
 

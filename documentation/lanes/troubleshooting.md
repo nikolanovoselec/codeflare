@@ -712,14 +712,16 @@ The remote `fetchFileList()` in the native worker's sync cycle returned a non-ar
 
 **Fix detail:**
 
-Fixed by a graft-layer `Array.isArray` coercion in `src/routes/vault/native-sw.ts` (`ANCHOR_REMOTE_LIST_COERCE`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2): a non-array remote response now coerces to `[]` for a safe no-op cycle instead of crashing. Paired with the `isSessionOidcMode` setup fix above, which removes the stray CF Access 302 that was one trigger. If it recurs, check the proxy/`/api/vault/*` path is returning JSON arrays for the file-list endpoint and is not behind an unexpected redirect.
+Fixed by a graft-layer `Array.isArray` coercion in `src/routes/vault/native-sw.ts` (`ANCHOR_REMOTE_LIST_COERCE`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2): a non-array remote response normalizes to `[]`. The cycle aborts before deletion if the local store or snapshot contains files; only a genuinely empty vault is a safe no-op. Paired with the `isSessionOidcMode` setup fix above, which removes the stray CF Access 302 that was one trigger. If it recurs, check the proxy/`/api/vault/*` path is returning JSON arrays for the file-list endpoint and is not behind an unexpected redirect.
 
 <a id="vault-readiness-button-never-goes-ready-and-the-silverbullet-service-w"></a>
 #### Vault readiness button never goes ready and the SilverBullet service worker never registers (browser console shows a `SyntaxError` from `service_worker.js`, e.g. `Identifier 'o' has already been declared`)
 
 **Fix detail:**
 
-The coercion graft was added for the runtime non-array crash described in the row above; this fix keeps that behaviour while making it parseable. Fixed in `src/routes/vault/native-sw.ts`: the coercion now wraps the `o=` initializer with an array-coercing IIFE (`o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())`), keeping `o` a single declarator so the served worker stays syntactically valid. `vault-native-sw-direct.test.ts` guards this by constructing a `Function` from the served worker (parse check) and asserting the duplicate-`let` form is rejected. If it recurs after a SilverBullet re-vendor, re-verify the graft anchors and that the served worker parses.
+The SilverBullet 2.11.1 graft wraps the single `s=await this.secondary.fetchFileList()` initializer without adding another lexical binding. It normalizes a non-array response, then aborts before deletion when the remote list is empty but the persistent local store or snapshot contains files. A genuinely empty vault remains a safe no-op.
+
+`vault-native-sw-direct.test.ts` parses the served worker and verifies that a duplicate-`let` negative control is rejected. The historical `o` error above illustrates that failure class, not the current variable name. After a re-vendor, verify the graft anchors, parsing and populated-store deletion protection; do not restore an array-only coercion.
 
 <a id="vault-re-indexes-from-scratch-on-every-new-session-open"></a>
 #### Vault re-indexes from scratch on every new session open (SilverBullet shows "Syncing…" for several minutes and re-downloads all notes each session)

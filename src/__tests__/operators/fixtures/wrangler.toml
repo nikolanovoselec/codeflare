@@ -23,9 +23,18 @@ class_name = "FixtureActivity"
 name = "FLUE_ROOT"
 class_name = "FixtureFlueRoot"
 
+# Test-only passive Tail receipt store; never wakes the Flue execution owner.
+[[durable_objects.bindings]]
+name = "TAIL_INBOX"
+class_name = "FixtureTailInbox"
+
 [[migrations]]
 tag = "fixture-v1"
 new_sqlite_classes = ["FixtureRegistry", "FixtureActivity", "FixtureFlueRoot"]
+
+[[migrations]]
+tag = "fixture-v2"
+new_sqlite_classes = ["FixtureTailInbox"]
 
 [vars]
 PARENT_SECRET = "fixture-parent-only"

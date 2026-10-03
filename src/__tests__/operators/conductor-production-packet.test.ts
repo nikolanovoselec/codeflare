@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConductorProductionCapability } from '../../operators/conductor-production';
+import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { storeGithubConnection } from '../../lib/github-token';
+import { createMockKV } from '../helpers/mock-kv';
+import { createReviewPublicationGitHubFixture, reviewPublicationFaults } from '../helpers/review-publication-github-fixture';
 
 const state = vi.hoisted(() => ({ current: true, stopAfterHost: false, stopAfterR2: false,
   ownedSession: false, reserveDuringHost: false, hostStalled: false,
@@ -13,15 +17,29 @@ const packet = new TextEncoder().encode(JSON.stringify({ scope: 'all', workSet: 
   evidence: { lane: 'code-reviewer', callSites: [], anchorsCitingChanged: [] } }));
 const head = 'a'.repeat(40), contextDigest = 'b'.repeat(64);
 const activityId = 'activity-packet';
-const guard = { claimed: true, repositoryId: 138, pullRequest: 34, head, base: 'c'.repeat(40),
+const rejectedFinding = { findingId: 'finding-one', priorActivityId: 'prior-activity',
+  priorRound: 1, priorHead: 'f'.repeat(40),
+  rationale: 'Existing guard', evidence: 'Guard precedes write' };
+const guard = { claimed: true, repositoryId: 138, pullRequest: 34, workflowId: 531, head, base: 'c'.repeat(40),
   mergeBase: 'd'.repeat(40), contextDigest, runId: 87, runAttempt: 1, generation: 1,
   workflowSha: 'e'.repeat(40),
   session: { bucket: 'owner-bucket', sessionId: 'session01', generation: 1 } };
-const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
-  audiences: ['operator-audience'], expiresAt: Math.floor(Date.now() / 1000) + 300 };
+const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://team.cloudflareaccess.com',
+  audiences: ['operator-audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+  expiresAt: Math.floor(Date.now() / 1000) + 300 };
+const originalFinding = { id: 'finding-one', severity: 'HIGH', path: 'src/file.ts', line: 1,
+  message: 'Bypass', evidence: 'Caller missing guard' };
+const publicationFixture = (extraFindings = 0, longEvidence = false) => createReviewPublicationGitHubFixture({
+  currentHead: head, priorHead: rejectedFinding.priorHead, activityId: rejectedFinding.priorActivityId,
+  round: rejectedFinding.priorRound, token: 'parent-github-token', finding: originalFinding,
+  extraFindings, longEvidence,
+});
+let priorPublication: ReturnType<typeof publicationFixture>;
+const rejection = () => ({ ...rejectedFinding, originalReportDigest: priorPublication.digest });
 const selection = { installation: { id: 'review-install', revision: 2,
   policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' } },
-operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor' },
+operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor',
+  invokers: { users: [], groups: [{ issuer: human.issuer, id: 'reviewers' }] } },
 release: { bundleDigest: 'e'.repeat(64) }, controlsRevision: 4 };
 vi.mock('@cloudflare/containers', () => ({ getContainer: () => ({ fetch: async (request: Request) => {
   const body = new Uint8Array(await request.arrayBuffer());
@@ -38,14 +56,10 @@ vi.mock('@cloudflare/containers', () => ({ getContainer: () => ({ fetch: async (
 } }) }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
-  resolveBucketName: async () => 'owner-bucket', resolveOperatorGroupIdentity: async () => human,
-  canInvokeOperator: () => true, resolveSessionAccessGroup: async () => [],
+  resolveBucketName: async () => 'owner-bucket', resolveSessionAccessGroup: async () => [],
   loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['provider-default'],
     defaultRoute: 'provider-default', defaultReasoning: '', routeContextWindows: {},
     routeReasoningLevels: {}, modelDisplayNames: {} }),
-}));
-vi.mock('../../operators/execution-context', () => ({
-  openOperatorExecutionAccess: async () => ({ human, accessJwt: 'sealed-access' }),
 }));
 vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: async () => ({ bootstrap: {
   r2AccessKeyId: 'scoped-id', r2SecretAccessKey: 'scoped-secret', r2Endpoint: 'https://r2.example.test',
@@ -54,7 +68,6 @@ vi.mock('../../operators/approved-git-pack', () => ({ fetchApprovedGitPack: asyn
 vi.mock('../../operators/review-boundary-claim', () => ({
   verifyCurrentClaimedBoundaryPacket: async () => state.current,
 }));
-vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'parent-github-token' }));
 vi.mock('../../lib/r2-regime-state', () => ({
   isBucketMigrating: async () => false, isR2SseDisabledForBucket: async () => true,
 }));
@@ -80,12 +93,13 @@ vi.mock('../../operators/owned-session-production', () => ({
   operatorActivitySessionStore: () => ({}), createOperatorSyncReader: async () => async () => null,
 }));
 
-async function capability(driveDeadline = Date.now() + 25_000) {
+async function capability(driveDeadline = Date.now() + 25_000, evidence?: unknown) {
   const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
     activityId, operatorId: 'review-operator', runId: activityId,
     source: { kind: 'session', reference: 'owner/repo' },
     revision: { reference: head, digest: contextDigest }, inputDigest: 'f'.repeat(64),
-    input: { acknowledgedHead: null }, attachments: [],
+    input: { acknowledgedHead: evidence ? 'f'.repeat(40) : null,
+      ...(evidence ? { evidence } : {}) }, attachments: [],
     resources: { inference: { routeId: 'provider-default', reasoningLevel: null },
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
   const activity = {
@@ -101,12 +115,17 @@ async function capability(driveDeadline = Date.now() + 25_000) {
       return { ok: true, preparationId: input.preparationId, attachment: state.files[0] };
     },
   };
-  const env = { OPERATOR_REGISTRY: { getByName: () => ({
+  const env = { ENCRYPTION_KEY: btoa('p'.repeat(32)), KV: createMockKV(),
+    OPERATOR_REGISTRY: { getByName: () => ({
     resolveManagementExecution: async () => ({ ok: true, value: selection }),
     getBoundaryStartGuard: async () => state.current ? guard : { ...guard, claimed: false },
   }) }, CONTAINER: {} };
+  await storeGithubConnection(env as never, 'owner-bucket', { accessToken: 'parent-github-token', source: 'pat' });
+  const executionContext = await createOperatorExecutionContext({ activityId, operatorId: 'review-operator',
+    artifactDigest: selection.release.bundleDigest, policyDigest: 'e'.repeat(64), human,
+    accessJwt: 'sealed-access' }, env);
   const plan = { activityId, deadline: Date.now() + 300_000, invocationJson: JSON.stringify(invocation),
-    receipt: { selection }, executionContext: { policyDigest: 'e'.repeat(64) } };
+    receipt: { selection }, executionContext };
   return (await createConductorProductionCapability({ env: env as never, plan: plan as never,
     activity: activity as never, generation: 1, driveDeadline })).capability;
 }
@@ -115,7 +134,89 @@ const prepare = (owner: Fetcher) => owner.fetch(new Request('https://operator.in
   body: JSON.stringify({ schemaVersion: 1, preparationId: 'round-1', lane: 'code-reviewer' }),
 }));
 
+beforeEach(() => {
+  state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false;
+  state.ownedSession = false; state.reserveDuringHost = false; state.hostStalled = false;
+  state.hostCancelled = false; state.hostStarted = null; state.hostRequests = [];
+  state.files = []; state.objects.clear(); state.checkpoint = null; state.resources = null;
+  priorPublication = publicationFixture();
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    if (request.url === `${human.issuer}/cdn-cgi/access/get-identity`) {
+      if (request.headers.get('cookie') !== 'CF_Authorization=sealed-access')
+        return new Response(null, { status: 401 });
+      return Response.json({ id: human.subject, email: human.email, groups: [{ id: 'reviewers' }] });
+    }
+    return priorPublication.fetcher(request);
+  });
+});
+afterEach(() => vi.restoreAllMocks());
+
+// Q14 maps to REQ-OPERATOR-065 AC1/3/4: real publisher authentication,
+// exact prior tuple and bounded originals before packet sealing (OPERATOR-050 AC3).
 describe('REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary Host and sealed storage', () => {
+  it('puts an independently authenticated prior finding in the actor-bound approved packet', async () => {
+    state.current = true; state.ownedSession = false; state.files = []; state.objects.clear();
+    const owner = await capability(Date.now() + 25_000, { rejectedFindings: [rejection()] });
+    const response = await prepare(owner);
+    expect(response.status).toBe(200);
+    const value = await response.json() as { bytes: string };
+    const approved = JSON.parse(Buffer.from(value.bytes, 'base64').toString());
+    expect(approved.evidence.rejectedFindings).toEqual([rejection()]);
+    expect(approved.evidence.originalFindings).toMatchObject([{ id: 'finding-one',
+      lane: 'code-reviewer', severity: 'HIGH', path: 'src/file.ts', line: 1,
+      message: 'Bypass', evidence: 'Caller missing guard' }]);
+    expect(JSON.stringify(approved)).not.toContain('sealed-access');
+    expect(JSON.stringify(approved)).not.toContain('parent-github-token');
+    expect(state.hostRequests.every(request => request.authorization === null)).toBe(true);
+    for (const request of priorPublication.requests) {
+      expect(request.headers.has('cf-access-jwt-assertion')).toBe(false);
+      expect(request.headers.has('cookie')).toBe(false);
+      if (new URL(request.url).hostname === 'objects.actions.githubusercontent.com')
+        expect(request.headers.has('authorization')).toBe(false);
+    }
+    state.files = []; state.objects.clear(); state.hostRequests = [];
+    priorPublication.setFault('unavailable');
+    const denied = await capability(Date.now() + 25_000, { rejectedFindings: [rejection()] });
+    expect((await prepare(denied)).status).toBe(403);
+    expect(state.files).toEqual([]);
+    expect(state.objects.size).toBe(0);
+    expect(state.hostRequests).toEqual([]);
+  });
+  it.each(reviewPublicationFaults)('REQ-OPERATOR-065: withholds a forged or unavailable %s publication before Host or storage', async fault => {
+    priorPublication.setFault(fault);
+    const owner = await capability(Date.now() + 25_000, { rejectedFindings: [rejection()] });
+    const response = await prepare(owner);
+    expect(response.status).toBe(403);
+    expect(await response.text()).not.toContain(originalFinding.evidence);
+    expect(state.hostRequests).toEqual([]);
+    expect(state.objects.size).toBe(0);
+    expect(state.files).toEqual([]);
+  });
+  it('withholds truncated or omitted original evidence from the next reviewer packet', async () => {
+    for (const flags of [{ extraFindings: 20, longEvidence: false }, { extraFindings: 0, longEvidence: true }]) {
+      state.current = true; state.ownedSession = false; state.files = []; state.objects.clear();
+      priorPublication = publicationFixture(flags.extraFindings, flags.longEvidence);
+      const owner = await capability(Date.now() + 25_000, { rejectedFindings: [rejection()] });
+      expect((await prepare(owner)).status).toBe(403);
+      expect(state.files).toEqual([]);
+    }
+  });
+  it('rejects mismatched publication references and extraneous authority fields before sealing', async () => {
+    for (const forged of [
+      { findingId: 'foreign' }, { originalReportDigest: 'e'.repeat(64) },
+      { priorActivityId: 'foreign-activity' }, { priorHead: 'e'.repeat(40) },
+      { priorRound: 2 }, { repository: 'other/repo' }, { repositoryId: 139 },
+      { pullRequest: 35 }, { actorSubject: 'someone-else' },
+    ]) {
+      state.current = true; state.ownedSession = false;
+      state.files = []; state.objects.clear();
+      const owner = await capability(Date.now() + 25_000,
+        { rejectedFindings: [{ ...rejection(), ...forged }] });
+      expect((await prepare(owner)).status).toBe(403);
+      expect(state.files).toEqual([]);
+    }
+  });
   it('sends inert pack bytes without GitHub authority, verifies storage and exposes the accepted descriptor', async () => {
     state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false; state.ownedSession = false;
     state.reserveDuringHost = false;

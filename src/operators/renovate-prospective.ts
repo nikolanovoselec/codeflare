@@ -1,0 +1,97 @@
+import { z } from 'zod';
+import type { Env } from '../types';
+import { parseOperatorPolicy } from './policy';
+import type { CurrentProspectiveRegistration } from './registry';
+
+const KOMODO = 'nikolanovoselec/komodo';
+const REPOSITORY_ID = 973175879;
+
+/** GitHub list pages include descriptions and links; the Dispatcher wire's 64 KiB cap is separate. */
+async function readScanPage(response: Response): Promise<string> {
+  if (!response.body) throw Error('Komodo page unavailable');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+  let size = 0;
+  let text = '';
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return text + decoder.decode();
+      size += chunk.value.byteLength;
+      if (size > 2 * 1024 * 1024) throw Error('Komodo page exceeds byte bound');
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+const commit = z.string().regex(/^[0-9a-f]{40}$/);
+const pr = z.object({ number: z.number().int().positive().safe(), state: z.literal('open'),
+  created_at: z.string().datetime({ offset: true }), user: z.object({ id: z.number().int().safe(),
+    login: z.string(), type: z.string() }), head: z.object({ sha: commit }),
+  base: z.object({ ref: z.string().min(1).max(128), sha: commit }) });
+
+/** One fixed parent-owned GitHub read, never an agent URL, repository, token or write grant. */
+export async function listProspectiveRenovatePrs(input: { env: Env;
+  exports: Record<string, (input: { props: Record<string, unknown> }) => Fetcher>;
+  registration: CurrentProspectiveRegistration; current: () => Promise<boolean> }): Promise<
+    Array<{ repositoryId: number; pullRequest: number; head: string; createdAt: string }>> {
+  const { env, registration, current } = input;
+  if (!input.exports.GitHubInterceptor) throw Error('GitHub transport unavailable');
+  const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw Error('GitHub host invalid');
+  const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
+    github: { repositories: [KOMODO], methods: ['GET'] },
+    storage: { readPrefixes: [], writePrefixes: [] },
+    inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null,
+      inheritUserDefaults: false } });
+  const transport = input.exports.GitHubInterceptor({ props: {
+    user: registration.human.email, bucket: registration.bucket, strict: true, operatorPolicy: policy,
+  } });
+  const root = `https://${host}/repos/${KOMODO}`;
+  async function get(path: string) {
+    if (!await current()) throw Error('Scan session changed');
+    const response = await transport.fetch(new Request(`${root}${path}`, {
+      redirect: 'manual', signal: AbortSignal.timeout(8000), headers: {
+        accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Renovate',
+      },
+    }));
+    if (response.status !== 200 || response.redirected) throw Error('Incomplete Komodo scan');
+    return { value: JSON.parse(await readScanPage(response)) as unknown, link: response.headers.get('link') };
+  }
+  const repository = z.object({ id: z.literal(REPOSITORY_ID), full_name: z.literal(KOMODO),
+    default_branch: z.literal('main') }).parse((await get('')).value);
+  if (repository.id !== REPOSITORY_ID) throw Error('Komodo identity changed');
+  const found: Array<{ repositoryId: number; pullRequest: number; head: string; createdAt: string }> = [];
+  let complete = false;
+  for (let page = 1; page <= 10; page++) {
+    const result = await get(`/pulls?state=open&per_page=100&page=${page}`);
+    const rows = z.array(pr).max(100).parse(result.value);
+    if (result.link) {
+      if (result.link.length > 8192) throw Error('Incomplete Komodo scan');
+      const links = result.link.split(',').map(value => value.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/));
+      if (links.some(value => !value)) throw Error('Incomplete Komodo scan');
+      const nextLinks = links.filter(value => value![2].split(/\s+/).includes('next'));
+      if (nextLinks.length > 1 || nextLinks.length && rows.length < 100) throw Error('Incomplete Komodo scan');
+      if (nextLinks[0]) {
+        const next = new URL(nextLinks[0][1]);
+        const expected = new URL(`${root}/pulls?state=open&per_page=100&page=${page + 1}`);
+        if (next.origin !== expected.origin || next.pathname !== expected.pathname || next.username || next.password || next.hash
+          || [...next.searchParams].length !== 3
+          || ['state', 'per_page', 'page'].some(key => next.searchParams.get(key) !== expected.searchParams.get(key))) {
+          throw Error('Incomplete Komodo scan');
+        }
+      }
+    }
+    for (const row of rows) {
+      if (row.base.ref !== 'main' || row.user.id !== 29139614 || row.user.login !== 'renovate[bot]'
+        || row.user.type !== 'Bot') continue;
+      const createdAt = new Date(row.created_at).toISOString();
+      if (createdAt > registration.activatedAt) {
+        found.push({ repositoryId: REPOSITORY_ID, pullRequest: row.number, head: row.head.sha, createdAt });
+      }
+    }
+    if (rows.length < 100) { complete = true; break; }
+  }
+  if (!complete) throw Error('Komodo scan exceeds page bound');
+  if (!await current()) throw Error('Scan session changed');
+  return found;
+}

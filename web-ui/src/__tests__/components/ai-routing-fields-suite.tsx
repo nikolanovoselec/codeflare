@@ -186,6 +186,59 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Synthetic component fixtures; CI reruns the locally verified behavior.
 describe('Structured AI routing', () => {
+  if (partition === 2) it('REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions', async () => {
+    const view = mount({ ...checkedCurrent(), fallbackRouting: { enabled: true, routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'off' } });
+    await view.findByText('Connected · 3 routes readable');
+    await openGroup(view, 'developers');
+    const checkbox = view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' });
+    expect(checkbox).not.toBeChecked();
+    await fireEvent.click(checkbox);
+    expect(formValues(view.container).groupRouting[0]).toMatchObject({ allowPersonalPiProviders: true, defaultRoute: 'development' });
+    expect(formValues(view.container).groupRouting[1].allowPersonalPiProviders === true).toBe(false);
+    const fallback = view.getByRole('checkbox', { name: 'Fallback allow Pi built-in providers and models' });
+    expect(fallback).not.toBeChecked();
+    await fireEvent.click(fallback);
+    expect(formValues(view.container).fallbackRouting).toMatchObject({ enabled: true, allowPersonalPiProviders: true, defaultRoute: 'general_usage' });
+    const currentCheckbox = view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' });
+    expect(currentCheckbox).toBeChecked();
+    await fireEvent.click(currentCheckbox);
+    expect(view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' })).not.toBeChecked();
+    expect(formValues(view.container).groupRouting[0].allowPersonalPiProviders === true).toBe(false);
+    expect(formValues(view.container).fallbackRouting.allowPersonalPiProviders).toBe(true);
+  });
+
+  if (partition === 2) it.each([true, false])('REQ-ENTERPRISE-088 AC2: confirmed copy-to-all carries personal-provider permission %s into the save payload', async (enabled) => {
+    const saved = checkedCurrent();
+    const fallbackRouting = { enabled: true, ...(!enabled && { allowPersonalPiProviders: true }), routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'off' };
+    const view = mount({ ...saved, fallbackRouting, groupRouting: saved.groupRouting.map((group, index) => ({
+      ...group, ...((index === 0 ? enabled : !enabled) && { allowPersonalPiProviders: true }),
+    })) });
+    await view.findByText('Connected · 3 routes readable');
+    await view.findByText('@cf/development-model');
+    await openGroup(view, 'developers');
+    expect((view.getByRole('checkbox', { name: 'developers allow Pi built-in providers and models' }) as HTMLInputElement).checked).toBe(enabled);
+    const before = formValues(view.container);
+    await fireEvent.click(view.getByRole('button', { name: 'Apply to all groups' }));
+    expect(view.getByRole('alert')).toHaveTextContent('developers will be copied to developers, support.');
+    expect(formValues(view.container)).toEqual(before);
+    await fireEvent.click(within(view.getByRole('alert')).getByRole('button', { name: 'Cancel' }));
+    expect(formValues(view.container)).toEqual(before);
+    await openGroup(view, 'support');
+    expect((view.getByRole('checkbox', { name: 'support allow Pi built-in providers and models' }) as HTMLInputElement).checked).toBe(!enabled);
+    await fireEvent.click(view.getByRole('button', { name: 'Apply to all groups' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Confirm group changes' }));
+    expect(view.queryByRole('alert')).toBeNull();
+    expect((view.getByRole('checkbox', { name: 'support allow Pi built-in providers and models' }) as HTMLInputElement).checked).toBe(enabled);
+    const form = view.container.querySelector('form')!;
+    let submitted: unknown;
+    form.addEventListener('submit', () => { submitted = environmentValues('aiRouting', 'enterprise', new FormData(form)); });
+    await fireEvent.submit(form);
+    expect(submitted).toEqual({ ...before, groupRouting: saved.groupRouting.map(group => ({
+      ...saved.groupRouting[0], accessGroup: group.accessGroup, ...(enabled && { allowPersonalPiProviders: true }),
+    })) });
+    expect(formValues(view.container).fallbackRouting).toEqual(fallbackRouting);
+  });
+
   if (partition === 1) {
   it('REQ-ENTERPRISE-034: shows only live Gateway routes and drops deleted route settings after a successful inventory', async () => {
     const deleted = ['bedrock_opus', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'development', 'documentation', 'freestyler', 'general_usage'];

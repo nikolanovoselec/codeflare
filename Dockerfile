@@ -2,9 +2,9 @@
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
-# Use AWS ECR Public mirror of Docker Hub to avoid anonymous pull rate limits on CI.
-# Shared GitHub Actions runner IPs routinely hit Docker Hub's 100-pull/6h cap.
-FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS builder
+# Use the digest-verified Google mirror of Docker Hub. Public ECR throttled
+# both pinned Node bases on shared GitHub Actions runners (HTTP 429).
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS rclone-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz" | sha256sum -c - \
@@ -48,37 +48,43 @@ RUN mkdir -p /out \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS impeccable-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
     && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.98.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.98.1-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json /tmp/impeccable-engine.json
+COPY image/impeccable-engine.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
-node -e 'const p=require("/tmp/impeccable-engine.json"); if(p.version!=="0.1.5" || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")'
-COMMIT=$(node -p 'require("/tmp/impeccable-engine.json").commit')
-SHA256=$(node -p 'require("/tmp/impeccable-engine.json").sha256')
-curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
-echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
-tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
-rm /tmp/impeccable.tar.gz
-cargo build --locked --release -p impeccable
-python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable --expect-idle-bug
-python3 /tmp/patch-impeccable-engine.py /src/impeccable
-cargo build --locked --release -p impeccable
-python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable
-mkdir -p /out
-cp target/release/impeccable /out/impeccable
-cp LICENSE /out/LICENSE
+export CARGO_TARGET_DIR=/tmp/impeccable-target
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+  VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
+  COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
+  SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")
+  mkdir -p "/src/impeccable/$VERSION"
+  cd "/src/impeccable/$VERSION"
+  curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
+  echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
+  tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
+  rm /tmp/impeccable.tar.gz
+  cargo build --locked --release -p impeccable
+  python3 /tmp/impeccable-engine.py "$CARGO_TARGET_DIR/release/impeccable" --expect-idle-bug "--engine-version=$VERSION"
+  python3 /tmp/patch-impeccable-engine.py "/src/impeccable/$VERSION"
+  cargo build --locked --release -p impeccable
+  python3 /tmp/impeccable-engine.py "$CARGO_TARGET_DIR/release/impeccable" "--engine-version=$VERSION"
+  mkdir -p "/out/$VERSION"
+  cp "$CARGO_TARGET_DIR/release/impeccable" "/out/$VERSION/impeccable"
+  cp LICENSE "/out/$VERSION/LICENSE"
+done
 IMPECCABLE
 
 # ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
-FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
+FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
 
 WORKDIR /app/openvscode/agent-sidebar
 COPY openvscode/agent-sidebar/package.json openvscode/agent-sidebar/package-lock.json ./
@@ -102,7 +108,7 @@ COPY openvscode/agent-sidebar/media/ /out/welcome/media/
 # ---- Official Claude Code Open VSX extension ----
 # Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
 # package into the image, configured externally at runtime. Never serve the VSIX.
-FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-official-claude-extension
+FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-official-claude-extension
 
 COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
@@ -129,7 +135,7 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1
     rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
-FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-inventories
+FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-inventories
 
 COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
 COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
@@ -144,7 +150,7 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
 
 # ---- Stage 2: Runtime ----
-FROM public.ecr.aws/docker/library/node:26-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -221,13 +227,13 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 
 # Keep fast server-modtime listings without copying source timestamps into remote state.
 COPY --from=rclone-builder /out/rclone /usr/bin/rclone
-COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/
+COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
-RUN HERDR_VERSION="0.9.0" && \
-    HERDR_COMMIT="b99002ac99b09e00b4ca692436cb15a6b0d676f1" && \
-    HERDR_SHA256="4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f" && \
+RUN HERDR_VERSION="0.9.3" && \
+    HERDR_COMMIT="7b116c05bfda646af39d2524c54e70c751f57ee8" && \
+    HERDR_SHA256="18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
       -o /tmp/herdr && \
@@ -276,8 +282,8 @@ RUN LAZYGIT_VERSION="0.65.1" && \
 #
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.10.0" && \
-    SILVERBULLET_SHA256="ca33f7de3bae2f2e7d95cdd2cca1a023e51267388c9dbc8ff5acc33b1cbd5a7d" && \
+RUN SILVERBULLET_VERSION="2.11.1" && \
+    SILVERBULLET_SHA256="82af0d5d008c377cdb4b49dbd21db0d21f8d14619efa40b0fdeae1dce778d018" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
@@ -298,19 +304,25 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # The pinned code-server archive supplies js-yaml 5.4.1 in its upstream 5.x
 # range; do not downgrade it with the former 4.x overlay. Retain the independent
 # tar and pacote overlays pending their separate runtime verification.
-# The immutable Node and code-server artifacts also carry node-tar
-# versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
-# replaces both runtime copies. The Node image's bundled npm also carries pacote
+# The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
+# 7.5.21 overlay replaces npm's copy only. code-server retains its upstream fixed
+# IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.137.0" && \
-    CODE_SERVER_SHA256="9303165b7fd43532091922f77e2f119ff2fa109c6b6f1c3c966fb02f3d6d9c8b" && \
-    CODE_SERVER_COMMIT="b11dabdaca0d3369986975be285db92c8795cea5" && \
-    CODE_SERVER_CODE_VERSION="1.137.0" && \
-    CODE_SERVER_VSCODE_COMMIT="645f29cc3176500b4b5762ba887cf2a7f0ffdf2c" && \
+RUN CODE_SERVER_VERSION="4.140.0" && \
+    CODE_SERVER_SHA256="864c5d01c808ade57e4d12c708717be7a187219fded60428f263b9e2da9f6b48" && \
+    CODE_SERVER_COMMIT="ccc19adc2e8992e18b14dd25eb1e646f5b9ef7cf" && \
+    CODE_SERVER_CODE_VERSION="1.140.0" && \
+    CODE_SERVER_VSCODE_COMMIT="07f806f999227108933c2e30515b26eecc1fda74" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
+    BRACE_EXPANSION_VERSION="5.0.12" && \
+    BRACE_EXPANSION_SHA512="628bd0debce168b308ac38cd0cc90d4b4d6d79af77aa11211b9c72f1febe47497e770dca8bee6c0a822823de368ae2d94c75a881692d830543854d3d88d12299" && \
+    UNDICI_NPM_VERSION="6.29.0" && \
+    UNDICI_NPM_SHA512="47e44e0c1aa9ea2da93df94676afb120e52497e44d7c6807c288a779c2aefc90ae7f6b8ed3a70e2a80db2363fb0e7e8a72cc1d2b0adccdb53a21827a2bc5fec2" && \
+    UNDICI_IDE_VERSION="7.30.0" && \
+    UNDICI_IDE_SHA512="764ad05de1d26a86a69c8b6561b9b31b4c0562b3346700f108883403b68a8d3cb2861f6cbd1cc234513357e566d39ff27a18c2ce30d9df52977c6123612ced0d" && \
     PACOTE_VERSION="21.5.1" && \
     PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
@@ -328,9 +340,8 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
     test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "5.4.1" && \
-    for NODE_TAR_DIR in \
-        /usr/local/lib/node_modules/npm/node_modules/tar \
-        /opt/code-server/lib/vscode/node_modules/tar; do \
+    test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/tar/package.json)" = "7.5.22" && \
+    for NODE_TAR_DIR in /usr/local/lib/node_modules/npm/node_modules/tar; do \
       rm -rf "$NODE_TAR_DIR" && \
       mkdir -p "$NODE_TAR_DIR" && \
       tar -xzf /tmp/node-tar.tgz -C "$NODE_TAR_DIR" --strip-components=1 && \
@@ -340,6 +351,25 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     mkdir -p /usr/local/lib/node_modules/npm/node_modules/pacote && \
     tar -xzf /tmp/pacote.tgz -C /usr/local/lib/node_modules/npm/node_modules/pacote --strip-components=1 && \
     test "$(jq -r .version /usr/local/lib/node_modules/npm/node_modules/pacote/package.json)" = "$PACOTE_VERSION" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/brace-expansion/-/brace-expansion-${BRACE_EXPANSION_VERSION}.tgz" -o /tmp/brace-expansion.tgz && \
+    echo "${BRACE_EXPANSION_SHA512}  /tmp/brace-expansion.tgz" | sha512sum -c - && \
+    mv /tmp/brace-expansion.tgz /usr/local/share/codeflare-brace-expansion.tgz && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/undici/-/undici-${UNDICI_NPM_VERSION}.tgz" -o /tmp/undici-npm.tgz && \
+    echo "${UNDICI_NPM_SHA512}  /tmp/undici-npm.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/undici/-/undici-${UNDICI_IDE_VERSION}.tgz" -o /tmp/undici-ide.tgz && \
+    echo "${UNDICI_IDE_SHA512}  /tmp/undici-ide.tgz" | sha512sum -c - && \
+    for SECURITY_PAIR in \
+      '/usr/local/share/codeflare-brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
+      '/tmp/undici-npm.tgz:/usr/local/lib/node_modules/npm/node_modules/undici' \
+      '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici'; do \
+      SECURITY_ARCHIVE="${SECURITY_PAIR%%:*}" && SECURITY_DIR="${SECURITY_PAIR#*:}" && \
+      test -f "$SECURITY_DIR/package.json" && \
+      rm -rf "$SECURITY_DIR" && mkdir -p "$SECURITY_DIR" && \
+      tar -xzf "$SECURITY_ARCHIVE" -C "$SECURITY_DIR" --strip-components=1 || exit 1; \
+    done && \
     npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
@@ -363,6 +393,7 @@ RUN CODE_SERVER_VERSION="4.137.0" && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/node-tar.tgz /tmp/pacote.tgz
 
+# The verified brace archive is retained for shrinkwrapped Pi copies installed below.
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
 # permissions bypass inside the container. .cache-bust invalidates this layer on
 # requested fresh builds; exact versions come from the committed npm-tool lock or
@@ -459,7 +490,7 @@ RUN cd /opt/codeflare/npm-tools && \
 # is updated. That is the point of a pin, but the recovery path must not be
 # discovered mid-incident: read the new script, then set this ARG to its sha256
 # (`curl -fsSL <url> | sha256sum`). Do NOT work around it by dropping the check.
-ARG ANTIGRAVITY_INSTALLER_SHA256=ee1ea43ce4e9e56356c4ab6dad907ef357ae4bdfcaadb682735909fb57c9c640
+ARG ANTIGRAVITY_INSTALLER_SHA256=62966c07365423bd4dc209355060744058fb30d60f5323e2d360e39de64e5042
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh && \
       echo "${ANTIGRAVITY_INSTALLER_SHA256}  /tmp/agy-install.sh" | sha256sum -c - && \
@@ -478,7 +509,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -504,6 +535,7 @@ RUN cd /opt/codeflare/pi-agent/npm && \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
     node /opt/codeflare/scripts/patch-pi-native-model-display.mjs ./node_modules/@earendil-works/pi-coding-agent && \
+    node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs ./node_modules && \
     if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
       node /opt/codeflare/scripts/patch-pi-native-model-display.mjs /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent && \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
@@ -527,6 +559,17 @@ RUN cd /opt/codeflare/pi-agent/npm && \
 # source; npm pulls it from the public registry at build time through the
 # committed lock, and we only edit the installed bundle in place.
 COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
+# Pi's published shrinkwrap can retain nested dependencies despite outer overrides.
+# Replace both nested runtime copies from the already integrity-verified archive.
+RUN for BRACE_DIR in \
+      /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion \
+      /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion; do \
+      if test -d "$BRACE_DIR"; then \
+        rm -rf "$BRACE_DIR" && mkdir -p "$BRACE_DIR" && \
+        tar -xzf /usr/local/share/codeflare-brace-expansion.tgz -C "$BRACE_DIR" --strip-components=1 || exit 1; \
+      fi; \
+    done && rm -f /usr/local/share/codeflare-brace-expansion.tgz /tmp/undici-npm.tgz /tmp/undici-ide.tgz
+
 COPY scripts/patch-context-mode-bundles.mjs /tmp/patch-context-mode-bundles.mjs
 RUN <<'EOF'
 set -e
@@ -595,8 +638,10 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.10
-ARG UV_X86_64_LINUX_SHA256=173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b
+# Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
+ENV GRAPHIFY_NO_AUTO_REFRESH=1
+ARG UV_VERSION=0.12.19
+ARG UV_X86_64_LINUX_SHA256=23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
@@ -738,14 +783,14 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
-    usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
+    usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/dist/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
     mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
     advisor_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-advisor/index.ts" && \
     ask_user_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-ask-user-question/index.ts" && \
     todo_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-todo/index.ts" && \
-    web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/index.ts" && \
+    web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/dist/index.js" && \
     context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/build/adapters/pi/extension.js" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \

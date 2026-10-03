@@ -41,6 +41,7 @@ enforce_tdd: true
 # Codeflare-specific layout: tests live in src/__tests__, host/__tests__,
 # web-ui/src/__tests__, and landing/src/__tests__.
 test_globs:
+  - "src/__tests__/operators/fixtures/flue-native-cases.ts"
   - "scripts/verify-bedrock-pi-prompt-cache.mjs"
   - "scripts/ci/impeccable-engine.py"
   - "scripts/ci/impeccable-engine-source.py"
@@ -50,6 +51,7 @@ test_globs:
   - "src/__tests__/**/*.spec.{ts,js,tsx,jsx,mjs}"
   - "host/__tests__/**/*.test.{js,mjs}"
   - "preseed/agents/pi/test/**/*.test.mjs"
+  - "web-ui/src/__tests__/components/ai-routing-fields-suite.tsx"
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
   - "landing/src/__tests__/**/*.test.{ts,tsx}"

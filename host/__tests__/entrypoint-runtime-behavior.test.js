@@ -19,8 +19,12 @@ function extractFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
   const start = lines.findIndex((line) => new RegExp(`^${name}\\(\\) \\{`).test(line));
   if (start === -1) throw new Error(`Could not locate ${name}() in entrypoint.sh`);
+  let inNodeHeredoc = false;
   const end = lines.findIndex((line, index) => {
-    if (index <= start || line !== '}') return false;
+    if (index <= start) return false;
+    if (line.includes("<<'NODE'")) { inNodeHeredoc = true; return false; }
+    if (line === 'NODE') { inNodeHeredoc = false; return false; }
+    if (inNodeHeredoc || line !== '}') return false;
     if (name !== 'warm_pi_npm_dependencies') return true;
     return lines[index + 2] === 'update_pi_and_codex_when_fast_start_disabled() {';
   });
@@ -72,6 +76,61 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
 };
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings', () => {
+    for (const fastStart of [undefined, 'true', 'false']) {
+      const home = mkdtempSync(join(tmpdir(), 'classic-codex-fast-start-'));
+      try {
+        const config = join(home, '.codex/config.toml');
+        mkdirSync(dirname(config), { recursive: true });
+        writeFileSync(config, 'model = "user-model"\n');
+        const args = join(home, 'codex-args');
+        const env = { HOME: home, USER_HOME: home, CODEX_TEST_ARGS: args, SESSION_ID: '',
+          TAB_CONFIG: JSON.stringify([{ id: '1', command: 'codex', label: 'Codex' }]),
+          FAST_CLI_START: fastStart };
+        const generated = runFunction('configure_tab_autostart',
+          'mkdir -p "$CODEFLARE_RUNTIME_ROOT/services"', 'configure_tab_autostart', env);
+        assert.equal(generated.status, 0, generated.stderr);
+        const launched = spawnSync('script', ['-qec',
+          `bash --noprofile --norc -c 'codex() { printf "%s\\n" "$@" > "$CODEX_TEST_ARGS"; }; source "$HOME/.bashrc"'`, '/dev/null'],
+          { encoding: 'utf8', env: runtimeEnv({ ...env, TERMINAL_APP_STARTED: '', MANUAL_TAB: '', TERMINAL_ID: '1' }) });
+        assert.equal(launched.status, 0, launched.stderr);
+        assert.deepEqual(readFileSync(args, 'utf8').trim().split('\n').filter(Boolean), fastStart === 'false' ? [] : ['--no-daemon']);
+        assert.equal(readFileSync(config, 'utf8'), 'model = "user-model"\n');
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    }
+  });
+  it('REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-subagent-settings-'));
+    try {
+      const path = join(home, '.pi/agent/subagents.json');
+      const fresh = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+      assert.equal(fresh.status, 0, fresh.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { midRunUpdates: false });
+      const restored = { midRunUpdates: true, maxConcurrent: 3, graceTurns: 8, abortAllOnInterrupt: false, custom: { keep: true } };
+      writeFileSync(path, JSON.stringify(restored));
+      for (let i = 0; i < 2; i++) {
+        const result = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+        assert.equal(result.status, 0, result.stderr);
+        assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { ...restored, midRunUpdates: false });
+      }
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-216: invalid subagent preferences are preserved without exposing their contents', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-subagent-invalid-'));
+    try {
+      const path = join(home, '.pi/agent/subagents.json');
+      mkdirSync(dirname(path), { recursive: true });
+      for (const bytes of ['{invalid-synthetic-secret', '[]', 'null']) {
+        writeFileSync(path, bytes);
+        const result = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /existing preferences preserved/);
+        assert.equal(readFileSync(path, 'utf8'), bytes);
+        assert.doesNotMatch(`${result.stdout}${result.stderr}`, /synthetic-secret/);
+      }
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
   it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
@@ -194,6 +253,38 @@ describe('entrypoint production helpers', () => {
     );
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readFileSync(destination, 'utf8'), 'operator-owned\n');
+  });
+
+  it('REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'rpiv-startup-repair-'));
+    const shared = join(fixture, 'shared'); const profile = join(fixture, 'profile');
+    const roots = [join(profile, 'node_modules')];
+    const names = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo'];
+    for (const root of roots) for (const name of names) mkdirSync(join(root, '@juicesharp', name), { recursive: true });
+    const reset = join(fixture, 'reset.mjs');
+    writeFileSync(reset, `import { writeFileSync } from 'node:fs';
+      for (const root of ${JSON.stringify(roots)}) for (const name of ${JSON.stringify(names)})
+        writeFileSync(root + '/@juicesharp/' + name + '/package.json', JSON.stringify({
+          name: '@juicesharp/' + name, dependencies: { typebox: '^1.1.24' }
+        }));`);
+    try {
+      const result = runFunction('update_pi_and_codex_when_fast_start_disabled', `
+        command() { if [ "$1" = -v ] && [ "$2" = codex ]; then return 1; else builtin command "$@"; fi; }
+        pi() { if [ "$1" = update ]; then "$NODE_BIN" "$RESET"; else echo fixture-pi; fi; }
+        npm() { if [ "$1" = view ]; then echo 1.0.0; else "$NODE_BIN" "$RESET"; fi; }
+        node() { case "$1" in */patch-rpiv-host-peers.mjs) "$NODE_BIN" "$PATCH" "$2";; *) return 0;; esac; }
+      `, 'update_pi_and_codex_when_fast_start_disabled', {
+        FAST_CLI_START: 'false', USER_HOME: fixture, CODEFLARE_NPM_TOOLS_DIR: shared, PI_NPM_DIR: profile,
+        NODE_BIN: process.execPath, RESET: reset, PATCH: resolve(__dirname, '../../scripts/patch-rpiv-host-peers.mjs'),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(existsSync(join(shared, 'node_modules/@juicesharp/rpiv-advisor')), false);
+      for (const root of roots) for (const name of names) {
+        const manifest = JSON.parse(readFileSync(join(root, '@juicesharp', name, 'package.json')));
+        assert.equal(manifest.dependencies.typebox, undefined);
+        assert.equal(manifest.peerDependencies.typebox, '*');
+      }
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
   it('REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex', () => {
@@ -337,7 +428,7 @@ describe('entrypoint production helpers', () => {
     const tools = join(fixture, 'tools');
     const source = join(fixture, 'package');
     const scripts = resolve(__dirname, '../../scripts');
-    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
+    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, PI_NPM_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
     const npm = (args, cwd) => {
       const result = spawnSync('npm', args, { cwd, env, encoding: 'utf8', timeout: 60_000 });
       assert.equal(result.status, 0, result.stderr);
@@ -350,7 +441,16 @@ describe('entrypoint production helpers', () => {
       writeFileSync(join(source, 'dist/utils/image-process.js'), 'export async function processImage() { return { ok: true }; }');
       const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
       const tarball = join(source, packed);
-      writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies: { '@earendil-works/pi-coding-agent': `file:${tarball}` } }));
+      const dependencies = { '@earendil-works/pi-coding-agent': `file:${tarball}` };
+      for (const name of ['typebox', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo']) {
+        const dir = join(fixture, name.replaceAll('/', '-'));
+        mkdirSync(dir);
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.3.27',
+          ...(name !== 'typebox' ? { dependencies: { typebox: dependencies.typebox } } : {}) }));
+        const archive = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], dir).stdout)[0].filename;
+        dependencies[name] = `file:${join(dir, archive)}`;
+      }
+      writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies }));
       npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
       const processor = join(installed, 'dist/utils/image-process.js');
@@ -468,14 +568,16 @@ describe('entrypoint production helpers', () => {
     writeFileSync(join(preseed, 'node_modules/example-package/package.json'), '{"name":"example-package"}\n');
     const env = { USER_HOME: join(fixture, 'home'), PI_NPM_PRESEED: preseed, PI_NPM_DIR: target };
 
-    const first = runFunction('warm_pi_npm_dependencies', '', 'warm_pi_npm_dependencies', env);
+    const first = runFunction('warm_pi_npm_dependencies',
+      'configure_pi_packages_and_review_inventory() { :; }', 'warm_pi_npm_dependencies', env);
     assert.equal(first.status, 0, first.stderr);
     assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"image-seed"}\n');
     assert.equal(existsSync(join(target, 'node_modules/example-package/package.json')), true);
 
     writeFileSync(join(target, 'package.json'), '{"name":"user-owned"}\n');
     writeFileSync(join(preseed, 'package.json'), '{"name":"new-image-seed"}\n');
-    const second = runFunction('warm_pi_npm_dependencies', '', 'warm_pi_npm_dependencies', env);
+    const second = runFunction('warm_pi_npm_dependencies',
+      'configure_pi_packages_and_review_inventory() { :; }', 'warm_pi_npm_dependencies', env);
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"user-owned"}\n');
   });

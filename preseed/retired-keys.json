@@ -111,7 +111,7 @@
     ".pi/agent/extensions/review-job-helpers.ts",
     ".pi/agent/extensions/review-jobs.ts",
     ".pi/agent/extensions/review-lane-guards.ts",
-    ".pi/agent/mcp.json",
+    ".pi/agent/rules/engineering-constitution.md",
     ".pi/agent/skills/github-cloudflare-ship/SKILL.md",
     ".pi/agent/skills/github-cloudflare-ship/references/workflow-templates.md",
     ".pi/agent/skills/github-cloudflare-ship/references/wrangler-templates.md",
