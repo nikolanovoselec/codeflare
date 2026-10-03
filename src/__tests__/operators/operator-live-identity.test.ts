@@ -294,11 +294,15 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       const submitToken = (token: string) => { submittedToken = token; f.setToken(token); };
       const deniedOutcome = async (stage: string, reason: string) => {
         warnings.length = 0;
-        expect((await f.request('/operators')).status).toBe(403);
+        const response = await f.request('/operators');
+        expect(response.status).toBe(403);
+        const publicResponse: unknown = await response.json();
+        // Intentional public denial wire contract: no internal reason or identity fields.
+        expect(publicResponse).toEqual({ error: 'Access denied', code: 'FORBIDDEN' });
         const diagnostics = warnings.map(value => JSON.parse(value) as { message: string; data: unknown })
           .filter(value => value.message === 'Operator human authentication denied');
         expect(diagnostics.map(value => value.data)).toEqual([{ stage, reason }]);
-        const serialized = JSON.stringify(diagnostics);
+        const serialized = JSON.stringify({ diagnostics, publicResponse });
         for (const privateValue of [submittedToken, f.token, email, 'foreign@example.test', subject, issuer, audience, domain].filter(Boolean)) {
           expect(serialized).not.toContain(privateValue);
         }
