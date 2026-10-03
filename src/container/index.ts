@@ -862,7 +862,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{
     generation: number; groups: string[];
   }> {
-    return getPersonalPiSession(this.interceptionHost, ref);
+    return await getPersonalPiSession(this.interceptionHost, ref);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{

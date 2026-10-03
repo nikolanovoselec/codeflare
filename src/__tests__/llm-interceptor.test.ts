@@ -337,6 +337,34 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     return { response, payload: lastFetch ? JSON.parse(lastFetch.body) as Record<string, any> : null };
   };
 
+  it('REQ-ENTERPRISE-004: enabled personal permission preserves sanctioned Dynamic Route routing', async () => {
+    const env = configuredRoutes() as Partial<Env> & { __kv: Record<string, string> };
+    env.__kv['setup:enterprise_access_group'] = 'engineering';
+    env.__kv['setup:group_routing'] = JSON.stringify({ engineering: {
+      routes: ['general_usage', 'development'], defaultRoute: 'general_usage', reasoning: 'off', allowPersonalPiProviders: true,
+    } });
+    const personalPi = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test', generation: 1 };
+    const props = { user: personalPi.user, sessionId: personalPi.sessionId, groups: ['engineering'], personalPi };
+    const response = await makeInterceptor({ ...env, ENTERPRISE_MODE: 'active', CONTAINER: {
+      getByName: () => ({ getPersonalPiSession: async () => ({ generation: 1, groups: ['engineering'] }) }),
+    } } as unknown as Partial<Env>, props).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key', 'x-api-key': 'synthetic-personal-key' },
+      body: JSON.stringify({ model: 'development', reasoning_effort: 'medium', messages: [{ role: 'user', content: 'hello' }] }),
+    }));
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({ model: 'dynamic/development', reasoning_effort: 'medium' });
+    expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(lastFetch?.headers.get('cf-aig-authorization')).toBeNull();
+    expect(lastFetch?.headers.get('x-api-key')).toBeNull();
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('gw');
+    expect(JSON.parse(lastFetch!.headers.get('cf-aig-metadata')!)).toMatchObject({ user: 'owner@example.test' });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const text = await response.text();
+    expect(text).toContain('data: {"delta":"hi"}');
+    expect(text).toContain('data: [DONE]');
+  });
+
   it('AC2: loads the profile for the route selected through Pi /model', async () => {
     const glm = await send('general_usage', 'off');
     expect(glm.response.status).toBe(200);
@@ -1007,6 +1035,35 @@ describe('native provider authorization and compat dispatch', () => {
     const foreign = await inference('activity-two', continuation);
     expect(foreign.status).toBe(400);
     expect(await foreign.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+  });
+
+  it('REQ-ENTERPRISE-004: enabled personal permission preserves sanctioned managed Native Route routing', async () => {
+    const fixture = nativeFixture(true, { provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat',
+      providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' });
+    const policy = JSON.parse(fixture.kv['setup:group_routing']);
+    policy.engineering.allowPersonalPiProviders = true;
+    const personalPi = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test', generation: 1 };
+    const props = { user: personalPi.user, sessionId: personalPi.sessionId, groups: ['engineering'], personalPi };
+    const response = await makeInterceptor({ ENTERPRISE_MODE: 'active', __kv: { ...fixture.kv,
+      'setup:enterprise_access_group': 'engineering', 'setup:group_routing': JSON.stringify(policy),
+    }, CONTAINER: {
+      getByName: () => ({ getPersonalPiSession: async () => ({ generation: 1, groups: ['engineering'] }) }),
+    } } as unknown as Partial<Env>, props).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key', 'x-api-key': 'synthetic-personal-key' },
+      body: JSON.stringify({ model: fixture.handle, messages: [{ role: 'user', content: 'hello' }] }),
+    }));
+    expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+    expect(JSON.parse(lastFetch!.body).model).toBe('openai/gpt-5.6-sol');
+    expect(lastFetch?.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(lastFetch?.headers.get('authorization')).toBeNull();
+    expect(lastFetch?.headers.get('x-api-key')).toBeNull();
+    expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
+    expect(JSON.parse(lastFetch!.headers.get('cf-aig-metadata')!)).toMatchObject({ user: 'owner@example.test' });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const text = await response.text();
+    expect(text).toContain('data: {"delta":"hi"}');
+    expect(text).toContain('data: [DONE]');
   });
 
   it('REQ-ENTERPRISE-050: dispatches an authorized native handle once through compat with its Worker-only model selector', async () => {

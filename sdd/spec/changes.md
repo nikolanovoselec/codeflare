@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-03
+
+- **Authorize native Pi independently of browser authority** ([REQ-ENTERPRISE-090](enterprise-mode.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission)). Current Administration permission and the bound active owner/session/generation control native forwarding without a browser lease or Access identity fetch. Dynamic/managed Native Routes and separate Review authority remain unchanged. Exact-head CI, deployment and live acceptance remain pending.
+
 ## 2026-10-01
 
 - Repair native OAuth authorization and warm-strict interception for pinned authentication origins; extend real registry and actual pinned SDK login/refresh coverage. Correct results-table fixtures and unnecessary exports without changing viewer behavior or quality gates. Repair declaration anchors and traceability; separate existing presentation predicates, preserve detailed authority/security clauses, and move dormant enrollment steps to the deployment owner. Full exact-head CI and complete review remain pending; no activation or live acceptance is implied.

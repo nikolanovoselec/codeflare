@@ -34,7 +34,7 @@ function fixture(strict = false, operator = false) {
   const egressRequests: Request[] = [];
   const env = { ENTERPRISE_MODE: 'active', KV: kv, USAGE_DB: createMockSessionD1(kv), CONTAINER: { getByName: () => ({
     getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
-      return getPersonalPiSession(host, ref);
+      return await getPersonalPiSession(host, ref);
     },
     openReviewHuman: async (ref: { bucket: string; sessionId: string; email: string }) => {
     if (ref.bucket !== owner.bucket || ref.sessionId !== owner.sessionId || ref.email !== owner.user) throw Error('wrong owner');
