@@ -246,7 +246,7 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       const managerCatalog = await f.request('/operators');
       expect(managerCatalog.status).toBe(200);
       expect((await managerCatalog.json() as { items: Array<{ id: string }> }).items.map(item => item.id)).toEqual(['review-operator']);
-      expect((await f.request('/operators/ungranted-operator')).status).toBe(403);
+      expect((await f.request('/operators/ungranted-operator')).status).toBe(404);
       actor.role = 'admin';
       const adminCatalog = await f.request('/operators');
       expect(adminCatalog.status).toBe(200);
@@ -288,7 +288,7 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       { email, expiresAt: Date.now() + 300_000 })).toMatchObject({ ok: true });
       f.setFault(fault);
       const denied = await f.request('/operators');
-      expect(denied.status).toBe(403);
+      expect(denied.status).toBe(404);
       expect(await denied.json()).not.toHaveProperty('items');
       actor.role = 'admin';
       const catalog = await f.request('/operators');
