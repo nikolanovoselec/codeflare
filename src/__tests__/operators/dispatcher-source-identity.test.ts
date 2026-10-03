@@ -105,9 +105,20 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     await expect(f.execute()).rejects.toThrow();
   });
 
-  it('returns a source receipt for current stable group membership bound to the grant issuer', async () => {
+  it.each([
+    { groups: [stableGroup.id] }, { groups: [{ name: stableGroup.id }] }, { groups: [{ email: stableGroup.id }] },
+  ])('REQ-OPERATOR-045/047: label-only memberships %j preserve email invocation but cannot authorize a group-only source receipt', async ({ groups }) => {
+    const identity = () => Response.json({ ...documentedIdentity, groups });
+    const emailInvoker = await fixture(identity);
+    await expectSourceReceipt(await emailInvoker.execute());
+    const groupInvoker = await fixture(identity, true);
+    expect(await operatorAccessSessionCurrent(groupInvoker.human, accessJwt)).toBe(true);
+    await expect(groupInvoker.execute()).rejects.toThrow();
+  });
+
+  it('returns a source receipt for current stable group membership bound to the grant issuer even alongside labels', async () => {
     const f = await fixture(() => Response.json({ ...documentedIdentity,
-      groups: [{ id: stableGroup.id, name: 'Engineering' }, { id: stableGroup.id }] }), true);
+      groups: ['Engineering', { name: 'Other' }, { id: stableGroup.id, name: 'Engineering' }, { id: stableGroup.id }] }), true);
     expect((await resolveOperatorGroupIdentity(f.human, accessJwt)).groups).toEqual([stableGroup.id]);
     expect(await operatorAccessSessionCurrent(f.human, accessJwt)).toBe(true);
     await expectSourceReceipt(await f.execute());
@@ -126,9 +137,17 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     ['null groups', () => Response.json({ ...documentedIdentity, groups: null })],
     ['string groups', () => Response.json({ ...documentedIdentity, groups: stableGroup.id })],
     ['object groups', () => Response.json({ ...documentedIdentity, groups: { id: stableGroup.id } })],
-    ['bare string group entry', () => Response.json({ ...documentedIdentity, groups: [stableGroup.id] })],
     ['null group entry', () => Response.json({ ...documentedIdentity, groups: [null] })],
-    ['display-name-only group entry', () => Response.json({ ...documentedIdentity, groups: [{ name: 'Engineering' }] })],
+    ['empty string label', () => Response.json({ ...documentedIdentity, groups: [''] })],
+    ['blank string label', () => Response.json({ ...documentedIdentity, groups: ['   '] })],
+    ['oversized string label', () => Response.json({ ...documentedIdentity, groups: ['g'.repeat(257)] })],
+    ['empty name label', () => Response.json({ ...documentedIdentity, groups: [{ name: '' }] })],
+    ['non-string name label', () => Response.json({ ...documentedIdentity, groups: [{ name: 42 }] })],
+    ['oversized name label', () => Response.json({ ...documentedIdentity, groups: [{ name: 'g'.repeat(257) }] })],
+    ['empty email label', () => Response.json({ ...documentedIdentity, groups: [{ email: '' }] })],
+    ['oversized email label', () => Response.json({ ...documentedIdentity, groups: [{ email: 'g'.repeat(257) }] })],
+    ['group without identifier or label', () => Response.json({ ...documentedIdentity, groups: [{}] })],
+    ['null group id with name', () => Response.json({ ...documentedIdentity, groups: [{ id: null, name: 'Engineering' }] })],
     ['empty group id', () => Response.json({ ...documentedIdentity, groups: [{ id: '' }] })],
     ['non-string group id', () => Response.json({ ...documentedIdentity, groups: [{ id: 42 }] })],
     ['whitespace-padded group id', () => Response.json({ ...documentedIdentity, groups: [{ id: ' padded ' }] })],

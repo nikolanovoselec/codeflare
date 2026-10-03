@@ -52,8 +52,9 @@ async function sign(payload: Record<string, unknown>) {
 }
 const validIdentity = () => ({ user_uuid: subject, email }); // Canonical Cloudflare subject; groups may be absent.
 const faults = ['revoked', 'unavailable', 'transport-error', 'redirect', 'malformed-json', 'bodyless', 'oversized',
-  'non-object', 'subject-mismatch', 'email-mismatch', 'uuid-mismatch', 'malformed-groups', 'name-only-group'] as const;
-type Fault = typeof faults[number] | 'valid' | 'extra-id' | 'null-id' | 'number-id';
+  'non-object', 'subject-mismatch', 'email-mismatch', 'uuid-mismatch', 'malformed-groups'] as const;
+const labelIdentities = ['string-group', 'name-only-group', 'email-only-group'] as const;
+type Fault = typeof faults[number] | typeof labelIdentities[number] | 'valid' | 'extra-id' | 'null-id' | 'number-id';
 function identityResponse(fault: Fault): Response {
   if (fault === 'revoked') return new Response(null, { status: 401 });
   if (fault === 'unavailable') return new Response(null, { status: 503 });
@@ -68,7 +69,9 @@ function identityResponse(fault: Fault): Response {
     'email-mismatch': { id: subject, email: 'another@example.test' },
     'uuid-mismatch': { id: subject, user_uuid: 'another-subject', email },
     'malformed-groups': { ...validIdentity(), groups: null },
+    'string-group': { ...validIdentity(), groups: ['Operators'] },
     'name-only-group': { ...validIdentity(), groups: [{ name: 'Operators' }] },
+    'email-only-group': { ...validIdentity(), groups: [{ email: 'operators@example.test' }] },
     'extra-id': { ...validIdentity(), id: 'unrelated-identity-metadata' },
     'null-id': { ...validIdentity(), id: null },
     'number-id': { ...validIdentity(), id: 42 },
@@ -228,6 +231,38 @@ async function fixture(test: (f: {
 }
 
 describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-group authority', () => {
+  it.each(labelIdentities)(
+    'REQ-OPERATOR-045/027: valid %s admits explicit email managers and admins without exposing foreign activity',
+    async fault => fixture(async f => {
+      f.setFault(fault);
+      for (const role of ['user', 'admin']) {
+        actor.role = role;
+        const catalog = await f.request('/operators');
+        expect(catalog.status).toBe(200);
+        expect(await catalog.json()).toMatchObject({ items: [{ id: 'review-operator' }] });
+        const activities = await f.request('/api/operator-activities?limit=5');
+        expect(activities.status).toBe(200);
+        expect(await activities.json()).toMatchObject({ items: [browserSummary], nextCursor: null });
+      }
+    }),
+  );
+  it.each(labelIdentities)(
+    'REQ-OPERATOR-045: %s cannot satisfy stable group eligibility while a verified admin still accesses the catalog',
+    async fault => fixture(async f => {
+      const controls = await f.registry.getManagementControls();
+      expect(await f.registry.setManagementControls({ ...controls,
+        managers: { users: [], groups: [{ issuer, id: 'Operators' }, { issuer, id: 'operators@example.test' }] } },
+      { email, expiresAt: Date.now() + 300_000 })).toMatchObject({ ok: true });
+      f.setFault(fault);
+      const denied = await f.request('/operators');
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).not.toHaveProperty('items');
+      actor.role = 'admin';
+      const catalog = await f.request('/operators');
+      expect(catalog.status).toBe(200);
+      expect(await catalog.json()).toMatchObject({ items: [{ id: 'review-operator' }] });
+    }),
+  );
   it.each(['extra-id', 'null-id', 'number-id'] as const)(
     'REQ-OPERATOR-045/027: canonical UUID with %s admits catalog and only the verified owner activity page',
     async fault => fixture(async f => {
@@ -266,7 +301,7 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
         ['transport-error', 'transport'], ['malformed-json', 'response'],
         ['bodyless', 'response'], ['oversized', 'response'], ['non-object', 'response'],
         ['subject-mismatch', 'subject'], ['uuid-mismatch', 'subject'], ['email-mismatch', 'email'],
-        ['malformed-groups', 'groups'], ['name-only-group', 'groups'],
+        ['malformed-groups', 'groups'],
       ];
       for (const [fault, reason, status] of outcomes) {
         warnings.length = 0; f.setFault(fault);
