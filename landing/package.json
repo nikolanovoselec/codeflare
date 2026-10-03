@@ -20,7 +20,10 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "devalue": "5.9.2",
-    "esbuild": "0.28.1"
+    "devalue": "5.9.4",
+    "esbuild": "0.28.1",
+    "astro": {
+      "http-cache-semantics": "file:./dependencies/astro-build-cache-policy"
+    }
   }
 }
