@@ -33,7 +33,7 @@ import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
-import { wireContainerInterception, type InterceptionHost } from './container-interception';
+import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
 import type { OperatorPolicy } from '../operators/policy';
 import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
   type OperatorPackageResourceProjection } from '../operators/package-resources';
@@ -857,6 +857,12 @@ export class container extends Container<Env> implements ContainerEnvState {
     human: VerifiedHumanAccessClaims; accessJwt: string;
   } | null, expected?: Parameters<typeof bindReviewSessionHuman>[2]): Promise<void> {
     await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
+  }
+
+  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+    generation: number; groups: string[];
+  }> {
+    return getPersonalPiSession(this.interceptionHost, ref);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{

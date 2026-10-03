@@ -1,13 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { LlmInterceptor } from '../llm-interceptor';
-import { wireContainerInterception, type InterceptionHost } from '../container/container-interception';
+import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from '../container/container-interception';
 import { createMockKV } from './helpers/mock-kv';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Env } from '../types';
-import { bindReviewSessionHuman, discardReviewSessionHuman, openReviewSessionHuman } from '../container/review-session-human';
 
-const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test' };
+const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test', generation: 1 };
 const issuer = 'https://personal-pi.cloudflareaccess.com';
 afterEach(() => vi.restoreAllMocks());
 function fixture(strict = false, operator = false) {
@@ -20,28 +19,42 @@ function fixture(strict = false, operator = false) {
   kv._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'Engineering');
   kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } });
   const requests: Request[] = [];
+  const accessRequests: Request[] = [];
   let identity: unknown = { user_uuid: 'owner-id', email: owner.user, groups: [{ id: 'group-id', name: 'Engineering' }] };
   const human = { subject: 'owner-id', email: owner.user, issuer, audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.floor(Date.now() / 1000) + 300 };
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = new Request(input, init);
-    if (request.url === `${issuer}/cdn-cgi/access/get-identity`) return identity === null ? new Response('', { status: 503 }) : Response.json(identity);
+    if (request.url === `${issuer}/cdn-cgi/access/get-identity`) {
+      accessRequests.push(request);
+      return identity === null ? new Response('', { status: 503 }) : Response.json(identity);
+    }
     requests.push(request);
     return new Response('personal-response', { status: 200 });
   });
   const egressRequests: Request[] = [];
   const env = { ENTERPRISE_MODE: 'active', KV: kv, USAGE_DB: createMockSessionD1(kv), CONTAINER: { getByName: () => ({
     getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
-      if (ref.bucket !== owner.bucket || ref.sessionId !== owner.sessionId || ref.email !== owner.user) throw Error('wrong owner');
-      return { generation: nativeSession.generation, groups: [...nativeSession.groups] };
+      return getPersonalPiSession(host, ref);
     },
     openReviewHuman: async (ref: { bucket: string; sessionId: string; email: string }) => {
     if (ref.bucket !== owner.bucket || ref.sessionId !== owner.sessionId || ref.email !== owner.user) throw Error('wrong owner');
     return { human, accessJwt: 'synthetic-sealed-assertion', generation: 1 };
   } }) }, EGRESS: strict ? { fetch: async (request: Request) => { egressRequests.push(request); return new Response('inspected-response'); } } : undefined } as unknown as Env;
+  const records = new Map<string, unknown>();
+  const host = { env, _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user,
+    get _userGroups() { return nativeSession.groups; }, _shutdownStartedAt: 0,
+    ctx: { storage: { get: async (key: string) => key === 'lifecycleGeneration'
+      ? nativeSession.generation : records.get(key) } },
+  } as unknown as InterceptionHost;
+  const setSession = (change: Record<string, unknown> | null) => {
+    const key = `session:${owner.bucket}:${owner.sessionId}`;
+    if (change === null) kv._store.delete(key);
+    else kv._set(key, { id: owner.sessionId, userId: owner.bucket, status: 'running', lifecycleGeneration: 1, ...change });
+  };
   const props = { user: owner.user, sessionId: owner.sessionId, personalPi: { ...owner, generation: 1 }, strict, ...(operator ? { operatorInference: { activityId: 'operator' } } : {}) };
   const interceptor = new LlmInterceptor({ props } as unknown as ExecutionContext, env);
   const send = (url = 'https://api.anthropic.com/v1/messages') => interceptor.fetch(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key', 'cf-aig-authorization': 'must-not-forward', 'x-codeflare-context': 'private-platform-context', 'x-codeflare-session': 'private-platform-session' }, body: JSON.stringify({ model: 'native-personal-model', messages: [] }) }));
-  return { send, requests, egressRequests, policy, env, human, nativeSession, identity: (value: unknown) => { identity = value; } };
+  return { send, requests, accessRequests, egressRequests, policy, env, human, nativeSession, host, records, setSession, identity: (value: unknown) => { identity = value; } };
 }
 it('REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm revocation prevents provider I/O', async () => {
   const f = fixture();
@@ -56,19 +69,28 @@ it('REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm re
   expect((await f.send()).status).toBe(403);
   expect(f.requests.map(request => request.url)).toEqual(['https://api.anthropic.com/v1/messages']);
 });
-it('REQ-ENTERPRISE-088 AC5: failed identity expiry and membership revocation fail closed even with fallback', async () => {
-  for (const reason of ['identity', 'expiry', 'membership', 'owner', 'malformed']) {
+it.each(['permission-read', 'owner', 'session', 'missing', 'stopping', 'stopped', 'unreachable',
+  'termination', 'generation', 'memory-shutdown', 'durable-shutdown', 'operator', 'malformed-policy']) (
+  'REQ-ENTERPRISE-090 AC3: real parent session boundary denies native effects: %s', async reason => {
     const f = fixture();
-    if (reason !== 'membership') (f.env.KV as unknown as ReturnType<typeof createMockKV>)._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: true, routes: ['route'], defaultRoute: 'route', reasoning: 'off', allowPersonalPiProviders: true } });
-    if (reason === 'identity') f.identity(null);
-    if (reason === 'expiry') f.human.expiresAt = 1;
-    if (reason === 'owner') f.human.email = 'another-owner@example.test';
-    if (reason === 'malformed') f.identity({ user_uuid: 'owner-id', email: owner.user, groups: [null] });
-    if (reason === 'membership') f.identity({ user_uuid: 'owner-id', email: owner.user, groups: [] });
+    if (reason === 'permission-read') f.env.KV = { get: async () => { throw Error('Policy unavailable'); } } as unknown as KVNamespace;
+    if (reason === 'owner') f.host._userEmail = 'other@example.test';
+    if (reason === 'session') f.host._sessionId = 'othersession';
+    if (reason === 'missing') f.setSession(null);
+    if (['stopping', 'stopped', 'unreachable'].includes(reason)) f.setSession({ status: reason });
+    if (reason === 'termination') f.setSession({ terminationIntentId: 'stop-intent' });
+    if (reason === 'generation') f.setSession({ lifecycleGeneration: 2 });
+    if (reason === 'memory-shutdown') f.host._shutdownStartedAt = Date.now();
+    if (reason === 'durable-shutdown') f.records.set('shutdownRequested', Date.now());
+    if (reason === 'operator') f.host._operatorPolicy = { schemaVersion: 1, networkHosts: [],
+      github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
+      inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } };
+    if (reason === 'malformed-policy') (f.env.KV as unknown as ReturnType<typeof createMockKV>)._store.set(SETUP_KEYS.GROUP_ROUTING, 'malformed');
     expect((await f.send()).status).toBe(403);
     expect(f.requests).toEqual([]);
-  }
-});
+    expect(f.accessRequests).toEqual([]);
+  },
+);
 it('REQ-ENTERPRISE-088 AC6: strict personal transport requires its binding and does not use platform exemption', async () => {
   const f = fixture(true);
   expect(await (await f.send()).text()).toBe('inspected-response');
@@ -105,53 +127,27 @@ it.each(['application/json', 'text/plain', undefined])(
   },
 );
 
-it.each(['subject', 'issuedAt', 'expiresAt', 'audiences'] as const)(
-  'REQ-ENTERPRISE-088 AC5: authority %s rebinding during policy resolution denies provider I/O', async field => {
+it.each(['owner', 'session', 'groups', 'generation', 'shutdown', 'deleted'])(
+  'REQ-ENTERPRISE-090 AC3: real session change during policy resolution denies provider I/O: %s', async field => {
     const f = fixture();
-    const originalKV = f.env.KV;
-    f.env.KV = { ...originalKV, get: async (key: string) => {
-      const value = await originalKV.get(key);
+    const kv = f.env.KV;
+    f.env.KV = { ...kv, get: async (key: string) => {
+      const value = await kv.get(key);
       if (key === SETUP_KEYS.GROUP_ROUTING) {
-        if (field === 'subject') f.human.subject = 'rebound-human';
-        else if (field === 'audiences') f.human.audiences = ['rebound-audience'];
-        else f.human[field] += 1;
+        if (field === 'owner') f.host._userEmail = 'other@example.test';
+        if (field === 'session') f.host._sessionId = 'othersession';
+        if (field === 'groups') f.nativeSession.groups = [];
+        if (field === 'generation') { f.nativeSession.generation = 2; f.setSession({ lifecycleGeneration: 2 }); }
+        if (field === 'shutdown') f.records.set('shutdownRequested', Date.now());
+        if (field === 'deleted') f.setSession(null);
       }
       return value;
     } } as KVNamespace;
     expect((await f.send()).status).toBe(403);
     expect(f.requests).toEqual([]);
+    expect(f.accessRequests).toEqual([]);
   },
 );
-
-it('REQ-ENTERPRISE-088 AC5: real sealed authority cannot cross a lifecycle replacement during authorization', async () => {
-  const f = fixture();
-  const records = new Map<string, unknown>([['lifecycleGeneration', 1]]);
-  const actions = { get: async (key: string) => records.get(key),
-    put: async (key: string, value: unknown) => { records.set(key, value); },
-    delete: async (key: string) => { records.delete(key); } };
-  const storage = { ...actions, transaction: async <T>(run: (tx: typeof actions) => Promise<T>) => run(actions) };
-  const host = { _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user,
-    env: { ENCRYPTION_KEY: btoa('a'.repeat(32)) }, ctx: { storage } };
-  const bound = { bucket: owner.bucket, sessionId: owner.sessionId, generation: 1,
-    human: f.human, accessJwt: 'synthetic-sealed-assertion' };
-  await bindReviewSessionHuman(host, bound);
-  f.env.CONTAINER = { getByName: () => ({ openReviewHuman: (ref: { bucket: string; sessionId: string; email: string }) =>
-    openReviewSessionHuman(host, ref) }) } as unknown as Env['CONTAINER'];
-  const originalKV = f.env.KV;
-  f.env.KV = { ...originalKV, get: async (key: string) => {
-    const value = await originalKV.get(key);
-    if (key === SETUP_KEYS.GROUP_ROUTING && records.get('lifecycleGeneration') === 1) {
-      await discardReviewSessionHuman(host);
-      records.set('lifecycleGeneration', 2);
-      await bindReviewSessionHuman(host, { ...bound, generation: 2 });
-    }
-    return value;
-  } } as KVNamespace;
-  expect((await f.send()).status).toBe(403);
-  expect(f.requests).toEqual([]);
-  expect(await openReviewSessionHuman(host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }))
-    .toMatchObject({ generation: 2, human: { subject: f.human.subject } });
-});
 
 it('REQ-ENTERPRISE-088 AC6: personal credentials cannot follow a cross-origin provider redirect', async () => {
   const f = fixture();
@@ -334,8 +330,8 @@ it.each([
     const body = 'grant_type=refresh_token&refresh_token=synthetic-owner-refresh';
     const response = await handler.fetch(new Request(url, { method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: 'Bearer synthetic-owner-token' }, body }));
-    expect(response.status).toBe(mode === 'permitted' || mode === 'warm-strict-inspected' ? 200 : mode === 'warm-strict-missing' ? 503 : 403);
-    expect(f.requests.map(request => request.url)).toEqual(mode === 'permitted' ? [url] : []);
+    expect(response.status).toBe(mode === 'permitted' || mode === 'expired' || mode === 'warm-strict-inspected' ? 200 : mode === 'warm-strict-missing' ? 503 : 403);
+    expect(f.requests.map(request => request.url)).toEqual(mode === 'permitted' || mode === 'expired' ? [url] : []);
     expect(f.egressRequests.map(request => request.url)).toEqual(mode === 'warm-strict-inspected' ? [url] : []);
     const forwarded = [...f.requests, ...f.egressRequests][0];
     if (forwarded) {
@@ -361,7 +357,7 @@ it.each([
     if (browser === 'expired') f.human.expiresAt = 1;
     if (browser === 'identity-unavailable') f.identity(null);
     if (browser === 'missing') f.env.CONTAINER = { getByName: () => ({
-      getPersonalPiSession: async () => ({ generation: 1, groups: ['Engineering'] }),
+      getPersonalPiSession: (ref: { bucket: string; sessionId: string; email: string }) => getPersonalPiSession(f.host, ref),
       openReviewHuman: async () => { throw Error('No browser authority'); },
     }) } as unknown as Env['CONTAINER'];
     const response = await f.send(url);
@@ -371,6 +367,7 @@ it.each([
     f.policy(false);
     expect((await f.send(url)).status).toBe(403);
     expect(f.requests.map(request => request.url)).toEqual([url]);
+    expect(f.accessRequests).toEqual([]);
     vi.restoreAllMocks();
   }
 });
@@ -388,12 +385,12 @@ it('REQ-ENTERPRISE-090 AC1: enabled fallback grants native transport without a b
 
 it.each(['initial', 'during-policy'])('REQ-ENTERPRISE-090 AC3: a stale parent-bound generation denies native effects: %s', async when => {
   const f = fixture();
-  if (when === 'initial') f.nativeSession.generation = 2;
+  if (when === 'initial') { f.nativeSession.generation = 2; f.setSession({ lifecycleGeneration: 2 }); }
   else {
     const kv = f.env.KV;
     f.env.KV = { ...kv, get: async (key: string) => {
       const value = await kv.get(key);
-      if (key === SETUP_KEYS.GROUP_ROUTING) f.nativeSession.generation = 2;
+      if (key === SETUP_KEYS.GROUP_ROUTING) { f.nativeSession.generation = 2; f.setSession({ lifecycleGeneration: 2 }); }
       return value;
     } } as KVNamespace;
   }
@@ -453,8 +450,45 @@ it('REQ-ENTERPRISE-090 AC4: a reused native WebSocket outlives browser expiry bu
     client.send('after-revocation');
     expect(await closed).toBe(1008);
     expect(received).toEqual(['before-expiry', 'after-browser-expiry']);
+    expect(f.accessRequests).toEqual([]);
   } finally {
     client.close();
     pair[1].close();
   }
+});
+
+it.each(['shutdown', 'session-deleted', 'replacement'])(
+  'REQ-ENTERPRISE-090 AC4: reused WebSockets deny real session revocation: %s', async change => {
+    const f = fixture();
+    const pair = new WebSocketPair();
+    pair[1].accept();
+    const received: unknown[] = [];
+    pair[1].addEventListener('message', event => received.push(event.data));
+    vi.mocked(fetch).mockImplementation(async () => new Response(null, { status: 101, webSocket: pair[0] }));
+    const response = await new LlmInterceptor({ props: { user: owner.user, personalPi: owner } } as unknown as ExecutionContext, f.env)
+      .fetch(new Request('https://chatgpt.com/backend-api/codex/responses',
+        { headers: { upgrade: 'websocket', authorization: 'Bearer synthetic-personal-key' } }));
+    expect(response.status).toBe(101);
+    const client = (response as unknown as { webSocket: WebSocket }).webSocket;
+    client.accept();
+    try {
+      const delivered = new Promise<void>(resolve => pair[1].addEventListener('message', () => resolve(), { once: true }));
+      client.send('active-session-frame');
+      await delivered;
+      if (change === 'shutdown') f.host._shutdownStartedAt = Date.now();
+      if (change === 'session-deleted') f.setSession(null);
+      if (change === 'replacement') { f.nativeSession.generation = 2; f.setSession({ lifecycleGeneration: 2 }); }
+      const closed = new Promise<number>(resolve => client.addEventListener('close', event => resolve(event.code), { once: true }));
+      client.send('revoked-session-frame');
+      expect(await closed).toBe(1008);
+      expect(received).toEqual(['active-session-frame']);
+      expect(f.accessRequests).toEqual([]);
+    } finally { client.close(); pair[1].close(); }
+  },
+);
+
+it('REQ-ENTERPRISE-090 AC2: credential-free parent RPC wire contract contains only generation and trusted groups', async () => {
+  const f = fixture();
+  expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }))
+    .toEqual({ generation: 1, groups: ['Engineering'] });
 });

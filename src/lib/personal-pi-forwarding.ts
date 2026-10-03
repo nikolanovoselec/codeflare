@@ -1,5 +1,4 @@
 import type { Env } from '../types';
-import type { VerifiedHumanAccessClaims } from './jwt';
 import { getContainerId } from './container-helpers';
 import { readBoundedResponse } from './bounded-stream';
 import { parseAccessGroups, resolvePersonalPiPermission } from './access';
@@ -8,7 +7,7 @@ import { isEnterpriseMode } from './subscription';
 import { isPersonalPiCloudFamily, isPersonalPiDestination } from './personal-pi-destinations';
 import { jsonError, STRIPPED_REQUEST_HOP_BY_HOP } from './controller-egress';
 
-interface PersonalPiReference { bucket: string; sessionId: string; user: string }
+interface PersonalPiReference { bucket: string; sessionId: string; user: string; generation?: number }
 export interface PersonalPiProps {
   personalPi?: PersonalPiReference;
   strict?: boolean;
@@ -19,52 +18,20 @@ export interface PersonalPiProps {
 
 async function authorizePersonalPi(env: Env, ref: PersonalPiReference): Promise<boolean> {
   try {
+    if (!Number.isSafeInteger(ref.generation) || !ref.generation || ref.generation < 0) return false;
     const session = env.CONTAINER.getByName(getContainerId(ref.bucket, ref.sessionId)) as unknown as {
-      openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string; generation: number }>;
+      getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{ generation: number; groups: string[] }>;
     };
-    const authority = await session.openReviewHuman({ bucket: ref.bucket, sessionId: ref.sessionId, email: ref.user });
-    const fingerprint = (value: typeof authority) => JSON.stringify([value.accessJwt, value.generation,
-      value.human.subject, value.human.email, value.human.issuer, value.human.audiences,
-      value.human.issuedAt, value.human.expiresAt, value.human.groups]);
+    const reference = { bucket: ref.bucket, sessionId: ref.sessionId, email: ref.user };
+    const authority = await session.getPersonalPiSession(reference);
+    if (authority.generation !== ref.generation) return false;
+    const fingerprint = (value: typeof authority) => JSON.stringify([value.generation, value.groups]);
     const evaluatedAuthority = fingerprint(authority);
-    const human = authority.human;
-    if (human.email.toLowerCase() !== ref.user.toLowerCase() || human.expiresAt * 1000 <= Date.now()
-      || !/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)) return false;
-    const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
-      method: 'GET', headers: { Cookie: `CF_Authorization=${authority.accessJwt}` },
-      redirect: 'manual', signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) return false;
-    const identity = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, 65536, 'Access identity'))) as {
-      user_uuid?: unknown; id?: unknown; email?: unknown; groups?: unknown;
-    };
-    if (!identity || (identity.user_uuid ?? identity.id) !== human.subject
-      || (identity.id !== undefined && identity.id !== human.subject)
-      || typeof identity.email !== 'string' || identity.email.toLowerCase() !== ref.user.toLowerCase()
-      || (identity.groups !== undefined && !Array.isArray(identity.groups))) return false;
-    const memberships = identity.groups ?? [];
-    if (!Array.isArray(memberships) || memberships.length > 1024) return false;
-    const names = new Set<string>();
-    for (const group of memberships) {
-      if (typeof group === 'string' && group.length > 0 && group.length <= 256) { names.add(group); continue; }
-      if (!group || typeof group !== 'object' || Array.isArray(group)) return false;
-      const record = group as Record<string, unknown>;
-      let valid = false;
-      for (const key of ['id', 'name', 'email']) {
-        if (record[key] === undefined) continue;
-        if (typeof record[key] !== 'string' || !record[key] || record[key].length > 256) return false;
-        names.add(record[key]); valid = true;
-      }
-      if (!valid) return false;
-    }
-    const policies: unknown = JSON.parse(await env.KV.get(SETUP_KEYS.GROUP_ROUTING) ?? '{}');
-    if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return false;
     const configured = parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
-    const groups = configured.filter(name => names.has(name));
+    const groups = configured.filter(name => authority.groups.includes(name));
     if (!await resolvePersonalPiPermission(env.KV, groups)) return false;
-    // Reopen immediately before forwarding: shutdown, owner/session revocation or
-    // a lifecycle-generation change while identity/policy I/O was pending denies.
-    const currentAuthority = await session.openReviewHuman({ bucket: ref.bucket, sessionId: ref.sessionId, email: ref.user });
+    // Recheck ownership, generation and shutdown after policy I/O, without a browser lease.
+    const currentAuthority = await session.getPersonalPiSession(reference);
     return fingerprint(currentAuthority) === evaluatedAuthority;
   } catch { return false; }
 }

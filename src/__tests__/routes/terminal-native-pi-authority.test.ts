@@ -34,6 +34,7 @@ import { resetAuthConfigCache } from '../../lib/access';
 import { bindReviewSessionHuman, discardReviewSessionHuman, openReviewSessionHuman } from '../../container/review-session-human';
 import { confirmMonitoredExit, destroy, onStart, type LifecycleHost } from '../../container/container-lifecycle';
 import { setBucketName } from '../../container/container-config';
+import { getPersonalPiSession, type InterceptionHost } from '../../container/container-interception';
 import { SHUTDOWN_REQUESTED_KEY } from '../../container/container-metrics';
 import { createLogger, setLogLevel } from '../../lib/logger';
 import { LlmInterceptor } from '../../llm-interceptor';
@@ -163,7 +164,7 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
       throw Error('Unexpected process request');
     } }),
   };
-  const host: LifecycleHost = {
+  const host: LifecycleHost & InterceptionHost = {
     _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user,
     _r2AccountId: null, _r2Endpoint: null, _r2AccessKeyId: null, _r2SecretAccessKey: null,
     _workspaceSyncEnabled: false, _fastStartEnabled: false, _tabConfig: null,
@@ -171,7 +172,7 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
     _cloudflareApiToken: null, _cloudflareAccountId: null, _encryptionKey: null,
     _sessionMode: 'default', _sessionWorkspace: 'terminal', _terminalMode: 'classic',
     _containerAuthToken: 'synthetic-container-token', _vaultKey: null,
-    _userGroups: [], _routeCatalog: [], _defaultRoute: null, _defaultReasoning: null,
+    _userGroups: ['Engineering'], _routeCatalog: [], _defaultRoute: null, _defaultReasoning: null,
     _routeContextWindows: {}, _routeReasoningLevels: {}, _modelDisplayNames: {},
     _userTimezone: null, _gitCloneRepo: null, _gitCloneRef: null,
     containerStartedAt: Date.now(), lastSeenInputAt: null, _usageSeconds: 0, _shutdownStartedAt: 0,
@@ -192,6 +193,8 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
     process.running = true;
     bootId = 'restarted-compute';
     await onStart(host);
+    // A replacement process gets a new wire; existing wires keep their generation.
+    send = wireNativeProcess(claimed.lifecycleGeneration);
   };
   if (initial !== 'missing') {
     await bindReviewSessionHuman(host, { bucket: owner.bucket, sessionId: owner.sessionId,
@@ -225,6 +228,7 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
       return bindReviewSessionHuman(host, input, expected);
     },
     openReviewHuman: (input: typeof ref) => openReviewSessionHuman(host, input),
+    getPersonalPiSession: (input: typeof ref) => getPersonalPiSession(host, input),
   };
   const providerRequests: Request[] = [];
   let identity: unknown = { user_uuid: oldHuman.subject, email: owner.user,
@@ -254,9 +258,10 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
     return response;
   };
   const body = JSON.stringify({ model: 'native-personal-model', messages: [], device_code: 'synthetic-device-code' });
-  const send = (url = destinations[0], props: Record<string, unknown> = {}, native?: { headers: Record<string, string>; body: string }) => {
+  // Capture process ownership once, not from the current durable generation per request.
+  const wireNativeProcess = (generation: number) => (url = destinations[0], props: Record<string, unknown> = {}, native?: { headers: Record<string, string>; body: string }) => {
     const interceptor = new LlmInterceptor({ props: { user: owner.user, sessionId: owner.sessionId,
-      personalPi: owner, ...props } } as unknown as ExecutionContext, env);
+      personalPi: { ...owner, generation }, ...props } } as unknown as ExecutionContext, env);
     return interceptor.fetch(new Request(url, { method: 'POST', headers: {
       ...(native?.headers ?? { authorization: `Bearer ${providerCredential}`, 'content-type': 'application/json' }),
       'cf-access-jwt-assertion': 'must-not-forward-human-assertion',
@@ -265,7 +270,10 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
       'x-codeflare-session': 'must-not-forward-platform-session',
     }, body: native?.body ?? body }));
   };
-  return { kv, env, host, storage, repository, startReplacement, records, oldHuman, freshHuman, verifiedHuman, policy, reconnect, send, body,
+  const originalProcessSend = wireNativeProcess(1);
+  let send = originalProcessSend;
+  return { kv, env, host, storage, repository, startReplacement, records, oldHuman, freshHuman, verifiedHuman, policy, reconnect,
+    originalProcessSend, get send() { return send; }, body,
     providerRequests, identity: (value: unknown) => { identity = value; },
     readiness: (ready: boolean) => { terminalReady = ready; },
     authorityDeletionFailure: (failure: 'credential' | 'principal' | null) => { authorityDeletionFailure = failure; },
@@ -273,6 +281,10 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
   };
 }
 
+async function expectPermitted(response: Response) {
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ upstream: 'native-provider-ok' });
+}
 async function expectDenied(response: Response) {
   expect(response.status).toBe(403);
   expect(await response.json()).toEqual({ code: 'PERSONAL_PI_DENIED', error: 'Native Pi provider access is not permitted' });
@@ -299,7 +311,9 @@ function expectRenewalDiagnostic(entries: Record<string, unknown>[], stage: 'hum
 async function expectReplacementAuthority(f: Awaited<ReturnType<typeof fixture>>) {
   expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.freshHuman, accessJwt: freshJwt, generation: 2 });
   for (const url of destinations) {
-    const response = await f.send(url, {}, nativeLogins.find(login => login.url === url));
+    const login = nativeLogins.find(login => login.url === url);
+    await expectDenied(await f.originalProcessSend(url, {}, login));
+    const response = await f.send(url, {}, login);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ upstream: 'native-provider-ok' });
   }
@@ -330,10 +344,11 @@ async function closeCode(response: Response) {
 // this HEAD splits it into REQ-ENTERPRISE-090 and REQ-ENTERPRISE-091.
 describe('warm terminal native Pi authority', () => {
   it.each(['missing', 'expired'] as const)(
-    'REQ-ENTERPRISE-090: %s sealed authority denies OAuth and device code before provider I/O', async initial => {
+    'REQ-ENTERPRISE-090: %s Review authority does not deny permitted native OAuth, device code or inference', async initial => {
       const f = await fixture(initial);
-      for (const url of destinations) await expectDenied(await f.send(url));
-      expect(f.providerRequests.map(request => request.url)).toEqual([]);
+      f.identity(null);
+      for (const url of destinations) await expectPermitted(await f.send(url, {}, nativeLogins.find(login => login.url === url)));
+      expect(f.providerRequests.map(request => request.url)).toEqual(destinations);
       await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
     },
   );
@@ -389,6 +404,8 @@ describe('warm terminal native Pi authority', () => {
     await cleanupEntered;
     try {
       await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
+      await expectDenied(await f.send());
+      expect(f.providerRequests.map(request => request.url)).toEqual([]);
       await f.startReplacement();
       expect((await f.reconnect()).status).toBe(200);
       expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.freshHuman, accessJwt: freshJwt, generation: 2 });
@@ -583,12 +600,12 @@ describe('warm terminal native Pi authority', () => {
       if (invalid === 'foreign-email') authentication.verified.set(freshJwt, { ...f.verifiedHuman, email: 'foreign@example.test' });
       if (invalid === 'identity-outage') f.identity(null);
       const terminal = await f.reconnect(assertion);
-      // Ordinary terminal access is independent of optional native provider authority.
+      // Terminal and native provider permission are independent of Review authority.
       expect(terminal.status).toBe(200);
       expect(await terminal.json()).toMatchObject({ bootId: 'already-running-compute', generation: 1 });
       await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
-      await expectDenied(await f.send());
-      expect(f.providerRequests.map(request => request.url)).toEqual([]);
+      await expectPermitted(await f.send());
+      expect(f.providerRequests.map(request => request.url)).toEqual([destinations[0]]);
       expectRenewalDiagnostic(diagnostics, 'human-context', 'unclassified');
     },
   );
@@ -601,8 +618,8 @@ describe('warm terminal native Pi authority', () => {
     expect(terminal.status).toBe(200);
     expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'already-running-compute', generation: 1 });
     await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
-    await expectDenied(await f.send());
-    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    await expectPermitted(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([destinations[0]]);
     expectRenewalDiagnostic(diagnostics, 'parent-bind', 'unclassified');
   });
 
@@ -625,6 +642,8 @@ describe('warm terminal native Pi authority', () => {
     expect(await closeCode(await f.reconnect(null))).toBe(1011);
     // Failed transport must neither replace nor expose the existing principal.
     expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.oldHuman, accessJwt: oldJwt, generation: 1 });
+    await expectPermitted(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([destinations[0]]);
   });
 
   it('REQ-ENTERPRISE-090: a foreign session owner cannot refresh or revoke the real owner authority', async () => {
@@ -636,7 +655,7 @@ describe('warm terminal native Pi authority', () => {
     expect(await response.json()).toMatchObject({ code: 'SESSION_NOT_FOUND' });
     expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.oldHuman, accessJwt: oldJwt, generation: 1 });
     await expectDenied(await f.send(destinations[0], {
-      user: authentication.email, personalPi: { ...owner, bucket: authentication.bucket, user: authentication.email },
+      user: authentication.email, personalPi: { ...owner, bucket: authentication.bucket, user: authentication.email, generation: 1 },
     }));
     expect(f.providerRequests.map(request => request.url)).toEqual([]);
   });
@@ -650,8 +669,8 @@ describe('warm terminal native Pi authority', () => {
     expect(terminal.status).toBe(200);
     expect(await terminal.json()).toEqual({ terminal: `${owner.sessionId}-1`, bootId: 'already-running-compute', generation: 1 });
     await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
-    await expectDenied(await f.send());
-    expect(f.providerRequests.map(request => request.url)).toEqual([]);
+    await expectPermitted(await f.send());
+    expect(f.providerRequests.map(request => request.url)).toEqual([destinations[0]]);
     expectRenewalDiagnostic(diagnostics, 'parent-bind', 'principal-mismatch');
   });
 
@@ -696,20 +715,25 @@ describe('warm terminal native Pi authority', () => {
       generation: 2, human: f.freshHuman, accessJwt: freshJwt });
     expect(await closeCode(await f.reconnect())).toBe(1011);
     expect(await openReviewSessionHuman(f.host, ref)).toEqual({ human: f.freshHuman, accessJwt: freshJwt, generation: 2 });
-    for (const url of destinations) expect((await f.send(url)).status).toBe(200);
-    expect(f.providerRequests.map(request => request.url)).toEqual(destinations);
+    // Review can retain generation 2 while native permission fails closed on
+    // stale D1/process ownership; a browser credential cannot rescue that wire.
+    for (const url of destinations) await expectDenied(await f.send(url));
+    expect(f.providerRequests.map(request => request.url)).toEqual([]);
   });
 
   it('REQ-ENTERPRISE-090: generation replacement during policy I/O still denies a freshly rebound request', async () => {
     const f = await fixture();
     await f.reconnect();
     expect(await openReviewSessionHuman(f.host, ref)).toMatchObject({ human: f.freshHuman, generation: 1 });
+    const sessionKey = `session:${owner.bucket}:${owner.sessionId}`;
+    const session = await f.kv.get(sessionKey, 'json') as Record<string, unknown>;
     const originalGet = f.kv.get.getMockImplementation()!;
     f.kv.get.mockImplementation(async (key, type) => {
       const value = await originalGet(key, type);
       if (key === SETUP_KEYS.GROUP_ROUTING && f.records.get('lifecycleGeneration') === 1) {
         await discardReviewSessionHuman(f.host);
         f.records.set('lifecycleGeneration', 2);
+        f.kv._set(sessionKey, { ...session, lifecycleGeneration: 2 });
         await bindReviewSessionHuman(f.host, { bucket: owner.bucket, sessionId: owner.sessionId,
           generation: 2, human: f.freshHuman, accessJwt: freshJwt });
       }
@@ -721,7 +745,7 @@ describe('warm terminal native Pi authority', () => {
   });
 
   it.each(['stopped', 'not-ready'] as const)(
-    'REQ-TERM-002: %s compute cannot acquire fresh authority through a rejected reconnect', async gate => {
+    'REQ-TERM-002: %s reconnect rejects Review renewal while native permission follows lifecycle ownership', async gate => {
       const f = await fixture('expired');
       if (gate === 'stopped') f.kv._set(`session:${owner.bucket}:${owner.sessionId}`, {
         id: owner.sessionId, userId: owner.bucket, status: 'stopped', lifecycleGeneration: 1,
@@ -729,8 +753,14 @@ describe('warm terminal native Pi authority', () => {
       else f.readiness(false);
       expect(await closeCode(await f.reconnect())).toBe(gate === 'stopped' ? 4503 : 1013);
       await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
-      await expectDenied(await f.send());
-      expect(f.providerRequests.map(request => request.url)).toEqual([]);
+      if (gate === 'stopped') {
+        await expectDenied(await f.send());
+        expect(f.providerRequests.map(request => request.url)).toEqual([]);
+      } else {
+        // Terminal readiness is not a process lifecycle or native policy fence.
+        await expectPermitted(await f.send());
+        expect(f.providerRequests.map(request => request.url)).toEqual([destinations[0]]);
+      }
     },
   );
 
