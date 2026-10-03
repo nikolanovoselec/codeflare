@@ -3,6 +3,7 @@ import { LlmInterceptor } from '../llm-interceptor';
 import { wireContainerInterception, type InterceptionHost } from '../container/container-interception';
 import { createMockKV } from './helpers/mock-kv';
 import { SETUP_KEYS } from '../lib/kv-keys';
+import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Env } from '../types';
 import { bindReviewSessionHuman, discardReviewSessionHuman, openReviewSessionHuman } from '../container/review-session-human';
 
@@ -13,6 +14,9 @@ function fixture(strict = false, operator = false) {
   const kv = createMockKV();
   const policy = (permission: boolean) => kv._set(SETUP_KEYS.GROUP_ROUTING, { Engineering: { routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: permission } });
   policy(true);
+  kv._set(`session:${owner.bucket}:${owner.sessionId}`, { id: owner.sessionId, userId: owner.bucket,
+    status: 'running', lifecycleGeneration: 1 });
+  const nativeSession = { generation: 1, groups: ['Engineering'] };
   kv._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'Engineering');
   kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } });
   const requests: Request[] = [];
@@ -25,14 +29,19 @@ function fixture(strict = false, operator = false) {
     return new Response('personal-response', { status: 200 });
   });
   const egressRequests: Request[] = [];
-  const env = { ENTERPRISE_MODE: 'active', KV: kv, CONTAINER: { getByName: () => ({ openReviewHuman: async (ref: { bucket: string; sessionId: string; email: string }) => {
+  const env = { ENTERPRISE_MODE: 'active', KV: kv, USAGE_DB: createMockSessionD1(kv), CONTAINER: { getByName: () => ({
+    getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
+      if (ref.bucket !== owner.bucket || ref.sessionId !== owner.sessionId || ref.email !== owner.user) throw Error('wrong owner');
+      return { generation: nativeSession.generation, groups: [...nativeSession.groups] };
+    },
+    openReviewHuman: async (ref: { bucket: string; sessionId: string; email: string }) => {
     if (ref.bucket !== owner.bucket || ref.sessionId !== owner.sessionId || ref.email !== owner.user) throw Error('wrong owner');
     return { human, accessJwt: 'synthetic-sealed-assertion', generation: 1 };
   } }) }, EGRESS: strict ? { fetch: async (request: Request) => { egressRequests.push(request); return new Response('inspected-response'); } } : undefined } as unknown as Env;
-  const props = { user: owner.user, sessionId: owner.sessionId, personalPi: owner, strict, ...(operator ? { operatorInference: { activityId: 'operator' } } : {}) };
+  const props = { user: owner.user, sessionId: owner.sessionId, personalPi: { ...owner, generation: 1 }, strict, ...(operator ? { operatorInference: { activityId: 'operator' } } : {}) };
   const interceptor = new LlmInterceptor({ props } as unknown as ExecutionContext, env);
   const send = (url = 'https://api.anthropic.com/v1/messages') => interceptor.fetch(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-personal-key', 'cf-aig-authorization': 'must-not-forward', 'x-codeflare-context': 'private-platform-context', 'x-codeflare-session': 'private-platform-session' }, body: JSON.stringify({ model: 'native-personal-model', messages: [] }) }));
-  return { send, requests, egressRequests, policy, env, human, identity: (value: unknown) => { identity = value; } };
+  return { send, requests, egressRequests, policy, env, human, nativeSession, identity: (value: unknown) => { identity = value; } };
 }
 it('REQ-ENTERPRISE-088 AC5: bound native requests preserve wire auth and warm revocation prevents provider I/O', async () => {
   const f = fixture();
@@ -333,5 +342,119 @@ it.each([
       expect(await forwarded.text()).toBe(body);
       expect(forwarded.headers.get('authorization')).toBe('Bearer synthetic-owner-token');
     }
+  }
+});
+
+it.each([
+  'https://auth.openai.com/api/accounts/oauth/token',
+  'https://auth.openai.com/oauth/token',
+  'https://auth.openai.com/api/accounts/deviceauth/usercode',
+  'https://auth.x.ai/oauth2/device/code',
+  'https://auth.x.ai/oauth2/token',
+  'https://api.openai.com/v1/responses',
+  'https://chatgpt.com/backend-api/codex/responses',
+  'https://api.x.ai/v1/chat/completions',
+  'https://api.anthropic.com/v1/messages',
+])('REQ-ENTERPRISE-090 AC3: Administration-enabled native transport does not depend on browser authority: %s', async url => {
+  for (const browser of ['missing', 'expired', 'identity-unavailable']) {
+    const f = fixture();
+    if (browser === 'expired') f.human.expiresAt = 1;
+    if (browser === 'identity-unavailable') f.identity(null);
+    if (browser === 'missing') f.env.CONTAINER = { getByName: () => ({
+      getPersonalPiSession: async () => ({ generation: 1, groups: ['Engineering'] }),
+      openReviewHuman: async () => { throw Error('No browser authority'); },
+    }) } as unknown as Env['CONTAINER'];
+    const response = await f.send(url);
+    expect(response.status).toBe(200);
+    expect(f.requests.map(request => request.url)).toEqual([url]);
+    expect(f.requests[0].headers.get('authorization')).toBe('Bearer synthetic-personal-key');
+    f.policy(false);
+    expect((await f.send(url)).status).toBe(403);
+    expect(f.requests.map(request => request.url)).toEqual([url]);
+    vi.restoreAllMocks();
+  }
+});
+
+it('REQ-ENTERPRISE-090 AC1: enabled fallback grants native transport without a browser lease or sanctioned routes', async () => {
+  const f = fixture();
+  f.nativeSession.groups = [];
+  f.human.expiresAt = 1;
+  (f.env.KV as unknown as ReturnType<typeof createMockKV>)._set(SETUP_KEYS.REASONING_CONFIGURATION,
+    { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {},
+      fallbackRouting: { enabled: true, routes: ['unverified-route'], defaultRoute: 'unverified-route', reasoning: 'off', allowPersonalPiProviders: true } });
+  expect((await f.send()).status).toBe(200);
+  expect(f.requests.map(request => request.url)).toEqual(['https://api.anthropic.com/v1/messages']);
+});
+
+it.each(['initial', 'during-policy'])('REQ-ENTERPRISE-090 AC3: a stale parent-bound generation denies native effects: %s', async when => {
+  const f = fixture();
+  if (when === 'initial') f.nativeSession.generation = 2;
+  else {
+    const kv = f.env.KV;
+    f.env.KV = { ...kv, get: async (key: string) => {
+      const value = await kv.get(key);
+      if (key === SETUP_KEYS.GROUP_ROUTING) f.nativeSession.generation = 2;
+      return value;
+    } } as KVNamespace;
+  }
+  expect((await f.send()).status).toBe(403);
+  expect(f.requests).toEqual([]);
+});
+
+it('REQ-ENTERPRISE-091 AC2: enabling personal providers does not redirect Dynamic or Native Route selectors to personal transport', async () => {
+  const f = fixture();
+  const kv = f.env.KV as unknown as ReturnType<typeof createMockKV>;
+  kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['managed-dynamic']);
+  for (const model of ['managed-dynamic', 'dynamic/managed-dynamic',
+    'cf-native-aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', 'codeflare-enterprise']) {
+    const response = await new LlmInterceptor({ props: { user: owner.user, personalPi: { ...owner, generation: 1 } } } as unknown as ExecutionContext, f.env)
+      .fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST',
+        headers: { authorization: 'Bearer synthetic-personal-key', 'content-type': 'application/json' },
+        body: JSON.stringify({ model, messages: [] }) }));
+    // The managed catalog is deliberately unavailable: managed requests must fail
+    // closed rather than borrowing an enabled personal-provider exception.
+    expect(response.status).toBeGreaterThanOrEqual(400);
+  }
+  expect(f.requests).toEqual([]);
+});
+
+it('REQ-ENTERPRISE-090 AC4: a reused native WebSocket outlives browser expiry but not Administration revocation', async () => {
+  const f = fixture();
+  const pair = new WebSocketPair();
+  pair[1].accept();
+  const received: unknown[] = [];
+  pair[1].addEventListener('message', event => received.push(event.data));
+  const next = () => new Promise<void>((resolve, reject) => {
+    pair[1].addEventListener('message', () => resolve(), { once: true });
+    pair[1].addEventListener('close', () => reject(new Error('Native transport closed before delivery')), { once: true });
+  });
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    if (request.url.startsWith(issuer)) return original(input, init);
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  });
+  const interceptor = new LlmInterceptor({ props: { user: owner.user, personalPi: { ...owner, generation: 1 } } } as unknown as ExecutionContext, f.env);
+  const response = await interceptor.fetch(new Request('https://chatgpt.com/backend-api/codex/responses',
+    { headers: { upgrade: 'websocket', authorization: 'Bearer synthetic-personal-key' } }));
+  expect(response.status).toBe(101);
+  const client = (response as unknown as { webSocket: WebSocket }).webSocket;
+  client.accept();
+  try {
+    let delivered = next();
+    client.send('before-expiry');
+    await delivered;
+    f.human.expiresAt = 1;
+    delivered = next();
+    client.send('after-browser-expiry');
+    await delivered;
+    f.policy(false);
+    const closed = new Promise<number>(resolve => client.addEventListener('close', event => resolve(event.code), { once: true }));
+    client.send('after-revocation');
+    expect(await closed).toBe(1008);
+    expect(received).toEqual(['before-expiry', 'after-browser-expiry']);
+  } finally {
+    client.close();
+    pair[1].close();
   }
 });
