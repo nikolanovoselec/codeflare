@@ -289,23 +289,29 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       const warnings: string[] = [];
       vi.spyOn(console, 'warn').mockImplementation((output: unknown) => { warnings.push(String(output)); });
       setLogLevel('warn');
+      let submittedToken = f.token;
+      const submitToken = (token: string) => { submittedToken = token; f.setToken(token); };
       const deniedOutcome = async (stage: string, reason: string) => {
         warnings.length = 0;
         expect((await f.request('/operators')).status).toBe(403);
         const diagnostics = warnings.map(value => JSON.parse(value) as { message: string; data: unknown })
           .filter(value => value.message === 'Operator human authentication denied');
         expect(diagnostics.map(value => value.data)).toEqual([{ stage, reason }]);
+        const serialized = JSON.stringify(diagnostics);
+        for (const privateValue of [submittedToken, f.token, email, 'foreign@example.test', subject, issuer, audience, domain].filter(Boolean)) {
+          expect(serialized).not.toContain(privateValue);
+        }
       };
-      f.setToken(''); await deniedOutcome('credential', 'missing');
-      f.setToken(f.token);
+      submitToken(''); await deniedOutcome('credential', 'missing');
+      submitToken(f.token);
       await f.kv.delete(SETUP_KEYS.AUTH_DOMAIN); resetAuthConfigCache();
       await deniedOutcome('configuration', 'missing');
       await f.kv.put(SETUP_KEYS.AUTH_DOMAIN, domain); resetAuthConfigCache();
       const [header, payload, signature] = f.token.split('.');
-      f.setToken(`${header}.${payload}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`);
+      submitToken(`${header}.${payload}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`);
       await deniedOutcome('jwt', 'invalid');
       const now = Math.floor(Date.now() / 1000);
-      f.setToken(await sign({ type: 'app', sub: subject, email: 'foreign@example.test', iss: issuer,
+      submitToken(await sign({ type: 'app', sub: subject, email: 'foreign@example.test', iss: issuer,
         aud: [audience], iat: now - 10, exp: now + 300 }));
       await deniedOutcome('principal', 'email');
     }),

@@ -167,19 +167,45 @@ export async function requireOperatorHumanContext(
 ): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string }> {
   if (!isEnterpriseMode(env)) throw new ForbiddenError();
   const accessJwt = extractAccessJwt(request);
-  if (!accessJwt) throw new ForbiddenError('Human Access authentication required');
+  if (!accessJwt) {
+    operatorHumanDenied('credential', 'missing');
+    throw new ForbiddenError('Human Access authentication required');
+  }
   const config = await loadAuthConfig(env);
-  if (!config.authConfigured || !config.authDomain) throw new ForbiddenError('Human Access authentication required');
+  if (!config.authConfigured || !config.authDomain) {
+    operatorHumanDenied('configuration', 'missing');
+    throw new ForbiddenError('Human Access authentication required');
+  }
+  let stage: 'jwt' | 'principal' = 'jwt';
+  let reason: 'invalid' | 'email' | 'expired' = 'invalid';
   for (const audience of config.accessAudList) {
     const human = await verifyHumanAccessJWT(accessJwt, config.authDomain, audience);
-    if (human && human.email.trim().toLowerCase() === authenticatedEmail.trim().toLowerCase()
-      && human.expiresAt * 1000 > Date.now()) {
-      const groups = await currentOperatorIdentity(human, accessJwt);
-      if (groups === null) throw new ForbiddenError('Human Access authentication required');
-      return { human: { ...human, groups }, accessJwt };
+    if (!human) continue;
+    if (normalizeEmail(human.email) !== normalizeEmail(authenticatedEmail)) {
+      stage = 'principal'; reason = 'email';
+      continue;
     }
+    if (!(human.expiresAt * 1000 > Date.now())) {
+      stage = 'principal'; reason = 'expired';
+      continue;
+    }
+    const groups = await currentOperatorIdentity(human, accessJwt);
+    if (groups === null) throw new ForbiddenError('Human Access authentication required');
+    return { human: { ...human, groups }, accessJwt };
   }
+  operatorHumanDenied(stage, reason);
   throw new ForbiddenError('Human Access authentication required');
+}
+
+/** Closed diagnostics only: never accept credentials, identity data or exception text. */
+function operatorHumanDenied(
+  stage: 'credential' | 'configuration' | 'jwt' | 'principal' | 'identity',
+  reason: 'missing' | 'invalid' | 'email' | 'expired' | 'http' | 'transport' | 'response' | 'subject' | 'groups',
+  status?: number,
+): null {
+  logger.warn('Operator human authentication denied', { stage, reason,
+    ...(status === undefined ? {} : { status }) });
+  return null;
 }
 
 /**
@@ -190,34 +216,40 @@ export async function requireOperatorHumanContext(
  */
 async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)
-    || !accessJwt || human.expiresAt * 1000 <= Date.now()) return null;
+    || !accessJwt) return operatorHumanDenied('identity', 'invalid');
+  if (human.expiresAt * 1000 <= Date.now()) return operatorHumanDenied('identity', 'expired');
+  let failure: 'transport' | 'response' = 'transport';
   try {
     const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
       method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
       redirect: 'manual', signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok || !response.body) return null;
+    if (!response.ok) return operatorHumanDenied('identity', 'http', response.status);
+    failure = 'response';
+    if (!response.body) return operatorHumanDenied('identity', 'response');
     const bytes = await readBoundedResponse(response, 65536, 'Access identity');
     const identity: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return null;
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return operatorHumanDenied('identity', 'response');
     const record = identity as Record<string, unknown>;
     const subject = record.user_uuid ?? record.id;
-    if (subject !== human.subject || (record.id !== undefined && record.id !== human.subject)
-      || typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)) return null;
+    if (subject !== human.subject) return operatorHumanDenied('identity', 'subject');
+    if (typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)) {
+      return operatorHumanDenied('identity', 'email');
+    }
     // Cloudflare's documented identity has no required groups field. A verified
     // session without it asserts no memberships; malformed supplied groups still deny.
     if (!Object.hasOwn(record, 'groups')) return [];
-    if (!Array.isArray(record.groups) || record.groups.length > 1024) return null;
+    if (!Array.isArray(record.groups) || record.groups.length > 1024) return operatorHumanDenied('identity', 'groups');
     const groups: string[] = [];
     for (const value of record.groups) {
       // Names and bare strings are not stable identifiers in this transport.
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return operatorHumanDenied('identity', 'groups');
       const id = (value as { id?: unknown }).id;
-      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return null;
+      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return operatorHumanDenied('identity', 'groups');
       groups.push(id);
     }
     return [...new Set(groups)];
-  } catch { return null; }
+  } catch { return operatorHumanDenied('identity', failure); }
 }
 
 /** Unlike the grant projection, an absent/revoked Access session cannot be treated as empty groups. */

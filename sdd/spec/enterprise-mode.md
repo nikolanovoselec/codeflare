@@ -1866,8 +1866,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Workspace Administration entry visibility is role-gated by [REQ-SETUP-026](setup.md#req-setup-026-workspace-administration-entry).
 - Personal usage data and account actions are governed separately by [REQ-SUB-022](subscription.md#req-sub-022-cross-mode-personal-usage-data) and [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 - `GET /api/user` exposes both signals to `sessionStore`; `GET /api/auth/status` also exposes `saasMode` for `SubscribeGuard`.
-- Suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
-- Visibility only: this REQ adds the client `SubscribeGuard` saasMode redirect plus the subscription, mode-selector, quota-banner, and first-login-routing surfaces; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
+- Enterprise's public `/public/auth/providers` projection is empty, so SPA root navigation cannot select the marketing login from configured Access IdPs; default, onboarding and SaaS provider projections remain unchanged. <!-- @impl: src/index.ts::app --> <!-- @test: src/__tests__/index.test.ts (REQ-ENTERPRISE-008/REQ-AUTH-022: Enterprise public providers cannot select a SaaS login on SPA root navigation) -->
+- Other suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
+- Billing and session-mode visibility: this REQ adds the client `SubscribeGuard` saasMode redirect plus the subscription, mode-selector, quota-banner, and first-login-routing surfaces; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
 
 **Priority:** P2
 

@@ -110,7 +110,7 @@ Browser JavaScript cannot read either authentication cookie. API requests carry 
 
 ### Logout
 
-The frontend calls `/auth/logout`. The Worker dispatches session-OIDC deployments to `/auth/github/logout`, which clears `codeflare_session`; default/Enterprise Access deployments use `/cdn-cgi/access/logout`. This avoids sending a session-OIDC return target through Access's incompatible logout redirect rules. <!-- @impl: src/routes/auth-redirects.ts::app -->
+The frontend calls `/auth/logout`. The Worker dispatches session-OIDC deployments to `/auth/github/logout`, which clears `codeflare_session`; default/Enterprise Access deployments use `/cdn-cgi/access/logout`. This avoids sending a session-OIDC return target through Access's incompatible logout redirect rules. Operator catalog “Sign in again” uses native navigation to this dispatcher, not SPA navigation to `/` that can retain the denied session. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement -->
 
 ### Access Session Expiry and Restored Pages
 
@@ -154,7 +154,7 @@ A durable `role: 'admin'` record grants administration. Enterprise may additiona
 <a id="root-redirect"></a>
 ### Root and login routing
 
-The root route chooses the landing, login, authenticated application, or setup path from deployment mode, setup state, and authenticated identity. Session-OIDC login pages remain Worker-owned; Access deployments defer interactive login to Access. Pending SaaS users route to subscription through provisioning/entitlement policy, not through an alternative authentication mechanism.
+The root route chooses the landing, login, authenticated application, or setup path from deployment mode, setup state, and authenticated identity. Session-OIDC login pages remain Worker-owned; Access deployments defer interactive login to Access. Enterprise's public provider projection is empty so SPA root navigation cannot select the marketing login from Access IdPs; other deployment modes retain their provider projections. Pending SaaS users route to subscription through provisioning/entitlement policy, not through an alternative authentication mechanism.
 
 ### Setup boundary
 

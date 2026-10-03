@@ -247,7 +247,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
           <Show when={loading()}><p role="status">Loading operators…</p></Show>
           <Show when={catalogError()}><div role="alert" class="operator-message"><p>{failure(catalogError())}</p>
             <button class="admin-secondary-button" onClick={() => void refresh()}>Retry catalog</button>
-            <Show when={denied(catalogError())}><a href="/">Sign in again</a></Show></div></Show>
+            <Show when={denied(catalogError())}><a href="/auth/logout" rel="external">Sign in again</a></Show></div></Show>
           <Show when={!loading() && !catalogError()}>
             <Show when={items().length} fallback={<p>No operators match this catalog view.</p>}>
               <ul class="operator-list"><For each={items()}>{operator => <li class="admin-area-row">
