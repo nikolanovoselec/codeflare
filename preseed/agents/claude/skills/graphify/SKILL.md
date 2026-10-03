@@ -8,11 +8,13 @@ trigger: /graphify
 
 This skill drives `/graphify` knowledge-graph extraction inside the Codeflare container. The `graphifyy` Python tool is pre-installed at build time (`uv tool install graphifyy[mcp,sql,pdf]`); the `graphify` CLI is on PATH at `/root/.local/bin/graphify` and the MCP server is pre-registered in `~/.claude.json` as `/root/.local/share/uv/tools/graphifyy/bin/python -m graphify.serve`. You do not need to install or wire anything.
 
-## Graphify 0.9.73 compatibility
+## Graphify 0.9.73/0.9.74 compatibility
 
 The image and managed update wrappers set `GRAPHIFY_NO_AUTO_REFRESH=1`: signed curation, not an upstream CLI refresh, owns these skill files. Do not unset the guard to resolve a version warning.
 
-Verify the installed CLI version independently of plugin metadata. New enum `case_of` edges, inherited Java-call resolution and improved Astro parsing are additive extraction changes; preserve the official graph schema and existing consent requirements. A warning about the 20,000-character semantic file cap means incomplete coverage: read the remaining source in bounded chunks rather than treating the warning as successful full-file analysis. If `graphify hook status` reports older hooks, do not overwrite Codeflare-managed hooks with an upstream installer without an explicitly requested source change.
+Verify the installed CLI version independently of plugin metadata. The 0.9.73 enum `case_of` edges, inherited Java-call resolution and improved Astro parsing are additive extraction changes; preserve the official graph schema and existing consent requirements. A warning about the 20,000-character semantic file cap means incomplete coverage: read the remaining source in bounded chunks rather than treating the warning as successful full-file analysis. If `graphify hook status` reports older hooks, do not overwrite Codeflare-managed hooks with an upstream installer without an explicitly requested source change.
+
+Graphify 0.9.74 prefers authored workspace sources, filters Rust builtins and reclassifies Rust constructor edges as `references` with `context: "constructor"`. Callflow, hubs and counts can change on an explicitly authorized refresh; this is not permission to rebuild, normalize graphs or replace managed skills.
 
 ## Quick Reference
 
