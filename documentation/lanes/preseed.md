@@ -1198,7 +1198,7 @@ Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow no
 
 [REQ-AGENT-215](../../sdd/spec/agents.md#req-agent-215-managed-graphify-skill-ownership) owns managed skill preservation: the image defaults upstream auto-refresh off, and bounded Claude/Pi update wrappers enforce that opt-out even when the caller enables refresh. Image-default acceptance is separate from wrapper behavioral proof.
 
-Graphify 0.9.74 changes extraction topology without changing the query wire format: authored workspace entry points take precedence, Rust builtins no longer create false hubs, and constructor edges become `references` with `context: "constructor"`. Counts and callflow can change on a separately authorized refresh; an upgrade alone does not authorize rebuilding or normalizing stored graphs.
+Graphify 0.9.74 changes extraction topology without changing the query wire format: authored workspace entry points take precedence, Rust builtins no longer create false hubs, and [Rust tuple/unit-struct constructor edges](https://github.com/Graphify-Labs/graphify/blob/e10df08877f8819a625a1afa38c3297a31fda296/graphify/extract.py#L8587-L8596) become `references` with `context: "constructor"`. Counts and callflow can change on a separately authorized refresh; an upgrade alone does not authorize rebuilding or normalizing stored graphs.
 
 ### Graph-first soft nudge ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1)
 

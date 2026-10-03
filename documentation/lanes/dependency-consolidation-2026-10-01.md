@@ -16,6 +16,7 @@
 - [Skill payload and activation evidence](#skill-payload-and-activation-evidence)
 - [Related Documentation](#related-documentation)
 - [Review corrections and remaining evidence](#review-corrections-and-remaining-evidence)
+- [Dependency continuation — 2026-10-03](#dependency-continuation--2026-10-03)
 
 ## Scope and gates
 
