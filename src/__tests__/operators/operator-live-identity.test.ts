@@ -99,7 +99,7 @@ async function fixture(test: (f: {
   kv: ReturnType<typeof createMockKV>;
   claim: () => Promise<unknown>; discover: () => Promise<unknown>; activityId: string; startCapability: string;
   redirectTransport: (target: 'jwks' | 'github' | null) => void;
-}) => Promise<void>) {
+}) => Promise<void>, logLevel?: 'warn') {
   const kv = createMockKV();
   await kv.put(SETUP_KEYS.AUTH_DOMAIN, domain); await kv.put(SETUP_KEYS.ACCESS_AUD, audience);
   await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'enterprise.example.test');
@@ -144,7 +144,8 @@ async function fixture(test: (f: {
   });
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const registryName = `live-identity-${crypto.randomUUID()}`;
-  const protectedEnv = { ...env, KV: kv, ENTERPRISE_MODE: 'active' as const, ENCRYPTION_KEY: btoa('k'.repeat(32)) };
+  const protectedEnv = { ...env, ...(logLevel ? { LOG_LEVEL: logLevel } : {}),
+    KV: kv, ENTERPRISE_MODE: 'active' as const, ENCRYPTION_KEY: btoa('k'.repeat(32)) };
   // RPC-like forwarding into the real owner: no authorization method is replaced.
   const inRegistry = <T>(call: (owner: OperatorRegistry) => Promise<T>) => runInDurableObject(
     registryNamespace.getByName(registryName), (_instance, ctx) => call(new OperatorRegistry(ctx, protectedEnv)));
@@ -281,7 +282,7 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
           expect(serialized).not.toContain(privateValue);
         }
       }
-    }),
+    }, 'warn'),
   );
 
   it('REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them',
@@ -314,7 +315,7 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       submitToken(await sign({ type: 'app', sub: subject, email: 'foreign@example.test', iss: issuer,
         aud: [audience], iat: now - 10, exp: now + 300 }));
       await deniedOutcome('principal', 'email');
-    }),
+    }, 'warn'),
   );
   it.each(faults)('denies email manager and platform admin management for %s without changing Registry state', async fault => fixture(async f => {
     for (const role of ['user', 'admin']) {

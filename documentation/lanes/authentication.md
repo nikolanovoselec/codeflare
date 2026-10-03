@@ -154,7 +154,7 @@ A durable `role: 'admin'` record grants administration. Enterprise may additiona
 <a id="root-redirect"></a>
 ### Root and login routing
 
-The root route chooses the landing, login, authenticated application, or setup path from deployment mode, setup state, and authenticated identity. Session-OIDC login pages remain Worker-owned; Access deployments defer interactive login to Access. Enterprise's public provider projection is empty so SPA root navigation cannot select the marketing login from Access IdPs; other deployment modes retain their provider projections. Pending SaaS users route to subscription through provisioning/entitlement policy, not through an alternative authentication mechanism.
+The root route chooses the landing, login, authenticated application, or setup path from deployment mode, setup state, and authenticated identity. Session-OIDC login pages remain Worker-owned; Access deployments defer interactive login to Access. Enterprise's public provider projection is empty so SPA root navigation cannot select the marketing login from Access IdPs ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression)); other deployment modes retain their provider projections. Pending SaaS users route to subscription through provisioning/entitlement policy, not through an alternative authentication mechanism. <!-- @impl: src/index.ts::app -->
 
 ### Setup boundary
 
