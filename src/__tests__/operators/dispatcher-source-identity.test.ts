@@ -84,6 +84,20 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     await expectSourceReceipt(await f.execute());
   });
 
+  it.each(['unrelated-id', null, 42])('REQ-OPERATOR-045: documented user_uuid authorizes an email invoker despite unrelated extra id %s', async id => {
+    const f = await fixture(() => Response.json({ ...documentedIdentity, id }));
+    expect(await operatorAccessSessionCurrent(f.human, accessJwt)).toBe(true);
+    await expectSourceReceipt(await f.execute());
+  });
+
+  it('REQ-OPERATOR-045: preserves legacy id-only identity while a supplied foreign UUID still denies', async () => {
+    const f = await fixture(() => Response.json({ id: subject, email }));
+    await expectSourceReceipt(await f.execute());
+    f.replaceIdentity(() => Response.json({ id: subject, user_uuid: 'another-human', email }));
+    expect(await operatorAccessSessionCurrent(f.human, accessJwt)).toBe(false);
+    await expect(f.execute()).rejects.toThrow();
+  });
+
   it('denies a group-only invoker when current identity omits groups despite cached signed membership', async () => {
     const f = await fixture(() => Response.json(documentedIdentity), true);
     expect((await resolveOperatorGroupIdentity(f.human, accessJwt)).groups).toEqual([]);
@@ -109,7 +123,6 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
   it.each<[string, IdentityResponse]>([
     ['mismatched subject', () => Response.json({ ...documentedIdentity, user_uuid: 'another-human' })],
     ['mismatched email', () => Response.json({ ...documentedIdentity, email: 'other@example.test' })],
-    ['conflicting additional id', () => Response.json({ ...documentedIdentity, id: 'another-human' })],
     ['null groups', () => Response.json({ ...documentedIdentity, groups: null })],
     ['string groups', () => Response.json({ ...documentedIdentity, groups: stableGroup.id })],
     ['object groups', () => Response.json({ ...documentedIdentity, groups: { id: stableGroup.id } })],

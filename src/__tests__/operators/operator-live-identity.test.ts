@@ -7,6 +7,7 @@ import worker from '../../index';
 import type { Env } from '../../types';
 import { resetAuthConfigCache, requireOperatorHumanContext } from '../../lib/access';
 import { resetJWKSCache } from '../../lib/jwt';
+import { setLogLevel } from '../../lib/logger';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { storeGithubConnection } from '../../lib/github-token';
@@ -36,6 +37,10 @@ const workflowSource = 'name: Boundary Reviews\non: pull_request_target\njobs: {
 const workflowDigest = '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc6ee4e95d';
 const request = { repositoryId: 138, pullRequest: 34, head, base, mergeBase, runId: 87, runAttempt: 1 };
 const session = { bucket: 'owner-bucket', sessionId: 'session01', generation: 1 };
+const browserSummary = { activityId: 'owned-browser-activity', operatorId: 'review-operator',
+  operatorName: 'Identity fixture', context: 'Read-only browser fixture', executionStatus: 'completed' as const,
+  cleanupStatus: 'stopped' as const, collectionStatus: 'ready' as const, attention: false,
+  sessionId: null, source: null, updatedAt: 1_790_000_000_000 };
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 let keys: CryptoKeyPair, jwk: JsonWebKey & { kid: string };
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -45,22 +50,28 @@ async function sign(payload: Record<string, unknown>) {
   return `${header}.${body}.${encode(new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keys.privateKey,
     new TextEncoder().encode(`${header}.${body}`))))}`;
 }
-const validIdentity = () => ({ id: subject, email }); // No groups is a valid documented identity.
-const faults = ['revoked', 'unavailable', 'transport-error', 'redirect', 'malformed-json', 'subject-mismatch', 'email-mismatch',
-  'uuid-mismatch', 'malformed-groups', 'name-only-group'] as const;
-type Fault = typeof faults[number] | 'valid';
+const validIdentity = () => ({ user_uuid: subject, email }); // Canonical Cloudflare subject; groups may be absent.
+const faults = ['revoked', 'unavailable', 'transport-error', 'redirect', 'malformed-json', 'bodyless', 'oversized',
+  'non-object', 'subject-mismatch', 'email-mismatch', 'uuid-mismatch', 'malformed-groups', 'name-only-group'] as const;
+type Fault = typeof faults[number] | 'valid' | 'extra-id' | 'null-id' | 'number-id';
 function identityResponse(fault: Fault): Response {
   if (fault === 'revoked') return new Response(null, { status: 401 });
   if (fault === 'unavailable') return new Response(null, { status: 503 });
   if (fault === 'transport-error') throw Error('Identity transport unavailable');
   if (fault === 'redirect') return new Response(null, { status: 302, headers: { location: 'https://untrusted.example/identity' } });
   if (fault === 'malformed-json') return new Response('{');
+  if (fault === 'bodyless') return new Response(null);
+  if (fault === 'oversized') return new Response('x'.repeat(65537));
+  if (fault === 'non-object') return Response.json([]);
   const changes: Partial<Record<Fault, unknown>> = {
     'subject-mismatch': { id: 'another-subject', email },
     'email-mismatch': { id: subject, email: 'another@example.test' },
     'uuid-mismatch': { id: subject, user_uuid: 'another-subject', email },
     'malformed-groups': { ...validIdentity(), groups: null },
     'name-only-group': { ...validIdentity(), groups: [{ name: 'Operators' }] },
+    'extra-id': { ...validIdentity(), id: 'unrelated-identity-metadata' },
+    'null-id': { ...validIdentity(), id: null },
+    'number-id': { ...validIdentity(), id: 42 },
   };
   return Response.json(changes[fault] ?? validIdentity());
 }
@@ -80,11 +91,12 @@ beforeEach(async () => {
     editor_ready_error,transitioned_at) VALUES ('owner-bucket','session01','Review','2027-01-01','2027-01-01',
     'terminal','classic','running',1,0,-1,0,0,'2027-01-01')`).run();
 });
-afterEach(() => { vi.restoreAllMocks(); resetAuthConfigCache(); resetJWKSCache(); });
+afterEach(() => { vi.restoreAllMocks(); resetAuthConfigCache(); resetJWKSCache(); setLogLevel('silent'); });
 
 async function fixture(test: (f: {
   setFault: (fault: Fault) => void; setToken: (token: string) => void; token: string;
   request: (path: string, body?: unknown) => Promise<Response>; registry: OperatorRegistry;
+  kv: ReturnType<typeof createMockKV>;
   claim: () => Promise<unknown>; discover: () => Promise<unknown>; activityId: string; startCapability: string;
   redirectTransport: (target: 'jwks' | 'github' | null) => void;
 }) => Promise<void>) {
@@ -187,20 +199,25 @@ async function fixture(test: (f: {
         releaseId: 'review-release', bundleDigest: 'e'.repeat(64) }, boundary: { repositoryId: 138, pullRequest: 34,
         contextDigest: 'f'.repeat(64), session } });
     expect(await registry.markBoundaryPrepared(138, 34, activityId, 'f'.repeat(64), prepared.startCapability, prepared.startExpiresAt)).toBe(true);
+    await registry.upsertOwnedActivity(await operatorOwnerKey(humanContext.human), browserSummary);
+    await registry.upsertOwnedActivity(await operatorOwnerKey({ ...humanContext.human, subject: 'foreign-owner' }),
+      { ...browserSummary, activityId: 'foreign-browser-activity' });
     const actionToken = (operation: string) => sign({ iss: 'https://token.actions.githubusercontent.com',
       aud: `https://enterprise.example.test/operator-webhook/v1/activities/claims/${operation}`,
       iat: now - 10, nbf: now - 10, exp: now + 300, repository: 'owner/repo', repository_id: '138',
       event_name: 'pull_request_target', workflow_ref: 'owner/repo/.github/workflows/boundary-reviews.yml@refs/heads/main',
       workflow_sha: workflowSha, run_id: '87', run_attempt: '1' });
-    await test({ setFault: value => { fault = value; }, setToken: value => { accessJwt = value; }, token: initialToken, registry,
+    await test({ setFault: value => { fault = value; }, setToken: value => { accessJwt = value; }, token: initialToken, registry, kv,
       activityId, startCapability: prepared.startCapability,
       redirectTransport: target => { redirected = target; },
       claim: async () => claimVerifiedBoundaryAction(actionEnv, await actionToken('boundary'), request),
       discover: async () => discoverVerifiedBoundaryAction(actionEnv, await actionToken('discovery'), request),
       request: async (path, body) => {
         await kv.put(`user:${email}`, JSON.stringify({ role: actor.role }));
-        return worker.fetch(new Request(`https://enterprise.example.test/api/operator-management${path}`, {
+        const route = path.startsWith('/api/') ? path : `/api/operator-management${path}`;
+        return worker.fetch(new Request(`https://enterprise.example.test${route}`, {
           method: body === undefined ? 'GET' : 'POST', headers: { 'cf-access-jwt-assertion': accessJwt,
+            'cf-access-authenticated-user-email': email,
             'x-requested-with': 'XMLHttpRequest', 'content-type': 'application/json' },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         }), actionEnv, { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext);
@@ -210,6 +227,89 @@ async function fixture(test: (f: {
 }
 
 describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-group authority', () => {
+  it.each(['extra-id', 'null-id', 'number-id'] as const)(
+    'REQ-OPERATOR-045/027: canonical UUID with %s admits catalog and only the verified owner activity page',
+    async fault => fixture(async f => {
+      f.setFault(fault);
+      for (const role of ['user', 'admin']) {
+        actor.role = role;
+        const catalog = await f.request('/operators');
+        expect(catalog.status).toBe(200);
+        expect(await catalog.json()).toMatchObject({ items: [{ id: 'review-operator' }] });
+        const activities = await f.request('/api/operator-activities?limit=5');
+        expect(activities.status).toBe(200);
+        expect(await activities.json()).toMatchObject({ items: [browserSummary], nextCursor: null });
+      }
+    }),
+  );
+
+  it.each(['subject-mismatch', 'uuid-mismatch', 'email-mismatch'] as const)(
+    'REQ-OPERATOR-045/027: foreign %s denies both browser surfaces even for a platform admin',
+    async fault => fixture(async f => {
+      actor.role = 'admin'; f.setFault(fault);
+      for (const path of ['/operators', '/api/operator-activities?limit=5']) {
+        const response = await f.request(path);
+        expect(response.status).toBe(403);
+        expect(await response.json()).not.toHaveProperty('items');
+      }
+    }),
+  );
+
+  it('REQ-OPERATOR-045: denied live identity reports only closed diagnostic outcomes, never credentials or identity data',
+    async () => fixture(async f => {
+      const warnings: string[] = [];
+      vi.spyOn(console, 'warn').mockImplementation((output: unknown) => { warnings.push(String(output)); });
+      setLogLevel('warn');
+      const outcomes: Array<[Fault, string, number?]> = [
+        ['revoked', 'http', 401], ['unavailable', 'http', 503], ['redirect', 'http', 302],
+        ['transport-error', 'transport'], ['malformed-json', 'response'],
+        ['bodyless', 'response'], ['oversized', 'response'], ['non-object', 'response'],
+        ['subject-mismatch', 'subject'], ['uuid-mismatch', 'subject'], ['email-mismatch', 'email'],
+        ['malformed-groups', 'groups'], ['name-only-group', 'groups'],
+      ];
+      for (const [fault, reason, status] of outcomes) {
+        warnings.length = 0; f.setFault(fault);
+        expect((await f.request('/operators')).status).toBe(403);
+        const diagnostics = warnings.map(value => JSON.parse(value) as { message: string; data: unknown })
+          .filter(value => value.message === 'Operator human authentication denied');
+        // Intentional diagnostic wire contract: only stage, closed reason and HTTP status are observable.
+        expect(diagnostics.map(value => value.data)).toEqual([
+          { stage: 'identity', reason, ...(status === undefined ? {} : { status }) },
+        ]);
+        const serialized = JSON.stringify(diagnostics);
+        for (const privateValue of [f.token, email, subject, issuer, 'unrelated-identity-metadata']) {
+          expect(serialized).not.toContain(privateValue);
+        }
+      }
+    }),
+  );
+
+  it('REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them',
+    async () => fixture(async f => {
+      const warnings: string[] = [];
+      vi.spyOn(console, 'warn').mockImplementation((output: unknown) => { warnings.push(String(output)); });
+      setLogLevel('warn');
+      const deniedOutcome = async (stage: string, reason: string) => {
+        warnings.length = 0;
+        expect((await f.request('/operators')).status).toBe(403);
+        const diagnostics = warnings.map(value => JSON.parse(value) as { message: string; data: unknown })
+          .filter(value => value.message === 'Operator human authentication denied');
+        expect(diagnostics.map(value => value.data)).toEqual([{ stage, reason }]);
+      };
+      f.setToken(''); await deniedOutcome('credential', 'missing');
+      f.setToken(f.token);
+      await f.kv.delete(SETUP_KEYS.AUTH_DOMAIN); resetAuthConfigCache();
+      await deniedOutcome('configuration', 'missing');
+      await f.kv.put(SETUP_KEYS.AUTH_DOMAIN, domain); resetAuthConfigCache();
+      const [header, payload, signature] = f.token.split('.');
+      f.setToken(`${header}.${payload}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`);
+      await deniedOutcome('jwt', 'invalid');
+      const now = Math.floor(Date.now() / 1000);
+      f.setToken(await sign({ type: 'app', sub: subject, email: 'foreign@example.test', iss: issuer,
+        aud: [audience], iat: now - 10, exp: now + 300 }));
+      await deniedOutcome('principal', 'email');
+    }),
+  );
   it.each(faults)('denies email manager and platform admin management for %s without changing Registry state', async fault => fixture(async f => {
     for (const role of ['user', 'admin']) {
       actor.role = role;

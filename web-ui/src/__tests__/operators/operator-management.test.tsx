@@ -226,12 +226,18 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(screen.queryByRole('heading', { name: 'My activity', level: 2 })).not.toBeInTheDocument();
   });
 
-  it('keeps a denied catalog non-enumerating and presents a recoverable access state without operator details', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Not found' }, 404)));
+  it.each([403, 404])('REQ-AUTH-009/REQ-OPERATOR-049: denied catalog %i offers native session renewal without operator details', async status => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Access denied' }, status)));
     render(() => <App />);
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/not authorized|access denied/i);
+    const signIn = within(alert).getByRole('link', { name: 'Sign in again' });
+    // Intentional navigation contract: the backend, not SPA routing, renews the session.
+    expect(signIn).toHaveAttribute('href', '/auth/logout');
+    const navigation = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    fireEvent(signIn, navigation);
+    expect(navigation.defaultPrevented).toBe(false);
     expect(screen.queryByText(longName)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /register operator/i })).not.toBeInTheDocument();
   });

@@ -217,6 +217,58 @@ describe('Edge-level setup redirect', () => {
     expect(mockAssets.fetch).not.toHaveBeenCalled();
   });
 
+  it('REQ-ENTERPRISE-008/REQ-AUTH-022: Enterprise public providers cannot select a SaaS login on SPA root navigation', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+    mockKV._store.set('setup:complete', 'true');
+    mockKV._store.set('setup:idp_list', JSON.stringify([
+      { id: 'google-idp', type: 'google', name: 'Google' },
+      { id: 'github-idp', type: 'github', name: 'GitHub' },
+    ]));
+    const response = await worker.fetch(new Request('https://example.com/public/auth/providers'), env, createMockCtx());
+    expect(response.status).toBe(200);
+    // Wire contract consumed by RootPage: Enterprise sign-in belongs to Access, not provider marketing.
+    expect(await response.json()).toEqual({ providers: [] });
+    const root = await worker.fetch(new Request('https://example.com/'), env, createMockCtx());
+    expect(root.status).toBe(302);
+    expect(root.headers.get('Location')).toBe('/app/');
+  });
+
+  it.each(['default', 'onboarding'] as const)('REQ-AUTH-001: %s retains its configured public Access providers', async mode => {
+    const { env, mockKV } = createMockEnv();
+    if (mode === 'onboarding') env.ONBOARDING_LANDING_PAGE = 'active';
+    const providers = [{ id: 'google-idp', type: 'google', name: 'Google' },
+      { id: 'github-idp', type: 'github', name: 'GitHub' }];
+    mockKV._store.set('setup:idp_list', JSON.stringify(providers));
+    const response = await worker.fetch(new Request('https://example.com/public/auth/providers'), env, createMockCtx());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ providers });
+  });
+
+  it('REQ-AUTH-002: SaaS retains its direct GitHub login provider', async () => {
+    const { env } = createMockEnv();
+    env.SAAS_MODE = 'active';
+    env.OAUTH_CLIENT_ID = 'github-client';
+    const response = await worker.fetch(new Request('https://example.com/public/auth/providers'), env, createMockCtx());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ providers: [
+      { id: 'github', type: 'github', name: 'GitHub', loginUrl: '/auth/github/login' },
+    ] });
+  });
+
+  it('REQ-AUTH-009: Enterprise recovery reaches Access logout rather than the SPA login root', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+    mockKV._store.set('setup:auth_domain', 'enterprise-team.cloudflareaccess.com');
+    mockKV._store.set('setup:custom_domain', 'example.com');
+    const response = await worker.fetch(new Request('https://example.com/auth/logout'), env, createMockCtx());
+    expect(response.status).toBe(302);
+    const destination = new URL(response.headers.get('Location')!);
+    expect(destination.origin).toBe('https://enterprise-team.cloudflareaccess.com');
+    expect(destination.pathname).toBe('/cdn-cgi/access/logout');
+    expect(destination.searchParams.get('returnTo')).toBe('https://example.com/');
+  });
+
   it('serves SPA assets for /app when setup is complete', async () => {
     const { env, mockKV, mockAssets } = createMockEnv();
     mockKV.get.mockResolvedValue('true');
