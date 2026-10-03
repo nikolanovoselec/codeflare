@@ -241,10 +241,21 @@ async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJ
     if (!Object.hasOwn(record, 'groups')) return [];
     if (!Array.isArray(record.groups) || record.groups.length > 1024) return operatorHumanDenied('identity', 'groups');
     const groups: string[] = [];
+    const validLabel = (value: unknown): value is string =>
+      typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
     for (const value of record.groups) {
-      // Names and bare strings are not stable identifiers in this transport.
+      // Supported IdP labels describe a valid live session but confer no stable-ID grant.
+      if (typeof value === 'string') {
+        if (!validLabel(value)) return operatorHumanDenied('identity', 'groups');
+        continue;
+      }
       if (!value || typeof value !== 'object' || Array.isArray(value)) return operatorHumanDenied('identity', 'groups');
-      const id = (value as { id?: unknown }).id;
+      const member = value as Record<string, unknown>;
+      if (!Object.hasOwn(member, 'id')) {
+        if (!validLabel(member.name) && !validLabel(member.email)) return operatorHumanDenied('identity', 'groups');
+        continue;
+      }
+      const id = member.id;
       if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return operatorHumanDenied('identity', 'groups');
       groups.push(id);
     }

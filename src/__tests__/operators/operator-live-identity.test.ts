@@ -102,7 +102,7 @@ async function fixture(test: (f: {
   kv: ReturnType<typeof createMockKV>;
   claim: () => Promise<unknown>; discover: () => Promise<unknown>; activityId: string; startCapability: string;
   redirectTransport: (target: 'jwks' | 'github' | null) => void;
-}) => Promise<void>, logLevel?: 'warn') {
+}) => Promise<void>, logLevel?: 'warn', includeUngrantedOperator = false) {
   const kv = createMockKV();
   await kv.put(SETUP_KEYS.AUTH_DOMAIN, domain); await kv.put(SETUP_KEYS.ACCESS_AUD, audience);
   await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'enterprise.example.test');
@@ -172,6 +172,14 @@ async function fixture(test: (f: {
         managers: { users: [email], groups: [] }, invokers: { users: [email], groups: [] }, policy,
         approvedWorkflow: { id: 531, ref: 'refs/heads/main' } }));
     ctx.storage.sql.exec('INSERT INTO operator_acl VALUES(?,?)', `u:${email}`, 'review-operator');
+    if (includeUngrantedOperator) {
+      ctx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'ungranted-operator', 'conductor', 'internal', 1,
+        'ungranted-operator', JSON.stringify({ id: 'ungranted-operator', revision: 1, sourceRevision: 1, profile: 'conductor',
+          realm: 'internal', repositoryId: 139, repositoryUrl: 'https://github.com/other/repo',
+          managers: { users: ['another@example.test'], groups: [] }, invokers: { users: ['another@example.test'], groups: [] }, policy,
+          approvedWorkflow: { id: 532, ref: 'refs/heads/main' } }));
+      ctx.storage.sql.exec('INSERT INTO operator_acl VALUES(?,?)', 'u:another@example.test', 'ungranted-operator');
+    }
     ctx.storage.sql.exec('INSERT INTO operator_releases VALUES(?,?,?,?)', 'review-release', 'review-operator',
       JSON.stringify({ id: 'review-release', bundleDigest: 'e'.repeat(64), approved: true }),
       JSON.stringify({ name: 'Review fixture', description: 'Immutable identity authorization fixture' }));
@@ -231,6 +239,31 @@ async function fixture(test: (f: {
 }
 
 describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-group authority', () => {
+  it.each(labelIdentities)(
+    'REQ-OPERATOR-045: verified admin with %s reads ungranted catalog entries and management details; other managers and invalid admins cannot',
+    async fault => fixture(async f => {
+      f.setFault(fault);
+      const managerCatalog = await f.request('/operators');
+      expect(managerCatalog.status).toBe(200);
+      expect((await managerCatalog.json() as { items: Array<{ id: string }> }).items.map(item => item.id)).toEqual(['review-operator']);
+      expect((await f.request('/operators/ungranted-operator')).status).toBe(403);
+      actor.role = 'admin';
+      const adminCatalog = await f.request('/operators');
+      expect(adminCatalog.status).toBe(200);
+      expect((await adminCatalog.json() as { items: Array<{ id: string }> }).items.map(item => item.id)).toEqual(['review-operator', 'ungranted-operator']);
+      const detail = await f.request('/operators/ungranted-operator');
+      expect(detail.status).toBe(200);
+      expect(await detail.json()).toMatchObject({ operator: { id: 'ungranted-operator' } });
+      for (const invalid of ['revoked', 'subject-mismatch', 'malformed-groups'] as const) {
+        f.setFault(invalid);
+        for (const path of ['/operators', '/operators/ungranted-operator']) {
+          const response = await f.request(path);
+          expect(response.status).toBe(403);
+          expect(await response.json()).toEqual({ error: 'Access denied', code: 'FORBIDDEN' });
+        }
+      }
+    }, undefined, true),
+  );
   it.each(labelIdentities)(
     'REQ-OPERATOR-045/027: valid %s admits explicit email managers and admins without exposing foreign activity',
     async fault => fixture(async f => {
