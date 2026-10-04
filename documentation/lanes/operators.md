@@ -17,13 +17,16 @@
 - [Distribution and package formats](#distribution-validation)
 - [Registry management and admission](#registrationadmission-ordering)
 - [Runtime and Dispatcher host](#worker-loader-boundary)
-- [Repository-only transport and recovery](#explicit-transport)
+- [Repository-only transport and recovery](#repository-only-transport-and-recovery)
 - [Owned sessions, resources and persistence](#owned-session-and-structured-pi)
 - [Webhook capabilities](#webhook-capability-handoff)
 - [Owned activity presentation](#owner-scoped-activity-surface)
 - [Protected Review boundary](#consumer-contract-and-dependency-inventory)
 - [Separately fenced Renovate publication](#fenced-renovate-publication)
+- [Preserved contract details](#preserved-contract-details)
+- [Verification boundaries](#verification-boundaries)
 - [Requirement and source map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 <a id="verified-human-context"></a>
 <a id="req-operator-045-preserved-clauses"></a>

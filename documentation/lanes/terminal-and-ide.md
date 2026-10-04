@@ -119,7 +119,7 @@ Phone capacity is zero: shared `getTerminalViewportClass` hides MultiView launch
 
 ### Cursor Visibility
 
-Native xterm cursor is enabled (`cursorBlink: true`, bar; color `#e4e4f0`, accent `#1a2332`). No CSS cursor hiding/alternate-screen blanket hiding; only explicit DECTCEM suppresses it. Supported newer Claude/Copilot use native cursor instead of old duplicate ANSI cursor. Android IME compositor jail is separate and remains. Old orange-square CSS workarounds are historical, not current repair guidance. [REQ-MOB-008](../../sdd/spec/terminal.md#req-mob-008-cursor-visible-for-all-supported-agents).
+Native xterm cursor is enabled with initial defaults `cursorBlink: true`, bar, color `#e4e4f0` and accent `#1a2332`. Buffer changes and DECTCEM visibility handlers restore the visible cursor to `#d97706` with the current terminal background as accent. No CSS cursor hiding/alternate-screen blanket hiding; only explicit DECTCEM suppresses it. Supported newer Claude/Copilot use native cursor instead of old duplicate ANSI cursor. Android IME compositor jail is separate and remains. Old orange-square CSS workarounds are historical, not current repair guidance. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> [REQ-MOB-008](../../sdd/spec/terminal.md#req-mob-008-cursor-visible-for-all-supported-agents).
 
 ### Keyboard Management
 
@@ -135,7 +135,7 @@ Classic retains established mouse/right-click/gesture behavior. Herdr ordinary m
 
 #### Background prewarm focus safety
 
-Vault eager hidden same-origin prewarm is not deferred by terminal keyboard. Valid-token prewarm shell receives focus-inert guards before app scripts: focus/select/window.focus no-op, hidden-document focus blurred; parent restores prior terminal/input if iframe steals it. User-opened Vault is unaffected. [REQ-MOB-014](../../sdd/spec/terminal.md#req-mob-014-mobile-background-surface-focus-isolation), [REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety).
+Vault on-demand hidden same-origin prewarm is not deferred by terminal keyboard. Valid-token prewarm shell receives focus-inert guards before app scripts: focus/select/window.focus no-op, hidden-document focus blurred; parent restores prior terminal/input if iframe steals it. User-opened Vault is unaffected. [REQ-MOB-014](../../sdd/spec/terminal.md#req-mob-014-mobile-background-surface-focus-isolation), [REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety).
 
 #### Samsung Internet Quirks
 
@@ -228,7 +228,7 @@ Synchronized DEC 2026 frames remain whole byte-identical units across WS chunks,
 
 ### Herdr Viewport Ownership
 
-Fresh Pi starts `--tui-mode fullscreen`; Pi owns history. Codeflare queues/presents complete differential frames in order on standard 33-ms cadence without viewport-specific hold. Classic output hold remains separate. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback).
+Fresh Pi starts `--tui-mode fullscreen`; Pi owns history. Codeflare queues/presents complete differential frames in order on the standard 33-ms cadence. The shared output pipeline bypasses read-hold for alternate-buffer application history; normal-buffer scrollback above the live bottom receives the bounded hold regardless of terminal mode. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback).
 
 ### Viewport DOM Desync (instant yank to top)
 
