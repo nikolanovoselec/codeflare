@@ -6,6 +6,7 @@ import { OperatorActivity, OperatorDispatcherCapability, createOperatorIntentDig
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { parseDispatcherOperation } from '../../operators/operator-runtime-capability';
 import { setLogLevel } from '../../lib/logger';
 import type { DispatcherBundle } from '../../operators/distribution';
 import type { Env } from '../../types';
@@ -132,7 +133,7 @@ async function fixture(test: (f: {
   deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
   settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
-  revoke: () => void; sent: Request[]; abortStatus: () => string | undefined;
+  revoke: () => void; sent: Request[]; childSubmissions: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; restoreTransport: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
   oversizedChecks: (count?: number, outputBytes?: number, overlap?: boolean) => void;
@@ -153,10 +154,11 @@ async function fixture(test: (f: {
   changeTarget: (patch: Record<string, unknown>) => void;
   afterTargetRead: (action: () => void | Promise<void>) => void; revokeGrant: () => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
-  inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
+  legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string } = {}) {
   callerSessionCurrent = true;
-  const fixtureInvocation = options.prospective ? { repository: 'nikolanovoselec/komodo', ...options.inputExtra }
+  const fixtureInvocation = options.prospective ? { repository: 'nikolanovoselec/komodo',
+    ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
     : options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
@@ -173,12 +175,14 @@ async function fixture(test: (f: {
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
-      ...(options.prospective ? { intentVersion: '3', coreVersion: '1' } : {}) },
+      ...(options.prospective ? { intentVersion: options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
       id: 'renovate-dispatcher', name: 'Renovate Dispatcher', description: 'Prospective singleton fixture',
-      coreVersion: '1', intentVersion: '3', profile: 'dispatcher',
-      inputSchema: { type: 'object', additionalProperties: false, required: ['repository'],
-        properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } },
+      coreVersion: '1', intentVersion: options.legacyProspective ? '2' : '3', profile: 'dispatcher',
+      inputSchema: { type: 'object', additionalProperties: false,
+        required: options.legacyProspective ? ['repository', 'pullRequest'] : ['repository'],
+        properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
+          ...(options.legacyProspective ? { pullRequest: { type: 'integer', minimum: 1 } } : {}) } },
       requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) : '{}' };
     const proof: ProspectiveAdmission = { activityId, installationId: 'installation', repositoryId: 973175879,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
@@ -227,6 +231,7 @@ async function fixture(test: (f: {
     let expireAfterRead = false;
     let exceedDeadline = false;
     const sent: Request[] = [];
+    const childSubmissions: Request[] = [];
     const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
     let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
     const pending: Promise<unknown>[] = [];
@@ -240,8 +245,11 @@ async function fixture(test: (f: {
           aborted = (await activity.getBrowserDetail())?.executionStatus;
           return Response.json({ ok: true });
         }
-        if (request.method === 'POST') return Response.json({ submissionId: 'submission-1', offset: streamOffset(),
-          uid: 'fixture-incarnation', streamUrl: request.url }, { status: 202, headers: { 'stream-next-offset': streamOffset() } });
+        if (request.method === 'POST') {
+          childSubmissions.push(request.clone());
+          return Response.json({ submissionId: 'submission-1', offset: streamOffset(),
+            uid: 'fixture-incarnation', streamUrl: request.url }, { status: 202, headers: { 'stream-next-offset': streamOffset() } });
+        }
         const snapshot = { v: 1, conversationId: 'fixture-conversation', offset: streamOffset(), settlements,
           messages: messages.map((value, index) => ({ id: `fixture-message-${index}`, role: 'assistant',
             purpose: 'assistant', display: 'visible', ...value as object })) };
@@ -402,7 +410,7 @@ async function fixture(test: (f: {
     try {
       await test({ activity, capability, staleCapability, environment, artifactDigest, activityId, deliveredTail,
         deliverTail: async events => { if (!configuredTail) throw new Error('No configured Dispatcher tail');
-          await (await configuredTail).tail(events); }, sent,
+          await (await configuredTail).tail(events); }, sent, childSubmissions,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
           streamBatch++;
           settlements = [{ submissionId: id, outcome, error }];
@@ -1595,6 +1603,37 @@ async function startProspective(f: DispatcherFixture) {
 }
 
 describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent authority', () => {
+  it.each([false, true])('reauthorizes a stored settled assessment at public collection; prospective actor revoked=%s', revoked => fixture(async f => {
+    await start(f);
+    const assessment = { repository: prospectiveRepo, results: [{ pullRequest: 17, headSha: f.proof.head,
+      decision: 'DO_NOT_MERGE', comment: 'Evidence does not justify merging', outcome: 'NOT_MERGED' }] };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle();
+    await f.activity.reconcileDispatcherLease();
+    // Real settlement persists the assessment but the targeted legacy drive still awaits public collection.
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
+      collectionStatus: 'unavailable', result: null });
+    const submitted = await Promise.all(f.childSubmissions.map(async request => ({ method: request.method,
+      url: request.url, body: await request.clone().text() })));
+    expect(submitted.length).toBeGreaterThan(0);
+    f.sent.splice(0);
+    if (revoked) f.changeRegistration(null);
+    const restarted = f.restart();
+    if (revoked) {
+      expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
+        collectionStatus: 'unavailable', result: null });
+    } else {
+      // Same settled fixture, current authority: collection really can expose this immutable result.
+      expect(await restarted.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+    }
+    expect(await Promise.all(f.childSubmissions.map(async request => ({ method: request.method,
+      url: request.url, body: await request.clone().text() })))).toEqual(submitted);
+    expect(f.sent).toEqual([]);
+  }, { prospective: true, legacyProspective: true }));
+
   it('authorizes repository-only work and projects one closed nonsecret target into the actual Loader, identically after reconstruction', () => fixture(async f => {
     await startProspective(f);
     expect(f.input).toEqual({ repository: prospectiveRepo });
@@ -1722,19 +1761,45 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect(remoteMutations(f)).toEqual([]);
   }, { prospective: true }));
 
-  it('does not let standard Loader outbound or typed legacy domain effects escape the source fence', () => fixture(async f => {
+  it('does not let standard Loader outbound or schema-valid legacy effects/discovery escape the source fence', () => fixture(async f => {
+    // Typed effects have an independent current-admin gate before the prospective endpoint guard.
+    // Supply that valid external role port, not a bypass of Activity or the operation under test.
+    f.environment.KV = { get: async (key: string) => key === 'user:owner@example.test'
+      ? '{"role":"admin"}' : null } as unknown as KVNamespace;
     await startProspective(f);
+    // Admission's canonical source read above is the positive control. Observe only subsequent remote I/O.
+    f.sent.splice(0);
     const outbound = await f.loaderOutbound();
     if (!outbound) throw new Error('Repository Loader outbound missing');
     const response = await outbound.fetch(new Request(`${prospectiveBase}/issues/18/comments`, { method: 'POST',
       headers: { 'x-codeflare-operator-operation-id': 'outbound-bypass', 'content-type': 'application/json' }, body: '{"body":"foreign"}' }));
     expect(response.status).toBe(403);
-    for (const path of ['github/comment', 'github/merge']) expect((await f.capability.fetch(genericWire(path, {
-      operationId: path.endsWith('merge') ? 'typed-merge' : 'typed-comment', target: { pullRequest: 17, headSha: f.proof.head },
-      decision: 'MERGE', comment: 'Judgment' }))).status).toBe(403);
+    const legacyWires = [
+      { path: 'github/comment', body: { operationId: 'typed-comment', target: { pullRequest: 17, headSha: f.proof.head },
+        decision: 'DO_NOT_MERGE', comment: 'Judgment' } },
+      { path: 'github/merge', body: { operationId: 'typed-merge', target: { pullRequest: 17, headSha: f.proof.head },
+        decision: 'MERGE', comment: 'Judgment' } },
+      { path: 'github/read', body: { operationId: 'typed-discovery', resource: 'open-pull-requests' } },
+    ];
+    for (const { path, body } of legacyWires) {
+      const request = genericWire(path, body);
+      // Valid legacy transport is the contract: a parse rejection is not evidence of the prospective guard.
+      expect((await parseDispatcherOperation(request.clone())).body).toEqual(body);
+      const denied = await f.capability.fetch(request);
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual([]);
+    }
     // If legacy targeted reads remain available, they cannot adopt another PR/head.
     expect((await f.capability.fetch(read('typed-foreign', { target: { pullRequest: 18, headSha: f.proof.head } }))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
+    expect(f.sent).toEqual([]);
+    // The installation/claim remains usable through the admitted canonical source endpoint.
+    expect((await f.capability.fetch(genericWire('source', prospectiveComment('after-legacy-denial')))).status).toBe(200);
+    const writes = remoteMutations(f);
+    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual([
+      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
+    ]);
+    expect(await writes[0].clone().json()).toEqual({ body: 'Exact admitted judgment' });
   }, { prospective: true }));
 
   it.each(([

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-04
 
+- **Restrict current prospective Renovate journeys** ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan), [REQ-OPERATOR-062](operators.md#req-operator-062-repository-only-dispatcher-transport)). Activation requires the supported first-party intent3 contract. Repository-only journeys select effects within immutable parent-fenced singleton authority; legacy assessed-publication retains its separate gates. Controlled verification does not establish activation or live acceptance.
+
 - **Require Debian's patched PCRE2 runtime** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)). Refresh the runtime APT layer and require `libpcre2-8-0` at least `10.42-1+deb12u2` during build and packaged-image verification. Preserve the vulnerability scan and existing exceptions without suppressing CVE-2026-103111.
 
 - **Require current-worker Vault readiness** ([REQ-VAULT-018](vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)). Controller-bound sync evidence and two complete polls replace unscoped completion flags; controller changes invalidate pending proof.
