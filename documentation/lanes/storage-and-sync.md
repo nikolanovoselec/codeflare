@@ -67,7 +67,7 @@ Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing build's 
 
 A separate rule removes an exact path without a marker only when current or already-available verified inventory assigns it to an inactive deployment agent. The marker behavior was probed against real R2 before adoption; see [AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
 
-Listing uses two-segment prefixes (`.claude/skills/`, `.pi/agent/` and twelve others), not whole runtime roots. Getting-started documents and large transcript/task trees stay outside the sweep. Listing and bounds finish before mutation; HEAD fan-out is batched and excess candidates abort managed reconciliation without publishing partial state.
+Listing derives two-segment prefixes from the selected seed inventory, including `.claude/skills/` and `.pi/agent/`, rather than listing entire buckets. Getting-started documents and unseeded Claude transcript/task trees (`.claude/projects/`, `.claude/todos/`) stay outside the sweep; runtime descendants under a seeded prefix can still be candidates. Known Claude plugin-cache paths are excluded before counting. Listing and bounds finish before mutation; HEAD fan-out is batched and excess candidates abort managed reconciliation without publishing partial state.
 
 **Upgrade semantics:** the dashboard uses the dedicated automatic upgrade endpoint. Managed release planning compares the exact applied signed bundle directly with the active target. Only changed content/content-type and newly added paths are written; unchanged markerless user edits survive. Manual Recreate and mode changes overwrite every desired path.
 

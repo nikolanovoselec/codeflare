@@ -23,7 +23,7 @@ Container image contents, startup and readiness, session authority, supervision,
 <a id="container"></a>
 ## Container Image
 
-**File:** `Dockerfile`. Base: `public.ecr.aws/docker/library/node:26-bookworm-slim` (AWS ECR Public mirror avoids Docker Hub anonymous pull limits). The multi-stage builder compiles native addons; the runtime has no build tools.
+**File:** `Dockerfile`. Base: digest-pinned `mirror.gcr.io/library/node:26-bookworm-slim`. Dockerfile records Public ECR HTTP 429 throttling on shared GitHub Actions runners as the reason for using Google's Docker Hub mirror. The multi-stage builder compiles native addons; the runtime has no build tools.
 
 ### Installed Tools
 

@@ -188,12 +188,16 @@ as part of the `PATCH /api/preferences` call -- no separate Recreate
 click is required; the UI shows a confirmation ("Agent skills updated
 for X mode. Takes effect in new sessions.") when the toggle
 completes. On Stripe-driven or Settings-driven reconciliation,
-preseed files are overwritten to match the new mode; user-created
-files are never deleted. Implements
+preseed files are overwritten to match the new mode. Ordinary personal
+files outside the authorized cleanup scope are preserved; verified
+inactive-agent paths and Exclusive governed roots follow the deletion
+rules below. Implements
 [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4 - AC5 and
 [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers).
 
-**Recreate and mode projection:** `getConfigsForMode()` validates unique target keys within each mode, and `getPreseedKeysNotInMode()` excludes variant-per-mode keys still live in the target mode. Storage owns exact deletion authorization, verified inventories, provenance, preflight bounds, conditional mutation, readback, and success-only publication. See [Durable seed reconciliation](storage-and-sync.md#durable-seed-reconciliation) and [Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes). Mutable provenance preserves user replacements; inactive ownership authorizes exact deletions; Exclusive reconciliation is destructive inside governed roots only after admission and preflight gates. Do not generalize this into “no listings” or “user files are never touched”.
+**Recreate and mode projection:** `getConfigsForMode()` validates unique target keys within each mode, and `getPreseedKeysNotInMode()` excludes variant-per-mode keys still live in the target mode. Storage owns exact deletion authorization, verified inventories, provenance, preflight bounds, conditional mutation, readback, and success-only publication. See [Durable seed reconciliation](storage-and-sync.md#durable-seed-reconciliation) and [Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes).
+
+Direct automatic Mutable deltas preserve unchanged markerless user edits; manual Recreate and mode changes overwrite desired paths. Provenance governs active-agent retirement, while verified inactive ownership authorizes exact deletions. Exclusive reconciliation is destructive inside governed roots only after admission and preflight gates. Do not generalize this into “no listings” or “user files are never touched”.
 
 Durable seed ownership and cleanup are documented in [Storage & Sync](storage-and-sync.md#durable-seed-reconciliation). Provenance retirement, verified inactive-path deletion, historical signed retirements, interrupted-target recovery, and direct applied-to-target deltas have distinct authorization rules. Observational progress and successful POST responses are not applied-state proof.
 

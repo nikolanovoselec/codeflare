@@ -191,7 +191,7 @@ Pi marks its first system/developer message, final tool definition and final cac
 | `output_tokens` | `completion_tokens` |
 | `output_tokens_details.thinking_tokens` | `completion_tokens_details.reasoning_tokens` |
 
-Cache writes are not reads; provider thinking is already in output and counted once. Locked Pi's OpenAI parser subtracts reads/writes from total prompt tokens to recover uncached input. Missing/malformed optional counters stay absent; reported zero is retained. Aggregate writes already include all TTL buckets: do not add their breakdown again or claim exact mixed-TTL/one-hour Pi pricing. Invoke JSON, synthesized Invoke SSE and terminal Eventstream SSE share this conversion; accounting itself changes neither request controls nor transport.
+Cache writes are not reads; provider thinking is already in output and counted once. Locked Pi's OpenAI parser subtracts reads/writes from total prompt tokens to recover uncached input. Missing/invalid cache-read/write counters stay absent: they must be nonnegative safe integers, and reported zero is retained. Optional thinking counts are forwarded when finite. Aggregate writes already include all TTL buckets: do not add their breakdown again or claim exact mixed-TTL/one-hour Pi pricing. Invoke JSON, synthesized Invoke SSE and terminal Eventstream SSE share this conversion; accounting itself changes neither request controls nor transport.
 
 <a id="dynamic-remains-a-separate-transport"></a>
 <a id="dynamic-route-boundary"></a>

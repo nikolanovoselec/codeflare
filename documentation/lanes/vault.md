@@ -590,7 +590,9 @@ captured ISO_TS string is the single source of truth for the filename and
 
 ### Pi root-owned capture delivery
 
-Pi reads real-user messages from the durable root session and snapshots only prompts after the successful counter at the 20-prompt boundary or after the durable resumed-session high-water, bounded by the shared 200,000-character total and 10,000-character per-turn limits (`MEMORY_CAPTURE_MAX_TOTAL_CHARS` and `MEMORY_CAPTURE_MAX_TURN_CHARS`). Post-compaction recall uses separate UTF-8 byte budgets. It writes request-specific execution JSON before publishing `<sessionId>.vars` as the active request-ID pointer.
+Pi reads real-user messages from the durable root session and snapshots only prompts after the successful counter at the 20-prompt boundary or after the durable resumed-session high-water. Despite its historical name, `MEMORY_CAPTURE_MAX_TOTAL_CHARS` caps the rendered transcript at 200,000 UTF-8 bytes, charging role headings, separators and rescued citations. `MEMORY_CAPTURE_MAX_TURN_CHARS` first slices each oversized turn to 10,000 JavaScript string code units; bounded rescue can then append up to 50 lost citations (`MEMORY_CAPTURE_MAX_RESCUED_REFS`).
+
+Post-compaction recall uses separate UTF-8 byte budgets. Pi writes request-specific execution JSON before publishing `<sessionId>.vars` as the active request-ID pointer.
 
 Under [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), launches are medium-reasoning, seven-turn public background requests with inherited context disabled. Root JSONL determines missing/running/failed/success state and reminders zero through five. The worker exposes note/chunk only after graph publication; GIVEUP remains latched until twenty later real prompts produce a replacement request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
