@@ -1,10 +1,8 @@
 # Architecture
 
-System map, ownership boundaries, authoritative state, and cross-component flows for Codeflare.
+System map, ownership boundaries, authoritative state, cross-component flows, and failure domains for Codeflare.
 
 **Audience:** Operators and developers
-
----
 
 ## Contents
 
@@ -18,197 +16,126 @@ System map, ownership boundaries, authoritative state, and cross-component flows
 - [Observability and Operator Signals](#observability-and-operator-signals)
 - [Capacity, Caching, and Performance Assumptions](#capacity-caching-and-performance-assumptions)
 - [Security and Privacy Boundaries](#security-and-privacy-boundaries)
+- [Developer Reference Boundaries](#developer-reference-boundaries)
 - [Decision and Requirement Map](#decision-and-requirement-map)
 - [Related Documentation](#related-documentation)
 
 ## Purpose, Audience, and Ownership
 
-This document owns Codeflare's runtime topology, component boundaries, authoritative state, cross-component flows, failure domains, and architectural invariants. It is the starting point for an operator investigating which system owns a decision and for a developer tracing a request across processes.
-
-It does not own endpoint contracts, configuration catalogues, deploy commands, threat-control detail, troubleshooting procedures, or source-file inventories. Those facts live in their existing specialist lanes and are linked at the point where the boundary matters.
+This lane owns runtime topology, component boundaries, authoritative state, cross-component flows, failure domains, and architectural invariants. It is the starting point for locating the owner of a decision or tracing a request across processes. It is not a merged internals manual or a source inventory.
 
 | Question | Canonical owner |
 |---|---|
-| Which component owns this responsibility or state? | This document |
-| What does an HTTP or WebSocket endpoint accept and return? | [API Reference](api-reference.md) |
+| Which component owns this responsibility or state? | Architecture |
+| What does an HTTP/WebSocket endpoint accept and return? | [API Reference](api-reference.md) |
 | Which setting controls it? | [Configuration](configuration.md) |
-| How is it deployed or rolled back? | [Deployment](deployment.md) |
+| How is it deployed or restored? | [Deployment](deployment.md) |
 | Which security control protects it? | [Security](security.md) |
-| How does the container or host implement it? | [Container](container.md) and [Architecture Internals](architecture-internals.md) |
-| How is persistent data reconciled? | [Storage & Sync](storage-and-sync.md) |
-| How are agents, review, and seeded policies delivered? | [Preseed](preseed.md) |
+| How does the session/container/host implement it? | [Container](container.md) |
+| How are terminal and editor surfaces composed? | [Terminal & IDE](terminal-and-ide.md), [Browser IDE package](../../openvscode/README.md) |
+| How are durable files reconciled? | [Storage & Sync](storage-and-sync.md) |
+| How are seeded agents and policies delivered? | [Preseed](preseed.md) |
 | What should an operator do when it fails? | [Troubleshooting](troubleshooting.md) |
-| Why was a trade-off accepted? | [Architecture Decisions](../decisions/README.md) |
+| Why was a trade-off accepted? | [Decisions](../decisions/README.md) |
 
 <a id="architecture-overview"></a>
 ## System at a Glance
 
-Codeflare runs each backend session in one isolated Cloudflare Container. Browser tabs, terminal panes, MultiView, and the Browser IDE connect to a session; they do not define its identity. A user's sessions share one R2 bucket for selected persistent data while each container keeps an ephemeral local working copy. Workers KV is the control-plane record, and Durable Objects coordinate session-local runtime state.
+Each backend session has one isolated Cloudflare Container. Browser tabs, terminal panes, MultiView, and Browser IDE connect to a session; they do not define its identity. A user's sessions share one R2 bucket for selected durable files, with ephemeral local working copies. D1 owns complete non-secret session records and generation-fenced lifecycle truth. KV retains users, setup/configuration, entitlement and live-usage projections. Container Durable Objects coordinate runtime processes and observations; Timekeeper coordinates per-user accounting.
 
 ```mermaid
 graph TD
     B["Browser: dashboard, terminal, Browser IDE"] -->|"HTTP / WebSocket"| W["Cloudflare Worker"]
     W --> A["Authentication and setup policy"]
-    W --> KV["Workers KV: users, sessions, status, config"]
+    W --> KV["Workers KV: users, settings, entitlement, live usage"]
+    W --> DB["D1: runtime sessions; historical usage and reports"]
     W --> DO1["Container DO: session A"]
     W --> DO2["Container DO: session B"]
-    W --> TK["Timekeeper DO: per-user usage"]
+    W --> TK["Timekeeper DO: per-user accounting"]
     DO1 --> C1["Container A"]
     DO2 --> C2["Container B"]
-    C1 --> P1["PTY, agents, host, Browser IDE"]
-    C2 --> P2["PTY, agents, host, Browser IDE"]
+    DO1 -->|"generation-fenced observations"| DB
+    DO2 -->|"generation-fenced observations"| DB
+    TK -->|"live usage projection"| KV
+    TK -->|"historical snapshots"| DB
     C1 <-->|"restore + bounded bisync"| R2["R2 bucket: shared per user"]
     C2 <-->|"restore + bounded bisync"| R2
 ```
 
-The public Worker owns the edge boundary. Container credentials that must remain outside the workload are held or re-stamped at Worker-side interception boundaries. The container remains deliberately powerful inside its isolated workload and may change files or external systems permitted by its credentials and network policy.
+The Worker owns the public edge. Interceptor-owned credentials remain Worker-side or are re-stamped there. The workload is deliberately powerful inside its isolation and may change files or permitted external systems. Source describes current authority; it does not establish deployed acceptance or upgrade Planned/Partial SDD status.
 
 ### Terminal topology ownership
 
-The Worker stamps each new Terminal session with immutable `classic` or `herdr` ownership from the authenticated user's server preference; absence resolves classic. Classic exposes up to six xterm.js surfaces with Codeflare tabs, labels, saved layouts, and tiling. Herdr exposes one outer surface at terminal ID `1`; its outer `node-pty` runs the official client through a fixed launcher, and one named server owns tabs, panes, splits, workspaces, shells, and agents inside that session ([AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice)).
+The Worker stamps new Terminal sessions with immutable `classic` or `herdr` ownership from the authenticated user's server preference; absence resolves classic. Classic exposes up to six xterm.js surfaces with Codeflare tabs/layouts. Herdr exposes outer terminal `1`; its official client/fixed launcher and one named server own in-session tabs, panes, splits, workspaces, shells, and agents. Herdr's official structural `session.json` persists under `~/.codeflare` through ordinary R2 sync; live processes remain ephemeral. Both modes retain authenticated transport, host `Session`, restore, resize authority, input classification and prewarm adoption. Browser adapters forward cell-pointer reports and standard `Ctrl+B`; Herdr interprets following action keys. No Herdr socket/private protocol is exposed. MultiView remains browser-local and cross-session; Browser IDE is a separate service, not a standalone Herdr runtime.
 
-Live processes remain ephemeral, while Herdr's official structural `session.json` persists under `~/.codeflare` through normal R2 sync ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Both modes retain authenticated WebSocket transport, host `Session`, headless restore, resize authority, input classification, and prewarm adoption. Herdr-only browser adapters forward terminal-cell pointer reports and its standard `Ctrl+B` prefix; Herdr still interprets every following action key ([REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr), [REQ-TERM-037](../../sdd/spec/terminal.md#req-term-037-browser-keyboard-interaction-with-herdr)). Codeflare exposes no Herdr socket or private protocol ([AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice)).
-
-MultiView remains a browser-owned cross-session workspace and may combine both modes: classic members use their active outer terminal, Herdr members use terminal `1`. Browser IDE remains a separate session service and starts no standalone Herdr runtime. See [AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice).
+**Contracts:** [AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice), [REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery), [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr), [REQ-TERM-037](../../sdd/spec/terminal.md#req-term-037-browser-keyboard-interaction-with-herdr).
 
 ### Deployment modes
 
 | Mode | Identity boundary | Public entry | Billing | Enterprise interception |
 |---|---|---|---|---|
 | Default | Cloudflare Access | Authenticated application | Disabled | Off |
-| Onboarding | GitHub OIDC session | Public landing and integrated sign-in | Disabled | Off |
-| SaaS | GitHub OIDC session | Public landing and provider chooser | Enabled | Off |
-| Enterprise | Customer Cloudflare Access | Customer-controlled application | Suppressed | Optional AI Gateway, Browser token, GitHub token, and strict egress boundaries |
+| Onboarding | Configured GitHub OIDC or Access | Public landing/integrated sign-in | Disabled | Off |
+| SaaS | Configured GitHub OIDC or Access | Public landing/provider chooser | Enabled | Off |
+| Enterprise | Customer Cloudflare Access | Customer-controlled application | Suppressed | Optional AI Gateway, Browser/GitHub token, strict egress boundaries |
 
-The `workers.dev` URL is a setup surface, not the normal production entry. Custom-domain and Access configuration belong to [Configuration](configuration.md) and [Authentication](authentication.md); deployment procedure belongs to [Deployment](deployment.md). [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) defines the custom-domain contract.
+The `workers.dev` URL is a setup surface, not normal production entry. [Configuration](configuration.md), [Authentication](authentication.md) and [Deployment](deployment.md) own domain/Access setup and procedure. [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) defines the contract.
 
 ## System Components
 
-The registry below keeps one stable evidence-bearing dossier per runtime component. The detailed owner link is where implementation and operator procedure continue.
-
 ### Worker (Hono Router)
 
-**Responsibility:** Authenticate public requests, apply edge policy, serve static assets, and route API, WebSocket, and session work to the owning component.
+Authenticates public requests, applies edge policy, serves assets and routes APIs, WebSockets and session work. Bounded per-isolate caches are optimizations, not durable authority. It does not own workload processes or workspace bytes. Source entry: `src/index.ts`, `src/middleware/auth.ts`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
-**Inputs:** HTTP and WebSocket requests, Worker bindings, setup state, and verified identity.
+**Contracts:** [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page), [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD34](../decisions/README.md#ad34-websocket-auth-bypass-of-hono-middleware).
 
-**Outputs:** API and asset responses, WebSocket upgrades, and calls to Durable Objects or external integrations.
-
-**State owned:** No durable process-local authority; bounded per-isolate caches accelerate reads.
-
-**Does not own:** Container processes, durable workspace content, or endpoint-specific business state.
-
-**Source:** `src/index.ts`, `src/middleware/auth.ts`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
-
-**Requirements:** [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)
-
-**Decisions:** [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD34](../decisions/README.md#ad34-websocket-auth-bypass-of-hono-middleware)
-
-**Detailed documentation:** [API Reference](api-reference.md), [Authentication](authentication.md), [Architecture Internals](architecture-internals.md)
+**Owners:** [API Reference](api-reference.md), [Authentication](authentication.md), [Configuration](configuration.md).
 
 ### Container DO (container)
 
-**Responsibility:** Coordinate one backend session's container configuration, startup, proxying, metrics, recovery, idle policy, and teardown.
+Coordinates one session's configuration, startup, proxy, metrics, idle policy, recovery and teardown. DO storage owns runtime coordination, shutdown fences and recovery evidence; D1 owns shared session lifecycle. The DO does not own durable files, entitlement or browser-local presentation. Source entries: `src/container/`, `src/routes/container/`.
 
-**Inputs:** Session and bucket identity, preferences, credentials, internal control requests, and host health/activity.
+**Contracts:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [AD1](../decisions/README.md#ad1-one-container-per-session). [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) records the historical KV decision, not current storage authority.
 
-**Outputs:** Container lifecycle transitions, authenticated proxy traffic, persisted status, usage, and recovery evidence.
+**Owner:** [Container](container.md).
 
-**State owned:** Session-local Durable Object coordination, deliberate-shutdown marker, recovery evidence, and container configuration.
-
-**Does not own:** The user's durable files or the dashboard's read model.
-
-**Source:** `src/container/` and `src/routes/container/`.
-
-**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction)
-
-**Decisions:** [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)
-
-**Detailed documentation:** [Container](container.md), [Session lifecycle internals](architecture-internals.md)
-
+<a id="enterprise-llm-routing"></a>
 ### LlmInterceptor (Enterprise Mode)
 
-**Responsibility:** Route configured enterprise LLM traffic through the customer's AI Gateway without exposing its credential to the container.
+Routes configured enterprise LLM traffic through customer AI Gateway without exposing its token to the container. Inputs are authorized route/native handles, capability profiles, matched configured groups and Worker-held connection configuration. Outputs are bound Dynamic compat contracts (historical REST-first assignments retained), saved native/custom compat or Bedrock Runtime requests, normalized responses or bounded fail-closed errors. No durable state, provider keys, Access policy or model-selection UI is owned here.
 
-**Inputs:** Intercepted OpenAI-wire requests, the authorized catalog of Dynamic Route and opaque native handles, route capability profiles, matched configured user-access groups, and Worker-held gateway configuration.
+Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynamic timeout authority stays in the deployed Gateway graph. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates -->
 
-**Outputs:** Authenticated Dynamic requests bound to compat by discovered contracts (REST-first for historical assignments), compat native/custom-provider or native Bedrock Runtime requests under saved authority, normalized responses, or bounded fail-closed configuration errors before gateway fetch.
+**Contracts:** [REQ-ENTERPRISE-004](../../sdd/spec/models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/models-and-routing.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/models-and-routing.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-035](../../sdd/spec/models-and-routing.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-047](../../sdd/spec/models-and-routing.md#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](../../sdd/spec/models-and-routing.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/models-and-routing.md#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-050](../../sdd/spec/models-and-routing.md#req-enterprise-050-native-provider-compat-dispatch), [REQ-ENTERPRISE-052](../../sdd/spec/models-and-routing.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/models-and-routing.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](../../sdd/spec/models-and-routing.md#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-058](../../sdd/spec/models-and-routing.md#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-059](../../sdd/spec/models-and-routing.md#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-060](../../sdd/spec/models-and-routing.md#req-enterprise-060-native-target-input-validation), [REQ-ENTERPRISE-061](../../sdd/spec/setup.md#req-enterprise-061-native-target-administration-projection), [REQ-ENTERPRISE-087](../../sdd/spec/models-and-routing.md#req-enterprise-087-native-ai-gateway-request-timeout-authority).
 
-**State owned:** No durable state; it receives request-scoped and session-scoped props from the Container DO.
+**Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD152](../decisions/README.md#ad152-generalize-native-and-custom-provider-compat-dispatch).
 
-**Does not own:** Provider keys, Access policy, per-group configuration, or agent model selection UI.
-
-**Timeout authority:** Authorized Native Bedrock dispatch receives a 120-second first-byte allowance; Dynamic Routes retain the timeout policy deployed in their AI Gateway graph ([REQ-ENTERPRISE-087](../../sdd/spec/enterprise-mode.md#req-enterprise-087-native-ai-gateway-request-timeout-authority)).
-
-**Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates -->
-
-**Discovery contract:** [REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection); [Target capability discovery](target-capability-discovery.md).
-
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-047](../../sdd/spec/enterprise-mode.md#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/enterprise-mode.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](../../sdd/spec/enterprise-mode.md#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-058](../../sdd/spec/enterprise-mode.md#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-059](../../sdd/spec/enterprise-mode.md#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-060](../../sdd/spec/enterprise-mode.md#req-enterprise-060-native-target-input-validation), [REQ-ENTERPRISE-061](../../sdd/spec/enterprise-mode.md#req-enterprise-061-native-target-administration-projection), [REQ-ENTERPRISE-087](../../sdd/spec/enterprise-mode.md#req-enterprise-087-native-ai-gateway-request-timeout-authority)
-
-**Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD152](../decisions/README.md#ad152-generalize-native-and-custom-provider-compat-dispatch)
-
-**Detailed documentation:** [Security](security.md#enterprise-mode-credential-containment-and-ca-trust), [Configuration](configuration.md#enterprise-access-group-configuration), [Architecture Internals](architecture-internals.md)
+**Owners:** [Models & Routing](models-and-routing.md), [Security](security.md#enterprise-mode-credential-containment-and-ca-trust), [Configuration](configuration.md#enterprise-access-group-configuration).
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-**Responsibility:** Force otherwise-unclaimed enterprise direct-internet traffic through the customer's Cloudflare Gateway boundary.
+Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed. Source entries: `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
 
-**Inputs:** Catch-all intercepted requests, account identity, bound user bucket, bucket-scoped R2 credentials, strict-egress state, and the VPC egress binding.
+**Contracts:** [REQ-ENTERPRISE-016](../../sdd/spec/security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/security.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props), [AD143](../decisions/README.md#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential).
 
-**Outputs:** Gateway-routed traffic, scoped own-account platform traffic, bridged WebSockets, or fail-closed boundary errors.
+**Owners:** [Security](security.md#strict-gateway-egress-enterprise-mode), [Configuration](configuration.md), [Deployment](deployment.md#strict-gateway-egress-enterprise-mode).
 
-**State owned:** No durable state; strict mode, account identity, bound bucket, and memory-only scoped R2 credentials arrive as Container DO props. The controller validates exact R2 bucket identity and owns R2 re-signing with that scoped pair.
+<a id="cloudflarebrowserinterceptor-non-enterprise-oauth-mode"></a>
+### CloudflareBrowserInterceptor
 
-**Does not own:** Customer Gateway policy, host-specific credential injection outside R2, or non-R2 own-account service authorization.
+Refreshes/injects user-scoped OAuth or enterprise Browser Rendering credentials at the Worker boundary for REST/CDP HTTP and WebSocket traffic. Identity is bound at wiring time, not chosen by a caller header. Missing valid credentials fail closed. Token storage belongs to the authentication/provider layer, not the interceptor. Source entries: `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`.
 
-**Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
+**Contracts:** [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 
-**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority)
-
-**Decisions:** [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props), [AD143](../decisions/README.md#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential)
-
-**Detailed documentation:** [Security](security.md#strict-gateway-egress-enterprise-mode), [Configuration](configuration.md), [Deployment](deployment.md#strict-gateway-egress-enterprise-mode)
-
-### CloudflareBrowserInterceptor (non-enterprise OAuth mode)
-
-**Responsibility:** Refresh and inject user-scoped Cloudflare OAuth or enterprise Browser Rendering credentials at the Worker boundary.
-
-**Inputs:** Intercepted Cloudflare REST or CDP traffic, session-bound identity, and Worker-held token state.
-
-**Outputs:** Re-authenticated HTTP or WebSocket traffic, or a fail-closed authentication response.
-
-**State owned:** No durable state beyond token stores owned by the authentication layer.
-
-**Does not own:** OAuth consent, account authorization, browser session state, or arbitrary outbound traffic.
-
-**Source:** `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`.
-
-**Requirements:** [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)
-
-**Decisions:** [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor)
-
-**Detailed documentation:** [Authentication](authentication.md), [Security](security.md#api-token-containment)
+**Owners:** [Authentication](authentication.md), [Security](security.md#api-token-containment).
 
 ### GitHub Integration
 
-**Responsibility:** Connect a user's GitHub identity to repository discovery, cloning, and in-session GitHub traffic through mode-appropriate credentials.
+Connects verified users to repository discovery, cloning and mode-appropriate authenticated GitHub traffic. Encrypted `DeployKeys.githubToken` remains the credential store. Repository permissions, account policy and workspace durability are separate owners. Source entries: `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, `web-ui/src/components/github/`.
 
-**Inputs:** OAuth state and tokens, repository selection, clone requests, session identity, and intercepted GitHub traffic in enterprise mode.
+**Contracts:** [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport), [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens).
 
-**Outputs:** Connection metadata, repository lists, clone operations, and authenticated GitHub requests.
-
-**State owned:** Encrypted per-user GitHub token in the existing deploy-key record.
-
-**Does not own:** Repository authorization, GitHub account policy, workspace persistence, or general network egress.
-
-**Source:** `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, `web-ui/src/components/github/`.
-
-**Requirements:** [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)
-
-**Decisions:** [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens)
-
-**Detailed documentation:** [API Reference](api-reference.md#github-integration), [Security](security.md#github-token-containment), [Architecture Internals](architecture-internals.md)
+**Owners:** [API Reference](api-reference.md#github-integration), [Security](security.md#github-token-containment), [Terminal & IDE](terminal-and-ide.md).
 
 <a id="browser-ide-native-agents-req-ide-005-req-ide-006-req-ide-007-req-ide-008"></a>
 <a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017"></a>
@@ -218,69 +145,29 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 <a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022-req-ide-024"></a>
 ### Browser IDE
 
-**Responsibility:** Provide a session-isolated code-server workbench and the selected native Pi, official Claude, or empty agent inventory.
+Provides a session-isolated code-server workbench with native Pi, official Claude or empty immutable agent inventory. The Worker snapshots the entitled default workspace at creation; absent/historical values mean Terminal. VS Code sessions are dashboard-owned, skip host PTY prewarm/terminal sockets, and open a stable session-keyed editor tab. Terminal sessions retain request-lazy editor startup.
 
-**Inputs:** Session route, immutable Terminal or VS Code workspace snapshot, fixed editor workspace, selected tab-one agent, editor requests, bounded UI-state snapshot, and bounded user-extension manifest.
+Live editor databases, package bytes and agent processes are ephemeral. Only bounded UI continuity and extension-intent manifests persist. Browser IDE does not own terminal Pi conversation, generic VS Code authentication, private galleries, durable credentials or future workspace preference. Developer composition stays in [openvscode/README.md](../../openvscode/README.md); runtime/persistence/security stay in their specialist lanes.
 
-**Outputs:** Editor UI, native agent context, file changes, diagnostics, session-scoped process descendants, and lazy Open VSX restoration.
+**Contracts:** [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-clean-browser-ide-url-and-private-workspace-selection), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol), [REQ-IDE-025](../../sdd/spec/browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](../../sdd/spec/browser-ide.md#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-result-envelope), [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle), [REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics), [REQ-IDE-035](../../sdd/spec/browser-ide.md#req-ide-035-canonical-browser-ide-workspace-projection), [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement), [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy), [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](../../sdd/spec/browser-ide.md#req-ide-050-browser-ide-status-and-ownership), [REQ-IDE-054](../../sdd/spec/browser-ide.md#req-ide-054-browser-ide-card-activation).
 
-**State owned:** Live editor databases, writable extension layer, and agent processes inside the ephemeral container; only bounded UI continuity and extension-intent manifests persist.
+**Decisions:** [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity), [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits), [AD128](../decisions/README.md#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller), [AD129](../decisions/README.md#ad129-proxied-inline-uri-identity-must-be-observed-before-lifecycle-changes), [AD130](../decisions/README.md#ad130-the-projected-workspace-uses-the-canonical-browser-authority), [AD131](../decisions/README.md#ad131-inline-diagnostics-retain-only-sanitized-resource-identity), [AD132](../decisions/README.md#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory), [AD135](../decisions/README.md#ad135-inline-chat-requires-one-host-correlated-result).
 
-The Worker snapshots the entitled default when it creates a session. Missing and historical values mean Terminal. VS Code sessions remain dashboard-owned, skip host PTY prewarm and terminal WebSockets, and make the whole card actionable only for Start, Retry, or ready-state Open. A stable session-keyed browser target focuses one retained editor tab. Terminal sessions keep their existing PTY prewarm and request-lazy editor.
-
-**Does not own:** Terminal Pi conversation, generic VS Code authentication, extension package bytes or private galleries, durable credentials, or the user's future workspace preference.
-
-**Source:** `src/routes/session/crud.ts`, `src/container/container-env.ts`, `host/src/server.ts`, `host/src/vscode-proxy.ts`, `web-ui/src/components/Layout.tsx`, `web-ui/src/stores/terminal-workspace.ts`, `openvscode/agent-sidebar/`, `openvscode/claude/`, `scripts/browser-ide-ui-state.py`, `scripts/browser-ide-extensions.py`, `entrypoint.sh`.
-
-**Requirements:** [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-clean-browser-ide-url-and-private-workspace-selection), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol), [REQ-IDE-025](../../sdd/spec/browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](../../sdd/spec/browser-ide.md#req-ide-026-native-inline-chat-edit-validation).
-
-**Requirements (continued):** [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-result-envelope), [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle), [REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics), [REQ-IDE-035](../../sdd/spec/browser-ide.md#req-ide-035-canonical-browser-ide-workspace-projection), [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement), [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy), [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](../../sdd/spec/browser-ide.md#req-ide-050-browser-ide-status-and-ownership), [REQ-IDE-054](../../sdd/spec/browser-ide.md#req-ide-054-browser-ide-card-activation).
-
-**Decisions:** [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity), [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits), [AD128](../decisions/README.md#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller), [AD129](../decisions/README.md#ad129-proxied-inline-uri-identity-must-be-observed-before-lifecycle-changes), [AD130](../decisions/README.md#ad130-the-projected-workspace-uses-the-canonical-browser-authority), [AD131](../decisions/README.md#ad131-inline-diagnostics-retain-only-sanitized-resource-identity), [AD132](../decisions/README.md#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory), [AD135](../decisions/README.md#ad135-inline-chat-requires-one-host-correlated-result)
-
-**Detailed documentation:** [Container](container.md#code-server-browser-ide), [Security](security.md#browser-ide-native-agents), [Architecture Internals](architecture-internals.md)
-
-Requirement status and outstanding evidence remain authoritative in `sdd/spec/browser-ide.md`. This system map does not promote a Partial requirement by describing implemented behavior.
+**Owners:** [Container](container.md#code-server-browser-ide), [Security](security.md#browser-ide-native-agents), [Terminal & IDE](terminal-and-ide.md).
 
 ### Terminal Server (node-pty)
 
-**Responsibility:** Own in-container PTYs, terminal WebSocket framing, host activity tracking, and private health/control endpoints.
+Owns in-container PTYs, WebSocket framing, shared input activity, private health/control endpoints, connected-client state and resize authority. It reports observations, not public authorization or durable session lifecycle. Source entries: `host/src/server.ts`, `host/src/session.ts`, `host/src/activity-tracker.ts`, `host/src/terminal-ws.ts`, `host/src/request-router.ts`.
 
-**Inputs:** Authenticated HTTP/WebSocket traffic, terminal control frames, classified terminal input, Browser IDE client frames, and PTY output.
+**Contracts:** [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity), [REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-away-only-agent-notification-delivery), [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual).
 
-**Outputs:** Terminal bytes and control frames, PTY writes, shared activity/health state, and internal sync-control responses.
-
-**State owned:** Ephemeral PTY sessions, connected-client state, resize authority, and the shared last-input timestamp.
-
-**Does not own:** Persisted session status, idle policy decisions, durable workspace files, or public authorization.
-
-**Source:** `host/src/server.ts`, `host/src/session.ts`, `host/src/activity-tracker.ts`, `host/src/terminal-ws.ts`, `host/src/request-router.ts`.
-
-**Requirements:** [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity), [REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-away-only-agent-notification-delivery)
-
-**Decisions:** [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual)
-
-**Detailed documentation:** [Container](container.md), [API Reference](api-reference.md), [Architecture Internals](architecture-internals.md)
+**Owners:** [Container](container.md), [Terminal & IDE](terminal-and-ide.md), [API Reference](api-reference.md).
 
 ### Landing (Astro, prerendered)
 
-**Responsibility:** Build and serve the mode-aware public marketing and onboarding surfaces as static assets.
+Builds mode-aware public marketing/onboarding assets from typed content and tokens. It owns no application state. The contact route relays validated submissions without persisting content; KV holds only rate-limit counters. Authentication, Worker routing and contact credentials remain separate owners.
 
-**Inputs:** Typed content, Astro components, design tokens, mode-aware Worker routing, and optional browser enhancement support.
-
-**Outputs:** Prerendered HTML, fingerprinted assets, metadata, contact requests, and progressive visual enhancement.
-
-**State owned:** No application state; the contact path persists only rate-limit counters and relays submission content without storing it.
-
-**Does not own:** Authentication sessions, application routing, contact delivery credentials, or runtime workspace state.
-
-**Source:** `landing/`, `src/lib/seo.ts`, Worker static-assets routing.
-
-**Requirements:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
-
-**Decisions:** [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns)
-
-**Detailed documentation:** [Architecture Internals](architecture-internals.md), [API Reference](api-reference.md#public-landing), [Security](security.md)
+**Contracts:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns).
 
 <a id="landing-composition-implementation"></a>
 <a id="page-composition"></a>
@@ -294,127 +181,80 @@ Requirement status and outstanding evidence remain authoritative in `sdd/spec/br
 <a id="orchestration-proof"></a>
 <a id="design-tokens"></a>
 <a id="navigation-and-trust"></a>
+<a id="landing-implementation"></a>
+#### Landing implementation
+
+The prerendered Astro package emits `/landing` assets into the web asset tree. Required content and dark first paint are server-rendered; JavaScript adds progressive enhancements, with reduced-motion/WebGL-failure fallbacks. The Worker owns eligibility, discovery documents and cache policy. Composition, source inventory, proof/content models, enhancement modules and package verification remain in the existing [Landing README](../../landing/README.md), not a second architecture manual. [API Reference](api-reference.md#public-landing) owns contact contracts and [Security](security.md) owns abuse controls.
 
 ### Frontend (SolidJS + xterm.js)
 
-**Responsibility:** Present dashboard, terminal, storage, settings, billing, provisioning, and session-control surfaces in the browser.
+Presents dashboard, terminal, storage, settings, billing/provisioning and session controls. Browser-local state owns virtual MultiView membership and visible/focused panes, not runtime truth, durable files or credentials. Source entry: `web-ui/src/`.
 
-**Inputs:** Worker APIs, session status, terminal WebSockets, browser viewport/focus, and bounded local UI state.
-
-**Outputs:** User actions, visible terminal panes, dashboard state, and mode-appropriate product surfaces.
-
-**State owned:** Browser-local presentation and virtual MultiView membership; authoritative backend state remains elsewhere.
-
-**Does not own:** Container lifecycle truth, durable session status, workspace files, or credential storage.
-
-**Source:** `web-ui/src/`.
-
-**Requirements:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection)
-
-**Decisions:** [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual), [AD105](../decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)
-
-**Detailed documentation:** [Architecture Internals](architecture-internals.md), [Mobile](mobile.md)
+**Contracts:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual), [AD105](../decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
 
 <a id="visible-terminal-workspace-and-multiview"></a>
+Visible panes own terminal sockets/resize; hidden running sessions mount neither. MultiView is never sent to lifecycle, quota, storage or terminal APIs. [Terminal & IDE](terminal-and-ide.md) owns desktop/tablet/mobile composition.
 
 ### KV
 
-**Responsibility:** Hold control-plane records for users, sessions, setup, configuration, status, usage, and rate limits.
+Holds durable users, setup/configuration, entitlement/live-usage projections, rate limits and ancillary state. It is eventually consistent; process caches do not strengthen it. Session records, lifecycle, readiness and runtime metrics are D1-owned, not KV list metadata. Legacy KV evidence remains historical.
 
-**Inputs:** Validated Worker and lifecycle writes.
-
-**Outputs:** Authoritative control-plane reads and list metadata for dashboards and policy resolution.
-
-**State owned:** Persistent control-plane records, including authoritative session status.
-
-**Does not own:** Container process state, workspace bytes, or immediate cross-isolate consistency.
-
-**Source:** Worker KV binding and key helpers under `src/lib/`.
-
-**Requirements:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit)
-
-**Decisions:** [AD6](../decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)
-
-**Detailed documentation:** [Container](container.md), [Configuration](configuration.md)
+**Original references:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [AD6](../decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 
 ### R2
 
-**Responsibility:** Hold the selected durable per-user files restored into and reconciled from session containers.
+Owns one user's selected durable file namespace, restored/reconciled by session containers, storage routes and seeding. It is not a live POSIX filesystem, process store, excluded-cache store or sync coordinator.
 
-**Inputs:** Initial restore, periodic/manual/final bisync, storage API mutations, and seed reconciliation.
+**Contracts:** [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [AD3](../decisions/README.md#ad3-per-user-r2-buckets), [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery).
 
-**Outputs:** Durable user files and storage listings.
-
-**State owned:** One persistent bucket namespace per user.
-
-**Does not own:** Live POSIX semantics, process state, excluded caches, or sync coordination.
-
-**Source:** R2 binding, scoped S3 credentials, and `entrypoint.sh` sync lifecycle.
-
-**Requirements:** [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
-
-**Decisions:** [AD3](../decisions/README.md#ad3-per-user-r2-buckets), [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery)
-
-**Detailed documentation:** [Storage & Sync](storage-and-sync.md)
+**Owner:** [Storage & Sync](storage-and-sync.md).
 
 ### Timekeeper
 
-**Responsibility:** Convert per-session runtime reports into bounded per-user usage accounting.
+Converts monotonic per-session runtime reports into per-user deltas, live usage/quota signals and separately acknowledged historical snapshots. Durable accumulator/period/outbox state belongs to the DO; live serving projection belongs to KV; historical analytics/report claims belong to D1. It does not own session lifecycle or checkout.
 
-**Inputs:** Monotonic usage reports from running session coordinators and tier context.
+**Contracts:** [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402), [AD37](../decisions/README.md#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015).
 
-**Outputs:** Usage deltas and quota/accounting records.
-
-**State owned:** Per-user usage coordination in a Durable Object.
-
-**Does not own:** Session lifecycle, billing checkout, or container metrics collection.
-
-**Source:** `src/timekeeper/` and subscription helpers.
-
-**Requirements:** [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402)
-
-**Decisions:** [AD37](../decisions/README.md#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015)
-
-**Detailed documentation:** [Billing](billing.md), [Container](container.md)
+**Owners:** [Billing](billing.md), [Container](container.md).
 
 <a id="design-rationale"></a>
 ## Architectural Invariants
 
-| Invariant | Consequence | Current decision | Detailed owner |
-|---|---|---|---|
-| One container belongs to one backend session. | Browser tabs and virtual views cannot change session identity. | [AD1](../decisions/README.md#ad1-one-container-per-session) | [Container](container.md) |
-| One persistent R2 bucket belongs to one user. | Multiple sessions reconcile selected files through one durable namespace. | [AD3](../decisions/README.md#ad3-per-user-r2-buckets) | [Storage & Sync](storage-and-sync.md) |
-| KV status is the dashboard authority. | Exit paths write `stopped`; a demonstrably live container may repair a false stop only without a deliberate-shutdown marker. | [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
-| Idle means no classified terminal or Browser IDE input. | Autonomous output and server-to-client traffic do not keep a session alive. | [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | [Container](container.md) |
-| Only visible terminal panes own WebSockets and resize authority. | MultiView is browser-local and does not create backend sessions. | [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | [Architecture Internals](architecture-internals.md) |
-| Final sync is awaited while the container is alive. | The signal trap is a backstop, not the durability guarantee. | [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) | [Storage & Sync](storage-and-sync.md) |
-| Ordinary sync recovery precedes baseline reconstruction. | Automatic `--resync` is bounded to exhausted recovery or absent listing state. | [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery) | [Storage & Sync](storage-and-sync.md) |
-| Worker-held credentials never enter a container when an interceptor owns them. | Missing interceptor configuration fails closed rather than bypassing the boundary. | [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | [Security](security.md) |
-| Direct-internet strict egress passes through the customer's Gateway. | Own-account platform primitives remain explicitly scoped exceptions. | [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | [Security](security.md) |
-| Root sessions own mutation and delivery. | Review, CI, memory, and Vault child agents report or publish only within their bounded contracts. | [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | [Preseed](preseed.md), [Vault](vault.md) |
+| Invariant | Consequence / decision | Detailed owner |
+|---|---|---|
+| One container per backend session | Browser views cannot redefine identity; AD1 | Container |
+| One R2 bucket per user | Selected files reconcile through one namespace; AD3 | Storage & Sync |
+| D1 session authority is generation/revision ordered | Stale observations, uncertainty or read-side age cannot invent exit | Container |
+| Classified input owns idle activity | Output and server-to-client chatter do not retain compute; AD47 | Container |
+| Visible terminal panes own sockets/resize | MultiView remains browser-local; AD82 | Terminal & IDE |
+| Final sync is awaited while workload is alive | Signal trap is a backstop; [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) | Storage & Sync |
+| Ordinary sync recovery precedes baseline reconstruction | Bounded exhausted-recovery resync; AD125 | Storage & Sync |
+| Interceptor credentials remain outside workload | Required configuration fails closed; AD72/AD81 | Security |
+| Strict direct internet crosses customer Gateway | Explicit scoped platform exceptions; AD86 | Security |
+| Root sessions own mutation and delivery | Bounded review/CI/extraction agents report or publish only within contract; [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Preseed, Vault |
 
 <a id="bucket-creation-and-seeding"></a>
 <a id="three-color-session-status"></a>
 ## State Ownership and Durability
 
-When two observations disagree, the authority column decides which one wins. A process-local cache or browser display is never allowed to overrule its durable owner.
+| State | Scope | Authority / durability | Writers/readers | Recovery owner |
+|---|---|---|---|---|
+| User/setup/configuration | Deployment/user | KV, persistent/eventually consistent | Authenticated Worker routes and policy/UI | Authentication/Configuration |
+| Complete session/lifecycle/readiness/metrics | Session | D1 `runtime_sessions`, generation/revision/sequence fenced | Lifecycle routes/DO observations; dashboard/API | Container |
+| Workload ownership during `starting/running/unreachable/stopping` | Session | D1 even without container wake | Session admission and managed mutation gates <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> | Container |
+| Runtime coordination/recovery/shutdown fence | Session | DO storage across reconstruction | Container DO <!-- @impl: src/container/index.ts::container --> | Container |
+| Live processes/ports | Session | Containers platform and successful host observations, ephemeral | Runtime/DO | Container |
+| Workspace/selected files | User | R2, persistent | Sync/storage routes; session/UI | Storage & Sync |
+| Local workspace/agent runtime | Session | Ephemeral filesystem/processes | User/agent/IDE/entrypoint | R2/Git restore/restart |
+| IDE UI snapshot and extension intent | User | Bounded files under `~/.codeflare`, ordinary selected sync | Exporter/manifest owner; restore | Browser IDE package/runtime |
+| Editor databases/credentials/chat/logs | Session | Ephemeral by contract | code-server/extensions | Fresh launch, never R2 restore |
+| MultiView membership | Browser | Browser storage | Frontend | Validate live sessions |
+| Live usage accumulator/projection | User | Timekeeper durable state plus KV serving record | Timekeeper; quota/personal usage | Billing |
+| Historical usage/tombstones/reports/retention | Organization/user | D1, separate from quota truth | Accounting/scheduler; admin Analytics/Reports | Billing |
+| Per-isolate caches | Isolate | TTL/reset, ephemeral | Owning module | Configuration/Billing/Security |
+| Vault/cumulative graph content | User | R2-backed Vault/published graph after exact success | Root-owned extraction; consumers | Vault |
 
-| State | Scope | Authority | Durability | Writers | Readers | Recovery owner |
-|---|---|---|---|---|---|---|
-| User, setup, and configuration records | Deployment/user | Workers KV | Persistent, eventually consistent | Authenticated Worker routes | Worker policy and UI | Owning route/configuration lane |
-| Session dashboard status and list metadata | Session | Workers KV projection | Persistent, eventually consistent | Lifecycle routes and Container DO <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> | Dashboard batch-status <!-- @impl: src/routes/session/lifecycle.ts::app --> | Container lifecycle |
-| Terminal and managed-mutation ownership | Session | Persisted Container SDK state | Durable without container wake | Containers platform | Terminal admission and managed reconciliation <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> | Container lifecycle |
-| Container coordination and recovery evidence | Session | Container DO storage | Durable across DO hibernation/reconstruction | Container DO <!-- @impl: src/container/index.ts::container --> | Container DO | Container lifecycle |
-| Live process and port state | Session | Containers platform plus successful host probes | Ephemeral | Container runtime | Container DO | Container lifecycle |
-| Workspace and selected user files | User | R2 bucket | Persistent | Sync lifecycle and storage API | Session containers and storage UI | Storage & Sync |
-| Local workspace and agent runtime | Session | Container filesystem/processes | Ephemeral | User, agents, IDE, entrypoint | Same session | Restore from R2/Git or restart |
-| Browser IDE UI snapshot | User | `~/.codeflare/ide-ui-state.json` in selected sync | Bounded persistent | IDE exporter | IDE restore | Browser IDE runtime |
-| Live editor databases, credentials, chat, logs | Session | Ephemeral container paths | Ephemeral by contract | code-server and extensions | Same editor generation | Fresh launch, never R2 restore |
-| Virtual MultiView membership | Browser | Browser storage | Browser-local | Frontend | Frontend | Validate against live sessions |
-| Per-isolate caches | Worker isolate | Owning module plus TTL/reset | Ephemeral | Owning module | Same isolate | TTL or explicit reset |
-| Vault and cumulative graph content | User | R2-backed Vault plus published graph files | Persistent after exact-success publication | Root-owned extraction lifecycle | Vault and graph consumers | Vault extraction owner |
-
-Bucket creation is lazy and idempotent. Session start and storage browse ensure the user's bucket exists; preseed and mode reconciliation occur through their specialist owners. See [Storage & Sync](storage-and-sync.md), [Preseed](preseed.md), and [Container](container.md).
+Bucket creation is lazy/idempotent. Start and storage browse ensure it exists; specialist owners handle seeding and mode reconciliation. The legacy status metadata helper is preserved only as a historical traceability pointer: <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> The original status reader pointer remains <!-- @impl: src/routes/session/lifecycle.ts::app -->; its current source reads D1.
 
 ## Data Flow
 
@@ -426,347 +266,211 @@ Bucket creation is lazy and idempotent. Session start and storage browse ensure 
 sequenceDiagram
     participant U as Browser
     participant W as Worker
-    participant KV as Workers KV
+    participant DB as D1
     participant DO as Container DO
     participant C as Container host
     U->>W: Create session
-    W->>W: Validate identity, agent policy, and storage quota
-    W->>KV: Persist session record
+    W->>W: Verify identity, installed/policy agent and storage quota
+    W->>DB: Complete non-secret stopped record
     U->>W: Start session
-    W->>W: Check migration, installed agent, session policy, and compute quota
-    W->>DO: Bind session, bucket, credentials, and preferences
-    W->>KV: Write persisted running status
-    W->>DO: Start container asynchronously
-    DO->>C: Restore workspace#59; start host and selected services
+    W->>W: Validate migration/reconciliation, capacity and quota
+    W->>DB: Claim new generation as starting
+    W->>DO: Bind identity, credentials, preferences and generation
+    DO->>C: Restore files and start selected services
+    DO->>DB: Generation-fenced runtime projection
 ```
 
 #### Terminal connection
 
-```mermaid
-sequenceDiagram
-    participant U as Browser
-    participant W as Worker
-    participant DO as Container DO
-    participant C as Container host
-    U->>W: Poll startup status
-    W-->>U: Ready
-    U->>W: Upgrade terminal WebSocket
-    W->>DO: Session-scoped proxy
-    DO->>C: PTY stream
-```
+The browser reads startup readiness, then upgrades the authenticated session-scoped socket. Current API readiness keeps ordinary terminal clients disconnected until `ready`; mounting is not public attachment authority. Service readiness and shared lifecycle are different observations.
 
-**Authority:** An active authenticated user may create the record. Creation and start are distinct operations: creation does not consume a concurrent-running slot; start checks role/tier concurrency and compute quota, binds the Container DO, then writes KV `running` before asynchronous startup. Concurrent-session admission is explicitly best effort: the KV count and later status write are not atomic, so simultaneous starts may exceed the nominal per-user limit. Deployment `max_instances` is the separate hard platform capacity boundary. Successful host readiness owns service availability.
+Creation consumes no running slot. Start counts workload-owning D1 states; that count and subsequent claim remain best effort, so simultaneous starts can exceed the nominal per-user cap. `max_instances` is the separate platform boundary. D1 authority failure rejects Start; quota-KV uncertainty follows Billing's separate availability posture. Accepted asynchronous startup is not port readiness; a later start failure does not invent stopped or erase its generation.
 
-Creation may reject enterprise agent policy or SaaS storage quota. Start may reject bucket migration, unavailable agent, the current session-count guard, or compute quota. An accepted asynchronous start that later fails rolls KV back to `stopped` rather than producing a persisted `error` state.
-
-**Failure owner:** [Container](container.md) owns startup, retry, and recovery detail. [API Reference](api-reference.md) owns endpoint outcomes. [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) owns operator diagnosis.
-
-**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api)
+**Contracts:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api). [API Reference](api-reference.md#container-lifecycle) owns exact outcomes; [Container](container.md) and [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) own recovery.
 
 <a id="startup-status-stages-req-session-015"></a>
 <a id="startup-status-stages-req-session-017"></a>
 ### Startup Status Stages
 
-| Stage | Progress | Derived from |
-|---|---:|---|
-| stopped | 0% | `getState()` unavailable before a running workload is observed |
-| starting | 10–20% | Container state not running/healthy, or host health unavailable |
-| syncing | 30–45% | Host health available while initial sync is pending or active |
-| verifying | 85% | Initial sync complete while terminal sessions remain unavailable |
-| mounting | 90% | Backend terminal service registered; visible tab 1 attaches once and adopts the prepared PTY while the readiness overlay remains |
-| ready | 100% | Terminal sessions and pre-warm ready; the startup browser attachment remains behind readiness until Open replaces it with a fresh focused instance ([REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating)). |
-| error | 0% | Startup-status handler or initial-sync failure |
+`stopped`, `starting`, `syncing`, `verifying`, `mounting`, `ready`, and `error` are derived endpoint stages, not the D1 lifecycle enum. Terminal readiness requires service/prewarm; VS Code readiness requires editor preparation without a host PTY. [API Reference](api-reference.md#container-lifecycle) owns progress percentages and details; [Terminal & IDE](terminal-and-ide.md) owns rendering/restore/focus behavior.
 
-Terminal attachment follows [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating): once startup reaches `mounting`, the visible tab attaches and adopts the prepared PTY behind the readiness overlay without taking focus. At OPEN, that startup browser terminal and attachment are disposed and one fresh instance mounts for the selected session. The host PTY remains alive and supplies its serialized screen to the replacement under [REQ-TERM-044](../../sdd/spec/terminal.md#req-term-044-terminal-restore-and-readiness-rendering), matching the recovery formerly obtained only through page reload. Temporarily unavailable dimensions yield to later resize instead of aborting OPEN. Ordinary visibility return restarts only disconnected or connecting panes. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
-
-These endpoint stages are derived observations, not persisted lifecycle state. KV remains authoritative for persisted `running|stopped`; `initializing`, `stopping`, and lifecycle-error presentation are frontend-only. [API Reference](api-reference.md#container-lifecycle) owns the exact response contract.
+Original rendering contracts remain [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating) and [REQ-TERM-044](../../sdd/spec/terminal.md#req-term-044-terminal-restore-and-readiness-rendering). Their historical implementation pointers remain: <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn --> These pointers do not turn the retired mounting-attachment prose into current endpoint authority.
 
 <a id="session-lifecycle-state-machine-req-session-018"></a>
 ### Session Lifecycle State Machine
 
-<!-- doc-allow-element: AD70 durable and presentation authority must remain visible together -->
 ```mermaid
 stateDiagram-v2
-    state "Persisted KV" as Persisted
-    state Persisted {
-        [*] --> stopped
-        stopped --> running : start accepted before service readiness
-        running --> stopped : confirmed idle, exit, or shutdownRequested
-        running --> running : bounded DO reconstruction preserves workload
-        stopped --> running : live health and no shutdownRequested marker
-    }
-    state "Frontend presentation" as Frontend
-    state Frontend {
-        [*] --> initializing
-        initializing --> sessionView : startup-status ready
-        initializing --> error : startup failure
-        sessionView --> stopping : explicit stop or delete
-        stopping --> dashboard : batch status confirms stopped
-    }
+    [*] --> stopped
+    stopped --> starting: Start claims new generation
+    starting --> running: positive generation-fenced runtime observation
+    running --> unreachable: transport incident
+    unreachable --> running: valid recovery observation
+    starting --> stopping: termination intent
+    running --> stopping: termination intent
+    unreachable --> stopping: termination intent
+    stopping --> stopped: positive exit / awaited confirmed destruction
 ```
 
-Persisted storage has only `running` and `stopped`; `running` may precede terminal readiness. `initializing`, `sessionView`, `stopping`, `dashboard`, and `error` above are frontend presentation states. `collectMetrics()` confirms a not-running condition before writing `stopped`; a successful live health probe may re-assert `running` only when no durable `shutdownRequested` marker proves deliberate teardown. Transport reconstruction is bounded and preserves the running workload where possible.
+Lifecycle generation fences replacement executions; observation sequence fences delayed DO projections; response revision orders client observations. An old `stopping` row, SDK false reading, elapsed diagnostic window, transport error or stale browser state is not exit evidence. `starting`, `running`, `unreachable` and `stopping` retain workload ownership. A shutdown marker prevents revival; D1 predicates additionally reject stale-generation/stopping writes. Individual Delete removes a row only after confirmed exit. Frontend ACTIVE/IDLE is device-local connectivity, not stored lifecycle.
 
-| Event | Authoritative owner | Durable effect | Recovery pointer |
-|---|---|---|---|
-| Idle threshold | Container DO metrics loop | Write `stopped`, drain final sync, signal stop | [Container](container.md) |
-| User stop/delete | Lifecycle route and Container DO | Persist shutdown marker and `stopped`; delete may then remove record | [Container](container.md) |
-| Monitor transport loss | Durable recovery record | Preserve running status during bounded DO reconstruction | [Container recovery](container.md) |
-| Unexpected exit | Error hook plus confirmed metrics observation | Write `stopped` after confirmation | [Troubleshooting](troubleshooting.md) |
-| Restart with changed configuration | Lifecycle route | Teardown, repopulate, start, then re-assert running | [Container](container.md) |
-
-**Requirements:** [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-ownership-is-durable)
+**Original references retained:** [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-ownership-is-durable). Current statuses remain SDD-owned; historical KV authority is recorded under AD70.
 
 ### Metrics Data Flow
 
-```mermaid
-flowchart LR
-    DO["Container DO collectMetrics"] --> A["Host /activity"]
-    DO --> H["Host /health"]
-    A --> KV["KV status and list metadata"]
-    H --> KV
-    KV --> W["Worker batch-status"]
-    W --> F["Dashboard session cards"]
-```
+The host `/activity` and `/health` report observations. Container DO applies idle/recovery policy and publishes generation/sequence-fenced D1 projections. Dashboard batch status reads the owner-indexed D1 projection, not per-session KV or DO probes. Usage/storage/entitlement/release/migration use separate ancillary reads.
 
-The host reports observations. The Container DO applies policy and writes the authoritative status/metrics record. The dashboard reads KV and never contacts the Durable Object merely to render status.
-
-**Requirements:** [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard)
+**Contracts:** [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard).
 
 ### Dashboard WS Disconnect Flow
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as Frontend layout
-    participant T as Terminal store
-    participant C as Session container
-    U->>F: Navigate to dashboard
-    F->>T: Start bounded disconnect grace
-    T->>C: Close terminal sockets after grace
-    U->>F: Return to session
-    F->>T: Cancel pending disconnect
-    T->>C: Reconnect visible terminal keys only
-```
-
-Only visible panes reconnect. A server-authoritative stopped signal ends retries; a transient network close remains retryable. Exact timings, codes, and frontend ownership live in [Architecture Internals](architecture-internals.md), [API Reference](api-reference.md), and [Troubleshooting](troubleshooting.md).
+Dashboard navigation starts a bounded disconnect grace; returning cancels it and reconnects exact visible terminal keys. Connection generations prevent stale cleanup from closing newer sockets. Authoritative denial/stopping ends attachment; transient transport remains uncertainty. [Terminal & IDE](terminal-and-ide.md), [API Reference](api-reference.md), and [Troubleshooting](troubleshooting.md) own timings/codes and recovery.
 
 <a id="contact-relay-data-flow-req-landing-002"></a>
 ### Contact Relay Data Flow
 
-```mermaid
-flowchart LR
-    Form["Landing contact form"] --> W["Public Worker route"]
-    W --> RL["KV rate limit"]
-    RL --> T["Turnstile verification"]
-    T --> R["Resend relay"]
-    R --> Inbox["Operator inbox"]
-```
-
-Submission content is validated, escaped, and relayed without persistence; KV stores only rate-limit state. [API Reference](api-reference.md#public-landing) owns request and error contracts, and [Security](security.md) owns abuse and injection controls.
-
-**Requirements:** [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)
+Landing form → public Worker → KV rate limit → Turnstile → Resend → operator inbox. Validated/escaped content is relayed, not persisted. [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [API Reference](api-reference.md#public-landing), [Security](security.md).
 
 <a id="onboarding-access-request-flow-req-auth-020"></a>
 <a id="onboarding-access-request-flow-req-auth-021"></a>
 ### Onboarding Access-Request Flow
 
-An authenticated onboarding user with no active tier is recorded as a pending access request, receives a confirmation redirect, and triggers best-effort operator/user email. SaaS keeps its subscription path; enterprise bypasses this flow. [Authentication](authentication.md) owns the complete branch and [Security](security.md#onboarding-access-request-oauth-gated) owns its boundary.
-
-**Requirements:** [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow)
+Authenticated onboarding users without active tier become pending access requests, receive confirmation redirects and best-effort operator/user email. SaaS retains subscription; Enterprise bypasses this flow. [Authentication](authentication.md) owns the branch; [Security](security.md#onboarding-access-request-oauth-gated) owns the boundary. [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow).
 
 <a id="github-clone-data-flow-req-github-004"></a>
 ### GitHub Clone Data Flow
 
-A session created from a repository keeps its clone directive in session metadata and re-applies it before every container start; configuration failure blocks startup. For a missing ephemeral workspace, the established best-effort clone runs again; an existing or workspace-synced target is left untouched by the collision guard. A running session uses the authenticated host clone endpoint, and a successful panel clone is recorded on the session at once.
+Creation clone directives persist with the session and reapply before every start; configuration failure blocks startup, while clone itself preserves existing targets and is best effort for missing ephemeral workspaces. A running-session clone uses the authenticated private host and records successful panel clones immediately. Metrics reports bounded top-level repository inventory only after post-restore clone work completes; resume restores absent tracked repositories within per-repository/overall budgets and continues past failures. Enterprise stamps GitHub credentials Worker-side; other modes retain existing container transport.
 
-Beyond the creation directive, the container reports the repositories present at the top of its workspace with each metrics observation, withheld until its own post-restore clone loop has finished so an in-progress restore is never mistaken for the user's actual inventory; the Worker validates and bounds that inventory ([REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-repository-tracking)), and a resume restores absent repositories within a per-repository and overall time budget, logging and continuing past any failure ([REQ-GITHUB-016](../../sdd/spec/github.md#req-github-016-tracked-repository-restoration)). Enterprise mode injects the user's GitHub token at the Worker egress boundary; other modes provide the existing container credential. [API Reference](api-reference.md#github-integration) owns outcomes and validation.
-
-**Requirements:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](../../sdd/spec/github.md#req-github-016-tracked-repository-restoration)
+**Contracts:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](../../sdd/spec/github.md#req-github-016-tracked-repository-restoration). [API Reference](api-reference.md#github-integration) owns validation/outcomes.
 
 ### Enterprise LLM Routing <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
-```mermaid
-flowchart LR
-    C["Container agent"] -->|"Placeholder credential + canonical level"| I["LlmInterceptor"]
-    I -->|"Valid Dynamic Route"| D["Discovered compat / historical REST-first"]
-    I -->|"Authorized native/custom handle"| N["Saved compat / Bedrock Runtime"]
-    I -->|"Invalid profile, capability, or authorization"| F["Bounded failure"]
-    F --> C
-    D --> G["Customer AI Gateway"]
-    N --> G
-    G --> P["Selected backend"]
-    P --> G
-    G --> I
-    I --> C
-```
+Container placeholder + opaque authorized handle/canonical level → Worker interceptor → discovered compat/historical REST-first or saved native transport → customer Gateway → backend. Interception precedes startup so platform CA trust is available. Gateway token, URL and native binding remain Worker-side. Required missing/stale authority fails before upstream fetch. Explicit human Pi native authentication retains current permission/generation/strict-egress checks and never grants Operator access.
 
-Interception is wired before container start so the platform CA is available to the workload. Gateway URL, token, provider binding, and runtime selectors remain Worker-side; administration accepts exact model IDs, while sanctioned model publication gives containers only opaque handles. Explicitly permitted human Pi sessions additionally retain native authenticated providers under [REQ-ENTERPRISE-089](../../sdd/spec/enterprise-mode.md#req-enterprise-089-human-native-pi-startup) and [Configuration](configuration.md), without platform credentials, Operator access or relaxed strict egress. New discovered compatibility contracts explicitly bind `/compat/chat/completions`; historical Dynamic assignments retain REST-first/404 fallback. Both translate Pi's canonical level through the selected profile. Native/custom-provider handles retain their saved compat or Bedrock Runtime authority. Discovered compat contracts include narrow complete-tool-name repair; historical provider-specific repair remains Bedrock tool names and Gemini thought-signature replay. Missing routing, stale authorization, unsupported controls, and invalid profiles fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+**Additional original routing contracts:** [REQ-ENTERPRISE-011](../../sdd/spec/models-and-routing.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-051](../../sdd/spec/setup.md#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-054](../../sdd/spec/setup.md#req-enterprise-054-native-target-profile-and-lifecycle-administration), [REQ-ENTERPRISE-089](../../sdd/spec/models-and-routing.md#req-enterprise-089-human-native-pi-startup). Detailed transport/translation/discovery lives in [Models & Routing](models-and-routing.md), [Security](security.md) and [Configuration](configuration.md).
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch), [REQ-ENTERPRISE-051](../../sdd/spec/enterprise-mode.md#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/enterprise-mode.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-054](../../sdd/spec/enterprise-mode.md#req-enterprise-054-native-target-profile-and-lifecycle-administration), [REQ-ENTERPRISE-055](../../sdd/spec/enterprise-mode.md#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-058](../../sdd/spec/enterprise-mode.md#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-059](../../sdd/spec/enterprise-mode.md#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-060](../../sdd/spec/enterprise-mode.md#req-enterprise-060-native-target-input-validation), [REQ-ENTERPRISE-061](../../sdd/spec/enterprise-mode.md#req-enterprise-061-native-target-administration-projection)
-
-**Discovery boundary:** [REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection); [Target capability discovery](target-capability-discovery.md#contracts-not-a-model-list). <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse -->
+**Discovery boundary:** [REQ-ENTERPRISE-035](../../sdd/spec/models-and-routing.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [Models & Routing — Contracts, not a model list](models-and-routing.md#contracts-not-a-model-list). <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse -->
 
 ### Strict Gateway Egress
 
-```mermaid
-sequenceDiagram
-    participant C as Container
-    participant X as Host-specific or catch-all interceptor
-    participant E as env.EGRESS
-    participant G as Cloudflare Gateway
-    participant U as Direct-internet host
-    C->>X: Outbound HTTPS or WebSocket
-    Note over X: own-account platform primitives use explicit direct exceptions
-    X->>E: Other direct-internet traffic
-    E->>G: Customer network boundary
-    G->>U: Policy-authorized upstream
-    U-->>C: Response through the same boundary
-```
-
-Host-specific interceptors remain responsible for credential stamping. The catch-all controller is transparent except for own-account R2 re-signing. Strict mode never falls back to unrestricted fetch when the required egress binding is absent.
-
-**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-024](../../sdd/spec/enterprise-mode.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing), [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority)
+Host-specific registrations own credential stamping; otherwise-unclaimed direct internet crosses `env.EGRESS` and customer Gateway. Explicit own-account platform exceptions stay scoped. Catch-all traffic is transparent apart from bound-bucket R2 re-signing; absent mandatory binding never falls back to global fetch. [REQ-ENTERPRISE-024](../../sdd/spec/security.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing) supplements component contracts. [Security](security.md) owns mechanisms.
 
 ### Pi Memory and Vault Extraction Data Flow
 
-```mermaid
-sequenceDiagram
-    participant R as Root Pi session
-    participant A as Extraction agent
-    participant G as Vault and global graph
-    R->>R: Persist immutable request snapshot
-    R->>A: Public bounded background launch
-    A->>G: Write work artifact, lock merge, publish graph
-    A-->>R: native terminal notification with correlated result
-    R->>R: Verify exact-success artifacts and advance matching state
-```
-
-The root owns delivery and finalization. The child receives one immutable request, publishes under a bounded lock, and cannot advance root counters or manifests by self-report. [Vault](vault.md) owns capture and publication semantics; [Preseed](preseed.md) owns delivered runtime contracts.
-
-**Requirements:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
+Root persists an immutable request snapshot → bounded background extraction → locked Vault/graph publication → correlated native terminal result → root exact-success artifact verification/finalization. Child self-report cannot advance counters/manifests. [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional); [Vault](vault.md), [Preseed](preseed.md).
 
 ### Pi PR-Boundary Review Data Flow
 
-In local Review mode, an authoritative open PR head produces independent report-only reviewer lanes. An applicable protected Enterprise Action instead selects the exclusive remote path described in [Operator Review](operators.md#req-operator-053-contract-details); it must not launch a second local reviewer wave. For the local path, the root launches the lanes, correlates exact native results, publishes one finding triage, acknowledges that reviewed head, and applies accepted fixes in a separate turn. Review never runs against unpublished local commits.
-
-**Requirements:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)
-
-**Detailed documentation:** [Preseed](preseed.md)
+An authoritative published open PR head selects report-only local lanes or the exclusive protected Enterprise Action path, never both. Root correlates exact results, publishes mutation-free triage, acknowledges the reviewed head and applies accepted fixes separately. [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier); [Operators](operators.md#req-operator-053-contract-details), [Preseed](preseed.md).
 
 ### User-Invoked Review and SDD Ownership
 
-User-invoked `/review` specialists are report-only. The root owns triage and any approved mutation. `/sdd init` and `/sdd clean` are root mutation workflows that apply specification enforcement before documentation enforcement.
-
-**Requirements:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill)
-
-**Detailed documentation:** [Preseed](preseed.md)
+`/review` specialists report; root owns triage/approved mutation. `/sdd init` and `/sdd clean` are root workflows, specification enforcement before documentation enforcement. [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill); [Preseed](preseed.md).
 
 ### Pi CI Monitoring Data Flow
 
-CI monitoring launches independently after required reviewers are launched. It observes the exact PR head and reports a terminal result; it does not acknowledge review, mutate the branch, cancel runs, or chase a changed head.
-
-**Requirements:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)
-
-**Decisions:** [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [AD122](../decisions/README.md#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote)
-
-**Detailed documentation:** [CI/CD](ci-cd.md), [Preseed](preseed.md)
+Independent CI monitoring follows required reviewer launch and reports one exact PR head without acknowledgment, branch mutation, cancellation or chasing changed heads. [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [AD122](../decisions/README.md#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote); [CI/CD](ci-cd.md), [Preseed](preseed.md).
 
 ### Managed Environment Data Flow
 
-**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication), [REQ-AGENT-149](../../sdd/spec/agents.md#req-agent-149-shared-compiler-cli-compatibility), [REQ-AGENT-150](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation), [REQ-AGENT-154](../../sdd/spec/agents.md#req-agent-154-build-compatible-managed-release-discovery), [REQ-AGENT-151](../../sdd/spec/agents.md#req-agent-151-bounded-managed-release-streaming), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-021](../../sdd/spec/storage.md#req-stor-021-managed-content-ownership), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-projection), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application), [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-044](../../sdd/spec/browser-ide.md#req-ide-044-exact-company-vsix-verification), [REQ-IDE-045](../../sdd/spec/browser-ide.md#req-ide-045-company-extension-reconciliation-orchestration), [REQ-IDE-046](../../sdd/spec/browser-ide.md#req-ide-046-session-local-company-vsix-installation)
+Protected private-repository publication produces an immutable signed release. Worker-held encrypted PAT resolves repository identity and verifies metadata/digests/signature/sequence/ABI/runtime/paths/bounds/extensions, caching content-addressed deployment R2 bytes. A repository-stable conditional pointer owns trust selection; losing replacement repairs bounded KV projection or fails explicitly. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
-A protected private-repository workflow publishes one immutable signed release. The Worker alone uses the encrypted repository PAT, verifies immutable GitHub metadata, asset digests, Ed25519 signature, sequence, repository identity, seed ABI, runtime hash, paths, bounds, and extension records, then caches content-addressed bytes in deployment R2. A repository-stable conditional pointer records the authoritative trust selection. A losing concurrent replacement performs bounded KV repair and fails explicitly if the pointer does not settle. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
+Dashboard compares the verified active descriptor with the applied stamp. Idle-user reconcile validates bounded streams, uses cached applied history for delta planning or marker-resumable full planning, writes at most six concurrent bucket operations, and stamps completion last. Recreate retains full overwrite. Container receives active boolean/applied digest, never PAT, signing material, bundles/signature or VSIX bytes. Private curation is runtime content master; baked preseed remains independent fallback; existing five-minute discovery is not a container downloader/webhook/new poll loop. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
-Dashboard status compares the already-verified active descriptor and resolved mode with the user's applied stamp without re-expanding an unchanged payload; the existing five-minute resolver still verifies and caches a newly discovered release once.
-
-When an idle user needs an upgrade, the dashboard calls `POST /api/storage/seed/agent-configs/upgrade`. The Worker validates the target and, when available, applied cached bundles as bounded streams. Missing valid applied history uses marker-resumable full-target planning. Otherwise, the Worker writes only added or release-changed paths through at most six concurrent user-bucket operations. Target markers resume interrupted writes, while a bounded target-identity record preserves authority to repair marked bytes after target drift. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
-
-Manual Recreate keeps the full-overwrite storage route, and reconciliation stamps completion last. Container startup receives only an active boolean and the applied digest. It never receives GitHub credentials, signing material, bundle or signature bytes, or VSIX bytes. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
-
-Private curation is the runtime content master; the public baked preseed remains an independent fallback. Publication is discovered through the existing five-minute dashboard refresh rather than a container downloader, webhook, or new polling loop. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> See [Preseed — Managed curation ownership](preseed.md#managed-curation-ownership) and [AD136](../decisions/README.md#ad136-managed-environments-reconcile-signed-releases-before-session-start).
+**Contracts:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication), [REQ-AGENT-149](../../sdd/spec/agents.md#req-agent-149-shared-compiler-cli-compatibility), [REQ-AGENT-150](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation), [REQ-AGENT-154](../../sdd/spec/agents.md#req-agent-154-build-compatible-managed-release-discovery), [REQ-AGENT-151](../../sdd/spec/agents.md#req-agent-151-bounded-managed-release-streaming), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-021](../../sdd/spec/storage.md#req-stor-021-managed-content-ownership), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-projection), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application), [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-044](../../sdd/spec/browser-ide.md#req-ide-044-exact-company-vsix-verification), [REQ-IDE-045](../../sdd/spec/browser-ide.md#req-ide-045-company-extension-reconciliation-orchestration), [REQ-IDE-046](../../sdd/spec/browser-ide.md#req-ide-046-session-local-company-vsix-installation), [AD136](../decisions/README.md#ad136-managed-environments-reconcile-signed-releases-before-session-start). [Preseed](preseed.md#managed-curation-ownership), [Storage & Sync](storage-and-sync.md).
 
 ## Failure Domains and Recovery Ownership
 
-| Failure domain | Observable disagreement | Authority | Recovery owner | Degradation rule |
-|---|---|---|---|---|
-| Worker isolate/cache | Isolates temporarily read different cached configuration | KV plus bounded TTL/reset | [Architecture Internals](architecture-internals.md#module-level-caches) | Never treat isolate memory as durable authority |
-| Durable Object attachment | Host routes fail while platform may still report running | Correlated host probes and durable recovery record | [Container](container.md#auto-sleep-configurable-sleepafter) | Reconstruct the coordinator at most twice while preserving workload where possible |
-| Container process | KV says running but not-running persists | Confirmed container state | [Container](container.md#auto-sleep-configurable-sleepafter) | Write `stopped` only after the confirmation window |
-| Accepted asynchronous start | Start was accepted, then startup status returns to `stopped` | KV rollback plus Worker/container-start logs | [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) | Preserve `stopped`; inspect policy/platform capacity and retry after correction |
-| False persisted stop | Health proves live while KV says stopped | Live health plus absence of shutdown marker | [Container](container.md#auto-sleep-configurable-sleepafter) | Re-assert `running` within one metrics tick |
-| Final persistence drain | Stop requested while local changes may be newer | Awaited host final-sync result | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) | Stop remains bounded; outcome is audited |
-| R2 bisync | Listings or transfer remain unrecoverable | Sync daemon state and health report | [Storage & Sync](storage-and-sync.md#vanishing-file-recovery) | Repair vanished files first; bounded baseline rebuild last |
-| Enterprise credential boundary | Required token or binding unavailable | Worker-side interceptor configuration | [Security](security.md#api-token-containment) and [Configuration](configuration.md) | Fail closed; never expose or fall back to container credentials |
-| Browser IDE process | code-server or agent descendant exits or ignores TERM | Generation identity and bounded reap | [Container](container.md#code-server-browser-ide) and [Architecture Internals](architecture-internals.md#browser-ide-internals) | Reap matching generation before replacement |
-| Review or CI result | Result names a different head | Authoritative PR head | [Preseed](preseed.md) and [CI/CD](ci-cd.md) | Ignore stale result; never acknowledge replacement head |
-| Extraction publication | Child reports success without matching artifacts | Root artifact verification | [Vault](vault.md) and [Preseed](preseed.md) | Leave counters/manifests unchanged and redeliver within bound |
+| Domain | Authority / degradation | Recovery owner |
+|---|---|---|
+| Worker cache disagreement | Durable owner plus TTL/reset, never isolate memory | Configuration/Billing/Security |
+| Session D1 read unavailable | Retain last ordered client state; warn; Start/managed mutation fail closed | Container/Troubleshooting |
+| DO attachment/host transport loss | Durable incident/recovery evidence; bounded reconstruction cannot prove exit | Container/Troubleshooting |
+| Accepted async start fails | Preserve generation truth for reconciliation, not KV rollback/invented stopped | Container/Troubleshooting |
+| Old `stopping` or false SDK not-running | Ownership retained until positive generation-fenced exit | Container |
+| Final persistence drain | Await live sync within shared deadline; audit incomplete outcomes | Storage & Sync |
+| R2 bisync unrecoverable | Repair ordinary/vanishing failures before bounded baseline rebuild | Storage & Sync |
+| Required enterprise credential/binding absent | Fail closed; never expose or bypass to container credentials | Security/Configuration |
+| Editor/agent process failure | Reap matching generation before replacement | Container/Browser IDE package |
+| Review/CI result for other head | Ignore stale result; do not acknowledge replacement | Preseed/CI/CD |
+| Extraction self-report without artifacts | Leave root state unchanged; bounded redelivery | Vault/Preseed |
 
 ## Observability and Operator Signals
 
-| Signal | Meaning / non-evidence | Observed at | Escalate when | Runbook |
-|---|---|---|---|---|
-| KV session `status` | Authoritative persisted running/stopped; not immediate host readiness | Dashboard `/api/sessions/batch-status` | `stopped` disagrees with successful live health | [False stopped](troubleshooting.md#session-shows-stopped-on-the-dashboard-but-container-is-actually-running) |
-| Startup stage | Derived startup boundary; not persisted lifecycle status | `/api/container/startup-status` | Rejected start, accepted start returning to `stopped`, `error`, or no progress | [Start rejection/rollback](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped), [Waiting for services](troubleshooting.md#container-stuck-at-waiting-for-services) |
-| `lastInputAt` | Latest classified terminal or Browser IDE input; not agent output or liveness | Internal host `/activity`, surfaced through idle decisions and lifecycle logs | A session idles despite recent user input | [Container idle policy](container.md#auto-sleep-configurable-sleepafter) |
-| Metrics `updatedAt` | Last metrics publication; not liveness while the alarm loop sleeps | Dashboard batch status | Older than one 60-second metrics cycle while KV remains `running` | [Dashboard metrics](troubleshooting.md#dashboard-metrics-look-stale-or-cpu-exceeds-100) |
-| Terminal connection state | Visible-pane connectivity; not persisted session state | Terminal UI and client WebSocket state | Reconnecting persists after visibility return | [Terminal reconnect](troubleshooting.md#terminal-stuck-on-connecting-after-a-mobile-app-switch) |
-| Sync health/status | Current persistence-cycle result; not proof of complete R2 contents | Startup-status `details`, `/run/codeflare/sync/sync-status.json`, `/run/codeflare/sync/sync.log` | `failed`, frozen, or final-sync audit is incomplete | [R2 Sync Issues](troubleshooting.md#r2-sync-issues) |
-| Recovery correlation logs | Attempt, route observation, outcome, and exhaustion; not user-requested shutdown | `wrangler tail`, keyed by `recoveryAttemptId` | Recovery exhausts or shutdown ownership is unreadable | [Transport recovery](troubleshooting.md#common-failure-modes) |
-| CI native notification | Terminal result for one exact PR head; not review completion | Root Pi terminal/session notification | Failure, timeout, malformed result, or head mismatch | [CI/CD](ci-cd.md) |
+| Signal | Meaning / non-evidence | Owner |
+|---|---|---|
+| D1 lifecycle/generation/revision | Shared ordered lifecycle, not device-local connection or immediate service readiness | API/Container |
+| Startup stage/details | Derived readiness, not persisted lifecycle | API/Container |
+| `lastInputAt` | Classified terminal/IDE input, not autonomous output/liveness | Container |
+| Metrics observation timestamp | Last publication, not standalone exit proof | Container/Troubleshooting |
+| Terminal connection state | Local ACTIVE/IDLE, not backend lifecycle | Terminal & IDE |
+| Sync health/log/audit | Cycle result, not complete bucket proof | Storage & Sync/Troubleshooting |
+| Recovery correlation | Incident/attempt/outcome, not user shutdown | Container/Troubleshooting |
+| CI native notification | Exact-head terminal CI result, not review completion | CI/CD |
 
-<a id="module-level-caches"></a>
 ## Capacity, Caching, and Performance Assumptions
 
-Worker module caches are per isolate. Different isolates may observe configuration changes at different times within each cache's TTL; reset hooks narrow that window but cannot create shared memory. Exact cache variables, TTLs, bounds, and reset functions live in [Architecture Internals](architecture-internals.md#module-level-caches).
+Worker caches are per-isolate optimizations with bounded staleness; exact inventories belong to their configuration/billing/security owners. Legacy KV session-metadata savings and the original 1,500-user sizing model are historical evidence, not current D1 query guarantees.
 
-| Assumption | Bound or cadence | Operational consequence | Detailed owner |
-|---|---|---|---|
-| Dashboard status polling | 5 seconds | Status may lag one browser poll; rendering reads compact KV list metadata without one `KV.get` per session | [Architecture Internals](architecture-internals.md#module-level-caches) |
-| Metrics publication | Normally 60 seconds | Metrics may trail status; stale `updatedAt` alone is not a liveness verdict | [Container](container.md#auto-sleep-configurable-sleepafter) |
-| In-container metrics requests | 10 seconds each | A wedged route cannot hold the alarm forever; repeated full-route failure enters bounded recovery | [Container](container.md#auto-sleep-configurable-sleepafter) |
-| Coordinator reconstruction | At most two resets | Recovery preserves a possibly live workload, then fails closed into ordinary exit confirmation | [Troubleshooting](troubleshooting.md#common-failure-modes) |
-| Background R2 bisync | 15 minutes, plus manual triggers | Local files may lead R2 between reconciliations | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
-| Final persistence drain | 120-second sync budget; 135-second teardown cap | Stop stays bounded while awaiting durability before signalling the container | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
-| Background bisync baseline and PTY pre-warm | Run concurrently after the required initial restore; baseline sync is deprioritized on the default single-vCPU tier | Readiness waits for mode-specific restore and pre-warm rather than port binding alone | [Container](container.md#container-startup) |
-| Session create/start requests | 10 creates and 5 starts per minute per user | Creation records intent; start separately checks concurrency and compute-quota policy | [API Reference](api-reference.md#session-management), [Container](container.md) |
-| Concurrent-session limit | Non-SaaS, including current Enterprise runtime: role-based; SaaS: effective-tier-based | Best-effort start-time check; simultaneous starts may exceed the nominal limit. [Issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit | [Configuration](configuration.md#worker-environment), [Billing](billing.md), [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) |
-| Container resource profile | Low: 0.25 vCPU/1 GiB/4 GB; default or `saas`: 1 vCPU/3 GiB/6 GB; high: 2 vCPU/6 GiB/12 GB | One profile is selected per deployment | [Configuration](configuration.md#container-specs) |
-| Deployment container capacity | 10 instances by default; positive-integer `MAX_INSTANCES` override | This deployment-wide platform bound is distinct from the per-user policy guard | [Configuration](configuration.md#container-specs) |
-| Timekeeper user-record cache | 60 seconds; 100 entries per isolate | Quota decisions may briefly observe stale billing state | [Architecture Internals](architecture-internals.md#module-level-caches) |
+| Assumption | Bound / consequence | Owner |
+|---|---|---|
+| Visible dashboard polling | Transitions five seconds; stable 60 seconds; hidden cancellation; frequent D1 projection separate from ancillary state | Container/Terminal & IDE |
+| Metrics | Normally 60 seconds; bounded 10-second host polls | Container |
+| Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting |
+| Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync |
+| Final persistence | 120-second sync budget, shared 135-second teardown cap | Storage & Sync/Container |
+| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently/deprioritized on single vCPU | Container |
+| Create/start rate limit | 10 creates, five starts per user/minute | API Reference |
+| Concurrent workload cap | SaaS effective tier; non-SaaS including current Enterprise role-based; best effort | Billing/Configuration; [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) |
+| Resource profile | Low 0.25 vCPU/1 GiB/4 GB; default/`saas` 1 vCPU/3 GiB/6 GB; high 2 vCPU/6 GiB/12 GB | Configuration |
+| Deployment capacity | Default ten instances; positive-integer `MAX_INSTANCES` override | Configuration |
+| Timekeeper user cache | 60 seconds, 100 entries | Billing |
 
-Container work runs on local disk. R2 is the durability boundary, not a FUSE filesystem. Capacity and sync performance therefore depend on bounded reconciliation, not remote latency for every file operation.
+R2 is durability, not FUSE; work runs on local disk and performance depends on bounded reconciliation.
 
 ## Security and Privacy Boundaries
 
-| Boundary | Guarantee | Failure behavior | Detailed owner |
-|---|---|---|---|
-| Public request to Worker | Identity and route policy are applied before protected work | Reject unauthenticated or unauthorized requests | [Authentication](authentication.md), [Security](security.md) |
-| Worker to Container DO | Session identity selects one coordinator | Reject invalid or cross-session routing | [Container](container.md) |
-| Container DO to host | Internal token authenticates mutable private endpoints | Missing token prevents the request | [Security](security.md) |
-| Container to AI Gateway | Gateway credential remains Worker-side | Mandatory enterprise path returns bounded error | [Security](security.md) |
-| Container to GitHub in enterprise | Real user token is injected at host-specific egress | Missing token fails closed | [Security](security.md#github-token-containment) |
-| Container to Cloudflare API/browser | User or enterprise token is refreshed/injected Worker-side where configured | Missing valid token fails closed | [Security](security.md#api-token-containment) |
-| Strict direct-internet egress | Traffic traverses the customer's Gateway | Missing required binding returns 503 without global-fetch fallback | [Security](security.md#strict-gateway-egress-enterprise-mode) |
-| Browser IDE state export | Only allowlisted credential-free UI state persists | Invalid, external, or symbolic-link resources are excluded | [Security](security.md#browser-ide-native-agents) |
-| R2 sync | Selected user files persist under scoped credentials | Sync failure is observable and bounded | [Storage & Sync](storage-and-sync.md) |
-| Extraction child | Child can publish only through request-scoped exact-success contract | Root state does not advance on missing/mismatched artifacts | [Vault](vault.md) |
+Public identity/route policy precedes protected work. Session ownership and generation select one coordinator; private mutable host routes use lifecycle Bearer authentication. Worker-held AI/GitHub/Browser/R2 interceptor credentials remain outside workloads where that boundary applies. Strict traffic cannot bypass missing `EGRESS`. IDE persistence excludes credentials/chat/package bytes; extraction advances root state only after matching exact-success artifacts. [Security](security.md) owns mechanisms, allowlists and residual risks; [Authentication](authentication.md) owns admission.
+
+<a id="architecture-internals"></a>
+<a id="source-module-registry"></a>
+<a id="backend-libraries"></a>
+<a id="source-composition"></a>
+<a id="code-structure-pre-launch-refactoring"></a>
+<a id="cross-process-runtime-composition"></a>
+<a id="runtime-and-client-internals"></a>
+<a id="worker-routing-internals"></a>
+<a id="container-and-interception-composition"></a>
+<a id="github-integration-internals"></a>
+<a id="browser-ide-internals"></a>
+<a id="terminal-and-frontend-internals"></a>
+<a id="compatibility-and-stable-internal-aliases"></a>
+<a id="appendix-cf-nnn-code-index"></a>
+<a id="saas-and-frontend-composition"></a>
+<a id="saas-ui-components"></a>
+<a id="loginpage-web-uisrccomponentsloginpagetsx"></a>
+<a id="subscribepage-web-uisrccomponentssubscribepagetsx"></a>
+<a id="rootpage-web-uisrcapptsx"></a>
+<a id="admin-user-management"></a>
+<a id="requirement-and-source-map"></a>
+## Developer Reference Boundaries
+
+Retired Architecture Internals is not copied wholesale here. Backend/session module ownership continues in [Container](container.md), identity/error/authorization in [Authentication](authentication.md) and [API Reference](api-reference.md), configuration/cache/setup sources in [Configuration](configuration.md), model adapters/discovery in [Models & Routing](models-and-routing.md), Vault sources in [Vault](vault.md), terminal/GitHub panel/client sources in [Terminal & IDE](terminal-and-ide.md), and billing/accounting/frontend subscription sources in [Billing](billing.md). Existing [Landing](../../landing/README.md) and [Browser IDE](../../openvscode/README.md) READMEs remain package composition owners; no package references are renamed.
+
+The [original source registry/composition](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/architecture-internals.md#source-module-registry) and [CF-NNN index](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/architecture-internals.md#appendix-cf-nnn-code-index) preserve meaningful historical anchors. They are immutable history, not current implementation authority. Current schema source corrects the former separate-copy claim: `src/lib/schemas.ts` re-exports canonical `TabConfigSchema` from `web-ui/src/lib/schemas.ts`; the current frontend module also consumes the shared capability decoder. Neither statement changes runtime behavior.
+
+<a id="module-level-caches"></a>
+Cache inventory continues in [Configuration](configuration.md#module-level-caches), with domain-specific authority in Billing/Security. The [original cache sizing account](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/architecture-internals.md#module-level-caches) is historical.
+
+<a id="setup-wizard-resilience"></a>
+Setup retry and domain-recovery implementation belongs to [Configuration](configuration.md#setup-wizard-resilience); exact endpoint outcomes belong to [API Reference](api-reference.md).
 
 <a id="specification-coverage"></a>
 <a id="manual-verification-checklist"></a>
 ## Decision and Requirement Map
 
-This table is navigational. Requirement status and acceptance criteria remain authoritative in `sdd/spec/`; this document does not promote a Partial requirement by describing implemented source.
-
-| Concern | Architecture section | Requirements | Decisions | Detailed owner |
-|---|---|---|---|---|
-| Session topology and authority | System at a Glance; Container DO; state matrix | [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) | [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
-| Persistence | R2; state matrix; lifecycle flow | [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) | [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery) | [Storage & Sync](storage-and-sync.md) |
-| Browser IDE | Browser IDE component | [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) | [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | [Container](container.md), [Security](security.md) |
-| Enterprise routing | LLM and egress components/flows | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD152](../decisions/README.md#ad152-generalize-native-and-custom-provider-compat-dispatch) | [Security](security.md), [Configuration](configuration.md) |
-| GitHub | GitHub component/clone flow | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](../../sdd/spec/github.md#req-github-016-tracked-repository-restoration) | [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | [API Reference](api-reference.md), [Security](security.md) |
-| Landing | Landing component/contact flow | [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) | [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | [Architecture Internals](architecture-internals.md), [Security](security.md) |
-| Governed agents | Memory, review, and CI flows | [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) | [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | [Preseed](preseed.md), [Vault](vault.md), [CI/CD](ci-cd.md) |
+Clause-local links above are navigation, not an acceptance ledger. Active requirements/status/verification remain authoritative in `sdd/spec/`; this source-informed map does not promote Planned or Partial requirements. Original AD70/KV and CF sizing accounts are historical. System topology, storage, IDE, enterprise/GitHub, landing and governed-agent contracts retain their original links above; detailed evidence remains with the specialist owner.
 
 <a id="container-reference"></a>
 <a id="mobile-reference"></a>
@@ -775,18 +479,15 @@ This table is navigational. Requirement status and acceptance criteria remain au
 <a id="vault-reference"></a>
 ## Related Documentation
 
-- [Architecture Internals](architecture-internals.md) - Source modules, implementation composition, caches, and extension boundaries
-- [API Reference](api-reference.md) - HTTP and WebSocket contracts
-- [Authentication](authentication.md) - Identity modes and authorization flows
-- [Billing](billing.md) - Subscription, usage, and Timekeeper-facing behavior
-- [CI/CD](ci-cd.md) - Workflow and exact-head CI behavior
-- [Configuration](configuration.md) - Environment, KV settings, and operator-controlled toggles
-- [Container](container.md) - Container startup, lifecycle, host, terminal, and Browser IDE runtime
-- [Deployment](deployment.md) - Build, deployment, rollback, and private-operation links
-- [Mobile](mobile.md) - Mobile viewport, keyboard, terminal, and MultiView behavior
-- [Preseed](preseed.md) - Agent delivery, review, SDD, and runtime policy
-- [Security](security.md) - Threat boundaries, credentials, egress, and controls
-- [Storage & Sync](storage-and-sync.md) - R2 persistence, sync, recovery, and final drain
-- [Troubleshooting](troubleshooting.md) - Symptoms, diagnosis, and operator recovery
-- [Vault](vault.md) - Memory capture, Vault extraction, and graph publication
-- [Decisions](../decisions/README.md) - Alternatives, trade-offs, and consequences
+- [API Reference](api-reference.md) — HTTP/WebSocket contracts
+- [Authentication](authentication.md) — identity/provisioning/authorization
+- [Billing](billing.md) — entitlement/live accounting/history/reports
+- [Configuration](configuration.md) — settings/caches/routine Administration
+- [Container](container.md) — session/host/runtime ownership and recovery
+- [Terminal & IDE](terminal-and-ide.md) — terminal, mobile, MultiView and editor surfaces
+- [Models & Routing](models-and-routing.md) — enterprise model capability/dispatch
+- [Operators](operators.md) — generic Operator platform and contracts
+- [Landing README](../../landing/README.md), [Browser IDE README](../../openvscode/README.md) — package composition
+- [CI/CD](ci-cd.md), [Deployment](deployment.md), [Troubleshooting](troubleshooting.md)
+- [Preseed](preseed.md), [Security](security.md), [Storage & Sync](storage-and-sync.md), [Vault](vault.md)
+- [Decisions](../decisions/README.md) — trade-offs and consequences

@@ -226,7 +226,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment. <!-- @impl: .github/workflows/pentest.yml::tls --> <!-- @manual -->
 2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption. <!-- @manual -->
-3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/pentest.md](../../documentation/lanes/pentest.md#test-results). <!-- @manual -->
+3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/pentest.md](../../documentation/lanes/ci-cd.md#test-results). <!-- @manual -->
 4. A legacy-TLS verdict is derived from the server's own answer to a handshake the probe issues itself. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (passes when the server refuses the version with an alert) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (fails when the server accepts the version and returns a ServerHello) -->
 5. An answer that does not establish whether the version is supported reports inconclusive rather than a pass. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, on an alert that is not about the version) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, when nothing is listening) -->
 6. Target validation rejects paths, credentials, IP or single-label hosts, control characters, queries, and fragments. <!-- @impl: scripts/ci/normalize-https-origin.mjs::raw --> <!-- @impl: scripts/ci/normalize-https-origin.mjs::url.username --> <!-- @impl: scripts/ci/normalize-https-origin.mjs::url.pathname --> <!-- @impl: scripts/ci/normalize-https-origin.mjs::isIP --> <!-- @test: host/__tests__/normalize-https-origin.test.js (pentest target normalization) -->
@@ -396,36 +396,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
 **Verification:** Automated test ([entrypoint-shutdown](../../host/__tests__/entrypoint-shutdown.test.js))
-
-**Status:** Implemented
-
----
-
-### REQ-OPS-011: Container base image is Debian bookworm-slim
-
-**Intent:** Reliable CLI agent execution requires a glibc-based Linux distribution (Alpine/musl caused crashes for some agents).
-
-**Applies To:** Admin
-
-**Acceptance Criteria:**
-
-1. The container base image is a glibc-based Node.js 26 distribution (Debian bookworm-slim). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyContainerRuntime --> <!-- @test: host/__tests__/container-runtime-smoke.test.js (REQ-OPS-011 AC1: packaged runtime identity) --> <!-- @manual -->
-2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
-3. Essential developer tools for terminal-based workflows are pre-installed and execute in the packaged runtime. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyDeveloperTools --> <!-- @manual -->
-4. Dedicated Browser IDE build stages enforce their separately pinned Node 22.21.1 compatibility boundary with version assertions before build or assembly work. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::openvscode-official-claude-extension --> <!-- @impl: Dockerfile::openvscode-agent-inventories --> <!-- @manual: Run the image build to execute all three version guards inside their stages. -->
-5. Every Node base stage resolves the approved immutable source and platform manifests; publication remains gated on image construction, smoke, scanning and provenance. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
-
-**Constraints:**
-
-- Base sources and versions remain immutable pins, not mutable-tag fallbacks.
-- Any explicit digest upgrade requires mirror index, Linux amd64 child and layer verification; embedded IDE stages retain their separate Node 22 boundary.
-- The Dockerfile is included in the image input hash ([REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)).
-
-**Priority:** P1
-
-**Dependencies:** None.
-
-**Verification:** Packaged-image smoke and image build
 
 **Status:** Implemented
 
@@ -712,6 +682,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 <a id="req-ops-033-generated-seed-and-prewarm-lock-integrity"></a>
+<a id="req-ops-033-build-dependencies-have-committed-integrity"></a>
 ### REQ-OPS-033: Lock-Backed NPM Bump Coherence
 
 **Intent:** Automated npm release bumps must reject stale inputs and move each exact manifest pin with its owning committed lock.
@@ -1236,6 +1207,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-031-shared-deployment-buildkit-cache"></a>
 ### REQ-OPS-031: Trusted deployment container build cache
 
 **Intent:** Deployment can reuse trusted container build work without exposing mutable cache state to pull requests.
@@ -1391,32 +1363,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-STOR-002](storage.md#req-stor-002-bidirectional-sync-with-r2)
 
 **Verification:** Runtime-path, baseline, cadence, trigger, health, and final-sync tests
-
-**Status:** Implemented
-
----
-
-### REQ-OPS-048: Cleanup-safe service and Browser IDE state
-
-**Intent:** Clearing disposable temporary files must not break service lifecycle or Browser IDE continuity.
-
-**Applies To:** Operator
-
-**Acceptance Criteria:**
-
-1. Shutdown reads service PID files from protected runtime storage. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
-2. Host health reports live readiness independently of disposable files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live) -->
-3. Browser IDE restart requests use the protected trigger file. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-OPS-048 AC3: writes the protected restart trigger on first call) -->
-4. Browser IDE data and extension roots remain in protected runtime storage. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
-5. Extension state capture remains operational through its protected session paths. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
-
-**Constraints:** Service and Browser IDE runtime data remains container-scoped and is not synced to R2.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-IDE-003](browser-ide.md#req-ide-003-ide-lifecycle-and-availability)
-
-**Verification:** Shutdown, readiness, restart-trigger, editor-launch, and state-capture tests
 
 **Status:** Implemented
 

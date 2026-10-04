@@ -48,7 +48,7 @@ The supported release is the latest published Codeflare version. Historical rele
 
 This policy owns supported versions and vulnerability reporting. The canonical technical [threat model, controls, failure posture, exceptions, and residual risks](documentation/lanes/security.md) live in the Security lane. Identity flow belongs to [Authentication](documentation/lanes/authentication.md), exact routes to the [API Reference](documentation/lanes/api-reference.md), persistence boundaries to [Storage & Sync](documentation/lanes/storage-and-sync.md), runtime isolation to [Architecture](documentation/lanes/architecture.md), and delivery gates to [CI/CD](documentation/lanes/ci-cd.md).
 
-Codeflare's controls constrain powerful agents; they do not make arbitrary commands harmless, undo external side effects, or certify customer deployments. Current scheduled probe contracts and dated observations are separated in [Penetration Testing](documentation/lanes/pentest.md).
+Codeflare's controls constrain powerful agents; they do not make arbitrary commands harmless, undo external side effects, or certify customer deployments. Current scheduled-probe methodology and its limitations are documented in [CI & Testing](documentation/lanes/ci-cd.md#security-probes); dated observations remain in existing run and Git history.
 
 ## Related Documentation
 

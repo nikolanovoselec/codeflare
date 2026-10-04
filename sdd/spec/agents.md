@@ -2,6 +2,21 @@
 
 Multi-agent support, preseed system, and session modes.
 
+### Historical review-contract references
+
+These compatibility anchors resolve dated changelog references to retired review contracts, not current requirements or runtime behavior. Current marker-based review ingress is owned by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent) and [Preseed](../../documentation/lanes/preseed.md#review-completion-prompt-or-fix-is-missing). The immutable source below preserves the former records and their verification qualifiers without restoring obsolete checkpoint or recovery machinery.
+
+<a id="req-agent-041-pr-boundary-review-bypass-surfaces"></a>
+- [Retired REQ-AGENT-041: PR-Boundary Review Bypass Surfaces](https://github.com/nikolanovoselec/codeflare/blob/040ede505b3ea8dfa560bd41e151be054124f24a/sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
+<a id="req-agent-058-supported-boundary-recovery"></a>
+- [Retired REQ-AGENT-058: Supported Boundary Recovery](https://github.com/nikolanovoselec/codeflare/blob/040ede505b3ea8dfa560bd41e151be054124f24a/sdd/spec/agents.md#req-agent-058-supported-boundary-recovery).
+<a id="req-agent-110-pi-pr-boundary-missing-launch-follow-up"></a>
+- [Retired REQ-AGENT-110: Pi PR-boundary missing-launch follow-up](https://github.com/nikolanovoselec/codeflare/blob/040ede505b3ea8dfa560bd41e151be054124f24a/sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up).
+<a id="req-agent-119-settled-review-follow-up-accounting"></a>
+- [Retired REQ-AGENT-119: Settled review follow-up accounting](https://github.com/nikolanovoselec/codeflare/blob/040ede505b3ea8dfa560bd41e151be054124f24a/sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting).
+<a id="req-agent-141-authoritative-head-review-launch-continuity"></a>
+- [Retired REQ-AGENT-141: Authoritative-head review launch continuity](https://github.com/nikolanovoselec/codeflare/blob/040ede505b3ea8dfa560bd41e151be054124f24a/sdd/spec/agents.md#req-agent-141-authoritative-head-review-launch-continuity).
+
 ### Key Concepts
 
 | Concept | Definition |
@@ -659,7 +674,7 @@ Multi-agent support, preseed system, and session modes.
 
 - Agent type is immutable after session creation (a new session is required to switch agents).
 - The `bash` agent type provides a plain terminal without an AI agent.
-- Enterprise session selection follows [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode).
+- Enterprise session selection follows [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode).
 
 **Priority:** P0
 
@@ -694,7 +709,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)
+**Dependencies:** [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)
 
 **Verification:** Automated API, profile, preference, and persisted-session tests
 
@@ -724,7 +739,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-123](#req-agent-123-installed-agent-runtime-availability), [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)
+**Dependencies:** [REQ-AGENT-123](#req-agent-123-installed-agent-runtime-availability), [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)
 
 **Verification:** Automated pre-hydration, resolved-set, and legacy-profile UI tests
 
@@ -914,6 +929,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-007-agent-specific-config-generation"></a>
 ### REQ-AGENT-007: Multi-Agent Adaptation Pipeline
 
 **Intent:** Each supported agent receives shared adapted configuration plus any manifest-declared native assets required by its runtime.
@@ -2414,6 +2430,7 @@ None.
 
 ---
 
+<a id="req-agent-051-pi-deploy-and-brainstorm-commands"></a>
 ### REQ-AGENT-051: Pi `/debug`, `/deploy`, and `/brainstorm` Commands
 
 **Intent:** Workflows that Claude ships as slash commands (`/debug`, `/deploy`, `/brainstorm`) are unavailable in Pi because Claude commands do not deploy to Pi. Pi must reimplement them as native command handlers so Pi users get the same systematic debugging, deploy-and-verify, and structured-brainstorming workflows.
@@ -3335,7 +3352,7 @@ None.
 **Constraints:**
 
 - Bundled via the manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)); the per-user seed is a downstream artifact, never separately authored; Skill bodies/references load on demand (progressive disclosure), so the always-on token cost is only the trimmed one-line descriptions.
-- In enterprise strict-egress ([REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)), the operator must allowlist `developers.cloudflare.com` for the skills' retrieval to function (documented in the configuration + security lanes).
+- In enterprise strict-egress ([REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)), the operator must allowlist `developers.cloudflare.com` for the skills' retrieval to function (documented in the configuration + security lanes).
 - Skill/command/rule prose is upstream-authored and intentionally not pinned by tests (mandate #2); tests assert bundling, mode-gating, slimming, and attribution — the contract — not copy.
 
 **Priority:** P2
@@ -4268,6 +4285,7 @@ None.
 
 ---
 
+<a id="req-agent-096-registered-pi-tool-discovery-and-on-demand-activation"></a>
 ### REQ-AGENT-096: On-Demand Pi Tool Activation
 
 **Intent:** Pi must expose a small default tool set and activate specialized registered tools only when needed, without changing authorization or event-owner delivery semantics.
@@ -5651,6 +5669,70 @@ None.
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
 **Verification:** Automated test, Manual test
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
+
+**Intent:** Enterprise deployments standardize on a curated agent set: session creation and the session-start UI enforce the admin-selected active agents ([REQ-ENTERPRISE-025](setup.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard)) within a fixed gateway-capable universe.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set, the selectable universe is capped at the enterprise-capable set `{copilot, pi, bash}`; session creation rejects any agent type outside it. <!-- @impl: src/lib/agent-allowlist.ts::ENTERPRISE_AGENTS --> <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active) -->
+2. The wizard-selected active agents gate the selectable set: session creation and `lastAgentType` preference writes reject a deactivated coding agent, while active agents and the always-on `bash` stay accepted. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC2: a KV-deactivated coding agent is rejected 400) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise) -->
+3. A session created without an explicit `agentType` is stamped with the first active coding agent, so the container's `claude-code` fallback never applies in enterprise mode. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC3: an omitted agentType is stamped with the first active coding agent) -->
+4. The session-creation UI offers exactly the active agents delivered by `GET /api/user` on every creation surface (CreateSession dialog and GitHub clone picker). <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
+5. An absent, malformed, or capable-agent-free stored selection resolves to the full enterprise-capable set, preserving pre-feature behavior for existing deployments. <!-- @impl: src/lib/agent-allowlist.ts::readActiveAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC5: a malformed stored selection resolves to the full enterprise set) -->
+6. When `ENTERPRISE_MODE` and build-agent selection are unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (flag-off: agentType '%s' is accepted 201 when ENTERPRISE_MODE unset) -->
+7. When `ENTERPRISE_MODE` is unset, the stored active-agent selection is ignored. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC7: the KV selection is ignored outside enterprise mode) -->
+
+**Constraints:**
+
+- The wizard-configured selection narrows the enterprise-capable universe; it can never widen it.
+- Only OpenAI-wire-format agents plus `bash` are capable, per [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway); Claude Code stays excluded ([AD74](../../documentation/decisions/README.md)).
+- `bash` is always selectable (it needs no LLM).
+- Existing sessions remain active after wizard deactivation while their CLI remains installed; later images without that CLI reject start.
+- This is selection-level standardization, not a container boundary: a wizard-deactivated agent's CLI remains manually invocable from a bash tab when the build includes it.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-025](setup.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](agents.md#req-agent-002-agent-selection-at-session-creation)
+
+**Verification:** Automated test ([session-agent-allowlist](../../src/__tests__/routes/session-agent-allowlist.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-011: Container base image is Debian bookworm-slim
+
+**Intent:** Reliable CLI agent execution requires a glibc-based Linux distribution (Alpine/musl caused crashes for some agents).
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The container base image is a glibc-based Node.js 26 distribution (Debian bookworm-slim). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyContainerRuntime --> <!-- @test: host/__tests__/container-runtime-smoke.test.js (REQ-OPS-011 AC1: packaged runtime identity) --> <!-- @manual -->
+2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+3. Essential developer tools for terminal-based workflows are pre-installed and execute in the packaged runtime. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyDeveloperTools --> <!-- @manual -->
+4. Dedicated Browser IDE build stages enforce their separately pinned Node 22.21.1 compatibility boundary with version assertions before build or assembly work. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::openvscode-official-claude-extension --> <!-- @impl: Dockerfile::openvscode-agent-inventories --> <!-- @manual: Run the image build to execute all three version guards inside their stages. -->
+5. Every Node base stage resolves the approved immutable source and platform manifests; publication remains gated on image construction, smoke, scanning and provenance. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
+
+**Constraints:**
+
+- Base sources and versions remain immutable pins, not mutable-tag fallbacks.
+- Any explicit digest upgrade requires mirror index, Linux amd64 child and layer verification; embedded IDE stages retain their separate Node 22 boundary.
+- The Dockerfile is included in the image input hash ([REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)).
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Packaged-image smoke and image build
 
 **Status:** Implemented
 

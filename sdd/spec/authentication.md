@@ -501,6 +501,7 @@ None.
 
 ---
 
+<a id="req-auth-018-admin-user-management"></a>
 ### REQ-AUTH-018: User management admin panel
 
 **Intent:** Admins can manage users, approve access, and configure tiers without CLI tools. Approval is a tier mutation (`PATCH /api/users/:email`); the control surface adapts to the deployment mode — SaaS exposes the full subscription-tier picker, while onboarding (which has no paid tiers) collapses it to a plain Approve / Block decision.
@@ -520,7 +521,7 @@ None.
 **Constraints:**
 
 - Tier mutation approves access only in app-owned OIDC modes gated by `isSessionOidcMode`.
-- Enterprise mode returns 403 through [REQ-ENTERPRISE-009](enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening); default CF Access mode has no tier-gated access and returns 400.
+- Enterprise mode returns 403 through [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening); default CF Access mode has no tier-gated access and returns 400.
 
 **Priority:** P1
 
@@ -650,6 +651,100 @@ None.
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
 **Verification:** Automated test ([Resume-redirect component tests](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx), [fetch-helper 401-redirect tests](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [asset-serving tests](../../src/__tests__/index.test.ts))
+
+**Status:** Implemented
+
+---
+
+## Enterprise account admission and administration
+
+### REQ-ENTERPRISE-010: Access-Gated JIT User Provisioning
+
+**Intent:** In Enterprise Mode users are managed by the customer's Cloudflare Access, not inside Codeflare, so any Access-authenticated user entitled to the deployment must be provisioned automatically on first access — a fresh user lands work-ready with no in-product allowlisting or approval step.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set and an authenticated request presents a valid Cloudflare Access JWT for an `email` with no existing user record, Codeflare auto-creates a record `{ addedBy: 'enterprise-jit', role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited' }` keyed by the JWT's IdP-verified `email`. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+2. Configured Access groups gate provisioning before record creation; users outside every allowed group receive the standard denial. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+3. When `ENTERPRISE_ACCESS_GROUP` is unset, a valid Access JWT alone is sufficient to provision; the group gate is delegated to the customer's Access application policy. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+4. Provisioning is idempotent: concurrent first-logins converge on a single record, and an existing record — whether a setup admin or a prior JIT user — is returned unchanged (JIT never overwrites a role or downgrades an admin). <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+5. Enterprise JIT sends no welcome or subscription email; the per-user R2 bucket and scoped token continue to be created lazily on first session start, unchanged. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+6. When `ENTERPRISE_MODE` is unset, an Access-authenticated user with no record still receives 403 with no auto-provisioning, and the authentication path is byte-identical to current behavior. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+
+**Constraints:**
+
+- Codeflare trusts a valid Access JWT as proof that the customer's Access policy authorized the user; it does not re-implement IdP authentication.
+- `ENTERPRISE_ACCESS_GROUP` is configured during the setup wizard and stored in KV, alongside the existing setup Access config, so an admin changes it by re-running setup.
+- The account key is the IdP-verified `email`; the JWT `sub` is stored for reference; An email change at the IdP yields a new account (consistent with the existing SaaS JIT behavior).
+- The group check runs once at provisioning; the resulting record is the cache, so steady-state requests incur no `get-identity` call.
+- This REQ uses only the deployment's existing Cloudflare Access auth mode; it adds no new identity-provider integration (consistent with this domain's Out of Scope).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
+
+**Verification:** Automated test ([enterprise-jit-provisioning](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-014: Admin access via Cloudflare Access groups
+
+**Intent:** An enterprise admin can grant admin (= Setup / user-administration) access to members of one or more named Cloudflare Access groups, parallel to the email-based admin list, so admin rights track the customer's directory instead of a hand-maintained email list. Admin groups govern administration only — they never participate in per-group model routing.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set and admin Access groups are configured, a non-admin user who belongs to **any** configured admin group is elevated to `admin` for the request, granting access to admin-gated routes. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup --> <!-- @test: src/__tests__/middleware/auth.test.ts (Auth Middleware) -->
+2. A non-admin user who is in none of the configured admin groups still receives `403` from admin-gated routes. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin — enterprise admin-by-group (REQ-ENTERPRISE-014)) -->
+3. Admin-group checks run only on admin-gated paths and short-circuit for users already resolved as administrators. <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup --> <!-- @test: src/__tests__/middleware/auth.test.ts (Auth Middleware) -->
+4. An active user-access gate admits members of either user or admin groups. Admin groups alone never arm the gate, so entry remains open without configured user groups. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
+5. Admin groups persist as comma-joined setup state, saved through `POST /api/setup/configure`; an empty list deletes the key. They are excluded from per-group routing by construction — only `ENTERPRISE_ACCESS_GROUP` keys may carry a `GROUP_ROUTING` entry. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+6. Setup renders optional admin-group chips beside unchanged email admins, round-trips them through prefill, and excludes them from per-group routing cards. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
+7. All reads/writes are inside the existing `ENTERPRISE_MODE` gate; in non-enterprise modes the Setup request/response shape and admin authorization are byte-identical to before. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+
+**Constraints:**
+
+- Elevation is per-request and lives only on the Hono context; no KV `role:'admin'` record is written for a group-admin (so revocation is immediate and leaves no residue); The email-based admin list remains the durable admin source.
+- The live get-identity check fails CLOSED (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error — an admin gate must never elevate on uncertainty.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+## Authentication configuration lifecycle
+
+### REQ-SEC-016: Concurrent cache deduplication for auth config
+
+**Intent:** Multiple concurrent cold-start requests must not issue redundant KV reads for authentication configuration.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Concurrent cold-start requests share a single in-flight auth-config fetch; no redundant storage reads are issued. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
+2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing parallel storage reads. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
+3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
+
+**Constraints:**
+
+- Deduplication is per-isolate, not cross-isolate.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)
+
+**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
 
 **Status:** Implemented
 

@@ -21,7 +21,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### Domain Dependencies
 
-[Authentication](authentication.md) (identity + the OAuth callback), [Enterprise Mode](enterprise-mode.md) (the egress interception layer), [Storage](storage.md) (`bucketName` keying, workspace sync), [Session Lifecycle](session-lifecycle.md) (clone-on-start).
+[Authentication](authentication.md) (identity + the OAuth callback), [Security](security.md) (the egress interception layer), [Storage](storage.md) (`bucketName` keying, workspace sync), [Session Lifecycle](session-lifecycle.md) (clone-on-start).
 
 ---
 
@@ -103,10 +103,10 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- Enterprise interception is wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing — see [REQ-ENTERPRISE-005](enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
-- With strict egress active, `GitHubInterceptor` uses `env.EGRESS.fetch` and returns `503 EGRESS_UNAVAILABLE` when unbound; otherwise it uses global fetch ([REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)).
+- Enterprise interception is wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing — see [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- With strict egress active, `GitHubInterceptor` uses `env.EGRESS.fetch` and returns `503 EGRESS_UNAVAILABLE` when unbound; otherwise it uses global fetch ([REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)).
 - Credential injection, bound-bucket no-spoof scoping, manual redirects, and response hygiene remain identical across both transports.
-- Explicit human-native Copilot/OAuth requests use the separate default-off [REQ-ENTERPRISE-090](enterprise-mode.md#req-enterprise-090-current-human-native-provider-authority) boundary; they never authorize platform-token injection or Operators.
+- Explicit human-native Copilot/OAuth requests use the separate default-off [REQ-ENTERPRISE-090](models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission) boundary; they never authorize platform-token injection or Operators.
 
 **Priority:** P1
 

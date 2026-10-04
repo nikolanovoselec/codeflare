@@ -20,6 +20,10 @@ The landing package is a prerendered Astro application. The Worker serves its ou
 | Components | `src/components/*.astro` | Content-driven layout primitives, proof artifacts, forms, and login UI |
 | Pages | `src/pages/*.astro` | Marketing, login, and privacy composition |
 
+### Execution proof composition
+
+The typed `EXECUTION` model supplies software-delivery and infrastructure sequences; `Transcript.astro` renders shared terminal chrome and authored events, with proof links styled by the shared global stylesheet. Progressive motion restores a fitted prefix, stages one pending row, types that row, then appends events in order without changing frame geometry; reduced motion shows the resolved viewport. These source contracts do not complete the separate manual/deployed checks retained in REQ-LANDING-012/013/014. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/styles/global.css::terminal-inline-link -->
+
 ### Browser logic
 
 Marketing-only modules (`scramble`, `splash`, `proof`, `type-on-view`, `reveal`, `agentfoot`, feature terminals, and orchestration) run only on `index.astro`. `contact-controller.ts` owns form submission behavior. `login.ts` alone interprets the Worker's OAuth status/error response on the login page.
@@ -30,7 +34,7 @@ The marketing page server-renders its stable final state. WebGL, motion, and pro
 
 The package implements a calm enterprise dark-tech system with one accent, content-owned copy, token-owned values, and composition-only pages. Sans-serif carries prose; monospace is reserved for terminal/proof artifacts. Layouts remain mobile-first and every motion path yields under `prefers-reduced-motion`.
 
-Current visual details and proof content are source-owned by `src/content/site.ts`, components, and token files rather than duplicated as a prose inventory here. System-wide landing behavior and requirements remain in [Architecture Internals](../documentation/lanes/architecture-internals.md#landing-implementation) and the [Landing SDD domain](../sdd/spec/landing.md).
+Current visual details and proof content are source-owned by `src/content/site.ts`, components, and token files rather than duplicated as a prose inventory here. System-wide landing behavior and requirements remain in [Architecture](../documentation/lanes/architecture.md#landing-implementation) and the [Landing SDD domain](../sdd/spec/landing.md).
 
 ## Build & serving
 
@@ -63,7 +67,7 @@ Tests assert rendered structure, behavior, and focused content passthrough rathe
 
 ## Canonical references
 
-- [Architecture Internals — Landing implementation](../documentation/lanes/architecture-internals.md#landing-implementation)
+- [Architecture — Landing implementation](../documentation/lanes/architecture.md#landing-implementation)
 - [API Reference — Public Landing](../documentation/lanes/api-reference.md#public-landing)
 - [Security](../documentation/lanes/security.md)
 - [Landing requirements](../sdd/spec/landing.md)
