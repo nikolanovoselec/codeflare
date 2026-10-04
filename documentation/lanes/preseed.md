@@ -214,7 +214,7 @@ to the agent config filesystem. No external plugins are installed.
 | Rules and commands | Claude seed directories plus manifest membership | Agent-specific rule/command surfaces |
 | Skills and plugins | Seed trees, `ORIGIN.md`, plugin manifests, lock/pin inputs | Runtime skill/plugin directories |
 | Pi runtime packages | `preseed/agents/pi/package.json` and lock | Image cache then `~/.pi/agent/npm` |
-| Generated seed | `scripts/generate-agent-seed.mjs` output | Image-baked `/opt/codeflare/preseed` |
+| Generated seed | `scripts/generate-agent-seed.mjs` output | Image-baked `/opt/codeflare/agent-seed-bake/<mode>/<key>` |
 | Runtime projection | `entrypoint.sh` merge/copy functions | User-home agent configuration |
 
 Do not infer inclusion from a file's mere presence: manifest membership, mode gates, generator behavior, and agent-specific adapters are jointly authoritative.
@@ -285,7 +285,9 @@ Impeccable is scoped to Claude + Pi only: Claude gets the vendored tree in
 
 A fail-closed updater overlay preserves evidence-bound web and native audit scoring, complete rating thresholds, platform-aware target guidance, `PRODUCT.md` context, contextual browser-surface advice, neutral specialist framing, and removal of mutable package permission across upstream refreshes. The image builds the native engine from checksum-pinned source with configured idle-grace and no-symlink raster-scan corrections. Behavioral tests cover executable wait state and updater mutation boundaries without pinning aesthetic prose. The vendored bundle is shadow-pinned by `bump-shadow-pins.yml`, whose reviewed repository update refreshes both copies, updates both manifests, and regenerates the seed. ([REQ-AGENT-137](../../sdd/spec/agents.md#req-agent-137-design-skill-review-boundary), [REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-AGENT-194](../../sdd/spec/agents.md#req-agent-194-evidence-bound-impeccable-policy))
 
-The candidate source pairs Impeccable 4.5.0 with image engine 0.1.11 and retains reviewed engines 0.1.10 and 0.1.5 for older 4.4.0 and 4.3.1 managed launchers. Neither launcher downloads a missing engine or silently selects another version. The native-layout refresh excludes the retired JavaScript-server overlay; the Rust toolchain and all three upstream sources are checksum-pinned. PR Checks compile focused probes from the exact affected upstream Rust logic, reproduce early closure and symlink traversal, and verify the patched wait and scan boundaries in under one minute without building a container. The deployment image build separately compiles and exercises the complete native binary. A missing image engine fails explicitly instead of downloading one. Managed-source alignment must also carry this native bundle and remove its obsolete JavaScript implementation from source and manifests. Native-engine availability is separate from npm hash equality. Publish the new curation source only after the new image and matching deployed compiler/runtime hash are verified; publication and activation remain separate gates. ([REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-OPS-058](../../sdd/spec/operations.md#req-ops-058-fast-impeccable-native-engine-regression), [REQ-OPS-059](../../sdd/spec/operations.md#req-ops-059-complete-impeccable-native-binary-verification))
+The candidate source pairs Impeccable 4.5.0 with image engine 0.1.11 and retains reviewed engines 0.1.10 and 0.1.5 for older 4.4.0 and 4.3.1 managed launchers. Neither launcher downloads a missing engine or silently selects another version. The native-layout refresh excludes the retired JavaScript-server overlay; the Rust toolchain and all three upstream sources are checksum-pinned. PR Checks compile focused probes from the exact affected upstream Rust logic, reproduce early closure and symlink traversal, and verify the patched wait and scan boundaries in under one minute without building a container. The deployment image build separately compiles and exercises the complete native binary.
+
+A missing image engine fails explicitly instead of downloading one. Managed-source alignment must also carry this native bundle and remove its obsolete JavaScript implementation from source and manifests. Native-engine availability is separate from npm hash equality. Publish the new curation source only after the new image and matching deployed compiler/runtime hash are verified; publication and activation remain separate gates. ([REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-OPS-058](../../sdd/spec/operations.md#req-ops-058-fast-impeccable-native-engine-regression), [REQ-OPS-059](../../sdd/spec/operations.md#req-ops-059-complete-impeccable-native-binary-verification))
 
 The shared compiler emits Impeccable's `scripts/VERSION` and `scripts/impeccable.cmd` as plain text and `scripts/impeccable` as a shell script in both native trees. Unknown file types still fail signed-release validation; do not allow binary documents to work around a missing text/script classification. This compiler change requires advancing curation's pin after successful Codeflare deployment. ([REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases) AC2/AC4)
 
@@ -791,12 +793,16 @@ provider to measure the complete first-turn input, including active schemas and 
 Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
 always-on rule kernel, progressively disclosed adapted skills/agents, and native TypeScript
 extensions that reimplement the CC-only surfaces: slash commands, hooks, memory capture,
-and review enforcement. High-frequency proactive skills stay in Pi's startup catalog;
-only command/event/reviewer-owned internal skills carry `disable-model-invocation: true`;
-proactive skills remain model-visible with concise trigger-preserving Codeflare descriptions; upstream skill metadata remains unchanged. The native
-`capability` tool keeps basic/question/Graphify tools active initially and activates other
-registered tools additively. PR-boundary and memory/Vault owners activate `subagent` before
-emitting their unchanged public follow-ups.
+and review enforcement. All seeded skills are hidden from Pi's native startup catalog.
+The generator first captures their original model-invocation eligibility in the per-mode
+capability policy: ordinary skills remain discoverable through `capability`, while explicit
+command/event/reviewer-owned resources remain explicit-only.
+
+Ordinary bootstrap tools are `read`, `bash`, `edit`, `write`, and `capability`.
+Question, Graphify, subagent, and other registered tools activate on demand, additively.
+Registered child sessions also retain `ask_parent` and `notify_parent`; owned Goal,
+Plan, and Inline Chat exposure rules are separate exceptions. PR-boundary and
+memory/Vault owners activate `subagent` before emitting their unchanged public follow-ups.
 
 Codex, Copilot, OpenCode, and Antigravity receive a reduced, runtime-appropriate
 subset: adapted rules and, where the runtime supports them, skills and agents. They
@@ -867,17 +873,18 @@ Pi PR-boundary reviewers use the public `subagent` tool and the adapted
 lane together in the background without inherited context; reviewers report only,
 and the root session alone applies changes or pushes.
 
-**Per-mode seeding**: Default mode seeds the core rules plus the
-universal skills; advanced mode seeds the full set (memory, ECC
-language rules, discipline triad, enforcement skill families, agents,
-commands, plugins). The generated array carries variant-per-mode
-duplicates for instructions files (see below); the exact per-mode
-file counts live in the generated `agent-seed.generated.ts`, not here.
+**Per-mode seeding**: Manifest entries select the owned rules and resources for
+default or advanced mode. Default includes its core rules and universal skills;
+advanced additionally includes its declared memory, language, discipline,
+enforcement, agent, command, and plugin resources, subject to runtime exclusions.
+This is not a promise to seed the upstream generic ECC language-rule inventory.
+The generated array carries variant-per-mode instructions files (see below);
+exact per-mode file counts come from generator output, not a hardcoded total.
 
 **Variant-per-mode keys**: Instructions files appear twice in the
 generated array -- once for default mode (core rules only) and once for
-advanced mode (all rules including memory, ECC), with the same R2
-key but different content. `getPreseedKeysNotInMode()` handles this
+advanced mode (its applicable manifest-selected rules, including Claude memory),
+with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this
 correctly by excluding keys that have a variant in the target mode.
 
 ### Settings.json Merge

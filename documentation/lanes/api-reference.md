@@ -440,7 +440,17 @@ curl -fsS https://codeflare.ch/public/auth/providers \
   | jq '{providers: [.providers[] | {id, type, name, loginUrl}]}'
 ```
 
-The response is `{ "providers": [...] }`. Each provider contains `id`, `type`, and `name`; direct GitHub mode also includes `loginUrl`.
+The response is `{ "providers": [...] }`; an empty array is valid, including Enterprise mode. No traffic ranking is maintained here: “primary” identifies the login-discovery flow, not a measured most-used endpoint. <!-- @impl: src/index.ts::app -->
+
+| Field | Type and meaning |
+|---|---|
+| `providers` | Array of available login-provider records |
+| `providers[].id` | String provider identifier; direct GitHub mode uses `github` |
+| `providers[].type` | String provider type from configured Access IdPs, not a closed enum here; direct GitHub uses `github` |
+| `providers[].name` | String display name; direct GitHub uses `GitHub` |
+| `providers[].loginUrl` | Optional string, present as `/auth/github/login` in direct GitHub mode |
+
+The jq projection emits `null` for an absent `loginUrl`; that does not add a null-valued field to the raw response or establish a successful live call.
 
 ## Discoverability Documents
 

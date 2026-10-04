@@ -104,6 +104,10 @@ npx wrangler versions view <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
 npx wrangler rollback <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
 ```
 
+Only runs target-labelled **Deploy production (main)** qualify as production evidence; successful main-branch dispatches may instead target an integration. Expand the ten-run history when needed. Correlate account, Worker, release and deployment timing with the run, not exact equality with its start timestamp. If identity or compatibility is uncertain, stop rather than guess a version. <!-- @impl: .github/workflows/deploy.yml -->
+
+For a paper rollback, leave account, origin, faulty and candidate version IDs, failed-flow baseline, and compatibility as incident parameters. The commands define the ordered procedure; absent incident inputs prevent execution or a recovery claim, not explanation of that procedure. Never substitute an integration version or invent a successful check.
+
 Cloudflare immediately creates a deployment that sends 100% of traffic to the selected version, as defined by its [rollback behavior](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
 
 **Verifies:** Confirm the active deployment, public health, and provider discovery:

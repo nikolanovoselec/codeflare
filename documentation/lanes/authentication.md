@@ -218,13 +218,13 @@ After successful first provisioning, a strongly serialized Timekeeper claim sele
 Enterprise provisioning runs before the SaaS branch for a verified Access identity.
 
 1. `resolveOrProvisionEnterpriseUser()` returns an existing durable record without rewriting or downgrading it. Request-time Enterprise overrides are applied separately. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
-2. For an unknown identity, the optional configured Access entry group is checked live. Unset means no additional group gate; non-membership, missing/invalid Access token, unsafe Access domain, or provider error fails closed and creates no user.
+2. For an unknown identity, a nonempty configured user-entry group list enables a live gate against the union of user-entry and admin groups. Membership in either list admits the identity. An empty user-entry list leaves this additional gate off, even if admin groups are configured; a required check with non-membership, missing/invalid Access token, unsafe Access domain, or provider error fails closed and creates no user.
 3. On admission, the durable record uses `addedBy: 'enterprise-jit'`, role `user`, initial advanced access fields, and unlimited subscription projection. No subscription/welcome flow runs.
 4. Effective tier and mode resolvers force the active Enterprise behavior independently of stale stored compatibility fields.
 
 ### Existing-user preservation and admin union
 
-A setup administrator remains a durable admin. An Enterprise admin Access group may elevate an admitted request for admin routes without persisting role changes. Entry-group and admin-group membership are a union of separate concerns: admission does not itself grant administration, and admin elevation does not rewrite stored role or session-limit role resolution. [Admin authorization](#admin-authorization) owns the check.
+A setup administrator remains a durable admin. An Enterprise admin Access group may elevate an admitted request for admin routes without persisting role changes. When the user-entry gate is enabled, admin-group membership also satisfies admission. Admission and admin elevation remain separate decisions: admission does not itself grant administration, and admin elevation does not rewrite stored role or session-limit role resolution. [Admin authorization](#admin-authorization) owns the check.
 
 ### Fail-closed outcomes
 
