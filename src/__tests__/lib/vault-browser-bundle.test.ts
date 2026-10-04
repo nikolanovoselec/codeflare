@@ -79,8 +79,208 @@ beforeAll(async () => {
   expect(injectors).toBeDefined();
 });
 
+const token = '0123456789abcdef0123456789abcdef';
+const scope = `https://codeflare.test/api/vault/${token}/`;
+const canonicalScript = `${scope}service_worker.js`;
+
+// Browser-platform events and paired ports. The injected bundled scripts, not
+// their private helpers, own all waiting, identity checks and completion logic.
+class BrowserPort extends EventTarget {
+  peer!: BrowserPort;
+  private handler: ((event: MessageEvent) => void) | null = null;
+  private enabled = false;
+  private pending: unknown[] = [];
+  private scheduled = false;
+  closed = false;
+  get onmessage() { return this.handler; }
+  set onmessage(handler: ((event: MessageEvent) => void) | null) {
+    this.handler = handler;
+    if (handler) this.start();
+  }
+  postMessage(data: unknown) {
+    if (this.closed || this.peer.closed) return;
+    this.peer.pending.push(structuredClone(data));
+    this.peer.deliver();
+  }
+  private deliver() {
+    if (!this.enabled || this.closed || this.scheduled) return;
+    this.scheduled = true;
+    queueMicrotask(() => {
+      this.scheduled = false;
+      while (this.enabled && !this.closed && this.pending.length) {
+        const event = new MessageEvent('message', { data: this.pending.shift() });
+        this.dispatchEvent(event);
+        this.handler?.(event);
+      }
+    });
+  }
+  start() { this.enabled = true; this.deliver(); }
+  close() { this.closed = true; this.pending.length = 0; }
+}
+class BrowserChannel {
+  port1 = new BrowserPort();
+  port2 = new BrowserPort();
+  constructor() { this.port1.peer = this.port2; this.port2.peer = this.port1; }
+}
+class BrowserWorker extends EventTarget {
+  messages: unknown[] = [];
+  private keyPort?: BrowserPort;
+  constructor(public state = 'activated', public scriptURL = canonicalScript, private autoAck = false) { super(); }
+  postMessage(data: { type: string }, transfer?: BrowserPort[] | { transfer?: BrowserPort[] }) {
+    this.messages.push(data);
+    if (data.type === 'set-encryption-key') {
+      this.keyPort = Array.isArray(transfer) ? transfer[0] : transfer?.transfer?.[0];
+      if (this.autoAck) this.ack();
+    }
+  }
+  ack(data: unknown = { type: 'encryption-key-set' }) { this.keyPort?.postMessage(data); }
+  transition(state: string) { this.state = state; this.dispatchEvent(new Event('statechange')); }
+}
+type BrowserRegistration = EventTarget & {
+  scope: string;
+  active: BrowserWorker | null;
+  installing: BrowserWorker | null;
+  waiting: BrowserWorker | null;
+  update(): Promise<BrowserRegistration>;
+};
+class BrowserServiceWorkers extends EventTarget {
+  constructor(public controller: BrowserWorker | null) { super(); }
+  control(worker: BrowserWorker | null) { this.controller = worker; this.dispatchEvent(new Event('controllerchange')); }
+  broadcast(source: BrowserWorker | null, data = { type: 'space-sync-complete' }) {
+    this.dispatchEvent(Object.assign(new Event('message'), { data, source }));
+  }
+}
+async function flushBrowserTasks() {
+  // Flush only microtasks; browser deadlines are driven explicitly below.
+  for (let i = 0; i < 32; i += 1) await Promise.resolve();
+}
+function bootstrapBrowser(options: { upgrade?: boolean; firstLoad?: boolean; storageDenied?: boolean } = {}) {
+  const old = new BrowserWorker('activated', canonicalScript, true);
+  const next = new BrowserWorker(options.upgrade || options.firstLoad ? 'installing' : 'activated');
+  const serviceWorker = Object.assign(new BrowserServiceWorkers(options.firstLoad ? null : old), {
+    getRegistrations: async () => [],
+    register: async (_url: string, _options: unknown) => registration,
+    getRegistration: async () => registration,
+  });
+  const registration: BrowserRegistration = Object.assign(new EventTarget(), {
+    scope, active: options.firstLoad ? null : old,
+    installing: options.upgrade || options.firstLoad ? next : null,
+    waiting: null,
+    update: async () => registration,
+  });
+  const storage = new Map<string, string>();
+  const status = { textContent: 'Loading vault…' };
+  const documentRef = { cookie: '', getElementById: () => status };
+  const redirects: string[] = [];
+  const timers = new Map<number, () => void>();
+  let timerId = 0;
+  const [script] = scriptBodies(injectors.injectVaultBootstrapHopHtml(token, 'secret-key'));
+  const completion = vm.runInNewContext(script, {
+    navigator: { serviceWorker },
+    localStorage: { setItem(key: string, value: string) {
+      if (options.storageDenied) throw new Error('storage denied');
+      storage.set(key, value);
+    } },
+    document: documentRef,
+    location: { origin: 'https://codeflare.test', href: `${scope}.codeflare-bootstrap`, replace: (url: string) => redirects.push(url) },
+    console, URL, MessageChannel: BrowserChannel,
+    setTimeout(callback: () => void) { timers.set(++timerId, callback); return timerId; },
+    clearTimeout(id: number) { timers.delete(id); },
+  }) as Promise<void>;
+  return {
+    old, next, serviceWorker, registration, storage, status, documentRef, redirects, completion,
+    activate() {
+      registration.active = next;
+      registration.installing = null;
+      next.transition('activated');
+    },
+    async expireDeadlines() {
+      // Allow successive activation/control/key-ACK deadlines without wall-clock waits.
+      for (let round = 0; round < 4; round += 1) {
+        await flushBrowserTasks();
+        const callbacks = [...timers.values()];
+        timers.clear();
+        for (const callback of callbacks) callback();
+      }
+      await flushBrowserTasks();
+    },
+  };
+}
+function expectBootstrapPending(browser: ReturnType<typeof bootstrapBrowser>) {
+  expect(browser.storage.get('enableEncryption')).toBeUndefined();
+  expect(browser.documentRef.cookie).toBe('');
+  expect(browser.redirects).toEqual([]);
+}
+
+function prewarmBrowser() {
+  const current = new BrowserWorker();
+  const serviceWorker = new BrowserServiceWorkers(current);
+  const messages: Array<{ payload: any; origin: string }> = [];
+  let poll!: () => Promise<void>;
+  let running = true;
+  const response = { ok: true, listing: ['CONFIG.md', 'Index.md', 'STYLES.md'].map(name => ({ name })) as unknown };
+  const windowRef = {
+    location: { origin: 'https://codeflare.test', search: '' },
+    parent: { postMessage(payload: unknown, origin: string) { messages.push({ payload, origin }); } },
+    sbRuntime: { ready: true },
+    client: {
+      // SilverBullet sets this from unscoped broadcasts; never use it as worker identity proof.
+      fullSyncCompleted: true, systemReady: true, pageListLoaded: true,
+      clientSystem: { scriptsLoaded: true },
+      objectIndex: { hasFullIndexCompleted: async () => true },
+      mq: { getQueueStats: async () => ({ queued: 0, processing: 0, dlq: 0 }) },
+    },
+    setInterval(callback: () => Promise<void>) { poll = callback; return 17; },
+    clearInterval() { running = false; },
+  };
+  let fetchListing = async () => ({ ok: response.ok, json: async () => response.listing });
+  const html = injectors.injectVaultPrewarmBridge('<html><head></head><body></body></html>', 'warm-1');
+  vm.runInNewContext(markedScript(html, 'data-codeflare-vault-prewarm-bridge'), {
+    window: windowRef, document: { baseURI: scope }, navigator: { serviceWorker },
+    fetch: () => fetchListing(), URL, URLSearchParams, Set, Error,
+  });
+  return {
+    current, serviceWorker, windowRef, response, messages,
+    setListingFetch(fetcher: typeof fetchListing) { fetchListing = fetcher; },
+    async poll() { if (running) await poll(); },
+  };
+}
+function expectPrewarmReady(browser: ReturnType<typeof prewarmBrowser>) {
+  expect(browser.messages).toEqual([{ origin: 'https://codeflare.test', payload: {
+    source: 'codeflare-vault-prewarm', prewarmId: 'warm-1', status: 'ready',
+    proof: { scope, contentReady: true, spaceSyncCompleted: true, indexReady: true,
+      requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'], listedFileCount: 3 },
+  } }]);
+}
+
+describe('browser MessagePort platform double', () => {
+  it('queues ACK delivery until explicit start or implicit onmessage activation', async () => {
+    const received: unknown[] = [];
+    const explicit = new BrowserChannel();
+    explicit.port1.addEventListener('message', event => { received.push((event as MessageEvent).data); });
+    explicit.port2.postMessage({ type: 'encryption-key-set' });
+    await flushBrowserTasks();
+    expect(received).toEqual([]);
+    explicit.port1.start();
+    await flushBrowserTasks();
+    expect(received).toEqual([{ type: 'encryption-key-set' }]);
+    explicit.port1.close();
+    explicit.port2.close();
+
+    const implicit = new BrowserChannel();
+    implicit.port2.postMessage({ type: 'encryption-key-set' });
+    await flushBrowserTasks();
+    expect(received).toEqual([{ type: 'encryption-key-set' }]);
+    implicit.port1.onmessage = event => { received.push(event.data); };
+    await flushBrowserTasks();
+    expect(received).toEqual([{ type: 'encryption-key-set' }, { type: 'encryption-key-set' }]);
+    implicit.port1.close();
+    implicit.port2.close();
+  });
+});
+
 describe('production-bundled Vault browser scripts', () => {
-  it('removes stale workers, registers the canonical worker, persists encryption, and redirects', async () => {
+  it('REQ-VAULT-024: removes stale workers, registers the canonical worker, persists encryption, and redirects', async () => {
     const token = '0123456789abcdef0123456789abcdef';
     const hostileKey = '</script><script>globalThis.compromised=true</script>';
     const scope = `https://codeflare.test/api/vault/${token}/`;
@@ -96,19 +296,20 @@ describe('production-bundled Vault browser scripts', () => {
       stalePresent = false;
       return true;
     });
-    const activeWorker = { state: 'activated', postMessage: vi.fn() };
-    const registration: any = { active: activeWorker, installing: null, waiting: null };
+    const activeWorker = new BrowserWorker('activated', `${scope}service_worker.js`, true);
+    const registration: any = Object.assign(new EventTarget(), { scope, active: activeWorker, installing: null, waiting: null });
     registration.update = vi.fn(async () => registration);
     const register = vi.fn(async () => {
       workerEvents.push('register');
       return registration;
     });
-    const serviceWorker = {
+    const serviceWorker = Object.assign(new BrowserServiceWorkers(activeWorker), {
       getRegistrations: vi.fn(async () => stalePresent
         ? [canonical, stale, crossOrigin, unrelated]
         : [canonical, crossOrigin, unrelated]),
+      getRegistration: async () => registration,
       register,
-    };
+    });
     const storage = { setItem: vi.fn(() => { completionEvents.push('storage'); }) };
     let cookie = '';
     const documentRef = {
@@ -130,19 +331,20 @@ describe('production-bundled Vault browser scripts', () => {
       location: locationRef,
       console,
       URL,
+      MessageChannel: BrowserChannel,
       setTimeout,
       clearTimeout,
     });
     await completion;
 
-    expect(stale.unregister).toHaveBeenCalledOnce();
+    expect((await serviceWorker.getRegistrations()).map(item => item.scope)).toEqual([scope, crossOrigin.scope, unrelated.scope]);
     expect(workerEvents).toEqual(['unregister', 'register']);
     expect(completionEvents).toEqual(['storage', 'cookie', 'redirect']);
     expect(canonical.unregister).not.toHaveBeenCalled();
     expect(crossOrigin.unregister).not.toHaveBeenCalled();
     expect(unrelated.unregister).not.toHaveBeenCalled();
     expect(register).toHaveBeenCalledWith(`/api/vault/${token}/service_worker.js`, { scope: `/api/vault/${token}/` });
-    expect(activeWorker.postMessage).toHaveBeenCalledWith({ type: 'set-encryption-key', key: hostileKey });
+    expect(activeWorker.messages).toEqual([{ type: 'set-encryption-key', key: hostileKey }]);
     expect(storage.setItem).toHaveBeenCalledWith('enableEncryption', 'true');
     expect(cookie).toBe(`codeflare_vault_bootstrap=1; Path=/api/vault/${token}/; SameSite=Lax; Secure`);
     expect(locationRef.replace).toHaveBeenCalledWith(`/api/vault/${token}/?codeflarePrewarm=1&prewarmId=warm-1`);
@@ -171,29 +373,99 @@ describe('production-bundled Vault browser scripts', () => {
     expect(status.textContent).toContain('stale Vault service worker remains');
   });
 
-  it('does not complete bootstrap when encryption enablement cannot persist', async () => {
-    const token = '0123456789abcdef0123456789abcdef';
-    const activeWorker = { state: 'activated', postMessage: vi.fn() };
-    const registration: any = { active: activeWorker, installing: null, waiting: null };
-    registration.update = vi.fn(async () => registration);
-    const serviceWorker = {
-      getRegistrations: vi.fn(async () => []),
-      register: vi.fn(async () => registration),
-    };
-    const storage = { setItem: vi.fn(() => { throw new Error('storage denied'); }) };
-    const status = { textContent: '' };
-    const documentRef = { getElementById: vi.fn(() => status), cookie: '' };
-    const locationRef = { origin: 'https://codeflare.test', replace: vi.fn() };
-    const [script] = scriptBodies(injectors.injectVaultBootstrapHopHtml(token, 'secret-key'));
+  it('REQ-VAULT-024: does not complete bootstrap when encryption enablement cannot persist', async () => {
+    const browser = bootstrapBrowser({ storageDenied: true });
+    await browser.completion;
+    expectBootstrapPending(browser);
+    expect(browser.status.textContent).toContain('storage denied');
+  });
 
-    await vm.runInNewContext(script, {
-      navigator: { serviceWorker }, localStorage: storage, document: documentRef,
-      location: locationRef, console, URL, setTimeout, clearTimeout,
-    });
+  it('REQ-VAULT-024: A active/B installing upgrade waits for B activation, control and its native key acknowledgement', async () => {
+    const browser = bootstrapBrowser({ upgrade: true });
+    await flushBrowserTasks();
+    expectBootstrapPending(browser);
+    expect(browser.old.messages).not.toContainEqual(expect.objectContaining({ type: 'set-encryption-key' })); // never key retiring A
+    expect(browser.next.messages).not.toContainEqual(expect.objectContaining({ type: 'set-encryption-key' }));
 
-    expect(documentRef.cookie).toBe('');
-    expect(locationRef.replace).not.toHaveBeenCalled();
-    expect(status.textContent).toContain('storage denied');
+    browser.activate();
+    await flushBrowserTasks();
+    expectBootstrapPending(browser); // activation alone is not control
+    expect(browser.old.messages).not.toContainEqual(expect.objectContaining({ type: 'set-encryption-key' }));
+    browser.serviceWorker.control(browser.next);
+    await flushBrowserTasks();
+    expect(browser.next.messages).toContainEqual({ type: 'set-encryption-key', key: 'secret-key' });
+    expectBootstrapPending(browser); // posting is not the asynchronous native AES ACK
+
+    browser.next.ack();
+    await browser.completion;
+    expect(browser.storage.get('enableEncryption')).toBe('true');
+    expect(browser.documentRef.cookie).toBe(`codeflare_vault_bootstrap=1; Path=/api/vault/${token}/; SameSite=Lax; Secure`);
+    expect(browser.redirects).toEqual([`/api/vault/${token}/`]);
+    expect(browser.old.messages).not.toContainEqual(expect.objectContaining({ type: 'set-encryption-key' }));
+  });
+
+  it('REQ-VAULT-024: first-load bootstrap waits for canonical worker control and acknowledged encryption before completing', async () => {
+    const browser = bootstrapBrowser({ firstLoad: true });
+    await flushBrowserTasks();
+    expectBootstrapPending(browser);
+    browser.activate();
+    await flushBrowserTasks();
+    expectBootstrapPending(browser);
+    browser.serviceWorker.control(browser.next);
+    await flushBrowserTasks();
+    expect(browser.next.messages).toContainEqual({ type: 'set-encryption-key', key: 'secret-key' });
+    expectBootstrapPending(browser);
+    browser.next.ack();
+    await browser.completion;
+    expect(browser.storage.get('enableEncryption')).toBe('true');
+    expect(browser.redirects).toEqual([`/api/vault/${token}/`]);
+  });
+
+  it.each(['missing', 'wrong'] as const)('REQ-VAULT-024: %s native MessagePort ACK fails closed without bootstrap completion', async ack => {
+    const browser = bootstrapBrowser();
+    // Healthy reuse, but A deliberately does not acknowledge this handoff.
+    const worker = new BrowserWorker();
+    browser.registration.active = worker;
+    browser.serviceWorker.control(worker);
+    await flushBrowserTasks();
+    expect(worker.messages).toEqual([{ type: 'set-encryption-key', key: 'secret-key' }]);
+    if (ack === 'wrong') worker.ack({ type: 'encryption-key', key: 'secret-key' });
+    await browser.expireDeadlines();
+    await browser.completion;
+    expectBootstrapPending(browser);
+    expect(browser.status.textContent).toContain('Vault could not start encryption:');
+    expect(browser.status.textContent).toContain('Reload to retry.');
+  });
+
+  it.each(['activation', 'controller'] as const)('REQ-VAULT-024: upgrade %s deadline fails closed rather than arming retiring A', async deadline => {
+    const browser = bootstrapBrowser({ upgrade: true });
+    await flushBrowserTasks();
+    if (deadline === 'controller') { browser.activate(); await flushBrowserTasks(); }
+    await browser.expireDeadlines();
+    await browser.completion;
+    expectBootstrapPending(browser);
+    expect(browser.old.messages).not.toContainEqual(expect.objectContaining({ type: 'set-encryption-key' }));
+    expect(browser.status.textContent).toContain('Vault could not start encryption:');
+    expect(browser.status.textContent).toContain('Reload to retry.');
+  });
+
+  it('REQ-VAULT-024: replacing the controller after key handoff fences even a correct old-worker ACK', async () => {
+    const browser = bootstrapBrowser();
+    const worker = new BrowserWorker();
+    browser.registration.active = worker;
+    browser.serviceWorker.control(worker);
+    await flushBrowserTasks();
+    expect(worker.messages).toEqual([{ type: 'set-encryption-key', key: 'secret-key' }]);
+    expectBootstrapPending(browser);
+    const replacement = new BrowserWorker();
+    browser.registration.active = replacement;
+    browser.serviceWorker.control(replacement);
+    worker.ack();
+    await browser.expireDeadlines();
+    await browser.completion;
+    expectBootstrapPending(browser);
+    expect(replacement.messages).toEqual([]);
+    expect(browser.status.textContent).toContain('Vault could not start encryption:');
   });
 
   it('installs the focus guard from the bundled injected bytes', () => {
@@ -278,127 +550,173 @@ describe('production-bundled Vault browser scripts', () => {
     expect(selectCount).toBe(1);
   });
 
-  it('posts ready only after two complete bundled bridge polls', async () => {
-    const scope = 'https://codeflare.test/api/vault/0123456789abcdef0123456789abcdef/';
-    let poll: (() => Promise<void>) | undefined;
-    let queueReady = true;
-    const parent = { postMessage: vi.fn() };
-    const windowRef: any = {
-      location: { origin: 'https://codeflare.test', search: '' },
-      parent,
-      sbRuntime: { ready: true },
-      client: {
-        fullSyncCompleted: true,
-        systemReady: true,
-        pageListLoaded: true,
-        clientSystem: { scriptsLoaded: true },
-        objectIndex: { hasFullIndexCompleted: vi.fn(async () => true) },
-        mq: { getQueueStats: vi.fn(async () => queueReady
-          ? { queued: 0, processing: 0, dlq: 0 }
-          : { queued: 1, processing: 0, dlq: 0 }) },
-      },
-      setInterval: vi.fn((callback: () => Promise<void>) => { poll = callback; return 17; }),
-      clearInterval: vi.fn(),
-    };
-    const fetchRef = vi.fn(async () => ({
-      ok: true,
-      json: async () => ['CONFIG.md', 'Index.md', 'STYLES.md'].map((name) => ({ name })),
-    }));
-    const html = injectors.injectVaultPrewarmBridge('<html><head></head><body></body></html>', 'warm-1');
-    vm.runInNewContext(markedScript(html, 'data-codeflare-vault-prewarm-bridge'), {
-      window: windowRef,
-      document: { baseURI: scope },
-      navigator: { serviceWorker: { addEventListener: vi.fn() } },
-      fetch: fetchRef,
-      URL,
-      URLSearchParams,
-      Set,
-      Error,
-    });
-
-    expect(poll).toBeTypeOf('function');
-    await poll!(); // first complete proof
-    expect(parent.postMessage).not.toHaveBeenCalled();
-    queueReady = false;
-    await poll!(); // incomplete proof resets the streak
-    queueReady = true;
-    await poll!(); // first complete proof after reset
-    expect(parent.postMessage).not.toHaveBeenCalled();
-    await poll!(); // second consecutive complete proof
-    expect(parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      source: 'codeflare-vault-prewarm',
-      prewarmId: 'warm-1',
-      status: 'ready',
-      proof: expect.objectContaining({ scope, contentReady: true, indexReady: true }),
-    }), 'https://codeflare.test');
+  it('REQ-VAULT-018: posts ready only after two complete bundled bridge polls from the current canonical controller', async () => {
+    const browser = prewarmBrowser();
+    browser.serviceWorker.broadcast(browser.current);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    browser.windowRef.client.mq.getQueueStats = async () => ({ queued: 1, processing: 0, dlq: 0 });
+    await browser.poll(); // incomplete proof resets the streak
+    browser.windowRef.client.mq.getQueueStats = async () => ({ queued: 0, processing: 0, dlq: 0 });
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expectPrewarmReady(browser);
+    await browser.poll(); // the platform timer has been cleared after ready
+    expectPrewarmReady(browser);
+    expect(browser.windowRef.sbRuntime).toEqual({ ready: true, headless: true });
   });
 
-  it('withholds bundled ready proof when any acceptance-critical gate is incomplete', async () => {
-    const scope = 'https://codeflare.test/api/vault/0123456789abcdef0123456789abcdef/';
+  it.each(['foreign', 'retiring', 'no broadcast'] as const)('REQ-VAULT-018: %s completion cannot certify readiness through the unscoped native fullSyncCompleted flag', async source => {
+    const browser = prewarmBrowser();
+    if (source !== 'no broadcast') browser.serviceWorker.broadcast(source === 'foreign'
+      ? new BrowserWorker('activated', 'https://codeflare.test/api/vault/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service_worker.js')
+      : new BrowserWorker()); // same script URL, different retiring worker identity
+    await browser.poll();
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    browser.serviceWorker.broadcast(browser.current);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expectPrewarmReady(browser);
+  });
+
+  it.each(['no controller', 'no source'] as const)('REQ-VAULT-018: %s cannot certify current-worker sync despite the native global completion flag', async missing => {
+    const browser = prewarmBrowser();
+    if (missing === 'no controller') browser.serviceWorker.control(null);
+    browser.serviceWorker.broadcast(missing === 'no source' ? null : browser.current);
+    await browser.poll();
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    browser.serviceWorker.control(browser.current);
+    browser.serviceWorker.broadcast(browser.current);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expectPrewarmReady(browser);
+  });
+
+  it('REQ-VAULT-018: even a controller-origin completion is rejected when the controller script is not canonical', async () => {
+    const browser = prewarmBrowser();
+    const foreign = new BrowserWorker('activated', 'https://codeflare.test/application/service_worker.js');
+    browser.serviceWorker.control(foreign);
+    browser.serviceWorker.broadcast(foreign);
+    await browser.poll();
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+  });
+
+  it('REQ-VAULT-018: controller replacement clears sync evidence even when the upstream flag remains true', async () => {
+    const browser = prewarmBrowser();
+    browser.serviceWorker.broadcast(browser.current);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    const next = new BrowserWorker();
+    browser.serviceWorker.control(next);
+    browser.serviceWorker.broadcast(browser.current); // delayed retiring broadcast
+    await browser.poll();
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    browser.serviceWorker.broadcast(next);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expectPrewarmReady(browser);
+  });
+
+  it('REQ-VAULT-018: a newly completed controller starts a fresh two-poll streak rather than inheriting the old controller poll', async () => {
+    const browser = prewarmBrowser();
+    browser.serviceWorker.broadcast(browser.current);
+    await browser.poll();
+    const next = new BrowserWorker();
+    browser.serviceWorker.control(next);
+    browser.serviceWorker.broadcast(next);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expectPrewarmReady(browser);
+  });
+
+  it.each(['queue', 'index', 'fetch', 'json'] as const)('REQ-VAULT-018: controller replacement during in-flight %s proof cannot publish or contribute a ready poll', async boundary => {
+    const browser = prewarmBrowser();
+    browser.serviceWorker.broadcast(browser.current);
+    await browser.poll(); // one complete A poll: the blocked poll would otherwise publish
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const block = async () => { entered(); await pending; };
+    if (boundary === 'queue') browser.windowRef.client.mq.getQueueStats = async () => {
+      await block(); return { queued: 0, processing: 0, dlq: 0 };
+    };
+    if (boundary === 'index') browser.windowRef.client.objectIndex.hasFullIndexCompleted = async () => {
+      await block(); return true;
+    };
+    if (boundary === 'fetch' || boundary === 'json') browser.setListingFetch(async () => {
+      if (boundary === 'fetch') await block();
+      return { ok: true, json: async () => {
+        if (boundary === 'json') await block();
+        return browser.response.listing;
+      } };
+    });
+    const inFlight = browser.poll();
+    await started;
+    const next = new BrowserWorker();
+    browser.serviceWorker.control(next);
+    browser.serviceWorker.broadcast(next); // even fresh B evidence cannot validate an A read
+    release();
+    await inFlight;
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expect(browser.messages).toEqual([]);
+    await browser.poll();
+    expectPrewarmReady(browser);
+  });
+
+  it('REQ-VAULT-018: an unexpected runtime failure publishes the existing parent error rather than a ready proof', async () => {
+    const browser = prewarmBrowser();
+    browser.serviceWorker.broadcast(browser.current);
+    Object.defineProperty(browser.windowRef.sbRuntime, 'ready', { get() { throw new Error('runtime failed'); } });
+    await browser.poll();
+    expect(browser.messages).toEqual([{ origin: 'https://codeflare.test', payload: {
+      source: 'codeflare-vault-prewarm', prewarmId: 'warm-1', status: 'error', message: 'runtime failed',
+    } }]);
+  });
+
+  it('REQ-VAULT-018: withholds bundled ready proof when any acceptance-critical gate is incomplete despite current-worker sync', async () => {
     const scenarios: Array<{
       name: string;
       mutate(windowRef: any, response: { ok: boolean; listing: unknown }): void;
     }> = [
       { name: 'runtime', mutate: (windowRef) => { windowRef.sbRuntime.ready = false; } },
-      { name: 'sync', mutate: (windowRef) => { windowRef.client.fullSyncCompleted = false; } },
       { name: 'system', mutate: (windowRef) => { windowRef.client.systemReady = false; } },
       { name: 'pages', mutate: (windowRef) => { windowRef.client.pageListLoaded = false; } },
       { name: 'scripts', mutate: (windowRef) => { windowRef.client.clientSystem.scriptsLoaded = false; } },
       { name: 'index API', mutate: (windowRef) => { windowRef.client.objectIndex = {}; } },
-      { name: 'queue', mutate: (windowRef) => { windowRef.client.mq.getQueueStats = async () => ({ queued: 1, processing: 0, dlq: 0 }); } },
+      { name: 'queued', mutate: (windowRef) => { windowRef.client.mq.getQueueStats = async () => ({ queued: 1, processing: 0, dlq: 0 }); } },
+      { name: 'processing', mutate: (windowRef) => { windowRef.client.mq.getQueueStats = async () => ({ queued: 0, processing: 1, dlq: 0 }); } },
+      { name: 'dead letters', mutate: (windowRef) => { windowRef.client.mq.getQueueStats = async () => ({ queued: 0, processing: 0, dlq: 1 }); } },
       { name: 'index completion', mutate: (windowRef) => { windowRef.client.objectIndex.hasFullIndexCompleted = async () => false; } },
       { name: 'listing response', mutate: (_windowRef, response) => { response.ok = false; } },
       { name: 'listing shape', mutate: (_windowRef, response) => { response.listing = {}; } },
       { name: 'required files', mutate: (_windowRef, response) => { response.listing = [{ name: 'CONFIG.md' }, { name: 'Index.md' }]; } },
     ];
-
     for (const scenario of scenarios) {
-      let poll: (() => Promise<void>) | undefined;
-      const parent = { postMessage: vi.fn() };
-      const windowRef: any = {
-        location: { origin: 'https://codeflare.test', search: '' },
-        parent,
-        sbRuntime: { ready: true },
-        client: {
-          fullSyncCompleted: true,
-          systemReady: true,
-          pageListLoaded: true,
-          clientSystem: { scriptsLoaded: true },
-          objectIndex: { hasFullIndexCompleted: async () => true },
-          mq: { getQueueStats: async () => ({ queued: 0, processing: 0, dlq: 0 }) },
-        },
-        setInterval(callback: () => Promise<void>) { poll = callback; return 17; },
-        clearInterval: vi.fn(),
-      };
-      const response = {
-        ok: true,
-        listing: ['CONFIG.md', 'Index.md', 'STYLES.md'].map((name) => ({ name })) as unknown,
-      };
-      scenario.mutate(windowRef, response);
-      const fetchRef = vi.fn(async () => ({ ok: response.ok, json: async () => response.listing }));
-      const html = injectors.injectVaultPrewarmBridge('<html><head></head><body></body></html>', 'warm-1');
-      vm.runInNewContext(markedScript(html, 'data-codeflare-vault-prewarm-bridge'), {
-        window: windowRef,
-        document: { baseURI: scope },
-        navigator: { serviceWorker: { addEventListener: vi.fn() } },
-        fetch: fetchRef,
-        URL,
-        URLSearchParams,
-        Set,
-        Error,
-      });
-
-      expect(poll, scenario.name).toBeTypeOf('function');
-      await poll!();
-      await poll!();
-      expect(parent.postMessage, scenario.name).not.toHaveBeenCalled();
+      const browser = prewarmBrowser();
+      browser.serviceWorker.broadcast(browser.current);
+      scenario.mutate(browser.windowRef, browser.response);
+      await browser.poll();
+      await browser.poll();
+      expect(browser.messages, scenario.name).toEqual([]);
     }
   });
 
-  it('performs the exact-scope one-shot reload from bundled injected bytes', async () => {
+  it('REQ-VAULT-022: performs the exact-scope one-shot reload from bundled injected bytes', async () => {
     const scope = 'https://codeflare.test/api/vault/0123456789abcdef0123456789abcdef/';
     const storage = { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() };
-    const locationRef = { origin: 'https://codeflare.test', reload: vi.fn() };
+    const navigation: string[] = [];
+    const locationRef = { origin: 'https://codeflare.test', reload: () => { navigation.push('reload'); } };
     const windowRef: any = { document: { baseURI: scope }, location: locationRef, sessionStorage: storage };
     windowRef.parent = windowRef;
     const registration = { scope, active: {} };
@@ -413,7 +731,7 @@ describe('production-bundled Vault browser scripts', () => {
     await Promise.resolve();
 
     expect(storage.setItem).toHaveBeenCalledWith('cf-vault-sw-controlled-reload', '1');
-    expect(locationRef.reload).toHaveBeenCalledOnce();
+    expect(navigation).toEqual(['reload']); // intentional one-shot navigation contract
   });
 
   it('clears the one-shot without reloading when the exact worker already controls the page', () => {

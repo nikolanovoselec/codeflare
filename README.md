@@ -151,7 +151,7 @@ Retain the successful Deploy run and commit, confirm public health and provider 
 
 ### Enterprise deployment
 
-Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy ([Enterprise requirements](sdd/spec/enterprise-mode.md), [Enterprise operator runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md)).
+Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy ([Setup and administration](sdd/spec/setup.md), [Models & Routing](sdd/spec/models-and-routing.md), [Enterprise operator runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md)).
 
 Exact enterprise secrets, operator token permissions, environment layouts, promotion checks, and rollback procedures live in the private [Codeflare operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) (access required). They are intentionally not copied into the public repository.
 
@@ -161,7 +161,7 @@ This repository uses the same delivery controls it gives to agents. PR Checks co
 
 Published releases include deterministic source archives, checksums, keyless Sigstore bundles, and GitHub provenance. Deployment verifies the reviewed source tree before promoting Worker assets and the session image. Rollback begins from a known successful deployment and closes only when the original failed user flow passes. Release and rollback procedures live in [CI/CD and Testing](documentation/lanes/ci-cd.md) and [Deployment](documentation/lanes/deployment.md).
 
-The complete evidence model is documented in [CI/CD and Testing](documentation/lanes/ci-cd.md). Historical probe evidence is in [Penetration Testing](documentation/lanes/pentest.md), and load procedures are in [Stress Testing](documentation/lanes/stress-test.md).
+The verification model is documented in [CI & Testing](documentation/lanes/ci-cd.md), including distinct [security-probe](documentation/lanes/ci-cd.md#security-probes) and [load-testing](documentation/lanes/ci-cd.md#load-testing) methodology. Dated observations remain in the existing Git, PR and CI records rather than defining current product guarantees.
 
 ## Development
 

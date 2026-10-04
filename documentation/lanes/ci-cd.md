@@ -1,10 +1,10 @@
 # CI/CD & Testing
 
-GitHub Actions workflows, test suites, and deployment pipeline.
+GitHub Actions workflows, test verdicts, deployment pipeline, security-probe methodology, and load-testing methodology.
 
-**Audience:** Developers
+**Audience:** Developers, Operators, Security reviewers
 
-**Owns:** workflow triggers, permissions, job topology, gates, artifacts, and historical run evidence. **Does not own:** operator deployment steps, private environment values, or Pi review-session mechanics.
+**Owns:** workflow triggers, permissions, job topology, gates, artifacts, suite methods, thresholds and interpretation limits. **Does not own:** product capacity guarantees, API limits, security-control policy, operator promotion/rollback, private environment values or Pi review-session mechanics.
 
 ## Contents
 
@@ -12,342 +12,476 @@ GitHub Actions workflows, test suites, and deployment pipeline.
 - [Merge and Promotion Gates](#merge-and-promotion-gates)
 - [Deployment Pipeline Contract](#deployment-pipeline-contract)
 - [Pull Request Verification](#pull-request-verification)
-- [Scheduled Security Probes](#scheduled-security-probes)
+- [Security Probes](#security-probes)
+- [Load Testing](#load-testing)
 - [Test Suite Catalogue](#test-suite-catalogue)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Decisions](#related-decisions)
 - [Related Documentation](#related-documentation)
 
----
-
 <a id="cicd-github-actions"></a>
 ## Workflow Catalogue
 
-Workflows covering deploy, testing, fuzzing, penetration testing, stress testing, supply chain security, workflow auditing, and dependency pin maintenance. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
+GitHub repository settings separately enable secret scanning with push protection and Dependabot security updates; source cannot prove live settings.
 
 ### Dependabot Configuration
 
-Dependabot runs weekly against `develop` for seven npm directories: `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing`, and `/openvscode/agent-sidebar`. It also covers Docker images and GitHub Actions. Every npm ecosystem declares a `cooldown` of 7 days by default and 30 days for majors. Docker and GitHub Actions use their supported seven-day default cooldown. The waiting period gives the ecosystem time to revoke a malicious release before automation proposes it. <!-- @impl: .github/dependabot.yml::updates -->
+Dependabot runs weekly against `develop` for `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing` and `/openvscode/agent-sidebar`, plus Docker and Actions. Npm cooldown is seven days by default and thirty for majors; Docker/Actions use their supported seven-day default. <!-- @impl: .github/dependabot.yml::updates --> Root npm owns application Wrangler; the dedicated workflow Wrangler manifest/committed lock owns Container Image's privileged pin and is installed by `npm ci`. Stress Test does not install Wrangler or mutate deployment state.
 
-The root npm lane owns application Wrangler. Container Image instead uses the dedicated `/.github/npm-tools/wrangler` manifest and committed lock, installed with `npm ci`; its separate Dependabot lane owns that privileged workflow pin. Stress Test no longer installs Wrangler or mutates deployment state.
+Node Docker major proposals are ignored; Node LTS migration is manual, not an automatic move to Current.
 
-**Node Docker image major updates are ignored.** The `docker.io/library/node` and `public.ecr.aws/docker/library/node` images are pinned to suppress semver-major proposals. Dependabot would otherwise propose Node Current (odd, non-LTS) releases such as Node 25. Node major upgrades are handled manually when a new LTS version is released (even major: 22, 24, 26, ...).
+| Workflow | Trigger | Contract |
+|---|---|---|
+| `deploy.yml` | Green main-push PR Checks `workflow_run`; manual four-target dispatch, registry selector, optional `verified_run_id` | Exact-head/tree reuse or inline checks, prepare → parallel asset/image jobs → deploy → outcome; no Gate 1 fixture dispatch |
+| `container-image.yml` | Reusable call from Deploy | Input-hash/weekly identity; provenance-verified digest reuse or fresh build/smoke/scan/SBOM/push |
+| `sign-release.yml` | Published GitHub release; existing-tag recovery dispatch | Main-reachable semantic tag, deterministic archive/checksum, keyless signatures and provenance |
+| `test.yml` | PR to main/develop, main push, merge_group, manual/reusable call | Parallel path-filtered lanes, fail-closed report/coverage/completeness and required `test` summary |
+| `nightly-pr-checks.yml` | Daily 03:30 UTC | Full reusable matrix under distinct identity, not a Deploy-authorizing event |
+| `promotion-source.yml` | PR to main/master | Required canonical-repository exact `develop` head check (REQ-OPS-036) |
+| `zizmor.yml` | Workflow-surface PR/main-push and manual | SARIF history; required blocking audit is separately inside PR Checks |
+| `codeql.yml` | Main push, main/develop PR, Monday 06:00 UTC | JavaScript/TypeScript analysis; vendored Impeccable scripts excluded from wholesale upstream analysis (REQ-OPS-019) |
+| `fuzz.yml` | Main/develop PR, Sunday 04:00 UTC, manual | 50,000 fast-check iterations, shared bounded installer (REQ-OPS-018) |
+| `scorecard.yml` | Main push, Monday 06:00 UTC, manual | Default-branch posture/SARIF; non-default dispatch is explicit successful unsupported-ref no-op |
+| `pentest.yml` | Monday 05:00 UTC, manual | Six external lightweight probes, normalized production-environment target and issue reporting |
+| `stress-test.yml` | Manual | Read-only target setup, then selected mutating k6 integration workloads; opposite mode prerequisites make `all` unsuitable |
+| `bump-shadow-pins.yml` | Monday 06:00 UTC, manual | Governed non-Dependabot release pins and coupled artifacts |
 
-| Workflow | Trigger | What it does |
-|----------|---------|-------------|
-| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub; optional advanced `verified_run_id`) | Automatically reuses a successful exact-head, exact-tree PR Checks receipt or falls back to inline checks, then runs staged `prepare` → (`build-worker` ∥ `container`) → `deploy` → `outcome`. No Gate 1 fixture deploy is dispatched. |
-| `container-image.yml` | `workflow_call` (from `deploy.yml`) | Builds, scans with Trivy, and pushes for the selected registry and coding-agent CLIs. Images use `in-<input-hash>` tags. An unchanged digest is reused only after provenance verifies against this workflow; otherwise it builds and scans fresh. Selected agents and a weekly salt participate in identity. |
-| `sign-release.yml` | GitHub release publication + recovery `workflow_dispatch` with an existing tag | Validates that a semantic-version release tag is reachable from `main`, creates a deterministic source archive and checksum manifest, keylessly signs both with Sigstore, records GitHub build provenance, and uploads the four verifiable assets to that release. |
-| `test.yml` | PRs to `main` or `develop`, push to `main`, `merge_group`, `workflow_dispatch`, and `workflow_call` | Runs parallel path-filtered quality, typecheck, audit, bundle, coverage, backend, frontend, landing, host, and dependency-review lanes. Fail-closed actions shard Workers, frontend, and host tests. Required `test` fails failed or cancelled lanes and passes unaffected skipped lanes. |
-| `nightly-pr-checks.yml` | Nightly schedule (03:30 UTC) | Calls `test.yml` under the distinct `Nightly PR Checks` identity. All lanes run, while Deploy continues listening only to main-push `PR Checks` and therefore receives no nightly no-op event. |
-| `promotion-source.yml` | PRs to `main` or `master` | Publishes the required `Develop promotion source` status and fails unless the PR head is the canonical repository's exact `develop` branch ([REQ-OPS-036](../../sdd/spec/operations.md#req-ops-036-develop-only-main-promotion)). |
-| `zizmor.yml` | PRs touching workflow surfaces, pushes to `main` touching those surfaces, and `workflow_dispatch` | Records audit SARIF for alert history. The separately selected `workflow-audit` lane in `test.yml` blocks pull requests; the standalone branch filter is not a bypass. Its zizmor version is pinned because the action otherwise defaults to `latest`. |
-| `codeql.yml` | Push to `main`, PRs to `main` or `develop`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF ([REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows)). Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
-| `fuzz.yml` | PRs to `main` or `develop`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations), using the same lock-keyed bounded-retry dependency installer as PR Checks ([REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing)). |
-| `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment on the default branch, publishes results and uploads SARIF. A manual dispatch from another branch exits successfully with an explicit unsupported-ref summary because Scorecard rejects non-default branches. |
-| `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
-| `stress-test.yml` | `workflow_dispatch` | Read-only validation plus k6 stress tests from `stress/` (API throughput, session lifecycle, storage operations, rate-limit validation) against an already provisioned integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY`. |
-| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphify, checksum-backed binaries including uv, shared-lock npm tools, Pi preseed npm pins, Browser Run MCP, the vendored Impeccable bundle, code-server plus its Code gitlink, Antigravity, and `actionlint`/`zizmor`. |
+**Registry bypass:** `registry: dockerhub` uses the same Deploy/Image workflows rather than a duplicate. It requires the private registry credentials and a public pullable repository after first push. The scan preparation frees runner disk, preserves the target image and prunes dangling layers. Current runner defaults are pinned `ubuntu-24.04`, with supported explicit `RUNNER` overrides; they are not `ubuntu-latest`.
 
-Additional details:
+### Shadow-pin ownership and mutation boundaries
 
-**Docker Hub bypass (`registry: dockerhub`):** the former `deploy-dockerhub.yml` near-copy is replaced by a `registry` dispatch input on `deploy.yml`; `container-image.yml` pushes to Docker Hub instead of `registry.cloudflare.com` when the managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets and (after first push) flipping the auto-created Docker Hub repo to Public so the Cloudflare container runtime can pull without auth. Before the Trivy scan the workflow frees runner disk — removes prior images (keeping the scan target) and prunes dangling layers — so the image export does not exhaust the Docker data root on a persistent self-hosted runner (the `RUNNER` Actions variable; defaults to `ubuntu-latest`).
+The workflow owns context-mode, graphify, checksum-backed binaries/uv, shared npm tools and agent CLIs, Browser Run MCP's dedicated lock, Pi preseed pins, Impeccable, code-server/Code gitlink, official Claude extension, Antigravity, Herdr, actionlint and zizmor. Each candidate opens its own PR.
 
-**`bump-shadow-pins.yml`:** Tracks context-mode, graphify, checksum-backed Docker binaries and uv, the shared npm-tools tree (agent CLIs, Bun, `consult-llm-mcp`, `chrome-devtools-mcp`), Browser Run MCP's dedicated lock, every Pi preseed npm pin, the vendored Impeccable bundle, code-server plus its Code gitlink, Antigravity, and the pinned `actionlint` and `zizmor` binaries.
+Strict numeric semver comparison skips older/equal cooldown candidates and fails malformed candidates before branch mutation ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence)). Npm jobs update the owning manifest and use `scripts/regenerate-npm-package-lock.mjs` with lifecycle scripts disabled and bounded integrity corrections. All eight Claude platform packages match the exact CLI manifest pin (REQ-OPS-054). Pi bumps align direct dependency/override, both owning runtime manifests/locks, installation specifications and embedded seed (REQ-OPS-025). Flattened installed npm layout is not the committed seed layout.
 
-Each bump opens its own PR. Shared npm cooldown candidates pass through one strict numeric-semver comparator before any branch is created: a candidate older than or equal to the current pin is a normal skip, while malformed versions fail closed. This prevents a recently pinned release from being downgraded merely because the cooldown's newest eligible release is older ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence) AC3).
+Checksums resolve authoritative release digests or deliberately invalidate the previous checksum for review. SilverBullet verifies the archive/server version and atomically updates Docker pins and the vendored native worker. Actionlint resolves `checksums.txt`. Zizmor/actionlint read one validated `.github/workflow-tool-pins.json`; bumping that data file avoids workflow-write permission (REQ-OPS-041).
 
-Npm bump jobs update the owning manifest and delegate committed-lock regeneration to `scripts/regenerate-npm-package-lock.mjs`, which suppresses lifecycle scripts and reapplies bounded integrity corrections ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence) AC2). The privileged Claude lock also requires all eight platform-specific packages to match the exact CLI manifest pin, preventing `npm ci` from receiving a partially advanced release family ([REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity) AC2). Pi changes additionally regenerate the embedded seed because the committed payload differs deliberately from flattened runtime npm layout; runtime-agent bumps move both the direct prewarm dependency and its override so npm cannot retain a stale peer resolution ([REQ-OPS-025](../../sdd/spec/operations.md#req-ops-025-pi-preseed-bump-artifact-coherence)).
+Top-level permission is `contents: read`; only branch/PR-writing jobs elevate to `contents: write` and `pull-requests: write`. `pi-extensions-discover` remains read-only. Herdr and workflow-tool bumps do not rewrite workflows, and Herdr packaged-version checking derives exact output from committed provenance (REQ-OPS-055). Checkouts use `persist-credentials: false`; pushes authenticate explicitly and public branch probes use unauthenticated `ls-remote`.
 
-Checksum jobs either resolve authoritative release digests or deliberately invalidate the old digest for review. Actionlint resolves `checksums.txt`; SilverBullet verifies its release archive, extracts the matching native service worker, and updates the Docker pin plus `src/routes/vault/native-sw.ts` atomically. Zizmor and actionlint share `.github/workflow-tool-pins.json`, validated by `scripts/ci/workflow-tool-pins.mjs`; both consuming workflows read that manifest, while weekly bumps change only the non-workflow data file ([REQ-OPS-041](../../sdd/spec/operations.md#req-ops-041-least-privilege-workflow-tool-pin-updates)).
+The code-server job validates release versions, extracts/cross-checks artifact package/product commit and Code version, derives the embedded Code source commit from the immutable gitlink, and invalidates the checksum. Validated metadata enters quoted environment variables, never shell source (REQ-OPS-027).
 
-**`bump-shadow-pins.yml` permissions:** top-level is `contents: read`; each job that pushes a bump branch and opens a PR elevates itself to `contents: write` + `pull-requests: write`, while `pi-extensions-discover` stays read-only (it only lists package names). Zizmor, actionlint, and Herdr deliberately avoid changing `.github/workflows/**`, so the standard GitHub Actions token can push their pin-only branches without workflow-write permission. Herdr packaged-image checks derive the expected version from committed provenance and require an exact output match rather than a workflow literal. ([REQ-OPS-055](../../sdd/spec/operations.md#req-ops-055-herdr-release-integration))
+Pi extension discovery reads every preseed dependency except context-mode. The current eleven-package set comprises the Pi coding agent, Pi subagents, three `@juicesharp` packages, three `@narumitw` workflow packages, pi-evaluate, pi-web-access and pi-mcp-adapter. Independent `fail-fast: false` legs bump manifest, entrypoint pins, pinned-version evidence and generated seed. Goal/Plan candidates must run their exact-version transforms before publication; source-layout drift fails the candidate instead of opening an unverified pin PR. Candidate-transform acceptance remains qualified by REQ-OPS-025, not by version prose in this reference.
 
-No job persists credentials — `actions/checkout` would otherwise write the token into `.git/config`, where every later step could read it, including install scripts run by lockfile-regenerating jobs — so checkouts in the [shadow-pin workflow](../../.github/workflows/bump-shadow-pins.yml) set `persist-credentials: false` and the push authenticates explicitly instead (zizmor `artipacked`). Branch-existence probes use unauthenticated `ls-remote`, which works because the repository is public.
-
-The code-server job validates upstream release tags against a strict version pattern, derives the packaged code-server commit and embedded Code version from the immutable release artifact, cross-checks package/product identity, derives the Code source commit from the tag's immutable `lib/vscode` gitlink, and invalidates the archive checksum before creating a bump. Its write-enabled shell steps receive the validated version and derived branch through quoted environment variables, so release metadata is never parsed as shell source ([REQ-OPS-027](../../sdd/spec/operations.md#req-ops-027-code-server-coupled-pin-automation)).
-
-The `pi-extensions` bump is data-driven: `pi-extensions-discover` lists every dependency in `preseed/agents/pi/package.json` except context-mode. That set currently contains eleven packages: `@earendil-works/pi-coding-agent`, `@gotgenes/pi-subagents`, the three `@juicesharp` packages, the three `@narumitw` workflow packages, `pi-evaluate`, `pi-web-access`, and `pi-mcp-adapter`. A `fail-fast: false` matrix gives each package its own bump leg and PR; the dedicated `context-mode` job owns its coupled copies.
-
-Each package version also appears in `entrypoint.sh`, pinned-version tests, and the generated seed. Dependabot intentionally skips the Pi preseed directory, so Shadow Pins updates every owning copy together. Goal and Plan Mode candidates additionally run their exact-version source transforms before a PR can open; source-layout or compatibility drift therefore fails the bump leg for review instead of publishing an unverified pin. Reviewed candidates include Goal 0.54.4 and Plan Mode 0.56.0; Plan command prefixes still pass shell parsing and read-only argument validation.
-
-The Impeccable native-engine PR Checks lane finishes within one minute without building a container. It verifies the checksum-pinned source identity, compiles the exact raster-traversal functions and affected wait condition from the upstream and patched sources into focused probes, reproduces both upstream regressions, and proves the corrected idle-grace and no-symlink boundaries. The deployment image build still compiles and exercises the complete native binary before publication. Impeccable bundle refreshes reject engine versions that the image has not adopted. ([REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-OPS-058](../../sdd/spec/operations.md#req-ops-058-fast-impeccable-native-engine-regression), [REQ-OPS-059](../../sdd/spec/operations.md#req-ops-059-complete-impeccable-native-binary-verification))
+Impeccable's one-minute no-container PR lane verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
 
 <a id="keyless-release-signing"></a>
-### Keyless release signing ([REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility), [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts))
+<a id="keyless-release-signing-req-ops-034-req-ops-035"></a>
+### Keyless release signing
 
-Published `vMAJOR.MINOR.PATCH` releases receive a deterministic `codeflare-vMAJOR.MINOR.PATCH.tar.gz`, `SHA256SUMS`, and a `.sigstore.json` bundle for each file. The workflow delegates validation, archive construction, signing, and upload to the executable `scripts/ci/sign-release.sh` boundary, whose observable exits and artifacts are tested with controlled command dependencies. The signing job rejects drafts, malformed tags, and commits not reachable from `main`. A manual dispatch must run from `main`, accepts only an existing release tag, and reruns the same deterministic path, so recovery does not create or retarget releases.
+[REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility) and [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts) govern the four assets: deterministic `codeflare-vMAJOR.MINOR.PATCH.tar.gz`, `SHA256SUMS`, and one `.sigstore.json` bundle per file. `scripts/ci/sign-release.sh` validates source, builds, signs and uploads; drafts, malformed tags and commits not reachable from main fail. Recovery runs only from main and accepts an existing tag without creating/retargeting releases.
 
-Cosign obtains a short-lived certificate from GitHub's OIDC identity; Codeflare stores no private signing key or signing password. GitHub artifact attestations independently bind the archive and checksum manifest to the repository, workflow, and source revision. This source-release evidence complements rather than replaces the container-image provenance created during deployment. <!-- @impl: .github/workflows/sign-release.yml::sign -->
+GitHub OIDC supplies a short-lived Cosign certificate; no stored signing key/password is required. Independent artifact attestations bind archive/checksum to repository/workflow/source. Source signatures do not replace deployment image provenance. <!-- @impl: .github/workflows/sign-release.yml::sign -->
 
-After downloading all four assets from a release, verify the checksum and Sigstore bundles:
+After downloading all four assets, set `TAG` to the release's leading-v tag:
 
 ```bash
 sha256sum --check SHA256SUMS
 cosign verify-blob "codeflare-${TAG}.tar.gz" \
   --bundle "codeflare-${TAG}.tar.gz.sigstore.json" \
-  --certificate-identity-regexp '^https://github.com/nikolanovoselec/codeflare/.github/workflows/sign-release.yml@refs/(tags/v[0-9]+\\.[0-9]+\\.[0-9]+|heads/main)$' \
+  --certificate-identity-regexp '^https://github\.com/nikolanovoselec/codeflare/\.github/workflows/sign-release\.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/main)$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/nikolanovoselec/codeflare/.github/workflows/sign-release.yml@refs/(tags/v[0-9]+\\.[0-9]+\\.[0-9]+|heads/main)$' \
+  --certificate-identity-regexp '^https://github\.com/nikolanovoselec/codeflare/\.github/workflows/sign-release\.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/main)$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 gh attestation verify "codeflare-${TAG}.tar.gz" --repo nikolanovoselec/codeflare
 ```
 
-Set `TAG` to the downloaded release tag, including its leading `v`. The signature check proves the workflow identity; the checksum manifest alone does not. Implements [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility) and [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
+Checksum integrity alone does not prove signer identity.
 
 ## Merge and Promotion Gates
 
 ### GitHub Environments
 
-| Environment | Used by | Trigger |
-|-------------|---------|---------|
-| `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
-| `integration` | `deploy.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
+`production` is used by Deploy/Pentest; `integration` by Deploy/Stress Test. Only Deploy's green main-push path automatically promotes. Probe schedules and stress dispatches are not deployments. Non-default account/environments belong to private [modes and environments](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/modes-and-environments.md) and [Enterprise deployment](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md).
 
-The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Deployment modes and environments](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/modes-and-environments.md) and the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md).
-
-`production` is restricted to `main` by a deployment branch policy, mirroring the in-workflow branch guard in `deploy.yml` so a dispatch from any other ref cannot reach it. It carries no required-reviewer rule: a green PR Checks run is the gate, and the reviewer approval it replaced was self-approval by the sole maintainer, which paused three separate jobs without adding assurance.
+Production's branch policy permits main only and mirrors the workflow guard. It has no required reviewer rule; exact-head checks are the gate.
 
 ### Branch protection
 
-| Branch | Required checks | Bypass |
-|--------|-----------------|--------|
-| `main` | `test`, `CodeQL`, `Property-based fuzzing`, `Develop promotion source` | none |
-| `develop` | none before push; CI remains observable after push | none |
+| Branch | Required checks before protected merge/push | History boundary |
+|---|---|---|
+| main | `test`, `CodeQL`, `Property-based fuzzing`, `Develop promotion source` | Squash PR only, complete latest-state checks, stale-review dismissal, no deletion/non-fast-forward or bypass |
+| develop | No pre-push PR/status requirement | Direct fast-forward repair allowed; no deletion/non-fast-forward or bypass |
 
-GitHub rulesets [`13219234`](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) (`main`) and [`19216590`](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) (`develop`) are authoritative. Operators can verify their complete settings with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`.
+Rulesets [13219234](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) and [19216590](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) are live authority, inspectable with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`. Neither requires approving reviews under the current single-maintainer configuration. A feature-to-main or fork-`develop` PR may exist but cannot satisfy canonical promotion (REQ-OPS-036/037). Workflow `uses:` references are repository-wide SHA-required.
 
-`main` requires squash-only pull requests, blocks deletion and non-fast-forward updates, dismisses stale reviews, and requires the latest branch state to carry its complete check set. It additionally requires `Develop promotion source`, so GitHub may display a feature-to-main or fork-`develop` PR but cannot merge it. The active `develop` ruleset instead permits direct fast-forward pushes while blocking deletion and non-fast-forward updates ([REQ-OPS-037](../../sdd/spec/operations.md#req-ops-037-develop-direct-fast-forward-repairs)). CI remains observable after direct pushes where workflow triggers apply, and force-reset synchronization stays prohibited. Neither ruleset requires approving reviews because Codeflare currently has one maintainer; self-approval would add delay without independent assurance.
-
-Workflow references are SHA-pinned repository-wide (`sha_pinning_required`); a `uses:` on a tag or branch is rejected at the Actions level rather than caught in review.
+`test.yml` supports `merge_group`, but that alone does not make the merge queue usable: other required checks need appropriate queue triggers too. Do not infer queue readiness from the trigger catalogue.
 
 ### GitHub Secrets and Variables
 
-A default deployment requires only these repository secrets:
-
-| Secret | Used by | Purpose |
-|--------|---------|---------|
-| `CLOUDFLARE_API_TOKEN` | `deploy.yml`, `container-image.yml` | Wrangler authentication, resource setup, image push, and Worker deploy |
-| `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `container-image.yml` | Identifies the target Cloudflare account |
-
-Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and service credentials are maintained in [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md) and [Deployment verification](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md). This public lane intentionally does not duplicate that operational matrix.
+Default deployment uses repository `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Configuration owns public contracts; optional/non-default operational matrices remain private in [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md) and [Deployment verification](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md).
 
 <a id="deploy-workflow-detail"></a>
 ## Deployment Pipeline Contract
 
-**Workflow permissions:** top-level is `contents: read` in [PR Checks](../../.github/workflows/test.yml) and [Deploy](../../.github/workflows/deploy.yml). PR Checks never build container images and receive no package-cache permission. Deployment's `container` job receives `packages: write` to import and publish the GHCR BuildKit cache, plus `id-token: write` and `attestations: write`; only fresh-image runs invoke provenance attestation. Login failure disables cache use, and export errors do not fail the image build. <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/container-image.yml::image -->
+Top-level PR Checks/Deploy permission is `contents: read`. PR Checks receives no container-cache credentials. Deploy's container job alone receives `packages: write`, `id-token: write` and `attestations: write`; only fresh-image runs create provenance. Login failure disables cache and export errors do not restart/fail builds. <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/container-image.yml::image -->
 
-Job graph: `verify-existing` → optional `verify` → `prepare` → (`build-worker` ∥ `container`) → `deploy` → `outcome`. The retired Gate 1 fixture is not dispatched. <!-- @impl: .github/workflows/deploy.yml::outcome --> Every manual dispatch searches successful PR Checks runs for the dispatched SHA, newest first, and validates each run's repository, workflow, head, completed result, required `test` job, and immutable tested-tree receipt against the deploy checkout. A valid receipt skips inline PR Checks; no valid retained receipt triggers them. The optional advanced `verified_run_id` checks only that run and fails closed instead of falling back. <!-- @impl: .github/workflows/deploy.yml::verify-existing -->
+Graph: `verify-existing` → optional `verify` → `prepare` → (`build-worker` ∥ `container`) → `deploy` → `outcome`. No retired Gate 1 fixture dispatch. <!-- @impl: .github/workflows/deploy.yml::outcome --> Manual dispatch discovers successful head-matching PR Checks newest-first, validates repository/workflow/head/completed result/required test job and immutable tested-tree receipt, and reuses the first valid receipt. No valid retained receipt runs inline checks; explicit `verified_run_id` checks only that run and fails closed without fallback. <!-- @impl: .github/workflows/deploy.yml::verify-existing -->
 
-`workflow_run` already carries its exact green gate. After verification succeeds, `outcome` fails an eligible non-cancelled run in which nothing was deployed, so a green Deploy means a deploy happened. Workflow cancellation remains cancelled without forcing `outcome` to run. The same-repository green-`push` gate is repeated on every downstream gated job because a job skipped via `if:` counts as success for `needs:` resolution. Same-environment deploys queue rather than cancelling an active mutating run; different environments keep independent concurrency groups. <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @impl: scripts/ci/assert-deploy-outcome.mjs::deployOutcome -->
+The automatic path already carries its exact green gate. Same-repository successful push checks are repeated downstream because an `if:`-skipped dependency is not an authorization gate. Eligible non-cancelled verified runs that deploy nothing fail `outcome`; cancellation remains cancelled. Same-environment mutations serialize without cancelling active work; different environments have distinct concurrency. <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @impl: scripts/ci/assert-deploy-outcome.mjs::deployOutcome --> Run names expose target/ref and inline verification uses the dispatch run ID as a concurrency discriminator (REQ-OPS-001/026/028/029/031/042; REQ-OPERATOR-009).
 
-(Implements [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified), [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate), [REQ-OPS-029](../../sdd/spec/operations.md#req-ops-029-automatic-manual-deploy-verification-reuse), [REQ-OPS-031](../../sdd/spec/operations.md#req-ops-031-trusted-deployment-container-build-cache), [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance), and [REQ-OPERATOR-009](../../sdd/spec/operators.md#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures).)
+1. **prepare:** rejects non-main production dispatch; resolves exact SHA, environment, Worker, cache bust and canonical selected-agent set once.
+2. **build-worker:** web UI first, then landing into `web-ui/dist/landing/` because the UI build wipes `dist`; one-day dist artifact.
+3. **container:** input identity covers Dockerfile, workflow/ignore/scan policy, entrypoint, host production manifests/config/source, IDE/preseed/seed, npm pruning, image smoke, Pi lockstep verification, canonical agents and ISO week.
+   - Host tests do not invalidate the image. An existing tag is reusable only after registry-digest provenance verifies against `container-image.yml`; deployment binds that exact digest. Invalid/missing provenance, cache bust or uncovered COPY disables reuse.
+   - Fresh images record complete byte size with no fixed byte-ceiling rejection. Reuse retains original scan/SBOM, not a new scan. First deploy under a new ISO-week identity rebuilds/rescans, rather than claiming an unconditional weekly deployment.
+   - BuildKit cache/layer timing remains deployment-owned; plain timing evidence is retained fourteen days. Late Pi extensions still invalidate Jiti prewarm while retaining dependency layers; IDE/generated-seed assembly does not invalidate unrelated installs (REQ-OPS-050).
+   - Node bases resolve approved immutable manifests through `mirror.gcr.io/library/node`; embedded IDE stages retain their separately pinned Node 22.21.1 boundary. Publication still requires construction/smoke/scan/provenance, not availability checks alone (REQ-OPS-011).
+   - Before scan/push, run selected launcher version commands with ten-second bounds plus Pi/Claude/empty-inventory, cold-readiness, process, resource and prefixed-proxy smoke.
+   - Locked Trivy primes daily vulnerability/Java databases, then scan, CycloneDX SBOM and registry-tool preparation run concurrently against isolated writable caches. All are awaited; prerequisite failure blocks publication.
+   - Apply `ignore-unfixed: true` and reviewed `.trivyignore`, validate exact bounded exceptions, upload SBOM, then push (REQ-OPS-052; [Security gate](security.md#container-image-scanning-req-sec-011)).
+   - Immutable artifacts with fixable embedded dependencies receive exact integrity-verified overlays at every affected path; smoke checks versions and operation/archive round trips before scanning (REQ-OPS-046).
+   - The current node-tar 7.5.21 and pacote 21.5.1 overlays retire only when upstream artifacts carry the fixed floor directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION -->
+   - Push retries thirty times at thirty-second intervals. COPY coverage guards reuse; ignore/scan policy is hashed. Registry credentials are masked/step-scoped away from build/scan actions.
+4. **deploy:** downloads assets, resolves/creates KV, prepares one environment-local usage D1 binding and additive migrations, patches Worker/container configuration, and applies reviewed authorization/config before Worker promotion (REQ-OPS-056/060).
+   - `RESSOURCE_TIER`: low 0.25 vCPU/1 GiB/4 GB, default or saas 1 vCPU/3 GiB/6 GB, high 2 vCPU/6 GiB/12 GB; default max instances ten, positive `MAX_INSTANCES` override. This is deployment allocation, not capacity certification.
+   - Binds the selected registry image/digest; Wrangler deploy retries thirty times/thirty seconds without wasting the completed build.
+   - One secret-bulk call follows Worker creation; optional mode-gated secrets remain Configuration/private-owned. Configured service auth gets bounded fail-closed user seeding; absent service auth skips it. Optional VAPID is all-or-none and validated before promotion.
+   - Best-effort registry pruning retains ten newest tags, deployed tag, aliases of its digest and unresolved-creation-time tags. Uncertain creation time never authorizes deletion.
+   - Always publishes environment/Worker/image/reuse summary.
 
-The run title (`run-name`) resolves and displays the deploy target (production / enterprise / enterprise integration / integration) plus the source ref, so the Actions list and `gh run list` answer "what did this deploy to?" without opening the run. The inline `verify` job passes its own `github.run_id` to `test.yml` as `concurrency_key`, which is appended to that workflow's concurrency group — without it, dispatching two environment deploys off one branch puts both inline verifies in the same group and the second cancels the first, surfacing as a cancelled run that deployed nothing.
-
-1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, cache-bust flag, and environment-scoped `CODING_AGENTS` selection once for all downstream jobs.
-2. **build-worker** — builds frontend, then landing (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), uploads `web-ui/dist` as a 1-day artifact.
-3. **container** — calls `container-image.yml` to build, scan, and push the image, or to reuse an existing one:
-   - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed, npm platform-pruning, and image-smoke scripts, the Pi lockstep verifier, the canonical selected-agent set, and the ISO week.
-   - Changes under `host/__tests__/` do not invalidate the deployment image.
-   - If `in-<hash>` already exists, the workflow resolves its registry digest and cryptographically verifies GitHub provenance against `container-image.yml`. Only then is build/scan/push skipped; deployment binds that digest. Missing or invalid provenance falls back to a fresh image.
-   - Fresh-image smoke records complete image bytes and identity as evidence; image size has no fixed deployment-failing ceiling.
-
-     Reuse preserves the original scan and uploaded SBOM without regenerating them, but verifies the retained digest's signed provenance before trusting that evidence. The first deployment under a new ISO-week identity rebuilds and rescans an unchanged image, bounding a reused CVE verdict to seven days without claiming an unconditional scheduled rebuild.
-   - Otherwise buildx uses the deployment-owned GHCR cache and retains plain layer-timing evidence for 14 days. See [REQ-OPS-050](../../sdd/spec/operations.md#req-ops-050-hosted-image-build-critical-path-optimization).
-   - Pi extensions are copied after dependency layers but before Jiti prewarm. Browser IDE artifacts and generated seeds assemble after unrelated runtime installs. See [REQ-OPS-050](../../sdd/spec/operations.md#req-ops-050-hosted-image-build-critical-path-optimization).
-   - Login failure disables cache use; export errors are ignored without failing or restarting the image build.
-   - PR Checks never authenticate to this cache.
-   - The base image comes from the digest-pinned Google mirror (`mirror.gcr.io/library/node`) to avoid Docker Hub anonymous pull limits.
-   - Before scan or push, the locally loaded image runs the packaged Pi/Claude/empty-inventory, cold-readiness, process, resource, and prefixed-proxy smoke gates.
-   - Locked Trivy primes daily vulnerability and Java databases, copies them into isolated caches, then starts scan, SBOM, and Wrangler preparation concurrently. See [REQ-OPS-052](../../sdd/spec/operations.md#req-ops-052-concurrent-image-security-preparation).
-   - The workflow awaits all three, applies `ignore-unfixed: true` plus `.trivyignore`, validates the bounded verdict, and uploads the SBOM before push. See [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011) and [REQ-OPS-052](../../sdd/spec/operations.md#req-ops-052-concurrent-image-security-preparation).
-   - When immutable artifacts lag a fixable dependency, the image overlays one exact integrity-verified artifact across every affected path, then verifies each installed version and runtime operation before scan or push. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> See [REQ-OPS-046](../../sdd/spec/operations.md#req-ops-046-fixable-dependencies-in-immutable-runtime-artifacts).
-   - The current node-tar 7.5.21 overlay removes CVE-2026-73566 from npm and code-server without weakening Trivy. Remove it when both upstream artifacts carry that floor directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> See [REQ-OPS-046](../../sdd/spec/operations.md#req-ops-046-fixable-dependencies-in-immutable-runtime-artifacts).
-   - The current pacote 21.5.1 overlay removes CVE-2026-9496 from the Node image's bundled npm. Remove it when the pinned Node artifact carries that floor directly. <!-- @impl: Dockerfile::PACOTE_VERSION --> See [REQ-OPS-046](../../sdd/spec/operations.md#req-ops-046-fixable-dependencies-in-immutable-runtime-artifacts).
-   - Push runs in a bounded retry loop (30 attempts, 30s apart); a COPY-coverage guard disables reuse if a Dockerfile COPY source ever falls outside the hashed path set.
-   - The hashed path set also covers `.dockerignore` and `.trivyignore`: a deleted CVE suppression previously left the reuse tag unchanged, so the image was reused and the scan that would now fail never ran.
-   - Registry credentials are step-scoped and masked before use, so the third-party build and scan actions never receive them.
-4. **deploy** — deploys the worker off the pre-built artifacts:
-   - Downloads the dist artifact, resolves/creates the KV namespace, and patches `wrangler.toml`.
-   - Applies worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/12GB; all tiers default to 10 max instances, `MAX_INSTANCES` overrides) and points `image` at the pre-pushed registry URI.
-   - Runs `npx wrangler deploy` with `--var` runtime config inside the same bounded retry loop (30×30s — a transient CF control-plane error such as 100146 "Worker version not found" never wastes the completed build).
-   - Uploads all worker secrets in **one `wrangler secret bulk` call** (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, mode-gated Resend/Stripe/OAuth/AIG secrets, optional `ENCRYPTION_KEY`).
-     - When service auth is configured, a bounded retry seeds its service user; failure leaves deployment red.
-   - Finally prunes old registry images via `scripts/ci/prune-registry.mjs` — best-effort, digest-alias-protected; keeps the 10 newest tags, the deployed tag, and any tag whose creation time failed to resolve.
-   - The unresolved-creation-time hold is fail-closed — a flaked config-blob fetch never deletes a potentially recent image; such tags become prunable again once a later run resolves them.
-   - Always (even on failure) publishes a **Deploy summary** table (environment, worker, image tag, whether the image was reused) to the run summary.
-Application test suites are not re-run in deployment—the exact SHA already passed PR Checks. Deployment separately owns packaged-image smoke because it is the only workflow that builds the image. That smoke executes every deploy-selected agent launcher's version command inside the built image with a ten-second timeout; missing, crashing, non-zero, or timed-out launchers fail the image job.
+Application suites are not rerun after exact-tree verification. Packaged-image smoke is independently deployment-owned because PR Checks builds no image. A green deployment receipt is not proof that every changed protected user path works; [Deployment](deployment.md#standard-deployment) owns post-secrets verification.
 
 <a id="test-workflow-detail"></a>
 ## Pull Request Verification
 
-Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose every configured leg concurrently, including four frontend groups. The required summary is the only fan-in. The reproducible target is an affected exact-head PR Checks run under three minutes; run `31314628668` completed its affected gate in 90 seconds and the workflow in 91 seconds ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
+After classification every affected workload starts directly; required summary is the fan-in. Backend/frontend/host matrices expose their configured legs concurrently. REQ-OPS-045's affected exact-head feedback target is under three minutes, not a user-runtime guarantee.
 
-- **changes:** classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, `workflows`, and `dependencies`; the last selects production lockfiles. `changes.outputs.full` means no filter ran. Source: [PR Checks](../../.github/workflows/test.yml) `jobs.changes`.
-  - If GitHub cannot produce the PR-files diff, exact checked-out commits are verified locally and every lane runs. API failure can add work but never skip coverage. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
-  - The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) skips filtering and runs the full matrix without matching Deploy's `PR Checks` trigger.
-- **quality** — agent-seed drift guard, backend and frontend oxlint and knip checks, plus a `bash -n` syntax pass over every tracked shell script ([REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)).
-- **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
-- **backend-tests** — twelve duration-weighted Workers jobs plus three Node-runtime legs (`native`, `flue`, `rest`), all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
-- **frontend-tests** — four duration-weighted file groups through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`; this production-breakage check is not a test dependency.
-- **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
-- **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
-- **browser-ide:** clean-installs under Node 22.21.1, audits the owned extension's pinned dependencies and licenses, typechecks, deterministically bundles native Pi Chat, and runs Pi context/RPC/approval plus official-Claude configuration behavior with coverage and a gated JSON report.
-- **dependency-review** — blocks merging when new dependencies introduce known vulnerabilities ([REQ-OPS-053](../../sdd/spec/operations.md#req-ops-053-dependency-review-evidence-exceptions)).
-- **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
+- **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. If GitHub diff fails, verify exact checked-out base/head and select all lanes, never silently skip. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) --> Nightly skips filtering under its distinct identity.
+- **quality:** seed drift, backend/frontend oxlint/knip, `bash -n` over tracked shell scripts (REQ-OPS-003).
+- **typecheck:** Wrangler types and backend/frontend `tsc --noEmit`.
+- **backend-tests:** twelve duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action.
+- **frontend-tests:** four duration-weighted test groups through the same action. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
+- **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
+- **landing-tests:** rendering/unit tests plus Astro production build.
+- **host-tests:** nonempty, nonzero-assertion Node-runner selection reconciled against `ci-excluded.txt`; rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
+- **browser-ide:** clean Node 22.21.1 install, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
+- **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact Codex platform license exceptions backed by Apache-2.0 lock metadata, not future-version exceptions (REQ-OPS-053).
+- **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
+- **impeccable-engine:** pinned-source focused native regressions, one-minute timeout, no image build (REQ-OPS-058).
+- **bundle-size:** Wrangler dry-run with container configuration repointed away from Dockerfile; one unambiguous measurement, valid positive budget or explicit opt-out sentinel (REQ-OPS-024).
+- **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
+- **summary:** rejects failed/cancelled relevant lanes, accepts unaffected skipped lanes, reconciles suite evidence and publishes exact-tree receipt.
 
-Pull requests use fail-closed GitHub Dependency Review instead of waiting on the npm registry. The reviewed pull-request tree remains the dependency-security evidence for its squash result on `main`; post-merge checks do not repeat registry-backed audits. Explicit full dispatches retain all three one-minute fail-closed audits. All three use lockfile-only mode rather than asking the registry to validate restored `node_modules` trees ([REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); [PR Checks](../../.github/workflows/test.yml) `jobs.quality` and `jobs.browser-ide`).
+PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution (REQ-OPS-045).
 
-Dependency Review limits license exceptions to six exact Codex platform releases whose lock metadata declares Apache-2.0, so later versions require review. Available OpenSSF scores stay visible; unavailable upstream scores remain informational ([REQ-OPS-053](../../sdd/spec/operations.md#req-ops-053-dependency-review-evidence-exceptions)).
+Shared pipeline/manifests/config/selection rules occur in broad filters so a meaning-changing file reselects all lanes. Container inputs select source IDE/host/shell validation but construction waits for Deploy. Workers are workerd/miniflare isolates; shard parallelism divides per-file setup/transform work that extra local workers cannot eliminate.
 
-The rclone, zizmor, and actionlint release archives are cached by OS, architecture, version, and checksum. A lane downloads its archive only when absent, and checksum validation rejects a restored mismatch before extraction or execution ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
-
-- **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
-- **coverage-backend / coverage-frontend** — run for affected package pull requests and full runs. Global floors remain authoritative; pull requests also apply bounded changed-line LCOV floors (80% backend, 70% frontend).
-- **summary** — required `test` context; rejects failed or cancelled relevant lanes and publishes the current exact-tree receipt.
-
-**Why the filters are broad:** the shared anchor—pipeline files, root manifests, both vitest node-suite files, and lint/dead-code rulesets—sits in every filter, so anything that can change what a lane means re-runs every lane. `host` additionally takes all of `.github/**`, because its tests assert on other workflows. Container inputs still select source-level IDE, host, and shell validation, but image construction itself waits for deployment.
-
-**Why shard count is the lever:** each backend shard runs its Workers pool across several workers (`maxWorkers` in `vitest.config.ts`, capped at 4 because every worker is a full workerd + miniflare instance). Most of a shard's wall clock is per-file transform and isolate setup, roughly half of it in the main process where extra workers cannot help — and that half divides across shards.
-
-**Why workflow-audit runs its own binary:** zizmor exits 12 on any finding, so a template-injection or credential-persistence defect fails the merge rather than surfacing later as an alert nobody reads (this repo carried 60 such alerts before they were swept). `zizmor-action`'s failure semantics depend on whether it is uploading SARIF, and a gate must be unambiguous about when it fires. Findings that are correct-as-written carry an inline `# zizmor: ignore[rule]` with the reason, on the finding's own line.
-
-The post-refactor audit requires no Zizmor scope change: the blocking lane audits all of `.github/`, while standalone SARIF runs whenever workflows, composite actions, or the shared tool pin changes. Both resolve the same validated Zizmor version; workflow-support JavaScript remains under its owning tests rather than being misclassified as workflow syntax ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
-
-**Why bundle-size patches the config:** Cloudflare rejects an oversized Worker at deploy time, so without this the discovery point is a failed production deploy. The patch repoints `[[containers]].image` away from `./Dockerfile`, because otherwise the dry run *builds the container image* that `container-image.yml` already builds and content-addresses — roughly three minutes of duplicated work for a number printed before the build starts.
-
-**What summary reconciles:** every suite's coverage via `scripts/ci/check-suite-completeness.mjs` (see [Backend Tests](#backend-tests)), publishing a test-result table through `scripts/ci/render-test-summary.mjs` to the run summary.
+Zizmor gate exits nonzero on surviving findings; justified suppressions stay on the finding line. Blocking audit scope remains `.github/`; support JavaScript remains under owning tests. Bundle-size patching avoids duplicated image construction. Summary publishes parsed suite results with `scripts/ci/render-test-summary.mjs` and reconciles coverage of the tree with `scripts/ci/check-suite-completeness.mjs`.
 
 ### PR Exact-Head Monitoring
 
-PR-boundary eligibility, exact-head target resolution, and CI-monitor recovery are owned by [Preseed — Resetting Review-Spawn Checkpoints](preseed.md#resetting-review-spawn-checkpoints).
+[Preseed — Review completion prompt or FIX is missing](preseed.md#review-completion-prompt-or-fix-is-missing) owns session boundary eligibility, exact-head resolution and recovery, not this workflow lane. Retired checkpoint files are not a recovery mechanism.
 
+<a id="security-probes"></a>
+<a id="scheduled-security-probes"></a>
+<a id="security-probe-and-penetration-test-evidence"></a>
 <a id="pentest-workflow-detail"></a>
-## Scheduled Security Probes
+<a id="current-weekly-probe-contract"></a>
+<a id="test-results"></a>
+## Security Probes
 
-One validation job constrains `PENTEST_TARGET` to an HTTPS DNS origin, then fans six lightweight external probes out in parallel against that exact output using only `curl` and `openssl` (no heavy scanning tools). Paths, credentials, IP/single-label hosts, queries, fragments, and control characters fail before any probe runs. Only the validator and TLS jobs receive repository-read permission because they check out owned validation scripts.
+Distinct named owner for current security-probe methods formerly in `pentest.md` (REQ-OPS-005). Monday 05:00 UTC/manual `pentest.yml` uses a production-environment `PENTEST_TARGET`; one target job normalizes the origin and six external jobs consume that exact output. Probes use lightweight curl, openssl and the owned Python legacy-TLS handshake helper, not a heavy scanner. <!-- @impl: .github/workflows/pentest.yml::jobs -->
 
-1. **security-headers**: Verifies presence of HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. Confirms `X-Powered-By` is absent.
-2. **tls**: Confirms TLS 1.3 works, TLS 1.0/1.1 are rejected, HSTS preload is enabled, and the certificate has at least 14 days before expiry.
-3. **auth-gate**: Sends unauthenticated requests to seven API endpoints and confirms they all require CF Access (302/401/403). Tests that injecting `cf-access-authenticated-user-email` headers does not bypass authentication.
-4. **info-disclosure**: Probes for sensitive files (`/.env`, `/.git/config`, `/api/debug`), checks that responses contain no secrets or stack traces.
-5. **injection**: Tests host header injection (spoofed `Host` returns 403), `X-Forwarded-Host` has no effect on content, CL/TE request smuggling is rejected, and path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) are blocked at the auth layer.
-6. **http-methods**: Verifies TRACE returns 405 and WebSocket upgrade without authentication returns 302.
+### Target normalization
 
-**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.ch`). See the full manual test report in [pentest.md](pentest.md).
+`normalize-https-origin.mjs` accepts HTTP, HTTPS or a bare DNS host, normalizes to HTTPS and rejects credentials, non-root paths, query/fragment, controls/padded whitespace, IP/single-label/malformed DNS names and invalid port zero. This is syntax normalization, not an allowlist or proof of DNS/port reachability. Use the configured intended public target; do not infer deployment identity from a historical report. Target/TLS jobs receive repository-read permission; the separate report job also has read plus issues-write. Other probes receive no repository permission.
 
----
+### Security-header probe <!-- @impl: .github/workflows/pentest.yml::security-headers -->
+
+HEAD `/` requires HSTS `max-age`, CSP, framing, `nosniff`, referrer and permissions headers and rejects `X-Powered-By`. It proves the tested response's header patterns, not every route's semantic policy. [Security](security.md#security-headers) owns controls/route exceptions.
+
+### TLS probe <!-- @impl: .github/workflows/pentest.yml::tls -->
+
+TLS 1.3 and exactly TLS 1.2 must return HTTP 200/302. Owned direct ClientHello probes require server-originated legacy-version refusal for TLS 1.0/1.1; accepted ServerHello fails, and close/unclassified alert/malformed record/no answer is inconclusive and fails, never a pass. HSTS must be present; preload is reported when present but is not a separate workflow failure boundary. Certificate validity must be at least fourteen days. Target normalization and the direct legacy-TLS helper support explicit host:port. The certificate-expiry and CL/TE openssl steps instead append `:443` and do not correctly handle non-default ports; use the intended default-port origin for the whole workflow. This documents a method limitation, not a runtime or workflow repair.
+
+### Authentication-gate probe <!-- @impl: .github/workflows/pentest.yml::auth-gate -->
+
+Samples `/api/sessions`, `/api/storage/files/`, `/api/users`, `/api/preferences`, `/api/container/health`: require 302/401/403, not 404. `/api/setup/status` separately requires 200 without secret-shaped response text. Spoofed identity headers must not bypass the sessions gate. This is a sample, not the dated report's complete protected endpoint inventory, nor proof of authenticated authorization.
+
+### Information-disclosure probe <!-- @impl: .github/workflows/pentest.yml::info-disclosure -->
+
+`/.env`, `/.git/config`, `/.git/HEAD`, `/api/debug`, `/api/internal` fail on 200, no response (000), or secret-shaped body. Invalid-session error prose is checked for stack/path signatures. A SPA 200 on a sensitive-file path fails this current method even if it contains no secret; the old dated observation is not the current pass boundary.
+
+### Injection probe <!-- @impl: .github/workflows/pentest.yml::injection -->
+
+Spoofed Host requires 403/421. `X-Forwarded-Host` must leave response content unchanged. CL/TE probe requires explicit 400/501 rejection. Four encoded URL traversal forms accept 302/400/401/403/404; delete traversal bodies require 302/401/403. Auth-layer rejection and URL 404 do not prove downstream authenticated storage validation or exhaustive parser safety.
+
+### HTTP-method probe <!-- @impl: .github/workflows/pentest.yml::http-methods -->
+
+TRACE requires 405/403. An unauthenticated terminal upgrade requires 302/401/403. The workflow's `/api/terminal/ws` request is a boundary sample, not the canonical authenticated session WebSocket endpoint catalogue.
+
+### Failure reporting
+
+An always-running report job treats any target/probe non-success as failed, opens/comments one exact-title tracking issue, and closes it after later green. Explicit `GH_REPO` is required because that job has no checkout. Scheduled failure is therefore visible operational state, not only an Actions result.
+
+### Coverage and limitations
+
+One unauthenticated origin; no certification of authenticated business logic, account/provider authority, all routes, rate-limit correctness, container isolation or absence of vulnerabilities. Use owning behavioral suites and specialist review. Network/body comparison heuristics have narrower guarantees than ideal exhaustive tests; source-backed constraints above must not be widened into product guarantees.
+
+<a id="penetration-test-report"></a>
+<a id="historical-evidence"></a>
+<a id="report-2026-03-06"></a>
+<a id="historical-report--2026-03-06"></a>
+<a id="summary"></a>
+### Immutable probe evidence aliases
+
+The retired lane's dated report and summary remain only at [original report](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#historical-report--2026-03-06) and [original summary](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#summary). No present certification, report body or new report collection is created. Original subfragment aliases below retain only immutable navigation:
+
+<a id="tools"></a>
+[Tools](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#tools)
+
+<a id="observations"></a>
+[Observations](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#observations)
+
+<a id="1-authentication-gate"></a>
+[Authentication observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#1-authentication-gate)
+
+<a id="2-header-spoofing"></a>
+[Header spoofing observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#2-header-spoofing)
+
+<a id="3-path-traversal"></a>
+[Traversal observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#3-path-traversal)
+
+<a id="4-cors-configuration"></a>
+[CORS observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#4-cors-configuration)
+
+<a id="5-security-headers-req-sec-008"></a>
+[Header observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#5-security-headers-req-sec-008)
+
+<a id="6-tls"></a>
+[TLS observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#6-tls)
+
+<a id="7-information-disclosure"></a>
+[Disclosure observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#7-information-disclosure)
+
+<a id="8-host-header-injection"></a>
+[Host observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#8-host-header-injection)
+
+<a id="9-http-request-smuggling"></a>
+[Smuggling observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#9-http-request-smuggling)
+
+<a id="10-endpoint-fuzzing"></a>
+[Fuzz observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#10-endpoint-fuzzing)
+
+<a id="11-http-methods"></a>
+[Method observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#11-http-methods)
+
+<a id="12-technology-stack"></a>
+[Stack observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#12-technology-stack)
+
+<a id="13-rate-limiting"></a>
+[Unauthenticated limit observation](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#13-rate-limiting)
+
+<a id="findings-summary"></a>
+[Findings summary](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/pentest.md#findings-summary)
+
+<a id="load-testing"></a>
+<a id="stress-testing"></a>
+## Load Testing
+
+Distinct named owner for current k6 methods formerly in `stress-test.md`; REQ-OPS-008 owns workflow methods and REQ-OPS-044 non-mutating setup. Load measurement is not a supported-user count, production capacity guarantee or canonical rate-limit policy.
+
+<a id="prerequisites"></a>
+### Target Modes and Preconditions
+
+Prepare an authorized integration worker through reviewed [Deployment](deployment.md#standard-deployment), not this workflow. Three intended high-load workloads use exact `STRESS_TEST_MODE=active`; enforcement validation uses inactive bypass. Deployment owns matching service-auth secret and fail-closed seed for `e2e-service@codeflare.local`. Integration owns `E2E_BASE_URL`, CF Access client ID/secret and optional `OAUTH_E2E_TEST_SECRET` setup fallback. Optional `STRESS_TEST_CONCURRENCY` defaults zero.
+
+Setup normalizes target, requires public provider discovery 200 and authenticated `/api/sessions` 200 with four bounded retries/fifteen-second waits. It has only checkout, Node, normalization and smoke steps, no resource/deploy repair. Suite traffic is not read-only.
+
+**Credential limitation:** Setup supports OAuth-secret fallback, but current k6 files use `CF_ACCESS_CLIENT_SECRET` for `X-Service-Auth` and do not read `OAUTH_E2E_TEST_SECRET`; setup success alone cannot prove fallback-only suite authentication.
+
+<a id="running"></a>
+### Execution Runbooks
+
+<a id="load-suites-against-a-bypass-enabled-target"></a>
+**Load:** Record target commit, origin, resource profile, service identity and active bypass. Select `api-throughput`, `session-lifecycle` or `storage-operations` explicitly in Actions → Stress Test. Confirm normalized target/auth, selected thresholds and artifact identity. Abort on wrong target/profile/mode/identity; do not redeploy/repair from the measurement workflow. Session/storage cleanup is attempted, not guaranteed after cancellation/errors/throttled deletion. Throughput/preferences validation changes preferences and does not restore them; use a disposable service identity and check residual records/files/preferences afterward.
+
+<a id="rate-limit-validation-against-a-rate-limited-target"></a>
+**Rate limits:** Prepare inactive bypass and select only `rate-limit-validation`. Observe before-limit success, 429 and suite verdict without unexpected status. Cleanup created test sessions where possible and verify leftovers explicitly.
+
+<a id="unsupported-all-selector"></a>
+**Unsupported `all`:** Source defaults to and selects all four jobs, which share one unchanged target and opposite intended modes. It cannot prove both intended high-load and enforcement contracts. Load scripts themselves do not assert bypass; their 429 short-circuits/counter floors can allow partial measurements under limits. A green `all` must not be interpreted as high-load saturation plus enforcement proof. No runtime/workflow fix is proposed here.
+
+<a id="test-suites"></a>
+### Suite Contracts
+
+#### API Throughput (`api-throughput.js`) <!-- @impl: stress/api-throughput.js::options --> <!-- @impl: stress/api-throughput.js::default -->
+
+Mostly reads, with occasional `PATCH /api/preferences` writes. `sustained_load`: 30s to scaled five, 1m to scaled ten, 2m hold, 30s down; spike starts 4m30s and lasts 50s (10s up, 30s hold, 10s down) at scaled ten. Each cycle requests public `/api/health`, sessions and batch-status; 30% also gets user/preferences and 20% of those cycles patches mode; 20% browses storage. Independent random choices can overlap. Think time uniformly 4–6s.
+
+| Gate | Fixed threshold |
+|---|---|
+| HTTP request p95 | <5s |
+| HTTP failed rate | <5% |
+| `errors` | <10% |
+| `health_duration` p95 | <1s |
+| `session_list_duration` p95 | <5s |
+
+The scripted approximately-five-second dashboard pattern is not the current product polling contract: stable visible session status now uses sixty-second polling, transitions five seconds, hidden pages stop (REQ-OPS-057). Individual check failures are not universally aggregated into a `checks` threshold in this suite.
+
+#### Session Lifecycle (`session-lifecycle.js`) <!-- @impl: stress/session-lifecycle.js::options --> <!-- @impl: stress/session-lifecycle.js::default -->
+
+Three-minute create/list/get/delete churn: 30s up, 2m hold, 30s down at baseline three. It does not start containers, stop sessions or exercise terminal readiness. Think ranges: 3–8s after create, 2–5s before get, 5–15s before delete and 10–30s between cycles.
+
+| Gate | Fixed threshold |
+|---|---|
+| Create p95 | <5s |
+| Delete p95 | <3s |
+| `errors` | <15% |
+| `sessions_created` | >0 |
+| `sessions_deleted` | >0 |
+
+429 creates/deletes are counted and sleep fifteen seconds before returning; floors prevent empty-success verdicts. Creation requires 201; deletion 200/204. List/get checks exist but no global checks threshold makes every read check individually fatal. A failed/throttled delete can leave a created session.
+
+#### Storage Operations (`storage-operations.js`) <!-- @impl: stress/storage-operations.js::options --> <!-- @impl: stress/storage-operations.js::default -->
+
+Three-minute 30s/2m/30s workload at baseline five (initial ramp target three). Simple upload/browse/download/delete with 60% 1-KB, 30% 20-KB, 10% 50-KB payloads. About 20% of iterations additionally upload three folder objects and delete their prefix. Think ranges: 3–8s after upload, 2–5s between browse/download/delete, 5–15s between cycles, and 1–3s before folder deletion.
+
+| Gate | Fixed threshold |
+|---|---|
+| Upload p95 | <10s |
+| Download p95 | <5s |
+| Browse p95 | <3s |
+| `errors` | <15% |
+| `files_uploaded` | >0 |
+
+429 uploads sleep ten seconds/return; successful-upload count prevents empty-success verdict. Browse/download/delete and folder checks are reported, but no global checks gate turns every check into a failing verdict and custom `errors` records upload outcomes only. Deletion/content persistence coverage must not be overstated.
+
+#### Stress Test with Rate Limits (`rate-limit-validation.js`) <!-- @impl: stress/rate-limit-validation.js::options --> <!-- @impl: stress/rate-limit-validation.js::sessionLimitTest --> <!-- @impl: stress/rate-limit-validation.js::preferencesLimitTest -->
+
+One VU/one session scenario (max three minutes) bursts fifteen creates against scripted cap ten. One VU preferences scenario starts at 3m10s (max two minutes) bursts twenty-five patches against scripted cap twenty. These are suite assumptions to reconcile with [API Reference](api-reference.md), not a second endpoint policy owner.
+
+`rate_limit_429s count>0`, `checks rate>0.99`, and `unexpected_errors rate<0.05` gate. Session checks require some 201s, at least one 429, successful creates ≤ ten and 429 advisory information. Preferences checks require at least one 429, not a separate success/cap assertion. `unexpected_errors` only receives true on unexpected statuses, so any recorded unexpected status fails rather than representing a measured five-percent tolerance. Cleanup reads `{ sessions: [...] }`, attempts deletion of `ratelimit-test-*` and warns on parse failure; it is not transactional and can encounter delete limits. Mode preferences are not restored.
+
+<a id="session-lifecycle-rate-limits-detail"></a>
+#### Session Lifecycle Rate Limits Detail
+
+Current create/delete limits are API-owned. A shared service identity aggregates every VU into one limiter key; intended saturation measurement needs bypass. Stop, container-start and WebSocket behavior are not exercised by this CRUD suite. Counter floors prove nonempty create/delete observations, not representative capacity or complete cleanup.
+
+### Load Model
+
+#### Think Time Model
+
+All load scripts sleep uniformly `min + random * (max-min)` seconds. Concurrency changes VU targets only, not per-VU request sequencing, random file distribution or think times.
+
+<a id="vu-to-real-user-mapping"></a>
+#### Load Interpretation Limits
+
+VU counts are workload inputs. No conversion to real users or supported capacity is maintained. Interpret request rate, latency/error distributions, exact suite revision, target resource profile/configuration and identity. Request-rate examples are only rough scripted estimates; network time/random branches mean they are not guarantees. Dated runs prove only the tested revision/configuration/workload.
+
+<a id="concurrency-input"></a>
+#### Concurrency Scaling
+
+`CONCURRENCY = parseInt(value || '0', 10)`; per-suite `SCALE = positive ? CONCURRENCY / BASE_VUS : 1`; each target is `max(1, round(vus * SCALE))`. Baselines are ten/three/five. Zero/unset keeps baseline; fifty/two hundred/one thousand scale target VUs proportionally. Current scripts retain all fixed thresholds under positive concurrency; the old prose claiming loosened thresholds contradicts source and REQ-OPS-008 AC3 remains an explicit unresolved normative ambiguity, not silently changed here.
+
+<a id="rate-limit-bypass"></a>
+### Target Safety and Rate-Limit Bypass
+
+Only exact `active` skips HTTP/WS limiter storage and emits one shared isolate warning. SaaS plus stress is invalid and returns 503. This is an operator-prepared integration mode, **not** a source-enforced hostname restriction; production must never enable it. [Security](security.md#rate-limiting) owns bypass/failure posture; [API Reference](api-reference.md) owns exact limits. Session/quota admission bypass is Session Lifecycle/Billing-owned, not a CI guarantee.
+
+<a id="configuration-reference"></a>
+### Configuration and Workflow Aliases
+
+<a id="worker-environment-variable"></a>
+<a id="github-variables-integration-environment"></a>
+<a id="github-secrets"></a>
+Configuration owns Worker `STRESS_TEST_MODE`; private deployment owns preparation. Integration workflow variable `STRESS_TEST_CONCURRENCY` defaults zero and `E2E_BASE_URL` identifies normalized origin. Probe credentials are CF Access client ID/secret and optional OAuth setup fallback; secrets are not copied into documentation.
+
+#### Workflow Architecture
+
+Setup → four selected-or-all parallel jobs → always-running summary. Summary rejects failed/cancelled suite jobs, permits deselected skipped jobs, downloads `stress-*`, requires at least one results file and a thresholds key, and rejects any serialized false threshold. This text gate is not a proof that every selected job's artifact is individually reconciled; k6 job exits and reported thresholds are the verdict boundaries. Result artifacts retain thirty days; no report collection is maintained.
+
+<a id="results"></a>
+<a id="results-and-historical-evidence"></a>
+<a id="latest-results-2026-03-07-50-vus"></a>
+<a id="historical-results-2026-03-07-workflow-and-suite-definitions-50-vus"></a>
+### Immutable load evidence aliases
+
+Historical measurements remain at [the original result](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/stress-test.md#latest-results-2026-03-07-50-vus), with its existing [Actions run](https://github.com/nikolanovoselec/codeflare/actions/runs/22808941531). They are not current capacity or current enforcement evidence. No dated metrics are duplicated here.
+
+<a id="api-throughput"></a>
+[Original throughput result](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/stress-test.md#api-throughput)
+
+<a id="session-lifecycle"></a>
+[Original lifecycle result](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/stress-test.md#session-lifecycle)
+
+<a id="storage-operations"></a>
+[Original storage result](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/stress-test.md#storage-operations)
+
+#### Files
+
+`stress/api-throughput.js`, `session-lifecycle.js`, `storage-operations.js`, `rate-limit-validation.js` own workload implementation; `stress-test.yml` orchestrates. Middleware/terminal route/core/constants own actual limiter behavior and values, referenced from Security/API owners rather than inventoried as a second policy.
+
+<a id="endpoints-not-yet-stress-tested"></a>
+<a id="timekeeper-do-load-characteristics"></a>
+<a id="container-start-quota-check"></a>
+#### Subscription and Timekeeper Considerations
+
+Current suites do not exercise subscription/tiers/usage/admin/onboarding-config load, active-container Timekeeper ping accounting or quota enforcement. Subscription owns those runtime contracts. Old sixty-second ping/KV quota/cap prose is not a current implementation guarantee; REQ-OPS-057's representative accounting fixture is distinct CI evidence, not coverage from these k6 workloads.
 
 <a id="testing"></a>
 ## Test Suite Catalogue
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** istanbul provider — the v8 provider profiles through the Node host's V8 inspector, which cannot see inside workerd isolates and reports a flat 0% for this suite. Thresholds live in each suite's own vitest config and are enforced by the path-specific `coverage-backend` and `coverage-frontend` lanes; full nightly/manual/merge-queue runs execute both. An affected tree is checked before merge, so a regression fails before merge: gated post-merge only, a dip turned `test` red on `main` after the fact and `deploy.yml` then silently declined to deploy an already-merged commit ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)).
+Root `vitest.config.ts` uses real Workers runtime via `@cloudflare/vitest-pool-workers` `cloudflareTest()`, not Node. `npm test`; Istanbul coverage because host V8 cannot profile workerd isolates. Floors remain source-owned in package configs; affected PRs/full runs enforce them before promotion. Changed-line LCOV excludes deletions/test-only changes, follows rename destinations, bounds diff/report/line counts and fails absent production records.
 
-Measured 2026-07-20 on the first run that ever executed them: backend 90.2% statements / 82.7% branches, web-ui 77.4% / 66.0%. Thresholds sit ~2 points under those, because the previous 53/43 and 32/27 sat 37 and 45 points below actual and would have passed a suite with most of its tests deleted. Pull requests also check changed executable production lines represented in LCOV at practical package floors (80% backend, 70% frontend), never 100% per file. The checker ignores deletions and test-only changes, follows rename destinations, bounds diff/report size and changed-line count, and fails closed when a changed production file has no report record.
+Closed Administration material-state owners assigned to user-owned Integration validation are `ActivityPage.tsx`, `AdministrationLayout.tsx`, `AdministrationOverview.tsx`, `AnalyticsPage.tsx`, `AnalyticsUserDetail.tsx`, `EnvironmentAreaFields.tsx`, `EnvironmentIndex.tsx`, `ReportsPage.tsx` and `environment-areas.ts` under `web-ui/src/components/admin/`. Exceptions do not extend to backend/shared infrastructure/other production code (REQ-OPS-022).
 
-The frontend coverage job reserves these Administration material-state owners for user-owned Integration validation; backend contracts, shared frontend infrastructure, and every other production file remain gated ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)):
+Protected rendered behavior uses deployment-time browser-e2e evidence on phone/tablet/desktop: login content visible before auth settlement, armed Vault success color under sticky touch hover, unclipped Kitt beam geometry, and SplashCursor retirement on WebGL loss with stable dark surface. CSS-source patterns do not prove rendering and no repository browser framework is added by this method.
 
-- `web-ui/src/components/admin/ActivityPage.tsx`
-- `web-ui/src/components/admin/AdministrationLayout.tsx`
-- `web-ui/src/components/admin/AdministrationOverview.tsx`
-- `web-ui/src/components/admin/AnalyticsPage.tsx`
-- `web-ui/src/components/admin/AnalyticsUserDetail.tsx`
-- `web-ui/src/components/admin/EnvironmentAreaFields.tsx`
-- `web-ui/src/components/admin/EnvironmentIndex.tsx`
-- `web-ui/src/components/admin/ReportsPage.tsx`
-- `web-ui/src/components/admin/environment-areas.ts`
+The known Workers teardown fingerprint is accepted for opted-in suites only after parsed nonempty report/no failed tests/suites; coverage additionally requires table/no threshold miss. Missing/corrupt report, unknown nonzero exit or test failure remains fatal. `.github/actions/vitest-suite` runs dot plus JSON reporter and invokes `scripts/ci/check-vitest-report.mjs`, not prose grep. jsdom/Node nonzero exits stay fatal (REQ-OPS-022/023).
 
-**Protected rendered verification:** Browser-only visual claims are not represented by CSS-source regexes or a repository-owned browser framework. The deployment-time `browser-e2e` agent verifies the protected deployment at phone, tablet, and desktop widths. For the Wave 9 contracts it records: login core content visible before auth promises settle; the armed Vault control retaining its success computed color under sticky touch hover; the Kitt scanner remaining unclipped with its beam inside the dashboard panel overflow geometry; and WebGL context loss retiring SplashCursor while the dark app-root surface remains visible. The deploy/PR evidence links the protected target and browser-run artifact; no Playwright package, config, workflow, or scripted E2E suite is added.
+Shared `.github/actions/install-deps` uses lock-keyed cache, bounded/retried `npm ci --prefer-offline --no-audit --no-fund` on misses and Node compile cache. Summary reconciles all registered `scripts/ci/suites.mjs` test files against reports; missing/duplicate files and successful lanes without reports fail. `vitest.node-suite.mjs` is shared Node ownership, not duplicated exclude lists.
 
-**CI workerd crash guard (fail-closed):** `@cloudflare/vitest-pool-workers` crashes `workerd` at pool teardown after all tests pass — a known upstream limitation of WebSockets + Durable Objects under per-file storage isolation, still present on 0.18.x/vitest 4 (the documented alternative `--max-workers=1 --no-isolate` crashes this suite at collection). Serializing the pool never fixed it — the crash is at teardown, not a concurrency race — so the pool runs parallel and the gate, not serialization, is what makes the result trustworthy. The shared coverage action tolerates that fingerprint for backend coverage only after it has confirmed a coverage table was produced, no test failed, and no threshold was missed ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)).
-
-The composite action `.github/actions/vitest-suite` runs every vitest suite: backend shards, the Node leg, frontend shards, landing, and the Browser IDE extension. It invokes the suite's npm script (optionally with `--shard`) with `--reporter=dot --reporter=json`, then gates via `scripts/ci/check-vitest-report.mjs` on the **machine-readable JSON report**, never on reporter prose: a zero exit still requires a parsed report with >0 tests and 0 failures (catches silently-empty runs).
-
-A non-zero exit is accepted only when the report parses with >0 tests, 0 failed tests, 0 failed suites, AND the log carries the exact fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.`. A missing or corrupt report, an unknown error, or any failed test fails the job. Crash tolerance is opt-in per suite (`tolerate-pool-crash`), because only the Workers pool has that bug ([REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports)) — a non-zero exit from the jsdom or Node suites stays fatal. Deploy does not re-run tests, so the guard lives only here.
-
-**Dependency installs** go through `.github/actions/install-deps` (lockfile-keyed cache, `npm ci --prefer-offline --no-audit --no-fund` only on a miss, each attempt wrapped in `timeout` so a *hung* registry connection is retried rather than waited on forever, plus `NODE_COMPILE_CACHE` for the V8 bytecode cache Node 22+ shares between processes). Every lane used to copy-paste that pair and they drifted; one action means one cache-key convention.
-
-**Cross-suite completeness gate (fail-closed):** a per-run gate can only vouch for files it was handed, so `scripts/ci/check-suite-completeness.mjs` runs in the `summary` job and reconciles the union of every report against the test files actually in the tree, for each suite registered in `scripts/ci/suites.mjs` ([REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports)).
-
-A file lost to a mis-shard, a stale exclude, or a worker dying mid-run fails the required context instead of passing as a smaller-but-green run. It also fails when a lane reported success yet uploaded no reports (a flaked artifact download cannot silently disarm the gate), and when two shards both claim the same file — a split disagreement, whose mirror image is a file nobody ran. `vitest.node-suite.mjs` is the single list of Node-runtime backend tests, shared by both vitest configs and this gate.
-
-**Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
-
-**File-size discipline:** the former >1,500-line test files are split along describe boundaries (`routes/setup*.test.ts` ×5, `container/{index,enterprise-llm,lifecycle}.test.ts`, `lib/agent-seed-{manifest,multi-agent,pi-memory}.test.ts`, `fuzz/{input-validation,replicated-helpers,runtime-config}.fuzz.test.ts`). Shared scaffolding is replicated per file because `vi.mock` hoisting is per module.
+Use module-level `vi.mock` before imports, `vi.hoisted` for mock-factory mutable state, and silent miniflare logging. Crypto suites exercise KV AES-GCM/migration and R2 SSE-C. Large tests are split along describe boundaries; hoisted scaffolding remains per-file rather than unsafe shared initialization.
 
 ### Frontend Tests
 
-**Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Run:** `cd web-ui && npm test`
-**Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
+`web-ui/vitest.config.ts`, jsdom/`@solidjs/testing-library`; `cd web-ui && npm test`. Getter-based Solid stores are reimported after `vi.resetModules`; render components through the library.
 
 ### Host Tests
 
-**Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Run:** `cd host && npm test` (also runs in CI via `node --test host/__tests__/*.test.js`, minus the container-only tests listed in `host/__tests__/ci-excluded.txt`)
-**Scope:** PTY pre-warm readiness (first output starts a fixed 1.5-second settlement period), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup, container memory tracking, entrypoint ECC validation, entrypoint hooks merge, metrics collection, session manager lifecycle, proactive memory injection (memory-context-inject.sh), graphify hook wiring and retirement migration, graphify discipline preseed checks.
+`host/package.json` Node runner; `cd host && npm test`. CI excludes image-only cases through the maintained exclusion ledger. Covers PTY fixed 1.5-second first-output settlement, activity/input tracking, host HTTP/WS/proxy security, sync filters, lifecycle/memory/metrics, entrypoint/agent configuration, graph hooks and migration. Package references own detailed inventories.
 
 ### Property-Based Fuzz Tests
 
-**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to `main` or `develop`, weekly, and manual dispatch ([REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing)).
-**Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
+fast-check; workflow fifty thousand iterations, local default one thousand and `FAST_CHECK_NUM_RUNS` override. Owned suites cover backend input-validation, helper/runtime configuration, managed monotonic activation/conflicts, Vault parsing/routing/regimes, frontend adversarial data and terminal-link boundaries, and host prewarm/activity. Tests should exercise production untrusted boundaries, not language/framework guarantees or replica helpers. The retained `replicated-helpers` suite name is existing inventory, not permission to add replica tests.
 
-| Suite | File | What it covers |
-|-------|------|----------------|
-| Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, compound session-ID parsing |
-| Backend | `src/__tests__/fuzz/replicated-helpers.fuzz.test.ts` | Replicated non-exported helpers (normalizeEmail, getCookieValue, extractTag, isRetryable), error types, type guards |
-| Backend | `src/__tests__/fuzz/runtime-config.fuzz.test.ts` | TabConfigSchema, logger, toApiSession, cache-reset state machine, error-type constructors, content-type helpers, session-mode config filtering, managed-release monotonic activation and same-sequence identity conflicts |
-| Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
-| Host | `host/__tests__/fuzz-host.test.js` | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
-| Backend | `src/__tests__/fuzz/vault-migration.fuzz.test.ts` | validateVaultRoute (exactly-one-outcome token XOR session XOR 400; bare-path rejection; Upgrade-header case), getVaultBucketToken (32-hex shape, deterministic, distinct from session-id namespace), graftVaultKeyRecovery (throws on anchor-less input; single-shot), resolveReadRegime + getRegimeState (KV-garbage hardening), parseSessionMessages (adversarial JSONL), isChildSessionFirstLine, isVaultExcludedPath segment-awareness |
-| Frontend | `web-ui/src/__tests__/fuzz/terminal-link-provider.fuzz.test.ts` | registerMultiLineLinkProvider driven through the real registration path against fuzzed buffers — never throws / calls back exactly once, every emitted link is a well-formed http(s) URL with ordered range + activate handler, wall-clock ReDoS bound on adversarial wrapped URL rows |
-
-**Test selection criteria:** Every test must exercise real production code (no replicas) on an untrusted input boundary (user input, API responses, WebSocket data, env vars). Tests that verify framework guarantees (Zod safeParse), language features (class inheritance), or trivial formatters are excluded.
-
-**Bugs found by fuzzing:**
-- `getBucketName` trailing hyphen for long worker names (`src/lib/access.ts`)
-- Null byte bypass in `validateKey` (`src/routes/storage/validation.ts`)
-- `prewarm-config.ts` crash on non-string tab command (`host/src/prewarm-config.ts`)
-- `toError`/`toErrorMessage` crash on objects with throwing `toString()` (`src/lib/error-types.ts`)
+<a id="bugs-found-by-fuzzing"></a>
+**Bugs found by fuzzing:** preserved historical alias only at [original CI subsection](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/ci-cd.md#property-based-fuzz-tests); discoveries are not a present campaign history here.
 
 ### Vitest Configuration
 
-Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
-
-**Reporter:** all three Vitest configs (root, `web-ui/`, `landing/`) select the reporter from `process.env.CI`: `dot` (compact, dots + summary) in CI, `default` (full per-test output) locally. The CI backend run additionally passes `--reporter=json --outputFile.json=...` on the command line so the crash-guard gate reads structured counts instead of grepping reporter text.
-
----
+Root/web-ui use separate installs/configs of Vitest v4; root Workers plugin versus frontend jsdom/Solid. Root/web-ui/landing choose dot in CI and default locally; suite action supplies JSON report for machine-readable gating.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
-Exhaustive Operations status remains in `sdd/spec/operations.md`. Workflow sections carry clause-local links; this map records the maintained gate families.
+SDD records retain exact IDs/statuses/AC/constraints/evidence. This map does not upgrade manual/Partial acceptance.
 
-| Gate family | Requirements | Source owner | Evidence |
+| Family | Requirements | Source | Evidence |
 |---|---|---|---|
-| PR classification and required summary | [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance) | `.github/workflows/test.yml` | Machine-readable reports, exact-tree summary, and `host/__tests__/ci-workflow-hardening.test.js` cache behavior |
-| Coverage/result completeness | [REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence), [REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports) | composite suite actions and CI scripts | Report/artifact reconciliation tests |
-| Build and promotion | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate), [REQ-OPS-050](../../sdd/spec/operations.md#req-ops-050-hosted-image-build-critical-path-optimization), [REQ-OPS-052](../../sdd/spec/operations.md#req-ops-052-concurrent-image-security-preparation) | deploy/container-image workflows | Tested-tree receipt, BuildKit timing, scan/SBOM evidence, image digest, deployment outcome |
-| Supply-chain automation | REQ-OPS-020/021/025/027/032 and release requirements | shadow-pin, CodeQL, Scorecard, release workflows | Workflow contracts and generated-artifact tests |
-| Nightly/fuzz/probe/stress | REQ-OPS-018/043/044 and REQ-OPS-005 | dedicated workflows | Dated run receipts; specialist lanes own execution interpretation |
-| Provenance and reuse | [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance), REQ-OPS-026/029 | image/deploy receipts | Content-addressed artifact and run validation |
-
----
+| PR gates | OPS-003/022/023/024/045/053/058 | test workflow, suite actions, CI scripts | Reports, completeness, coverage, exact-tree receipt |
+| Deployment/artifacts | OPS-001/002/013/014/026/028/029/031/042/050/052/056/060/061 | Deploy/Image | Provenance/digest, scan/SBOM, order/outcome |
+| Promotion | OPS-036/037 | promotion-source and GitHub rulesets | Validator plus live rulesets |
+| Supply chain/release | OPS-009/019/020/021/025/027/032/033/034/035/041/054/055/059 | Dedicated workflows/pin helpers | Generated artifacts, release/image receipts |
+| Security probes | OPS-005 | pentest and owned target/TLS helpers | Exact run and tracking issue; bounded unauthenticated observations |
+| Load methods | OPS-008/044 | stress workflow and four scripts | Selected mode-compatible k6 result, not capacity certification |
+| Nightly/fuzz | OPS-018/043 | Reusable matrix/fuzz | Full-run/iteration evidence |
+| Product behavior | Session/Storage/Agents/Security/Billing requirements | Actual runtime owners | Owning behavioral suites; not guaranteed by CI methods alone |
 
 ## Related Decisions
 
-- [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) - Parallel path-filtered CI lanes, fail-closed JSON test gate, staged deploy with content-addressed container reuse, scripted e2e removal
-- [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) - Native Pi Chat, exact official Claude package, and complete-image compatibility lane
-
----
+- [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images)
+- [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)
 
 ## Related Documentation
-- [Deployment](deployment.md) - Development commands and file structure
-- [Configuration](configuration.md#secrets) - Worker secrets and variables
-- [pentest.md](pentest.md) - Penetration testing results
-- [stress-test.md](stress-test.md) - Load testing guide
+
+- [Deployment](deployment.md) — operator execution/verification/rollback
+- [Configuration](configuration.md#secrets) — public variables/secrets
+- [Security](security.md) — controls, exceptions, failure posture
+- [API Reference](api-reference.md) — endpoints and exact limits
+- [Troubleshooting](troubleshooting.md) — diagnostic recovery

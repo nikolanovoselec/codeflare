@@ -29,6 +29,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-001-session-creation-with-name-and-agent-type"></a>
 ### REQ-SESSION-001: Session creation with complete D1 record
 
 **Intent:** A user can create a named session with an immutable workspace configuration as a complete D1-owned record.
@@ -174,6 +175,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-006-user-can-stop-restart-and-delete-sessions"></a>
 ### REQ-SESSION-006: User can start, stop, restart and delete sessions
 
 **Intent:** Explicit lifecycle mutations are ordered by D1 authority and preserve graceful process control.
@@ -228,6 +230,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-007-running-session-count-limited-per-tier"></a>
 ### REQ-SESSION-007: Workload-owning session count is limited per tier
 
 **Intent:** Each Start performs best-effort capacity enforcement from the consistent D1 lifecycle projection without introducing an atomic reservation protocol.
@@ -311,6 +314,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-010-session-status-observable-from-dashboard"></a>
 ### REQ-SESSION-010: Session lifecycle is observable from one D1 projection
 
 **Intent:** Devices share one strongly ordered backend lifecycle while terminal ACTIVE/IDLE remains local presentation.
@@ -404,6 +408,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-028-session-metadata-projection-compatibility"></a>
 ### REQ-SESSION-028: Session authority has no KV compatibility path
 
 **Intent:** After clean-slate cutover, all session catalog and lifecycle behavior uses D1 without migration or shadow state.
@@ -430,6 +435,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-029-latest-session-load-owns-batch-derived-state"></a>
 ### REQ-SESSION-029: Ordered client state retains last good authority
 
 **Intent:** Concurrent loads and D1 outages cannot replace newer lifecycle context or mounted workspaces with stale data or errors.
@@ -457,6 +463,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-030-negative-kv-evidence-preserves-lifecycle-owned-sessions"></a>
+<a id="req-session-030-one-time-clean-slate-cutover-is-guarded-and-exact"></a>
 ### REQ-SESSION-030: Clean-slate D1 admission is live on deployment
 
 **Intent:** A D1-only deployment admits new sessions immediately without importing, reading, or deleting legacy KV session records.
@@ -481,6 +489,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<a id="req-session-012-wake-loop-prevention"></a>
 ### REQ-SESSION-012: Transport retry never invents lifecycle state
 
 **Intent:** Browser reconnect and container forwarding preserve recoverable transport uncertainty without waking or disposing a surviving runtime.
@@ -686,6 +695,7 @@ None.
 
 ---
 
+<a id="req-session-018-persisted-status-is-authoritative-on-container-exit"></a>
 ### REQ-SESSION-018: D1 lifecycle evidence is generation-fenced
 
 **Intent:** D1 is the shared lifecycle authority, while the Durable Object owns process control and may project only observations belonging to its assigned execution generation.
@@ -806,6 +816,7 @@ None.
 
 ---
 
+<a id="req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering"></a>
 ### REQ-SESSION-020: Runtime observation is bounded and projected once
 
 **Intent:** Metrics monitoring survives failed peers while normal projection uses one bounded host observation and one conditional D1 mutation.
@@ -833,6 +844,7 @@ None.
 
 ---
 
+<a id="req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction"></a>
 ### REQ-SESSION-021: Complete transport failure opens one unreachable incident
 
 **Intent:** Host transport uncertainty becomes recoverable shared state without stopping or replacing the workload.
@@ -860,6 +872,7 @@ None.
 
 ---
 
+<a id="req-session-022-transport-recovery-is-confirmed-and-bounded"></a>
 ### REQ-SESSION-022: Unreachable recovery preserves process identity
 
 **Intent:** Coordinator reconstruction reattaches to the existing process and confirms recovery only from current-generation host evidence.
@@ -887,6 +900,7 @@ None.
 
 ---
 
+<a id="req-session-023-accelerated-recovery-preserves-usage-and-quota"></a>
 ### REQ-SESSION-023: Recovery and persistence uncertainty do not bill usage
 
 **Intent:** Recovery probes and D1 reconciliation do not alter the user's usage or quota.
@@ -914,6 +928,7 @@ None.
 
 <a id="req-session-024-transport-recovery-evidence-is-durable-and-observable"></a>
 
+<a id="req-session-024-transport-recovery-ownership-is-durable"></a>
 ### REQ-SESSION-024: Recovery deadline and termination intent are durable
 
 **Intent:** Recovery ownership survives coordinator replacement, and deadline expiry cannot target a replacement process.
@@ -941,6 +956,7 @@ None.
 
 ---
 
+<a id="req-session-025-transport-recovery-failures-are-observable"></a>
 ### REQ-SESSION-025: Lifecycle recovery is observably correlated
 
 **Intent:** Operators receive bounded, privacy-safe evidence for lifecycle transitions without high-volume normal-path logging.
@@ -967,6 +983,7 @@ None.
 
 ---
 
+<a id="req-session-026-transport-recovery-scheduling-failures-reach-lifecycle-callers"></a>
 ### REQ-SESSION-026: Lifecycle scheduling and persistence failures remain actionable
 
 **Intent:** Recovery work never reports success when required scheduling or authoritative persistence did not complete.
@@ -1019,3 +1036,29 @@ None.
 **Verification:** Planned migration-shape, constraint, index and rerun tests.
 
 **Status:** Planned
+
+---
+
+### REQ-OPS-048: Cleanup-safe service and Browser IDE state
+
+**Intent:** Clearing disposable temporary files must not break service lifecycle or Browser IDE continuity.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Shutdown reads service PID files from protected runtime storage. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
+2. Host health reports live readiness independently of disposable files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live) -->
+3. Browser IDE restart requests use the protected trigger file. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-OPS-048 AC3: writes the protected restart trigger on first call) -->
+4. Browser IDE data and extension roots remain in protected runtime storage. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
+5. Extension state capture remains operational through its protected session paths. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
+
+**Constraints:** Service and Browser IDE runtime data remains container-scoped and is not synced to R2.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-010](operations.md#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-IDE-003](browser-ide.md#req-ide-003-ide-lifecycle-and-availability)
+
+**Verification:** Shutdown, readiness, restart-trigger, editor-launch, and state-capture tests
+
+**Status:** Implemented

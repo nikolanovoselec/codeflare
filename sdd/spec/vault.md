@@ -167,6 +167,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
+<a id="req-vault-004-unified-global-knowledge-graph"></a>
 ### REQ-VAULT-004: Unified global graph merges vault and active repos
 
 **Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
@@ -571,7 +572,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 6. The native worker precaches the shell `/` during installation. The shell-path redirect is suppressed for Service-Worker-context fetches (`Sec-Fetch-Mode` present and not `navigate`), so the precache resolves against the real shell instead of a 302. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC6/AC7, AD69)) -->
 7. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the bootstrap-hop redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerContextFetch / REQ-VAULT-017 AC6/AC7 (SW precache vs navigation)) -->
 
-**Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6).
+**Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6).
 
 **Constraints:**
 
@@ -596,9 +597,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The served worker suppresses or downgrades expected startup-only log noise (no controlled clients, auth-gated service-proxy reset, and sync retry errors) without changing the message flow to clients or the version-drift guard. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise) -->
-2. The served worker guards against destructive sync: a cycle whose remote list is empty or non-array while the local store or snapshot is non-empty aborts before deleting and retries later. An empty vault or a real list proceed normally. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (aborts the sync cycle (no deletion) when the remote list is empty while the local store is populated) -->
+2. Valid empty remote lists abort before deletion when the local store or snapshot contains files. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the local store is populated) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the snapshot is populated) -->
 3. The worker graft introduces no duplicate lexical binding and always produces syntactically valid JavaScript. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (the served worker is syntactically valid JavaScript (graft introduces no parse error)) -->
 4. The served worker neuters the upstream's proactive key flush (wiping the key 5s after the last client disconnects): the graft retains the key for the worker's lifetime; cold-restart recovery is handled by the key-recovery helper ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC5). <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @impl: src/routes/vault/native-sw.ts::ANCHOR_PROACTIVE_FLUSH --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (CF-045: vault-native-sw direct unit tests) -->
+5. Non-array remote lists abort synchronization even with an empty local store and snapshot. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: the served sync consumer rejects non-array remote listings even when the local store and snapshot are empty) -->
+6. Rejected cycles retry later and resume normal reconciliation when a valid non-empty remote list becomes available. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: JSON %s on a fresh native store fails sync and a later valid listing restores note visibility) -->
+7. A valid empty remote list synchronizes successfully when both the local store and snapshot are empty. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: a genuinely empty native store and valid empty remote array publish successful empty sync) -->
 
 **Constraints:**
 
@@ -627,13 +631,16 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 3. Browser prewarm starts only from the available control; the first click requests best-effort persistent browser storage, with denial remaining non-fatal. Timeout or error stays visible without background retry, and a later click may retry. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/lib/browser-storage-persistence.ts::requestBrowserStoragePersistence --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retries a timed-out prewarm only after another user click) --> <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requests persistence when not already persisted) --> <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (does not treat a denied persistence request as fatal) -->
 4. Leaving the active view during preparation pauses it while preserving intent; returning to the still-running session resumes preparation. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/Layout.tsx::clearPrewarmingVaultStatus --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018 AC4: dashboard departure cancels the in-flight iframe and return resumes preparation) -->
 5. Prewarm messages are accepted only from the mounted iframe, same origin, and current attempt. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
-6. The control arms only when the two immediately preceding readiness checks are complete. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_PREWARM_BRIDGE_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmBridge --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (posts ready only after two complete bundled bridge polls) -->
+6. The control arms only after two consecutive complete readiness checks for the current canonical controller. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_PREWARM_BRIDGE_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmBridge --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (posts ready only after two complete bundled bridge polls) -->
 7. A ready proof is accepted only when its canonical 32-hex Vault scope exactly matches the mounted iframe document; a same-origin proof for another token is rejected. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (rejects a same-origin ready proof for a different Vault token) --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (marks the prewarm ready and removes the iframe after a valid ready message) -->
 
 **Constraints:**
 
 - Raw session captures and other folders remain visible during prewarm; priority indexing is out of scope.
 - The generic shell bridge stays inert unless the prewarm query and identifier are valid.
+- Sync-complete evidence must come from the current canonical controller, not another worker or the client's unscoped completion flag.
+- Controller replacement resets sync evidence and the readiness streak.
+- In-flight reads from the previous controller cannot publish readiness.
 
 **Priority:** P0
 
@@ -724,7 +731,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-MOB-014](mobile.md#req-mob-014-mobile-background-surface-focus-isolation)
+**Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-MOB-014](terminal.md#req-mob-014-mobile-background-surface-focus-isolation)
 
 **Verification:** Automated test ([Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
 
@@ -832,11 +839,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. Successful bootstrap persists browser encryption completion before redirecting to the editor. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_COMPLETE_BOOTSTRAP_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (removes stale workers, registers the canonical worker, persists encryption, and redirects) -->
+1. Successful bootstrap arms the current canonical controller and awaits its native encryption-key acknowledgement before persisting browser encryption completion and redirecting to the editor. <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_COMPLETE_BOOTSTRAP_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (removes stale workers, registers the canonical worker, persists encryption, and redirects) -->
 2. On failure, including browser-storage rejection, the bootstrap-hop page shows an error and aborts without setting the bootstrap-completed cookie or redirecting to the shell. <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_COMPLETE_BOOTSTRAP_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (does not complete bootstrap when encryption enablement cannot persist) -->
 3. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user. <!-- @impl: src/lib/vault-view.ts::VAULT_BOOTSTRAP_COOKIE --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-4. The service worker retains its in-memory encryption key for its natural lifetime; the codeflare graft neuters the upstream proactive flush that wiped the key 5s after the last client disconnected. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)) -->
-5. The service worker recovers its key from the Worker only when genuinely gone (idle-terminated): the graft injects a recovery helper that re-fetches the key from the auth-gated `.vault-key` endpoint at both of the worker's key-empty failure points. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-017: an encryption-key query recovers and returns the server key) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-017: config snapshots the recovered key before opening encrypted storage) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-017: logout during recovery prevents publishing a recovered key) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-017: logout generation changes fence a pending recovered key) -->
+4. The service worker retains its in-memory encryption key for its natural lifetime; the codeflare graft neuters the upstream proactive flush that wiped the key 5s after the last client disconnected. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval) -->
+5. The service worker recovers its key from the Worker only when genuinely gone (idle-terminated): the graft injects a recovery helper that re-fetches the key from the auth-gated `.vault-key` endpoint at both of the worker's key-empty failure points. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration) -->
 6. Every Vault open enters the encryption bootstrap flow rather than navigating directly to the editor shell. <!-- @impl: web-ui/src/components/Layout.tsx::openVaultTab --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-024 AC6: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell) -->
 7. Non-GET requests cannot enter bootstrap completion. <!-- @impl: src/routes/vault/index.ts::isBootstrapHopRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (REQ-VAULT-024 AC7: only GET enters bootstrap completion) -->
 
@@ -845,6 +852,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - Bootstrap fails closed when session routing, worker support, or bounded activation cannot establish an encryption-capable editor.
+- During updates, bootstrap awaits the installing/waiting replacement rather than arming the retiring worker.
+- Activation, exact controller acquisition and native MessagePort key acknowledgement have bounded waits.
+- Controller replacement before completion aborts without committing the encryption marker, completion cookie or redirect.
 
 **Priority:** P0
 

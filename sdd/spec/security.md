@@ -336,7 +336,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the reusable container-image workflow invoked by every deploy. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 2. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
-3. The deploy pipeline fails before push for an unexcepted fixable HIGH/CRITICAL vulnerability; a missing, duplicated, additional, or identity-mismatched bounded exception; or a runtime below the required `libde265-0` or `libevent-core-2.1-7` security floor (`1.0.11-1+deb12u3` and `2.1.12-stable-8+deb12u1`, respectively). <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+3. The deploy pipeline fails before push for an unexcepted fixable HIGH/CRITICAL vulnerability; a missing, duplicated, additional, or identity-mismatched bounded exception; or a runtime below the required `libpcre2-8-0`, `libde265-0` or `libevent-core-2.1-7` security floor (`10.42-1+deb12u2`, `1.0.11-1+deb12u3` and `2.1.12-stable-8+deb12u1`, respectively). <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 4. Scanning occurs after image build and before push to the container registry; a pushed image is therefore always scanned-green at push time. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 5. Vulnerabilities with no available upstream fix are excluded from the deployment gate automatically. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
 6. Every unexpected-finding diagnostic includes Trivy's package path and package URL when the scanner supplies them. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (reports every unexpected and missing finding together) -->
@@ -564,32 +564,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
-### REQ-SEC-016: Concurrent cache deduplication for auth config
-
-**Intent:** Multiple concurrent cold-start requests must not issue redundant KV reads for authentication configuration.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Concurrent cold-start requests share a single in-flight auth-config fetch; no redundant storage reads are issued. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
-2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing parallel storage reads. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
-3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
-
-**Constraints:**
-
-- Deduplication is per-isolate, not cross-isolate.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
-
-**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
-
-**Status:** Implemented
-
----
-
 ### REQ-SEC-018: Credential encryption operational policy
 
 **Intent:** The encryption-at-rest contract needs operational hardening at the API and observability layers: responses always mask secrets, missing-key configuration is loud enough to catch in production logs, and the plaintext-allowlist is explicit so future KV keys are categorised on purpose, not by accident.
@@ -696,6 +670,244 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
 **Verification:** Automated test ([redirect-with-headers](../../src/__tests__/redirect-with-headers.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-009: Enterprise Backend Route Hardening
+
+**Intent:** Hiding a SaaS or admin surface in the frontend is not sufficient; in Enterprise Mode the corresponding routes must fail closed so the disabled capabilities cannot be reached by direct API call, URL manipulation, or a stray external event.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set, the user-management routes (`GET`/`PUT`/`DELETE`/`PATCH` under `/api/users`) return 403 and perform no mutation; user administration is delegated entirely to Cloudflare Access. <!-- @impl: src/routes/users.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) -->
+2. In enterprise mode, the billing action routes (`POST /api/billing/checkout`, `/api/billing/portal`, `/api/billing/switch`) return 403 before their route-specific limiters, and `GET /api/billing/status` returns an empty/disabled billing state without contacting Stripe. <!-- @impl: src/routes/billing.ts::default --> <!-- @test: src/__tests__/routes/billing.test.ts (DEEP-22-004: enterprise billing guards precede action limiters) -->
+3. In enterprise mode, the self-serve routes `POST /api/auth/subscribe` and `POST /api/auth/request-access` return 403 before their route-specific limiters and send no email. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: SaaS subscribe requests remain rate-limited) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: enterprise subscribe guard remains 403 after the SaaS limiter budget) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: enterprise request-access guard runs before its fail-closed limiter) -->
+4. In enterprise mode, the Stripe webhook route acknowledges the event before the SaaS limiter without mutating any user's tier or billing state, so a late or stray Stripe event cannot downgrade an enterprise user. <!-- @impl: src/routes/stripe-webhook.ts::default --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (DEEP-22-006: enterprise webhook acknowledgement precedes limiter) -->
+5. When `ENTERPRISE_MODE` is set, the admin tier/subscription configuration routes return 403 (there is a single effective tier, `unlimited`, for all users). <!-- @impl: src/routes/admin/tiers.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
+6. When `ENTERPRISE_MODE` is set, `PATCH /api/preferences` is **not** fail-closed: the SaaS advanced-mode entitlement gate is bypassed so any user may select Pro, and the effective session mode is forced to Pro regardless of the stored value. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC6: PATCH /api/preferences is not fail-closed in enterprise mode) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-001): PATCH response reports advanced under enterprise while persisting the raw preference) -->
+7. When `ENTERPRISE_MODE` is unset, every route above behaves byte-identically to current behavior. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC7: flag unset is byte-identical to current behavior) -->
+
+**Constraints:**
+
+- All guards consult the single `isEnterpriseMode(env)` resolver ([REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC4); no route reads the raw binding.
+- Action endpoints fail closed with 403; the read-only billing-status endpoint returns an empty state (200) so non-enterprise clients that still poll it do not error.
+- These guards are defense-in-depth behind the frontend suppression in [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone is sufficient.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression)
+
+**Verification:** Automated test ([enterprise-route-hardening](../../src/__tests__/routes/enterprise-route-hardening.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-016: Strict Gateway Egress
+
+**Intent:** An enterprise admin can force the container's **direct-internet** HTTP/HTTPS egress through the customer's Cloudflare (Zero Trust) Gateway — over the Workers VPC `EGRESS` binding — with one setup-wizard toggle, so every agent call to the outside world is subject to the account's existing egress policies. Only THIS deployment's own Cloudflare account destinations (its R2 + account-scoped CF API / Browser Rendering) are exempt and egress direct — they are codeflare's own control-plane backends, not the agent's external reach; any OTHER account's host rides the Gateway, closing the cross-account exfiltration channel ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). A deployment with the toggle OFF (the default) is byte-identical to today.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Enterprise setup presents a default-off strict-egress toggle, persists explicit active or inactive values, and never writes it outside enterprise mode. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @impl: src/routes/setup/index.ts::strictGatewayEgress --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Strict gateway egress toggle (REQ-ENTERPRISE-016)) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (strict gateway egress (REQ-ENTERPRISE-016)) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: persists the toggle as active when true (EGRESS bound)) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: persists the toggle as inactive when false) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: never writes the toggle in non-enterprise mode (regression)) -->
+2. Enabling strict egress is rejected before any write when `EGRESS` is unbound. <!-- @impl: src/routes/setup/index.ts::strictGatewayEgress --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: refuses to enable the toggle when EGRESS is unbound (no brick)) -->
+3. `GET /api/setup/prefill` round-trips the toggle: a seeded strict-egress setting prefills `true`, an absent key prefills `false`, and it is omitted from a non-enterprise prefill. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-016: strict gateway egress prefill) -->
+4. The toggle is resolved by a single gate-then-read helper = enterprise mode AND KV `SETUP_KEYS.STRICT_EGRESS === 'active'`, defaulting OFF when the key is absent or when the KV read throws, and never reading KV in a non-enterprise deploy. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: hasStrictGatewayEgress) -->
+5. Strict egress registers a pre-start catch-all below per-host interceptors; disabled and non-enterprise modes register no catch-all. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (enterprise LLM interception wiring (REQ-ENTERPRISE-011)) -->
+6. Disabled or non-enterprise mode leaves GitHub transport, container egress, and configuration behavior unchanged and performs no strict-egress KV access. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+7. When strict egress is ON, the container is started with direct internet disabled, so the Containers platform allows only ports 80/443 + Cloudflare DNS and DENIES all raw TCP/UDP egress at the platform boundary the container cannot manipulate. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+
+**Constraints:**
+
+- The global admin toggle is stored explicitly as `active` or `inactive`, read directly from KV, and never threaded through session configuration.
+- Per-host LLM/GitHub interceptors take precedence over the transparent catch-all `EgressController`; denied hosts and allowed-host policy retain the SDK's established precedence.
+- Existing Cloudflare Gateway traffic policies remain authoritative; Codeflare does not create or modify them.
+- Only this deployment's account-scoped R2 and Cloudflare API or Browser Rendering destinations egress directly; absent account identity and every other account ride the Gateway ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)).
+- The LLM interceptor always egresses directly; GitHub and other external destinations use `EGRESS`.
+- The enterprise-only Workers VPC `EGRESS` binding is injected only for active enterprise deploys; default, fork, and test deployments remain unaffected, and unavailable egress fails closed.
+- `EGRESS` carries HTTP, HTTPS, and WebSocket traffic; upgrades use the fresh-socket bridge specified by [REQ-ENTERPRISE-023](#req-enterprise-023-strict-gateway-egress-controller-transport).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
+
+**Verification:** Automated test ([setup persistence](../../src/__tests__/routes/setup.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [container catch-all wiring + enableInternet](../../src/__tests__/container/index.test.ts), and [strict-gate resolver tests](../../src/__tests__/lib/controller-egress.test.ts). The `[[vpc_networks]]` `EGRESS` binding is deploy-time config (a Constraint: enterprise-only, committed commented-out and injected by `deploy.yml` when `ENTERPRISE_MODE=active`) — verified at deploy time, not unit-testable.)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport
+
+**Intent:** When Strict Gateway Egress is active, the catch-all egress controller transparently proxies direct-internet traffic through the Gateway while preserving the deployment's own Cloudflare control-plane paths.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The strict-egress controller transparently proxies every destination except this account's own R2. It adds no authorization or identity header, preserves caller authorization and cookies, strips only hop-by-hop headers, and does not follow redirects. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway)) -->
+2. Only this deployment's account-scoped R2 endpoint and Cloudflare API account path bypass the strict-egress binding; every other account uses the binding. <!-- @impl: src/lib/controller-egress.ts::isAccountScopedDestination --> <!-- @impl: src/lib/controller-egress.ts::isOwnAccountR2 --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016 / AD86: isAccountScopedDestination (own account only)) -->
+3. **WebSocket proxying (bridged).** WebSocket upgrades reaching the strict-egress catch-all are forwarded **transparently** through the account-scoped selector, then **bridged** through a fresh client/server pair that forwards messages, closure, and errors in both directions. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (catch-all fallback)) -->
+4. **Container holds no real R2 key (strict only).** When strict is active, a non-secret placeholder R2 access key/secret is emitted into the container instead of the real key. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/constants.ts::ENTERPRISE_R2_KEY_PLACEHOLDER --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+5. Before any upstream send, the strict-egress controller rejects loopback, RFC 1918/private, link-local (including `169.254.169.254`), unspecified, and IPv4-mapped prohibited IPv6 targets with `403 EGRESS_TARGET_BLOCKED` and performs no fetch. Public IPv6 literals remain permitted. <!-- @impl: src/lib/controller-egress.ts::isDisallowedEgressHost --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: isDisallowedEgressHost SSRF guard) -->
+6. Unbound strict egress makes direct-internet and GitHub paths return `503 EGRESS_UNAVAILABLE` without fallback; this account's own platform destinations and LLM routing remain direct and independent of the strict-egress binding. <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: controllerFetch transport selection) -->
+
+**Constraints:**
+
+- `EgressController` remains a transparent proxy, not an identity-stamping interceptor.
+- Only this deployment's own account-scoped Cloudflare control-plane destinations bypass `env.EGRESS`; other accounts ride the Gateway.
+- Direct-internet failures fail closed when strict egress is active and the binding is unavailable.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
+
+**Verification:** Automated test ([controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-026: Strict R2 Interception Preserves User-Bucket Authority
+
+**Intent:** Strict egress re-signs own-account R2 traffic only for the session's bound bucket and only with that user's scoped credential, preserving the per-user storage boundary outside the root container.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Path-style and virtual-hosted own-account R2 requests are accepted only when they identify the session's exact bound bucket. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (accepts the bound bucket in virtual-hosted R2 form and signs with its scoped key) --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming) -->
+2. A request for another path-style or virtual-hosted bucket returns `403 EGRESS_R2_BUCKET_FORBIDDEN` before signing or forwarding. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (rejects another virtual-hosted bucket in the same account before signing or forwarding) --> <!-- @test: src/__tests__/egress-controller.test.ts (rejects another path-style bucket in the same account before signing or forwarding) -->
+3. An accepted request is re-signed only with the session's bucket-scoped credential; the placeholder signature is discarded and deployment-wide R2 credentials are never used. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming) -->
+4. Re-signing preserves the streaming payload hash and replaces caller-provided SSE-C headers with trusted parent-owned values. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming) -->
+5. Missing scoped credentials return `503 EGRESS_R2_NOT_CONFIGURED` before any upstream send and never fall back to deployment-wide credentials. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (fails closed when scoped credentials are missing instead of falling back to deployment credentials) -->
+6. A validated complete replacement pair becomes the authority for subsequent intercepted requests, including after a Durable Object wake or in an already-wired warm container. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (restores scoped R2 credentials from the validated restart payload after a Durable Object wake) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-026: refreshes warm strict interception with a changed scoped pair) -->
+7. The in-memory pair changes only after a complete validated replacement is installed as the warm catch-all; otherwise the prior pair remains unchanged. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects invalid restart credentials without replacing the in-memory scoped pair) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects a partial restart credential pair without mutating prior credentials) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-026: preserves the prior pair when warm catch-all replacement fails) -->
+
+**Constraints:**
+
+- Scoped credentials and the bound bucket remain Worker-side interceptor props; the strict container receives placeholders only.
+- Governed Mode controls SSE-C behavior, not R2 signer authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-SEC-003](security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
+
+**Verification:** Automated test ([bound-bucket authorization and scoped signing](../../src/__tests__/egress-controller.test.ts) and [atomic restart restoration](../../src/__tests__/container/container-router.test.ts).)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-024: Strict Gateway Egress Host-Specific Interceptor Routing
+
+**Intent:** Host-specific interceptors keep their credential-stamping responsibilities under Strict Gateway Egress: GitHub rides the Gateway, while Cloudflare AI Gateway remains a platform-native direct path.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Strict GitHub egress swaps only the upstream transport to the strict-egress binding; credential injection, no-spoof scoping, manual redirects, and response hygiene remain unchanged. Toggle-off traffic uses global fetch. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap) -->
+2. LLM interception does NOT swap — AI Gateway (`api.cloudflare.com` / `gateway.ai.cloudflare.com`) is a platform-native Cloudflare primitive, so its upstream forward ALWAYS egresses direct via global `fetch`, independent of the toggle and strict-egress binding ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016 / AD86: AI Gateway is platform-native — always direct egress, never cf1:network) -->
+
+**Constraints:**
+
+- GitHub is external direct-internet egress and fails closed when strict egress is active without an `EGRESS` binding.
+- AI Gateway remains platform-native Cloudflare control-plane egress and never depends on the `EGRESS` binding.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
+
+**Verification:** Automated test ([GitHub transport swap](../../src/__tests__/github-interceptor.test.ts) and [LLM always-direct (AI Gateway platform-native)](../../src/__tests__/llm-interceptor.test.ts).)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-027: Managed-resource admission and transport
+
+**Intent:** Enterprise sessions admit protected managed resources only from verified applied identity and transport that identity without moving authority into the container.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Session admission compares desired release, sequence, effective mode, extension digest, resource policy, and path digest with the applied stamp. A mismatch returns managed-update-pending before bucket or container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) -->
+2. Protected start requires Enterprise Strict Gateway Egress and its binding, then requires fresh verification of exact user-bucket policy identity before container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (verifies protected bucket policy without cache and transports only its identity) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks corrupt protected policy before container work) -->
+3. Authenticated lifecycle transport uses one normalized policy enum, one path digest, and the existing curation release digest. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (accepts mutable only with a null managed path identity) -->
+4. Invalid policy identity combinations do not cross the Worker-to-DO boundary. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (requires the curation release and managed path digests for both protected modes) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects injected policy digests when policy mode is omitted) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects injected policy digests when policy mode is omitted) -->
+5. A warm Durable Object refreshes strict interception before committing changed bucket, scoped credential, policy, release, or path-digest security state. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (refreshes warm strict interception when only policy identity changes) -->
+6. Explicit mutable identity clears stale protected state. <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-env.test.ts (clears protected state and env on an explicit mutable warm reset) -->
+7. The container receives only non-authoritative policy identity hints; policy bytes and scoped credentials remain Worker-side. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (emits protected identity without exposing Worker-held scoped credentials) -->
+
+**Constraints:** Durable Objects do not persist policy bytes or make authorization decisions.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
+
+**Verification:** Automated admission, schema, transport, and warm-refresh tests
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-028: Managed-resource request classification
+
+**Intent:** The Worker classifies every own-bucket S3 mutation before scoped signing without changing ordinary reads or adjacent personal paths.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. The classifier allows reads and listing for the bound user bucket. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (allows reads and listing while denying cross-bucket targets) -->
+2. Exact-path and exclusive-root mutations are denied across path-style, virtual-host, multipart, tagging, metadata-replacement, and copy destinations. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies protected mutation %s %s) -->
+3. Malformed, ambiguous, bucket-level, or noncanonical mutation targets fail closed without double decoding. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (decodes exactly once and rejects malformed, noncanonical, backslash, duplicate-control, and empty mutations) -->
+4. Multi-delete accepts bounded, uncompressed strict XML with no namespace or the canonical S3 namespace and at most 1,000 keys. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies a whole mixed multi-delete and forwards exact ordinary bytes) --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (fails closed above the multi-delete byte and key-count bounds) --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (fails closed on malformed, compressed, or ambiguous multi-delete) -->
+5. A protected or uncertain multi-delete key denies the whole request. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies a whole mixed multi-delete and forwards exact ordinary bytes) -->
+6. Approved multi-delete bytes are forwarded unchanged. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies a whole mixed multi-delete and forwards exact ordinary bytes) -->
+
+**Constraints:** Classification runs before scoped signing and decodes keys exactly once.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-028](storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-032](storage.md#req-stor-032-exclusive-managed-resource-boundaries)
+
+**Verification:** Automated addressing, mutation-form, canonical-key, multi-delete, and adjacent-path tests
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-029: Managed-resource Egress enforcement
+
+**Intent:** Egress applies verified policy with the exact scoped user credential and fails closed before forwarding protected mutations.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Egress derives policy location and identity only from Worker state. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) -->
+2. Policy reads use only the scoped user key. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) -->
+3. Approved user requests use only the scoped user key. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (signs approved adjacent mutation only with the scoped user key) -->
+4. Missing or mismatched policy returns S3 XML `503` without forwarding the mutation. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (returns S3 503 and never forwards mutation when policy loading fails) -->
+5. Protected mutation returns S3 XML `403` before user forwarding. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) -->
+6. Policy decisions log only operation, identity/hash prefixes, request ID, and reason. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) --> <!-- @test: src/__tests__/egress-controller.test.ts (signs approved adjacent mutation only with the scoped user key) --> <!-- @test: src/__tests__/egress-controller.test.ts (returns S3 503 and never forwards mutation when policy loading fails) -->
+
+**Constraints:** Worker interception immediately before scoped signing is authoritative.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-ENTERPRISE-027](#req-enterprise-027-managed-resource-admission-and-transport), [REQ-ENTERPRISE-028](#req-enterprise-028-managed-resource-request-classification), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
+
+**Verification:** Automated scoped-policy-read, scoped-forwarding, policy-failure, protected-denial, and privacy-safe logging tests
 
 **Status:** Implemented
 

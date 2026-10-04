@@ -16,7 +16,9 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 6. **Agent-aware parity** -- Multiple agents share the container infrastructure, while manifests and runtime adapters deliver only capabilities each agent supports. Claude and Pi carry the richest advanced workflow surfaces; other agents intentionally differ where commands, skills, tools, or transport are unavailable.
 
-7. **Stateless dashboard, stateful containers** -- Dashboard status endpoints are pure KV reads with zero Durable Object contact, preserving container hibernation. The DO owns session lifecycle; the Worker owns routing and auth; KV owns state visibility.
+7. **Durable authority without dashboard wakeups** -- Owner-scoped dashboard status reads use the complete D1 session catalog without waking containers or contacting their Durable Objects. The session runtime drives generation-fenced transitions and observations; D1 owns persisted lifecycle truth. Worker routing and authentication remain separate, and unrelated KV preferences or credentials do not become session authority.
+
+8. **Stable behavioral domains** -- The seventeen domains below are canonical. Extend the owning requirement instead of creating a specification for a repair, transport adapter, deployment mode or implementation phase. Requirement IDs retain their original namespaces when relocated; acceptance criteria, constraints, statuses, fragment aliases and evidence anchors remain attached to their obligations.
 
 ## Actors
 
@@ -46,29 +48,29 @@ When a public behavior change affects one of these operator contracts, update bo
 
 | Domain | Description | Priority | Status |
 |--------|-------------|----------|--------|
-| [Session Lifecycle](spec/session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | P0 | Active |
-| [Authentication](spec/authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | P0 | Active |
-| [Terminal](spec/terminal.md) | PTY, WebSocket, classic/Herdr ownership, MultiView, keyboard | P0 | Active |
-| [Mobile](spec/mobile.md) | Touch input, virtual keyboard, scroll stability | P2 | Active |
-| [Storage](spec/storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
-| [Subscription](spec/subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |
-| [Agents](spec/agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
-| [GitHub](spec/github.md) | Connect GitHub, repo panel, clone-into-session, enterprise egress-injected git auth | P1 | Active |
-| [Enterprise Mode](spec/enterprise-mode.md) | Deploy-time enterprise instance, subscription bypass, Worker-side LLM proxy | P1 | Active |
-| [Operators](spec/operators.md) | Enterprise operator foundation, principal-bound interfaces, activities and webhook capabilities | P0 | Active |
-| [Operator Registry](spec/operator-registry.md) | GitHub package installations, delegated management, directed Conductor/Dispatcher profiles, Review and read-only Renovate PoCs | P0 | Planned |
-| [Browser Run](spec/browser-run.md) | Real-browser WebFetch fallback via Cloudflare Browser Run | P2 | Active |
-| [Setup](spec/setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
-| [Landing](spec/landing.md) | Public enterprise landing page, mode-aware serving, contact pipeline | P1 | Active |
-| [Security](spec/security.md) | Auth enforcement, encryption, rate limiting, headers | P0 | Active |
-| [Operations](spec/operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
-| [Memory](spec/memory.md) | Vault-based cross-session memory, automatic capture, hook delivery | P2 | Active |
-| [Vault](spec/vault.md) | Persistent obsidian-style notes, unified graphify graph, SilverBullet editor | P2 | Active |
-| [Browser IDE](spec/browser-ide.md) | Per-session code-server editor, session-isolated, Worker-proxied | P2 | Active |
+| [Session Lifecycle](spec/session-lifecycle.md) | Complete D1 authority, runtime generations, startup, idle policy, recovery and teardown | P0 | Active |
+| [Authentication](spec/authentication.md) | Verified identity, authentication, authorization, provisioning and account admission | P0 | Active |
+| [Terminal](spec/terminal.md) | PTY/WebSocket, classic/Herdr ownership, MultiView, notifications and mobile compatibility | P0 | Active |
+| [Storage](spec/storage.md) | R2 persistence, reconciliation, managed paths, conflicts and encryption-regime integration | P0 | Active |
+| [Subscription](spec/subscription.md) | Entitlement, payment, live quota accounting, historical usage and reporting | P1 | Active |
+| [Agents](spec/agents.md) | Agent selection, manifests, compiler projection, runtime adaptation and managed delivery | P1 | Active |
+| [GitHub](spec/github.md) | Account connection, repositories, cloning/restoration and mediated credentials | P1 | Active |
+| [Models & Routing](spec/models-and-routing.md) | Target identity, discovery, evidence, reasoning, transport, replay, caching and publication | P1 | Active |
+| [Operators](spec/operators.md) | Packages, catalog/installations, grants, activities, parent capabilities and publication fencing | P0 | Active |
+| [Browser Run](spec/browser-run.md) | Agent-facing remote browser reads and interactive capabilities, separate from Browser IDE | P2 | Active |
+| [Setup & Administration](spec/setup.md) | Bootstrap, deployment-mode configuration, administrative drafts, checks and application | P1 | Active |
+| [Landing](spec/landing.md) | Public website, mode-aware serving, contact pipeline and landing-owned presentation | P1 | Active |
+| [Security](spec/security.md) | Trust boundaries, credential isolation, cryptography, limiting and browser controls | P0 | Active |
+| [Operations](spec/operations.md) | Delivery, artifact integrity, automated verification and promotion gates | P1 | Active |
+| [Memory](spec/memory.md) | Conversation capture, retrieval, preservation and cross-session context | P2 | Active |
+| [Vault](spec/vault.md) | Notes/editor, ingestion, extraction transactions and knowledge-graph publication | P2 | Active |
+| [Browser IDE](spec/browser-ide.md) | Session-isolated editor, agent/edit transactions, extension continuity and workspace ownership | P2 | Active |
+
+The Operators domain also owns its normative registry/package/capability contract appendix. Concrete wire schemas remain contracts; they are not a separate implementation-phase domain. Enterprise-only conditions remain explicit in their owning requirements rather than forming a catchall specification.
 
 ## Support files
 
-The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their own):
+The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their own). Configuration and review-ledger paths are tooling contracts; historical changelogs are not additional requirement domains:
 
 | File | Purpose |
 |------|---------|
@@ -77,7 +79,6 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [changes.md](spec/changes.md) | Current product changelog (user-facing spec changes) |
 | [changes-archive-2026-07.md](spec/changes-archive-2026-07.md) | Archived product changelog through 2026-07-17 |
 | [changes-archive-2026-08.md](spec/changes-archive-2026-08.md) | Safety backup before the 2026-08 SDD cleanup |
-| [operator-registry-contract.md](spec/operator-registry-contract.md) | Frozen shared registry, management API, package and profile-capability contract for REQ-OPERATOR-043–051 |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
 

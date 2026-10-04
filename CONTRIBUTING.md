@@ -98,7 +98,7 @@ cd openvscode/agent-sidebar && npm test
 | Container host, entrypoint, or documentation contracts | `host` suite | [CI/CD — Host Tests](documentation/lanes/ci-cd.md#host-tests) |
 | Landing package | `landing` suite | [Landing package reference](landing/README.md#develop-and-verify) |
 | Browser IDE or Claude projection | `openvscode/agent-sidebar` suite | [Browser IDE package reference](openvscode/README.md#develop-and-verify) |
-| Rate-limit or load-model behavior | Affected backend tests; run k6 only against a prepared integration target | [Stress Testing](documentation/lanes/stress-test.md) |
+| Rate-limit or load-model behavior | Affected backend tests; run k6 only against a prepared integration target | [CI & Testing: load testing](documentation/lanes/ci-cd.md#load-testing) |
 
 GitHub Actions classifies the complete diff and remains the authoritative exact-head result. File names and shard membership may change; use package scripts and the CI catalogue rather than maintaining a second named-test inventory here.
 
@@ -155,7 +155,7 @@ Example: `fix/websocket-reconnect-race-condition`
 
 If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
 
-An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/pentest.md) for the current probe contract and dated evidence.
+An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [CI & Testing: security probes](documentation/lanes/ci-cd.md#security-probes) for current methodology and coverage limits; individual runs are dated evidence, not security certification.
 
 **Deployment secrets and non-default configuration.** Real secrets, non-default deployment variables, operator token-permission matrices, GitHub Environments, provider registrations, and customer runbooks do not belong in this repository. Their owners live in the private [Codeflare operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md). If a change affects one of those contracts, clone the private repository with `gh repo clone nikolanovoselec/codeflare-private`, update its owning document in the same work, and deliver that repository separately. Never copy customer values into either repository. See the [public/private documentation boundary](documentation/README.md#publicprivate-documentation-boundary).
 
@@ -168,4 +168,4 @@ Open an issue for questions about the codebase, architecture, or contribution pr
 **Related Documentation:**
 - [Documentation](documentation/README.md) - Full technical reference
 - [README.md](README.md) - Product overview and setup
-- [Stress Testing](documentation/lanes/stress-test.md) - Load-test safety and execution
+- [CI & Testing: load testing](documentation/lanes/ci-cd.md#load-testing) - Load-test safety and execution

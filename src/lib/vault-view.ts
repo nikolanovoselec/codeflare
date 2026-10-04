@@ -343,17 +343,15 @@ export function injectVaultControlledReload(html: string): string {
  * `GET /api/vault/<sid>/.codeflare-bootstrap` and from the shell-path
  * fallback when no `codeflare_vault_bootstrap` cookie is present.
  *
- * The page registers the codeflare key-shim service worker, posts the
- * per-session AES-CTR encryption key to it via `{type: "set-encryption-key"}`,
- * sets `localStorage["enableEncryption"] = "true"` (the SB-side gate at
- * `client/boot.ts:97`), sets the `codeflare_vault_bootstrap` cookie so
- * subsequent shell-path requests bypass the hop, then `location.replace`s
- * to `/api/vault/<sid>/`. SB's boot then races `cachedFetch(".config")`
- * (~50-200 ms network) before reading `navigator.serviceWorker.controller`
- * - by that point the SW is registered, active, claimed (via the
- * `clients.claim()` call in the shim's activate handler), and holds the
- * key. The encryption gate at `client/boot.ts:96-143` then succeeds and
- * SB wraps the sb_data IDB with `EncryptedKvPrimitives`.
+ * The page registers the canonical native worker, prefers an installing or
+ * waiting replacement over an old active worker, and waits for activation and
+ * exact controller identity. It posts the bucket-stable encryption key via
+ * `{type: "set-encryption-key"}` with a private MessagePort, awaiting the native
+ * acknowledgement of asynchronous key import before completing. Activation,
+ * control and acknowledgement each have a bounded wait. Only then does it set
+ * `localStorage["enableEncryption"]`, the bootstrap cookie and the redirect.
+ * Controller replacement before completion aborts instead of booting the editor
+ * without an armed worker. SilverBullet uses the key for its encrypted IDB stores.
  *
  * Security:
  *   - Throws on empty `vaultEncryptionKey` so a misconfigured DO key
@@ -362,7 +360,7 @@ export function injectVaultControlledReload(html: string): string {
  *   - The key is embedded as a JSON-literal string, escaping all break-out
  *     vectors (</script>, <!--, U+2028/U+2029).
  *   - The page itself is auth-gated (served by handleVaultRequest only
- *     after authenticateRequest). The shim SW URL is auth-bypassed for
+ *     after authenticateRequest). The native SW URL is auth-bypassed for
  *     the registration GET only; the SW's get-encryption-key message
  *     handler returns the key only to same-origin `event.source` clients.
  *
@@ -438,8 +436,9 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'step("Registered service worker...");' +
     'try { reg = await reg.update(); } catch (_) {}' +
     'step("Registered. SW state: " + (reg.active ? "active" : reg.installing ? "installing" : reg.waiting ? "waiting" : "none"));' +
-    'var sw = reg.active || reg.installing || reg.waiting;' +
+    'var sw = reg.installing || reg.waiting || reg.active;' +
     'if (!sw) { fail("no service worker instance after registration"); return; }' +
+    'if (sw.scriptURL !== new URL(scope + "service_worker.js", location.origin).href) throw new Error("unexpected service worker script");' +
     'if (sw.state !== "activated") {' +
     'step("Waiting for activation (state: " + sw.state + ")...");' +
     'await new Promise(function (resolve, reject) {' +
@@ -452,8 +451,44 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'check();' +
     '});' +
     '}' +
+    'var serviceWorker = navigator.serviceWorker;' +
+    'if (serviceWorker.controller !== sw) {' +
+    'await new Promise(function (resolve, reject) {' +
+    'var timer = setTimeout(function () { finish(new Error("service worker control timed out")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
+    'function finish(error) {' +
+    'clearTimeout(timer); serviceWorker.removeEventListener("controllerchange", check); sw.removeEventListener("statechange", check);' +
+    'if (error) reject(error); else resolve();' +
+    '}' +
+    'function check() {' +
+    'if (sw.state === "redundant") { finish(new Error("service worker became redundant")); return; }' +
+    'if (serviceWorker.controller === sw && sw.state === "activated") finish();' +
+    '}' +
+    'serviceWorker.addEventListener("controllerchange", check); sw.addEventListener("statechange", check); check();' +
+    '});' +
+    '}' +
     'step("Posting encryption key...");' +
-    'sw.postMessage({ type: "set-encryption-key", key: key });' +
+    'await new Promise(function (resolve, reject) {' +
+    'var channel = new MessageChannel();' +
+    'var settled = false;' +
+    'var timer = setTimeout(function () { finish(new Error("encryption key acknowledgement timed out")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
+    'function finish(error) {' +
+    'if (settled) return; settled = true; clearTimeout(timer);' +
+    'serviceWorker.removeEventListener("controllerchange", check); sw.removeEventListener("statechange", check);' +
+    'channel.port1.onmessage = null; channel.port1.close(); channel.port2.close();' +
+    'if (error) reject(error); else resolve();' +
+    '}' +
+    'function check() {' +
+    'if (serviceWorker.controller !== sw || sw.state !== "activated") finish(new Error("service worker changed during encryption handoff"));' +
+    '}' +
+    'channel.port1.onmessage = function (event) {' +
+    'if (event.data && event.data.type === "encryption-key-set") { check(); if (!settled) finish(); }' +
+    '};' +
+    'serviceWorker.addEventListener("controllerchange", check); sw.addEventListener("statechange", check); check();' +
+    'if (!settled) {' +
+    'try { sw.postMessage({ type: "set-encryption-key", key: key }, [channel.port2]); } catch (error) { finish(error); }' +
+    '}' +
+    '});' +
+    'if (serviceWorker.controller !== sw || sw.state !== "activated") throw new Error("service worker changed before bootstrap completion");' +
     'step("Redirecting...");' +
     'completeBootstrap(localStorage, document, location, cookieName, scope, ' + escapedRedirectSearch + ');' +
     '} catch (e) {' +
@@ -466,8 +501,8 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
 
 /**
  * Check if the request carries the `codeflare_vault_bootstrap` cookie,
- * which the bootstrap-hop page sets after registering the SW and posting
- * the encryption key. Used by `handleVaultRequest` shell-path dispatch
+ * which the bootstrap-hop page sets after the current canonical controller
+ * acknowledges importing the encryption key. Used by `handleVaultRequest` shell-path dispatch
  * to decide whether to serve the bootstrap-hop or proceed to the real
  * SB shell.
  *

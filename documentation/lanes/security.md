@@ -28,7 +28,7 @@ For vulnerability reporting and supported versions, see [SECURITY.md](../../SECU
 
 Codeflare constrains trusted engineering agents at identity, tenancy, routing, credential, persistence, network, browser-proxy, and delivery boundaries. Agents, terminals, and trusted IDE extensions retain broad command and filesystem power inside their session container. Controls reduce standing and cross-session exposure; they do not make arbitrary commands harmless, undo external side effects, or constitute independent certification.
 
-Security records below state the protected asset, threat/failure, control, failure posture, exceptions, residual risk, and source owner. Current contracts remain separate from dated probe evidence in [Penetration Testing](pentest.md).
+Security records below state the protected asset, threat/failure, control, failure posture, exceptions, residual risk, and source owner. Current contracts remain separate from probe methodology in [CI/CD — Security probes](ci-cd.md#security-probes) and its immutable historical evidence.
 
 ## Threat Model
 
@@ -73,11 +73,11 @@ The Worker's deployment/account-management token never enters a session containe
 
 Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
 
-Enterprise interception withholds Worker-managed/platform credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+Enterprise interception withholds Worker-managed/platform credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
-The default-off [personal Pi provider permission](configuration.md#container-environment) is a separate human-session exception under [REQ-ENTERPRISE-090](../../sdd/spec/enterprise-mode.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission). Current Administration permission uses the bound session's trusted configured groups or enabled fallback. The credential-free `getPersonalPiSession` Container DO RPC returns only `{generation, groups}` after owner/session, active D1 lifecycle, durable-generation, memory/durable shutdown and Operator checks; interception props pin that generation. Native device/token/inference forwarding and reused WebSocket effects reauthorize permission and session context, denying revocation or stale generations before provider effects. <!-- @impl: src/container/container-interception.ts::getPersonalPiSession --> <!-- @impl: src/container/index.ts::getPersonalPiSession --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi -->
+The default-off [personal Pi provider permission](configuration.md#container-environment) is a separate human-session exception under [REQ-ENTERPRISE-090](../../sdd/spec/models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission). Current Administration permission uses the bound session's trusted configured groups or enabled fallback. The credential-free `getPersonalPiSession` Container DO RPC returns only `{generation, groups}` after owner/session, active D1 lifecycle, durable-generation, memory/durable shutdown and Operator checks; interception props pin that generation. Native device/token/inference forwarding and reused WebSocket effects reauthorize permission and session context, denying revocation or stale generations before provider effects. <!-- @impl: src/container/container-interception.ts::getPersonalPiSession --> <!-- @impl: src/container/index.ts::getPersonalPiSession --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi -->
 
-Native forwarding under [REQ-ENTERPRISE-090](../../sdd/spec/enterprise-mode.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission) preserves owner API/OAuth credentials and wire bodies without requiring a browser-derived human-authority lease, sealed Review credential or Access identity fetch. Review's sealed authority, immutable-principal `same()` check and browser renewal remain unchanged but do not authorize native provider effects. Strict network policy and cross-origin redirect isolation remain enforced. This exception neither exposes platform credentials nor authorizes Operators or stale sanctioned selectors ([REQ-ENTERPRISE-091](../../sdd/spec/enterprise-mode.md#req-enterprise-091-operator-personal-provider-isolation)); Dynamic and managed Native Routes retain their existing AI Gateway path. Source repair is separate from acceptance and exact-head CI, which remain pending; no deployment or live-fix verification is claimed. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @impl: src/container/review-session-human.ts::bindReviewSessionHuman --> <!-- @impl: src/container/review-session-human.ts::openReviewSessionHuman --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+Native forwarding under [REQ-ENTERPRISE-090](../../sdd/spec/models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission) preserves owner API/OAuth credentials and wire bodies without requiring a browser-derived human-authority lease, sealed Review credential or Access identity fetch. Review's sealed authority, immutable-principal `same()` check and browser renewal remain unchanged but do not authorize native provider effects. Strict network policy and cross-origin redirect isolation remain enforced. This exception neither exposes platform credentials nor authorizes Operators or stale sanctioned selectors ([REQ-ENTERPRISE-091](../../sdd/spec/models-and-routing.md#req-enterprise-091-operator-personal-provider-isolation)); Dynamic and managed Native Routes retain their existing AI Gateway path. This describes the current authorization boundary, not a new release acceptance claim; requirement-specific historical verification qualifiers remain in the specification. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @impl: src/container/review-session-human.ts::bindReviewSessionHuman --> <!-- @impl: src/container/review-session-human.ts::openReviewSessionHuman --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 A compromised container can still exercise any legitimate capability represented by a credential or boundary interceptor. Prompt isolation is not authorization; provider scope and branch/deployment policy remain necessary.
 
@@ -96,7 +96,7 @@ Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic
 
 Each lifecycle instance generates an unpredictable bearer credential for private host HTTP and WebSocket forwarding. The credential is lifecycle-scoped and not a public user token. <!-- @impl: src/container/container-config.ts::updateEnvVars -->
 
-The host rejects missing/invalid credentials before route dispatch except for explicitly bearer-exempt private SDK health behavior. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
+The host rejects missing/invalid credentials before route dispatch except for the private SDK `/health` and `/activity` paths. An unconfigured host token returns 503; a missing or incorrect request bearer returns 401. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
 
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
@@ -108,9 +108,9 @@ The deployment token creates/manages resources but never enters containers. Cont
 
 When `ENCRYPTION_KEY` is configured, protected KV values use AES-256-GCM with key-specific additional authenticated data. <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 
-When `ENCRYPTION_KEY` is configured, R2 uses SSE-C unless the bucket's governed-mode policy disables it ([REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)). <!-- @impl: entrypoint.sh::sse_customer_key_base64 -->
+When `ENCRYPTION_KEY` is configured, R2 uses SSE-C unless the bucket's governed-mode policy disables it ([REQ-ENTERPRISE-018](../../sdd/spec/storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)). <!-- @impl: entrypoint.sh::sse_customer_key_base64 -->
 
-Vault derives a bucket-specific browser key through HKDF. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey -->
+Vault derives a bucket-specific browser key through HKDF using the stable verified bucket identity, never a mutable email address or caller-selected bucket. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey -->
 
 Transparent reads migrate supported legacy plaintext KV entries after successful decryption/write conditions. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
 
@@ -130,7 +130,9 @@ Supported Enterprise model/provider traffic is intercepted at exact Worker-owned
 
 When enabled, supported HTTP, HTTPS, and WebSocket direct-internet traffic uses the customer's Cloudflare Gateway path; raw internet TCP/UDP is denied. The account's own required Cloudflare control/data-plane destinations use documented scoped exceptions. Once strict routing is wired, Codeflare does not fall back to unrestricted direct egress on Gateway failure.
 
-Own-account R2 accepts only the session's exact bound bucket in path-style or virtual-hosted form. `EgressController` re-signs with that user's memory-only bucket-scoped credential; another bucket or missing credentials fail before any send, and deployment-wide R2 credentials are never a fallback. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/egress-controller.ts::EgressController --> See [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority) and [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket).
+Own-account R2 accepts only the session's exact bound bucket in path-style or virtual-hosted form. `EgressController` re-signs with that user's memory-only bucket-scoped credential; another bucket or missing credentials fail before any send, and deployment-wide R2 credentials are never a fallback. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/egress-controller.ts::EgressController --> See [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority) and [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket).
+
+Validated credential rotation replaces the strict catch-all before later traffic. <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception -->
 
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 
@@ -220,11 +222,11 @@ WebSocket upgrades authenticate and validate route/session ownership before forw
 
 ### Stress-test bypass
 
-Only exact `STRESS_TEST_MODE=active` activates the integration bypass and warning. SaaS plus stress is invalid and fails requests rather than silently disabling production limits. This mode is for prepared integration targets only; [Stress Testing](stress-test.md) owns execution safety.
+Only exact `STRESS_TEST_MODE=active` activates the integration bypass and warning. SaaS plus stress is invalid and fails requests rather than silently disabling production limits. This mode is for prepared integration targets only; [CI/CD — Load testing](ci-cd.md#load-testing) owns execution safety. That operational restriction does not implement the missing AD68 service-auth hostname/environment gate.
 
 ### Session limits are not a security boundary
 
-Per-user session admission is best effort: KV counting and the later running write are non-atomic. Simultaneous starts can exceed the nominal limit. Billing owns the resource/cost consequence; deployment `max_instances` is the separate platform ceiling.
+Per-user session admission is best effort: an owner-scoped D1 query counts workload-owning transitional states before later lifecycle admission, without an atomic reservation. Simultaneous starts can exceed the nominal limit. [Session Lifecycle](container.md#session-lifecycle) owns admission semantics, Billing owns the resource/cost consequence, and deployment `max_instances` is the separate platform ceiling. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 
 ## Supply-chain Controls
 
@@ -247,7 +249,7 @@ Under [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-e
 
 Fresh images are scanned for HIGH/CRITICAL findings with a locked Trivy binary; scan and SBOM traversal run concurrently against isolated Trivy cache copies, but the bounded verdict still gates push. <!-- @impl: .github/workflows/container-image.yml::image -->
 
-Fixable findings have two reviewed exception paths. Trivy first applies CVE-level suppressions from [`.trivyignore`](../../.trivyignore); each matches that CVE across scanner targets. The newly added Go stdlib batch carries adjacent scope, impact, and removal rationale. <!-- @impl: .github/workflows/container-image.yml::image -->
+Fixable findings have two reviewed exception paths. Trivy first applies CVE-level suppressions from [`.trivyignore`](../../.trivyignore); each matches that CVE across scanner targets. The Go stdlib batch carries adjacent scope, impact, and removal rationale. <!-- @impl: .github/workflows/container-image.yml::image -->
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
@@ -285,7 +287,7 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 | Control family | Requirements / decisions | Implementation | Evidence |
 |---|---|---|---|
 | Authentication and authorization | [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001-authenticated-endpoints-reject-unauthenticated-requests), [Authentication requirements](../../sdd/spec/authentication.md) | `src/lib/access.ts`, auth middleware | access/auth route suites |
-| Credential containment | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [Enterprise requirements](../../sdd/spec/enterprise-mode.md), [Agent requirements](../../sdd/spec/agents.md) | container env and interception registry | containment/interceptor suites |
+| Credential containment | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [Models & Routing requirements](../../sdd/spec/models-and-routing.md), [Agent requirements](../../sdd/spec/agents.md) | container env and interception registry | containment/interceptor suites |
 | Container bearer | [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle), [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation) | host auth check and proxies | host HTTP/WS auth suites |
 | Encryption | [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [AD32](../decisions/README.md#ad32-encryption_key-is-optional), [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | KV crypto, R2 SSE, migration engine | crypto/migration suites |
 | Headers/input/body | [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) | Worker header/input boundaries | header/validation/fuzz suites |
@@ -337,11 +339,11 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects p7zip RCE findings without a reviewed exception) -->
 <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects retired Pi findings after the runtime upgrade) -->
 
-## Immutable Managed Resources ([REQ-ENTERPRISE-028](../../sdd/spec/enterprise-mode.md#req-enterprise-028-managed-resource-request-classification))
+## Immutable Managed Resources ([REQ-ENTERPRISE-028](../../sdd/spec/security.md#req-enterprise-028-managed-resource-request-classification))
 
 Enterprise protected modes enforce persistence at `EgressController`, immediately before the exact user-bucket request is signed with its scoped credential. The Worker verifies `.codeflare/managed-paths.json` against the applied release, mode, and SHA-256 digest; exact managed and retired paths are denied in `immutable`, and derived resource roots are additionally denied in `exclusive`. Storage API mutations use the same verified policy. Policy decision logs retain only operation class, digest and path/bucket hash prefixes, request ID, and reason; they exclude raw object keys, bucket names, credentials, and policy bytes. Container policy copies and rclone filters are liveness aids only and cannot authorize writes.
 
-[Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes) owns the complete Mutable, Immutable, Exclusive, release-delta, retirement, and custom-file behavior. Admission and transport follow [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-admission-and-transport), Egress follows [REQ-ENTERPRISE-029](../../sdd/spec/enterprise-mode.md#req-enterprise-029-managed-resource-egress-enforcement), and Storage follows [REQ-ENTERPRISE-030](../../sdd/spec/enterprise-mode.md#req-enterprise-030-managed-resource-storage-enforcement). See [AD147](../decisions/README.md#ad147-active-managed-resource-policy-supersedes-provenance-ownership).
+[Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes) owns the complete Mutable, Immutable, Exclusive, release-delta, retirement, and custom-file behavior. Admission and transport follow [REQ-ENTERPRISE-027](../../sdd/spec/security.md#req-enterprise-027-managed-resource-admission-and-transport), Egress follows [REQ-ENTERPRISE-029](../../sdd/spec/security.md#req-enterprise-029-managed-resource-egress-enforcement), and Storage follows [REQ-ENTERPRISE-030](../../sdd/spec/storage.md#req-enterprise-030-managed-resource-storage-enforcement). See [AD147](../decisions/README.md#ad147-active-managed-resource-policy-supersedes-provenance-ownership).
 
 <a id="adding-a-new-rate-limiter"></a>
 <a id="admin-elevation-via-access-group-enterprise"></a>
@@ -371,5 +373,5 @@ Enterprise protected modes enforce persistence at `EgressController`, immediatel
 - [Container](container.md) — runtime supervision and teardown
 - [Storage & Sync](storage-and-sync.md) — persistence and encryption-regime recovery
 - [CI/CD](ci-cd.md) — workflow and release procedure
-- [Penetration Testing](pentest.md) — current probes and immutable observations
+- [CI/CD security probes](ci-cd.md#security-probes) — methodology and immutable observations
 - [Architecture](architecture.md) — trust/component boundaries

@@ -8,6 +8,17 @@
 
 The directory name is a retained private migration identifier. The selected IDE agent is always a separate process and conversation from terminal tab 1.
 
+## Contents
+
+- [Selection and UI](#selection-and-ui)
+- [Package map](#package-map)
+- [Native Pi Chat](#native-pi-chat)
+- [Official Claude Code](#official-claude-code)
+- [User-managed extension continuity](#user-managed-extension-continuity)
+- [Workspace selection and safe continuity](#workspace-selection-and-safe-continuity)
+- [Develop and verify](#develop-and-verify)
+- [Canonical references](#canonical-references)
+
 ## Selection and UI
 
 | Tab 1 | Immutable inventory | IDE experience |
@@ -35,6 +46,20 @@ Integrated terminals default to the managed **Bash** profile. That login shell c
 | Claude projection | `claude/` | Allowlisted config projection and managed settings around the unmodified package |
 | Package tests | `agent-sidebar/test/`, `claude/test/` | Behavioral package and projection verification |
 
+### Composition traceability
+
+These package-local references retain the original Container guide's implementation and test anchors without creating a second runtime or acceptance ledger. The named tests describe their contract; this relocation is not evidence of a new test run.
+
+| Package concern | Original implementation and evidence anchors |
+|---|---|
+| Agent classification and immutable/writable inventory composition | <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @impl: entrypoint.sh::_openvscode_seed_extension_layer --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory --> |
+| Native participant and host eligibility adapters | <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @impl: openvscode/agent-sidebar/package.json::enabledApiProposals --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> |
+| Native RPC, prompt and isolated spawn composition | <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> |
+| Controller-owned proposal and dialog gates | <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::constrainInlineOpenAiPayload --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::requestSidebarReasoningSummary --> |
+| Managed settings and profile projection | <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> |
+| UI state, extension intent and welcome lifecycle | <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> |
+| Product branding | <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC4: packaged brand icon matches the product icon) --> |
+
 ## Native Pi Chat
 
 The owned extension registers stable participant ID `codeflare.pi`, visibly named **Codeflare**, in panel Chat and the pinned editor Inline Chat surface. Its hidden fallback and visible account-free model exist only to satisfy the pinned host's eligibility and model lookup; neither performs inference or requests authorization.
@@ -48,6 +73,16 @@ The first request lazily starts one IDE-owned `/usr/local/bin/pi --mode rpc --no
 The package captures bounded canonical-workspace editor context and rejects external paths, symbolic aliases, and malformed references. During an active editor request, the local **Codeflare Inline Chat** Output channel records bounded revision, settings, and sanitized request, stream, and tab identities. It retains basenames while excluding URI userinfo, directory paths, query, fragment, tab labels, and document content; it does not instrument panel turns. Native `select` and `input` requests use bounded VS Code dialogs. Panel Pi retains direct tools and unrestricted container access. Its provider-emitted reasoning uses the native thinking presentation, while tool calls emit one argument-free status per bounded activity category rather than one row per call. Inline proposals target only the host-captured invoking document, fail on stale or invalid ranges, and use native controller-owned Keep/Close because Pi never applies those edits directly. Schema-invalid raw proposals may be corrected within the same turn under a three-attempt bound; invalid-only settlement reports a bounded correlation, summary, count, or geometry category.
 
 Detailed lifecycle, trust, and state contracts belong to [Container](../documentation/lanes/container.md#code-server-browser-ide) and [Security](../documentation/lanes/security.md#browser-ide-native-agents).
+
+### Inline composition evidence
+
+The invoking host editor location owns the document identity even after focus changes. The package validates it before proposal emission; controller-owned text-edit markers and managed opener policy retain native Keep/Close behavior. These original traceability references identify behavioral contracts, not new test results. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot -->
+
+<!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
+<!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+<!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission) -->
+<!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw result) -->
+<!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) -->
 
 ## Official Claude Code
 
@@ -88,7 +123,7 @@ Volatile Node, code-server/Code OSS, Pi, and Claude pins remain owned by package
 
 ## Canonical references
 
-- [Architecture Internals — Browser IDE internals](../documentation/lanes/architecture-internals.md#browser-ide-internals)
+- [Terminal & IDE — Browser IDE](../documentation/lanes/terminal-and-ide.md#browser-ide)
 - [Container — code-server Browser IDE](../documentation/lanes/container.md#code-server-browser-ide)
 - [Security — Browser IDE native agents](../documentation/lanes/security.md#browser-ide-native-agents)
 - [Browser IDE requirements](../sdd/spec/browser-ide.md)

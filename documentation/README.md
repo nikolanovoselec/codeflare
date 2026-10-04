@@ -16,7 +16,11 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
 
-5. **Structure preserved** - The specialized files in the Lane Index are Codeflare's canonical documentation structure. Clean content in place; do not fold these files into generic mega-lanes or delete their referenced assets.
+5. **Durable ownership** - The sixteen lanes in the Lane Index are the canonical owners. Extend the existing owner before proposing another lane.
+
+6. **Reference, not campaign history** - Lanes describe current behavior and qualified limitations. Exact CI receipts, deployment observations and dated measurements remain in existing Git, PR and CI records; architecture rationale belongs in the ADR ledger. Do not create execution-report lanes.
+
+A model release, implementation mechanism, repair, transport adapter, or delivery campaign is a section or reference, not a new domain. Preserve referenced assets, requirement IDs and fragment aliases when consolidating content.
 
 ## Public/private documentation boundary
 
@@ -34,47 +38,37 @@ When public workflows or consumers change, update the owning document in the [pr
 |----------|------------|
 | Operator | [Architecture](lanes/architecture.md), [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use the [private operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) for non-default deployment |
 | Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/ci-cd.md), [Preseed System](lanes/preseed.md) |
-| Security | [Security](lanes/security.md), [Penetration Testing](lanes/pentest.md), [Authentication](lanes/authentication.md) |
+| Security | [Security](lanes/security.md), [CI & Testing](lanes/ci-cd.md), [Identity & Access](lanes/authentication.md) |
 
 ## Lane Index
 
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [Architecture](lanes/architecture.md) | System map, component and state ownership, cross-component flows, failure boundaries | Operators, Developers |
-| [Architecture Internals](lanes/architecture-internals.md) | Source composition, runtime/client internals, caches, backend libraries, CF-NNN index | Developers |
-| [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
-| [Authentication](lanes/authentication.md) | Identity resolution, CF Access and OIDC sessions, authorization middleware | Operators, Developers, Security |
-| [Billing & Subscription](lanes/billing.md) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |
-| [User Provisioning](lanes/user-provisioning.md) | JIT provisioning, subscribe page, session mode authorization | Operators, Developers |
-| [Security](lanes/security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |
-| [Configuration](lanes/configuration.md) | Default-mode configuration and public runtime behavior | Operators |
-| [Administration and historical usage](lanes/administration-analytics.md) | Environment changes, D1 history, reports, retention, and rollout checks | Operators, Developers |
-| [Operator Interface foundation](lanes/operators.md) | Phase-1 ownership, trust boundaries and reusable operator primitives | Operators, Developers, Security |
-| [Repository-only Dispatcher transport](lanes/dispatcher-generic-transport.md) | Generic parent transport, operation receipts, response bounds and recovery fencing | Developers |
-| [Target capability discovery](lanes/target-capability-discovery.md) | Explicit discovery, shared contracts, evidence grades, and bounded qualification | Operators, Developers |
-| [Generic Anthropic Bedrock model support](lanes/bedrock-generic-model-support.md) | Reusable native contract, reasoning semantics, authority, and upgrades | Operators, Developers |
-| [Bedrock prompt caching](lanes/bedrock-prompt-caching.md) | Native checkpoints, usage accounting, and historical cache/stream evidence | Operators, Developers |
-| [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
-| [D1 Session Lifecycle](lanes/session-lifecycle-d1.md) | D1 session authority, runtime recovery, status projection, and clean-slate cutover boundary | Operators, Developers |
-| [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
-| [Dependency consolidation: October 2026](lanes/dependency-consolidation-2026-10-01.md) | Captured proposal disposition, compatibility constraints and release evidence | Developers, Operators |
-| [CI/CD & Testing](lanes/ci-cd.md) | Public workflow behavior and test-suite structure | Developers |
-| [Development & Deployment](lanes/deployment.md) | Deployment execution, verification, rollback, development references, dated cost evidence | Developers, Operators |
-| [Troubleshooting](lanes/troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
-| [Mobile Terminal](lanes/mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
-| [Vault](lanes/vault.md) | Persistent user note vault, cross-session memory capture, unified graphify graph, SilverBullet editor | Developers |
-| [Preseed System](lanes/preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks, troubleshooting | Developers |
-| [Architecture Decisions](decisions/README.md) | Architecture Decision Records with rationale and trade-offs | Developers |
-| [Penetration Testing](lanes/pentest.md) | Current scheduled probe contract and dated black-box evidence | Security |
-| [Stress Testing](lanes/stress-test.md) | Load-suite safety, execution, thresholds, and dated results | Operators |
+| Document | Owns | Audience |
+|----------|------|----------|
+| [Architecture](lanes/architecture.md) | System topology, state authority, cross-component flows and failure boundaries | Operators, Developers |
+| [API Reference](lanes/api-reference.md) | Endpoint authorization, request/response/error contracts and limits | Developers |
+| [Identity & Access](lanes/authentication.md) | Verified identity, authentication, authorization, account admission, provisioning and offboarding | Operators, Developers, Security |
+| [Configuration & Administration](lanes/configuration.md) | Settings, defaults, precedence, redaction and administrative editing workflows | Operators, Developers |
+| [Billing & Usage](lanes/billing.md) | Entitlement, subscriptions, live quota accounting, historical usage, reports and retention | Operators, Developers |
+| [Security](lanes/security.md) | Threats, trust boundaries, controls, exceptions and residual risks | Operators, Developers, Security |
+| [Sessions & Runtime](lanes/container.md) | Image and process orchestration, D1 session authority, startup, recovery, idle policy and teardown | Operators, Developers |
+| [Storage & Sync](lanes/storage-and-sync.md) | R2/local authority, reconciliation, conflicts, persistence and encryption-regime integration | Operators, Developers |
+| [Agent Environment](lanes/preseed.md) | Manifests, modes, compiler projection, baked fallback, managed curation and agent adaptation | Developers |
+| [Models & Routing](lanes/models-and-routing.md) | Target identity, routing, discovery, evidence, reasoning, replay, caching and runtime publication | Operators, Developers |
+| [Operators](lanes/operators.md) | Packages, installations, grants, admission, activities, parent capabilities and publication fencing | Operators, Developers, Security |
+| [Terminal & IDE](lanes/terminal-and-ide.md) | Workspace interactions, terminal/editor connectivity and mobile compatibility | Operators, Developers |
+| [Vault & Memory](lanes/vault.md) | Notes, editor behavior, capture, recall, extraction and knowledge-graph publication | Operators, Developers |
+| [CI & Testing](lanes/ci-cd.md) | Verification routing, pipeline gates, security-probe methodology and safe load testing | Developers, Operators, Security |
+| [Deployment](lanes/deployment.md) | Default promotion, acceptance, rollback and public target boundaries | Operators, Developers |
+| [Troubleshooting](lanes/troubleshooting.md) | Symptom-led diagnosis, corrective action, verification and escalation | Operators |
 
 ## Package Reference Index
 
 | Package reference | Owns | System contracts remain in |
 |---|---|---|
-| [Landing](../landing/README.md) | Landing source map, browser behavior, build order, package verification | [Architecture Internals](lanes/architecture-internals.md), [API Reference](lanes/api-reference.md), [Security](lanes/security.md) |
-| [Browser IDE agents](../openvscode/README.md) | Extension inventories, package composition, local verification | [Container](lanes/container.md), [Architecture Internals](lanes/architecture-internals.md), [Security](lanes/security.md) |
+| [Landing](../landing/README.md) | Landing source map, browser behavior, build order, package verification | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [Security](lanes/security.md) |
+| [Browser IDE agents](../openvscode/README.md) | Extension inventories, package composition, local verification | [Sessions & Runtime](lanes/container.md), [Terminal & IDE](lanes/terminal-and-ide.md), [Security](lanes/security.md) |
 | [Claude IDE configuration](../openvscode/claude/README.md) | Claude projection files and managed settings | [Browser IDE agents](../openvscode/README.md) and [Container](lanes/container.md) |
+| [Pi packages](references/pi-packages.md) | Locked package inventory, entrypoints, compatibility transforms and prewarm gates | [Agent Environment](lanes/preseed.md), [Sessions & Runtime](lanes/container.md) |
 
 ## Change Routing
 
@@ -84,8 +78,10 @@ When public workflows or consumers change, update the owning document in the [pr
 | Public configuration, default, or mode overlay | [Configuration](lanes/configuration.md) | Deployment, Security, owning SDD requirement |
 | Operator deployment, verification, or rollback | [Development & Deployment](lanes/deployment.md) | CI/CD when workflow topology changes |
 | Workflow trigger, permission, gate, or artifact | [CI/CD & Testing](lanes/ci-cd.md) | Deployment or package reference for consumer changes |
-| Runtime image, process, lifecycle, or recovery | [Container](lanes/container.md) or specialist runtime lane | Architecture map only when component ownership changes |
-| Identity, entitlement, provisioning, or security control | Authentication, Billing, User Provisioning, or Security lane | API and Configuration only for their owned surfaces |
+| Runtime image, process, lifecycle, or recovery | [Sessions & Runtime](lanes/container.md) | Terminal & IDE for client behavior; Architecture only when component ownership changes |
+| Identity, entitlement, provisioning, or security control | Identity & Access, Billing & Usage, or Security | API and Configuration only for their owned surfaces |
+| Model/protocol, routing, discovery, reasoning, replay or cache policy | [Models & Routing](lanes/models-and-routing.md) | Configuration for setting/editing contracts; Security for shared trust controls |
+| Operator package, installation, activity or parent capability | [Operators](lanes/operators.md) | API for wire contracts; package repository for business policy |
 | Package-only source composition or build | Owning package reference above | Canonical system lane only when the public contract changes |
 | Vulnerability reporting policy | [Security Policy](../SECURITY.md) | Technical controls remain in [Security](lanes/security.md) |
 | Required behavior or evidence | Owning file in [`sdd/spec/`](../sdd/README.md) | Canonical lane and changelog |

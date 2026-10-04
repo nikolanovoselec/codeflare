@@ -10,7 +10,7 @@ Architectural and technology decisions that apply across all domains.
 | Framework | Hono | Lightweight Workers-compatible router with middleware support |
 | Frontend | SolidJS | Reactive, small bundle, signal-based state management |
 | Terminal | xterm.js | Industry-standard terminal emulator with SerializeAddon for state replay |
-| Database | Cloudflare KV | Key-value store, eventually consistent (~60s propagation), global |
+| Database | Cloudflare D1 and KV | D1 owns complete session lifecycle records and historical usage/report state; KV retains settings, preferences and credentials, not a session shadow catalog |
 | Storage | Cloudflare R2 | S3-compatible object storage, per-user buckets, SSE-C encryption |
 | Containers | Cloudflare Containers | Isolated compute per session, SDK-managed lifecycle |
 | State | Durable Objects | Per-session (`container`) and per-user (`timekeeper`) stateful coordination |
@@ -173,7 +173,7 @@ Cloudflare Containers enforces disk (GB) <= 2 x memory (GiB) and >= 3 GiB memory
 
 - **No Node.js APIs in Worker** -- Workers use a web-standard runtime. `fetch()` not `http`; `crypto.subtle` not `require('crypto')`; `Request`/`Response` not Express objects. The `nodejs_compat` flag enables specific modules only.
 - **No server-side rendering** -- SolidJS SPA with static asset serving. `not_found_handling = "single-page-application"` in wrangler.toml.
-- **No relational database** -- All persistent state lives in KV (session metadata, user records, tier config, usage data, CORS config, setup state). No D1, no SQL.
+- **No hosted user database** -- Codeflare does not host PostgreSQL, MySQL or MongoDB for user projects. Its own D1 database owns the complete session catalog and historical usage/report state; KV settings, credentials and preferences remain separate. Session authority has no KV compatibility path.
 - **No shared state between Worker isolates** -- Module-level caches (CORS, auth config, JWKS, tier config, circuit breakers) are per-isolate. Different isolates may see different values for up to the cache TTL.
 - **No application-level WebSocket pings** -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections automatically.
 - **No FUSE mounts** -- rclone bisync with local disk, not s3fs FUSE. Every file op is <1ms local, not ~340ms network.

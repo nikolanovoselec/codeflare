@@ -192,6 +192,21 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.match(rootLock.packages['node_modules/edgepush'].integrity, /^sha512-/);
   });
 
+  it('REQ-OPS-054: excludes the DOMPurify IN_PLACE advisory range', () => {
+    // Intentional generated-artifact security-floor contract, not a latest-release pin.
+    const dompurify = versionsOf(readJson('host/package-lock.json'), 'dompurify');
+    assert.ok(dompurify.length > 0);
+    assert.ok(dompurify.every(version => atLeast(version, '3.4.16')),
+      'GHSA-p98j-92pf-mc4p requires the patched IN_PLACE sanitization release');
+  });
+
+  it('REQ-OPS-054: excludes the six devalue serialization advisory ranges', () => {
+    const devalue = versionsOf(landingLock, 'devalue');
+    assert.ok(devalue.length > 0);
+    assert.ok(devalue.every(version => atLeast(version, '5.9.3')),
+      'the six reviewed devalue serialization advisories are fixed from 5.9.3');
+  });
+
   it('pins patched versions across every affected committed runtime tree', () => {
     const floors = {
       'brace-expansion': '5.0.9',
@@ -258,7 +273,8 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     for (const lockfile of [browserRunLock, npmToolsLock, piLock]) {
       const versions = versionsOf(lockfile, 'fast-uri');
       assert.ok(versions.length > 0, 'fast-uri must be represented in each affected runtime lock');
-      assert.ok(versions.every((version) => atLeast(version, '3.1.6')));
+      assert.ok(versions.every((version) => atLeast(version, '3.1.8')),
+        'GHSA-hrr3-gc8f-f4qj security floor: encoded hosts must resolve a patched fast-uri release');
     }
 
     const postcssVersions = versionsOf(sidebarLock, 'postcss');

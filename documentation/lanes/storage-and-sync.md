@@ -1,6 +1,6 @@
 # Storage & Sync
 
-R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas, and conflict resolution.
+R2 persistence, bidirectional home synchronization, durable managed-resource reconciliation, storage quotas, and conflict recovery.
 
 **Audience:** Operators, Developers
 
@@ -11,6 +11,8 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 ## Contents
 
 - [Data Model and Boundaries](#data-model-and-boundaries)
+  - [Durable seed reconciliation](#durable-seed-reconciliation)
+  - [Reconciliation status and user recovery](#reconciliation-status-and-user-recovery)
 - [Synchronization Lifecycle](#synchronization-lifecycle)
   - [Restricted Operator Persistence](#restricted-operator-persistence)
 - [Conflict Resolution](#conflict-resolution)
@@ -55,6 +57,50 @@ The agent-config route projects one universal verified release through the deplo
 
 Exact paths assigned by current or available verified inventory to inactive agents are removed with ETag-conditional deletes even when their marker is absent; active and unknown historical paths keep provenance rules. The route records applied state only after selected content, required deletions, context companions, and policy verify. No user bucket is mutated while a session owns it. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
+### Durable seed reconciliation
+
+Delivery selection comes from [Agent Environment / Preseed](preseed.md#runtime-delivery-pipeline). Storage owns the resulting R2 writes, cleanup preflight, provenance checks, conditional deletion, retry state, and success-only applied-state publication.
+
+Cleanup sources have distinct scope. `getPreseedKeysNotInMode()` supplies generated keys not wanted by the target mode. The frozen `RETIRED_PRESEED_KEYS` backlog covers proven product-created keys predating provenance markers; current-target keys are excluded and generation rejects a retirement list containing a live key. Stale-marker sweeps stay inside seed-owned prefixes. Generated inventories reject duplicate target keys within a mode; variants still owned by the target mode are not cleanup candidates.
+
+Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing build's preseed hash. Full reconciliation rewrites live keys before cleanup, so an older marker identifies dropped product ownership. An S3 PUT replaces metadata wholesale and rclone does not send custom metadata: browser or container edits drop the marker and become user-owned. Ordinary active-agent retirement requires that ownership evidence.
+
+A separate rule removes an exact path without a marker only when current or already-available verified inventory assigns it to an inactive deployment agent. The marker behavior was probed against real R2 before adoption; see [AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
+
+Listing derives two-segment prefixes from the selected seed inventory, including `.claude/skills/` and `.pi/agent/`, rather than listing entire buckets. Getting-started documents and unseeded Claude transcript/task trees (`.claude/projects/`, `.claude/todos/`) stay outside the sweep; runtime descendants under a seeded prefix can still be candidates. Known Claude plugin-cache paths are excluded before counting. Listing and bounds finish before mutation; HEAD fan-out is batched and excess candidates abort managed reconciliation without publishing partial state.
+
+**Upgrade semantics:** the dashboard uses the dedicated automatic upgrade endpoint. Managed release planning compares the exact applied signed bundle directly with the active target. Only changed content/content-type and newly added paths are written; unchanged markerless user edits survive. Manual Recreate and mode changes overwrite every desired path.
+
+Ordinary changed/new-path writes and full-target passes can replace markerless edits at desired paths; marker loss is not a write veto. Provenance restricts repairs added only because an interrupted target wrote the path, not ordinary planned writes. A target-digest match skips PUT only after GET verifies exact bytes and content type. New PUTs receive the same readback; successful removals receive an absence check. Mismatch leaves applied state unpublished for retry. Fresh buckets, legacy or changed projection identity, policy changes, and unavailable immutable history plan the full selected target using the same execution checks. R2 markers govern effects; expiring KV progress is display-only. <!-- @impl: src/lib/r2-seed.ts::verifyManagedDocument --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+
+Before writes, preferences record the bounded release/mode/projection targets that may have written objects. A changed target repairs desired paths only while they carry an interrupted-target marker, and removes interrupted-only paths only with that provenance. Pending ownership survives interruption and clears with successful applied publication ([REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization)).
+
+When applied and target bundles are available, direct-delta cleanup considers applied-mode paths absent from the target. Verified inactive paths are removed regardless of marker. Active and unknown history, including signed retirements, retains Mutable or protected provenance rules. Conditional deletion preserves objects replaced after inspection. Applied release/projection identities publish only after reconciliation and final selection, mode, policy, SSE, session ownership, and migration checks.
+
+Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress-writes), [REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization), and [REQ-STOR-036](../../sdd/spec/storage.md#req-stor-036-managed-reconciliation-progress-reads).
+
+### Reconciliation status and user recovery
+
+The release status check compares the baked content hash and canonical agent projection with stored values. Managed curation additionally compares verified digest, sequence, mode and resource policy with `managedEnvironmentApplied`. Unchanged-release polls do not expand payload bytes; the five-minute resolver verifies and caches newly discovered releases. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease -->
+
+An idle mismatch uses `POST /api/storage/seed/agent-configs/upgrade`. The Worker projects the universal signed bundle through deployment selection; fingerprint planning and streamed writes use the same selected keys. Matching-identity upgrades use direct deltas; fresh buckets, legacy/changed projections, policy changes, unavailable history and manual recreation verify the full target. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
+
+The response returns matching completion progress when available; the next existing status poll exposes and clears finalization, visibly ordering `Upgrading N / N`, `Finalizing`, then current even for sub-poll upgrades. POST success alone never establishes applied state. Late responses cannot revert observed current or update-pending state; Finalizing is observational. Manual `POST /api/storage/seed/agent-configs` remains full-overwrite Recreate. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch -->
+
+Each `preseedUpgradeTarget` receives at most one automatic attempt per page until status reports no upgrade needed. Target-less responses share a pending episode. A new target can proceed without an intervening current observation; stale reads cannot repeat old attempts. Failure replaces New Session with **Retry upgrade**, keeping the session-menu creation gate closed. Retry uses upgrade, not Recreate, with in-flight and session-ownership restrictions ([REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
+
+A square reflect-horizontal button beside Retry invokes Settings' full **Recreate Agent Skills & Rules** through the shared update guard. It appears only during Retry, retains recovery on failure, and never treats request success as applied status ([REQ-AGENT-213](../../sdd/spec/agents.md#req-agent-213-dashboard-full-recreation-recovery)).
+
+New Session follows [REQ-AGENT-175](../../sdd/spec/agents.md#req-agent-175-environment-update-ui-lockdown); managed admission follows [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission). Current admission reads authoritative D1 lifecycle state, not a stale KV projection or whether a container happens to be awake. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->
+
+| Authoritative state | Managed-mutation ownership |
+|---|---|
+| `starting`, `running`, `unreachable`, `stopping` | Retains ownership; defer reconciliation |
+| `created`, `stopped`, `error` | Does not own a workload |
+| D1 lookup failure | Abort; do not treat it as an empty bucket-owner set |
+
+Hibernation, an interrupted stop request, elapsed time, or a completed final sync alone does not establish confirmed exit. A stop retains `stopping` ownership until lifecycle authority confirms exit. Start remains blocked while release mismatch or pending reconciliation remains; Retry must complete verified effects and applied-state publication before the existing status poll reports current. Trust, rollout, destructive-mode acceptance and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md).
+
 ### Managed-resource persistence modes
 
 A managed path is an exact object key owned by the verified release inventory, a signed retirement tombstone, or one of Codeflare's synthetic policy files. Ordinary personal files do not become managed because they happen to sit in the same bucket. That distinction is what keeps a release update from turning into a bucket-wide cleanup.
@@ -65,7 +111,9 @@ A managed path is an exact object key owned by the verified release inventory, a
 
 **Exclusive** applies when **Disable User Created Resources** is enabled. Universal policy still protects exact paths and governed roots for all six agent homes, so sync cannot restore inactive content. Cleanup uses a separate selected keep-set and removes unrecognized objects only inside those governed roots after bounded prevalidation. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @impl: src/lib/r2-seed.ts::listExclusiveCleanupCandidates -->
 
-Selected files, Worker metadata, active runtime companions, root-level personal files, and unrelated home paths survive. Enabling this mode is intentionally destructive inside governed roots, so reconciliation waits until the user's sessions have stopped.
+Governed roots are derived from universal inventory, not every directory under an agent home. Recognized categories are `skills`, `extensions`, `rules`, `hooks`, `scripts`, `plugins`, `prompts`, `commands`, `agents`, and `exceptions`, under `.claude/`, `.codex/`, `.copilot/`, `.gemini/`, `.config/opencode/`, or `.pi/agent/`. A home/category root is governed only when an inventory path establishes it; use the verified policy's `resourceRoots` for the concrete release. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots -->
+
+The keep-set comprises selected managed keys, `.codeflare/managed-extensions.json`, `.codeflare/managed-paths.json`, active image context-mode companions when context mode is enabled, and Claude runtime-managed keys only when Claude is active. Directory keep-keys also preserve descendants. Root-level personal files and unrelated home paths stay outside this cleanup; keeping an object does not protect its edited bytes from a planned managed write. Enabling Exclusive is intentionally destructive inside governed roots and waits for authoritative workload ownership to clear.
 
 #### Release changes and retirement
 
@@ -75,7 +123,9 @@ Before the first write or delete, reconciliation classifies current and availabl
 
 Routine retirement therefore needs no hand-maintained list: remove the file from the curation manifest and publish a new release. `preseed/retired-keys.json` serves a narrower purpose. It is the cumulative backlog of proven product-created objects that predate provenance markers, plus exceptional product-generated orphans that no release comparison can own safely. The shared compiler validates that list, rejects paths that are still live, and publishes it as sorted `retiredPaths` in `seed-v1`.
 
-Protected reconciliation deletes those signed retired paths by exact name, then keeps them in `.codeflare/managed-paths.json` as tombstones. Their filter entries do not claim the files still exist. They stop an old local copy, a damaged filter, or a direct R2 request from resurrecting retired managed behavior. Mutable reconciliation deletes a retired path only while Codeflare provenance remains, preserving a user-owned replacement.
+Protected reconciliation deletes those signed retired paths by exact name, then keeps them in `.codeflare/managed-paths.json` as tombstones. Their filter entries do not claim the files still exist. They stop an old local copy, a damaged filter, or a direct R2 request from resurrecting retired managed behavior. Signed-release Mutable reconciliation deletes a retired path only while Codeflare provenance remains, preserving a user-owned replacement. <!-- @impl: src/lib/r2-seed.ts::buildReconcileCleanupPreflight -->
+
+The separate baked fallback's exact named cleanup includes non-target mode keys and the frozen `RETIRED_PRESEED_KEYS` backlog; it does not require a marker and cannot distinguish an edited replacement at such a key. Do not apply signed Mutable preservation to that legacy named cleanup. Current-target keys and verified prior managed keys protected during disable are excluded from baked named retirement. <!-- @impl: src/lib/r2-seed.ts::buildReconcileCleanupPreflight -->
 
 Reconciliation writes selected managed content, conditionally deletes exact inactive paths, applies ordinary cleanup rules, writes and reads back canonical protected policy when required, then records the applied release, projection, and policy identity. Local rclone filters prevent expected writes; the Worker interceptor remains the authority when traffic reaches R2. Operator rollout, destructive-mode acceptance, and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md). <!-- @impl: src/lib/r2-seed.ts::buildReconcileCleanupPreflight --> <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @impl: entrypoint.sh::prepare_managed_resource_filter -->
 
@@ -105,7 +155,7 @@ This host upload plus independent R2 readback provides implemented persistence m
 2. Managed configuration and tab autostart finish. Pi relay runs only when Pi is active, and Claude context-mode setup runs only when Claude Code is active. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
     Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
-3. `rclone bisync --resync --ignore-checksum --max-delete 5000 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible)
+3. `rclone bisync --resync --ignore-checksum --max-delete 5000 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible for ordinary/final requests, SIGUSR2-interruptible for explicit cloud Sync now)
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
 
@@ -303,7 +353,7 @@ When listing state exists, resilient/recover handling and vanished-file repair r
 
 ## File Browser (REQ-STOR-016)
 
-A pending managed-environment update does not block uploads or deletions of ordinary user files outside managed namespaces. Requests that may touch managed resources—including parent-folder deletions and mixed selections—retain managed readiness and policy checks. Downloads remain available subject to administrator restrictions; encryption-migration locks still apply to mutations ([REQ-ENTERPRISE-030](../../sdd/spec/enterprise-mode.md#req-enterprise-030-managed-resource-storage-enforcement)).
+A pending managed-environment update does not block uploads or deletions of ordinary user files outside managed namespaces. Requests that may touch managed resources—including parent-folder deletions and mixed selections—retain managed readiness and policy checks. Downloads remain available subject to administrator restrictions; encryption-migration locks still apply to mutations ([REQ-ENTERPRISE-030](../../sdd/spec/storage.md#req-enterprise-030-managed-resource-storage-enforcement)).
 
 The storage browser reads directly from R2 via the Worker API (not the container
 filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
@@ -338,7 +388,7 @@ return an error response (4xx) rather than any listing.
 | Seed/transcript policy | REQ-STOR-010/012/052 | seed generator, transcript cleanup, and session compactor | Generated inventory, deterministic archive, and cleanup behavior |
 | Explicit sync | [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) | storage route, host endpoint, sync daemon | Trigger/result contract tests |
 | File browser | REQ-STOR-016/018 | storage routes and UI browser state | Traversal, pagination, and recovery tests |
-| Encryption regime | Enterprise/Vault SDD | governed migration engine and R2 configuration | Mode/status evidence; private rollout values stay private |
+| Encryption regime | Storage/Vault SDD | governed migration engine and R2 configuration | Mode/status evidence; private rollout values stay private |
 
 ---
 
@@ -379,7 +429,7 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 
 When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket). Flipping the policy losslessly re-encrypts the bucket in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the dashboard `batch-status` poll, with the regime committed only after a full verification HEAD-scan.
 
-While a bucket migrates, running containers are drained (best-effort — a drain failure leaves a brief stray-write window, caught by the verification rescan + read self-heal), every R2 writer is gated `409 BUCKET_MIGRATING`, and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never migrates, so session creation is never blocked. Sync behaviour follows the committed regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) (migration mechanics; supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) and the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
+While a bucket migrates, running containers are drained (best-effort — a drain failure leaves a brief stray-write window, caught by the verification rescan + read self-heal), every R2 writer is gated `409 BUCKET_MIGRATING`, and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations. Sync behaviour follows the committed regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) (migration mechanics; supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) and the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
 
 ---
 

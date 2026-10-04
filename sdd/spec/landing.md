@@ -480,3 +480,35 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Status:** Implemented
 
 ---
+
+### REQ-LANDING-016: Build-image dependency denies cache freshness
+
+**Intent:** Remove the vulnerable shared-cache implementation from Astro's build dependency graph without changing the static landing.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The policy resolved by Astro denies storability for every request/response, including public freshness, cookies, stale extensions and conditional GET. <!-- @impl: landing/dependencies/astro-build-cache-policy/index.js::storable = return false; --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: build-image policy fails closed) -->
+2. The policy resolved by Astro grants zero freshness for every request/response, including public freshness, cookies, stale extensions and conditional GET. <!-- @impl: landing/dependencies/astro-build-cache-policy/index.js::timeToLive = return 0; --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: build-image policy fails closed) -->
+3. Astro resolves the genuinely private `@codeflare/astro-build-cache-policy` package rather than the affected upstream implementation. <!-- @impl: landing/package.json::overrides = "http-cache-semantics": "file:./dependencies/astro-build-cache-policy" --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: installed and locked dependency identities are the genuine private replacement) -->
+4. The installed and committed replacement dependency identities agree. <!-- @impl: landing/package-lock.json::dependencies/astro-build-cache-policy = "name": "@codeflare/astro-build-cache-policy" --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: installed and locked dependency identities are the genuine private replacement) -->
+5. Actual built home, login and privacy documents retain server-rendered semantic content and complete self-hosted styles, fonts and applicable enhancements. <!-- @impl: landing/astro.config.mjs::assetsInlineLimit = assetsInlineLimit: 0 --> <!-- @impl: landing/src/layouts/BaseLayout.astro::interLatinFont = @fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url --> <!-- @impl: landing/src/pages/index.astro::main = <main id="top"> --> <!-- @impl: landing/src/pages/login.astro::login-main = <main class="login-main"> --> <!-- @impl: landing/src/pages/privacy.astro::prose = <article class="prose"> --> <!-- @test: landing/src/__tests__/built-output.test.ts (REQ-LANDING-016: dependency remediation preserves built static pages) -->
+
+**Constraints:**
+
+- Substitution applies only to Astro's dependency edge; it must not disguise the affected tarball through a fake version or renamed vulnerable implementation.
+- The adapter implements only Astro's two consumed cache-decision methods.
+- It does not remove Astro's separate disk cache or stale fallback.
+- The landing currently uses no optimized remote images.
+- Introducing them requires reassessing caller-owned caching; Worker authentication, CSP and immutable asset caching remain unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](#req-landing-004-first-paint-stability-and-immutable-asset-caching)
+
+**Verification:** Automated test: [build-cache-policy.test.ts](../../landing/src/__tests__/build-cache-policy.test.ts) and [built-output.test.ts](../../landing/src/__tests__/built-output.test.ts).
+
+**Status:** Implemented
+
+---
