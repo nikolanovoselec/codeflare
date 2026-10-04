@@ -12,7 +12,7 @@ import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin } from './operator-runtime-capability';
+  readDispatcherBody, dispatcherGithubApiOrigin, type DispatcherAdmittedTarget } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
@@ -82,6 +82,19 @@ interface DispatcherOperationRecord {
 }
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
+const admittedDispatcherResultSchema = z.strictObject({ repository: z.string(),
+  results: z.tuple([z.strictObject({ pullRequest: z.number().safe().int().positive(),
+    headSha: z.string().regex(/^[0-9a-f]{40}$/), decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
+    comment: z.string().min(1).max(2000), outcome: z.enum(['MERGED', 'NOT_MERGED', 'EXECUTION_FAILED']) })]) });
+
+/** Intent-3 output contract: one exact admitted result, never a replacement or aggregate target set. */
+function admittedDispatcherResultMatches(value: unknown, target: DispatcherAdmittedTarget): boolean {
+  const result = admittedDispatcherResultSchema.safeParse(value);
+  if (!result.success || new TextEncoder().encode(JSON.stringify(value)).byteLength > 48 * 1024) return false;
+  const item = result.data.results[0];
+  return result.data.repository === target.repository && item.pullRequest === target.pullRequest
+    && item.headSha === target.headSha && (item.outcome !== 'MERGED' || item.decision === 'MERGE');
+}
 const RENOVATE_PUBLICATION = 'renovate:publication';
 type RenovateEffect = 'comment' | 'approval' | 'merge';
 interface RenovatePublication {
@@ -1431,11 +1444,14 @@ export class OperatorActivity extends Agent {
       const props = { activityId: plan.activityId, generation: lease.generation };
       const capability = context.exports.OperatorDispatcherCapability({ props });
       const tail = context.exports.OperatorDispatcherTail({ props });
+      const admittedTarget = plan.prospectiveAdmissionId
+        ? (await authorizeDispatcherPlan(plan, this.#appEnv)).admittedTarget : undefined;
       const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
         plan.activityId, lease.generation, capability, tail,
         JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
         JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
-        isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined);
+        isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
+        admittedTarget ? JSON.stringify(admittedTarget) : undefined);
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -1503,7 +1519,7 @@ export class OperatorActivity extends Agent {
           return;
         }
         stage = 'authorize';
-        await authorizeDispatcherPlan(plan, this.#appEnv);
+        const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
           const errorType = settlement.error?.type ?? '';
           const reason = settlement.error?.meta?.reason ?? '';
@@ -1537,7 +1553,8 @@ export class OperatorActivity extends Agent {
         if (assessmentParts.length !== 1 || !z.json().safeParse(assessmentParts[0].data).success
           || !assessmentParts[0].data || typeof assessmentParts[0].data !== 'object'
           || Array.isArray(assessmentParts[0].data)
-          || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > 64 * 1024) {
+          || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > 64 * 1024
+          || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget))) {
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
           await this.interruptDrive(lease.generation); return;
         }
@@ -2022,6 +2039,14 @@ export class OperatorActivity extends Agent {
     if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)
       || !z.json().safeParse(assessment).success
       || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > 64 * 1024) return;
+    if (await this.ctx.storage.get<string>('prospective-admission')) {
+      try {
+        const plan = await this.getRuntimePlan();
+        if (!plan) return;
+        const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (admittedTarget && !admittedDispatcherResultMatches(assessment, admittedTarget)) return;
+      } catch { return; }
+    }
     const committed = await this.ctx.storage.transaction(async tx => {
       const [record, currentLease] = await Promise.all([tx.get<AdmissionState>('admission'),
         tx.get<DispatcherLease>(DISPATCHER_LEASE)]);

@@ -344,7 +344,8 @@ async function runProtectedJob(phase) {
   }
   const root = `${api}/repos/${repository}`;
   const github = async suffix => {
-    if (typeof suffix !== 'string' || !suffix.startsWith('/') || suffix.includes('..')) throw Error('GitHub endpoint denied');
+    if (typeof suffix !== 'string' || !suffix.startsWith('/')
+      || suffix.includes('..') && !/^\/compare\/[a-f0-9]{40}\.\.\.[a-f0-9]{40}$/i.test(suffix)) throw Error('GitHub endpoint denied');
     const url = `${root}${suffix}`;
     const response = await fetch(new Request(url, { redirect: 'error', signal: AbortSignal.timeout(10_000),
       headers: { authorization: `Bearer ${githubToken}`, accept: 'application/vnd.github+json',

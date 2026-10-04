@@ -12,7 +12,8 @@ import { createOperatorIntentDigest, type BoundaryActivityBinding, type Operator
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
-import { projectOperatorPackageResources } from './package-resources';
+import { projectOperatorPackageResources, type OperatorPackageResourceProjection } from './package-resources';
+import { bindClaimedConductorInvocation } from './conductor-production';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const invocationSchema = z.json();
@@ -187,6 +188,7 @@ export async function runOperatorActivity(
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
     let bundle;
+    let resources: OperatorPackageResourceProjection | null = null;
     if (isManagementReceipt(plan.receipt)) {
       const bytes = await registry.getManagementBundle(plan.receipt.selection.release.bundleDigest);
       if (!bytes) throw new Error('Pinned runtime input unavailable');
@@ -202,7 +204,7 @@ export async function runOperatorActivity(
         return;
       }
       bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
-      const resources = await projectOperatorPackageResources(bundle, plan.receipt.selection.release.bundleDigest);
+      resources = await projectOperatorPackageResources(bundle, plan.receipt.selection.release.bundleDigest);
       if (resources) await activity.savePackageResources(resources);
     } else {
       const distribution = await registry.getPinnedDistribution(activityId);
@@ -216,13 +218,20 @@ export async function runOperatorActivity(
       }
       bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
         attemptDeadline);
-      const resources = await projectOperatorPackageResources(bundle, plan.receipt.artifactDigest);
+      resources = await projectOperatorPackageResources(bundle, plan.receipt.artifactDigest);
       if (resources) await activity.savePackageResources(resources);
     }
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
       invocation, expectedGeneration,
-      bind: async (generation, driveDeadline) => ({ capability: bindCapability(activityId, generation, driveDeadline), outbound: null }),
+      bind: async (generation, driveDeadline) => {
+        if (isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'conductor') {
+          const bound = await bindClaimedConductorInvocation({ env, plan, activity, resources, generation, driveDeadline });
+          // Mutate only this drive's parsed copy, never the persisted invocation or intent digest.
+          if (bound) Object.assign(invocation as object, bound);
+        }
+        return { capability: bindCapability(activityId, generation, driveDeadline), outbound: null };
+      },
     });
     if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
   } catch {

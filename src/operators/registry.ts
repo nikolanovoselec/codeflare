@@ -160,6 +160,23 @@ export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
   admittedAt: number; selection: ManagementExecutionSelection;
 }
 
+/** Compatibility metadata only; the selected immutable release remains the code authority. */
+export function prospectiveRenovatePackageSupported(manifestJson: string): boolean {
+  try {
+    const manifest = JSON.parse(manifestJson);
+    return manifest !== null && typeof manifest === 'object' && !Array.isArray(manifest)
+      && manifest.id === 'renovate-dispatcher' && manifest.profile === 'dispatcher' && manifest.intentVersion === '3';
+  } catch { return false; }
+}
+
+/** GitHub UTC seconds and parent UTC milliseconds denote the same canonical instant. */
+export function prospectiveRenovateTimestamp(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
+  const time = Date.parse(value);
+  const milliseconds = value.length === 20 ? `${value.slice(0, -1)}.000Z` : value;
+  return Number.isFinite(time) && new Date(time).toISOString() === milliseconds ? time : null;
+}
+
 interface ProspectiveActivation { installationId: string; activatedAt: string; repositoryId: typeof RENOVATE_REPOSITORY_ID }
 interface ProspectiveRegistration {
   registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
@@ -1543,7 +1560,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
     const selected = await this.resolveManagementExecution(input.installationId);
     if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
-      || selected.value.installation.policy.resourceProfileId !== null) return { ok: false, reason: 'installation-unavailable' };
+      || selected.value.installation.policy.resourceProfileId !== null
+      || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { ok: false, reason: 'installation-unavailable' };
     const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
       ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
       revision: 0, context: await createOperatorExecutionContext({ activityId: registrationId,
@@ -1617,10 +1635,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       || input.repositoryId !== RENOVATE_REPOSITORY_ID || !Number.isSafeInteger(input.pullRequest)
       || input.pullRequest < 1 || !sha.test(input.head)) return { ok: false, reason: 'invalid-target' };
     const activation = await this.ctx.storage.get<ProspectiveActivation>('renovate-activation');
-    let created: string;
-    try { created = new Date(input.createdAt).toISOString(); }
-    catch { return { ok: false, reason: 'invalid-target' }; }
-    if (!activation || created !== input.createdAt || created <= activation.activatedAt) {
+    const created = prospectiveRenovateTimestamp(input.createdAt);
+    const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
+    if (created === null) return { ok: false, reason: 'invalid-target' };
+    if (!activation || cutoff === null || created <= cutoff) {
       return { ok: false, reason: 'pre-activation' };
     }
     const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
@@ -1658,7 +1676,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         || stillRegistered?.revision !== winner.record.revision) return { ok: false, reason: 'stale-election' } as const;
       const admission: ProspectiveAdmission = { activityId: input.activityId,
         installationId: activation.installationId, repositoryId: RENOVATE_REPOSITORY_ID,
-        pullRequest: input.pullRequest, head: input.head, createdAt: created,
+        pullRequest: input.pullRequest, head: input.head, createdAt: input.createdAt,
         activatedAt: activation.activatedAt, ownerKey: winner.record.ownerKey, actor };
       await tx.put(key, admission);
       await tx.put(`renovate-activity:${input.activityId}`, admission);

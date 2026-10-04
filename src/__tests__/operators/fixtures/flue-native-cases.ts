@@ -209,6 +209,57 @@ export function registerNativeDispatcherCases(
     }, 30_000);
   });
 
+  if (group === 'authority') describe('REQ-OPERATOR-048/062: admitted-target compiled entry compatibility', () => {
+    beforeEach(() => harness.reset(), 60_000);
+    // Actual pinned generated class + SDK tools/updates, with synthetic parent
+    // metadata and remote facts. Not Registry/scanner, production Loader or live cleanup proof.
+    it('completes a cited negative singleton journey without selecting the unrelated Renovate PR', async () => {
+      // Root must replace the existing journey artifact/pins with corrected
+      // official-CI bytes; unchanged old bytes are not a compatible candidate.
+      const pinned = await pinnedArtifact(true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      const now = Date.now();
+      const createdAt = new Date(now - 86400000).toISOString();
+      const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
+      const admittedTarget = JSON.stringify({ repository: 'authorized/project', repositoryId: 123, ...target,
+        createdAt, createdAfter: new Date(now - 2 * 86400000).toISOString(), baseBranch: 'main' });
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, researchBodyBytes: 131072,
+        admittedTarget, journeyFacts: { createdAt, unrelatedCreatedAt: new Date(now - 3600000).toISOString() },
+      })).toMatchObject({ ok: true });
+      // Public submission remains repository-only; target metadata is env-only.
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      const end = Date.now() + 25_000;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        if (projection.outcome) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      const url = 'https://docs.example.test/large-migration';
+      const comment = `Migration compatibility remains unverified. Source: ${url}`;
+      expect(projection).toMatchObject({ outcome: 'completed', writes: 1 });
+      expect(projection.result).toEqual({ repository: 'authorized/project', results: [{
+        ...target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
+      }] });
+      const evidence = await snapshot(id);
+      const sources = Object.values(evidence.journeyOperations ?? {}).filter(item => item.path === '/v1/dispatcher/source');
+      expect(sources.some(item => item.body.url === url)).toBe(true);
+      expect(sources.some(item => item.body.url === 'https://api.github.com/repos/authorized/project/pulls/17')).toBe(true);
+      // Accepted source wires observe the actual compiled tool effects, not private calls.
+      expect(sources.filter(item => /\/(?:pulls|issues)\/\d+(?:\/|$)/.test(item.body.url ?? ''))
+        .every(item => /\/(?:pulls|issues)\/17(?:\/|$)/.test(item.body.url!))).toBe(true);
+      expect(sources.filter(item => (item.body.method ?? 'GET') !== 'GET').map(item => item.body)).toEqual([{
+        url: 'https://api.github.com/repos/authorized/project/issues/17/comments', method: 'POST',
+        body: JSON.stringify({ body: comment }),
+      }]);
+    }, 45_000);
+  });
+
   if (group === 'authority') describe('REQ-OPERATOR-047/048: native large research artifact windows', () => {
     beforeEach(() => harness.reset(), 60_000);
     it.each([131072, 262144, 1044480] as const)('REQ-OPERATOR-047/048: settles cited fresh and cached research from %s source bytes without widening inference', async researchBodyBytes => {

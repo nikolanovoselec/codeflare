@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { strToU8, zipSync } from 'fflate';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
@@ -62,8 +62,8 @@ let bundle: Awaited<ReturnType<typeof parseOperatorBundle>>;
 let resources: NonNullable<Awaited<ReturnType<typeof projectOperatorPackageResources>>>;
 let worker: { fetch(request: Request, env: unknown): Promise<Response> };
 beforeAll(async () => {
-  raw = new Uint8Array(await readFile(new URL('./fixtures/conductor-review.generated.json', import.meta.url)));
-  provenance = JSON.parse(await readFile(new URL('./fixtures/conductor-review.provenance.json', import.meta.url), 'utf8'));
+  raw = new Uint8Array(await readFile(fileURLToPath(new URL('./fixtures/conductor-review.generated.json', import.meta.url).href)));
+  provenance = JSON.parse(await readFile(fileURLToPath(new URL('./fixtures/conductor-review.provenance.json', import.meta.url).href), 'utf8'));
   // Verify original raw bytes, not a reserialized bundle or a package checkout.
   bundle = await parseOperatorBundle(raw, provenance.bundleDigest);
   const projected = await projectOperatorPackageResources(bundle, provenance.bundleDigest);
