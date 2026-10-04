@@ -4,8 +4,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-03
 
-- **Consolidate documentation and specification ownership without changing behavior.** Sixteen descriptive lanes and seventeen requirement-owning domains replace mechanism-specific and catchall owners. Operators absorbs registry contracts, Terminal absorbs Mobile, and Enterprise records move whole to their durable feature owners. All 825 baseline requirement IDs, acceptance criteria, constraints, statuses and traceability remain; only cross-reference destinations and two previously approved relocation labels change inside records. Compatibility aliases and immutable historical references preserve navigation. Pi package details have a package reference; Storage and Vault own durable reconciliation and knowledge lifecycle. No runtime, managed content, compiler ABI, schema or dependency changes are introduced. Exact-head review, CI and both integration deployments remain pending.
-
 - **Authorize native Pi independently of browser authority** ([REQ-ENTERPRISE-090](models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission)). Current Administration permission and the bound active owner/session/generation control native forwarding without a browser lease or Access identity fetch. Dynamic/managed Native Routes and separate Review authority remain unchanged. Exact-head CI, deployment and live acceptance remain pending.
 
 ## 2026-10-01

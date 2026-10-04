@@ -117,7 +117,7 @@ curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "
 
 The status output names only the selected version at 100% traffic and provider discovery returns an array. Re-run the recorded failed step and confirm its expected result before closing the incident.
 
-**If incompatible:** Correct or revert source on a branch and follow protected promotion through canonical `develop` to `main`, required checks, and an authorized merge. A feature-to-main PR cannot satisfy `Develop promotion source`. Main-push checks then authorize automatic deployment; old-SHA production dispatches are intentionally blocked. This reference authorizes no merge or incident action. See [Cloudflare's rollback guidance](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
+**Rollback:** If incompatible, correct or revert source on a branch and follow protected promotion through canonical `develop` to `main`, required checks, and an authorized merge. A feature-to-main PR cannot satisfy `Develop promotion source`. Main-push checks then authorize automatic deployment; old-SHA production dispatches are intentionally blocked. This reference authorizes no merge or incident action. See [Cloudflare's rollback guidance](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
 
 ---
 
