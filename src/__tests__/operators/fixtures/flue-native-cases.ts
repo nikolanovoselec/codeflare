@@ -254,6 +254,7 @@ export function registerNativeDispatcherCases(
       expect(sources.filter(item => /\/(?:pulls|issues)\/\d+(?:\/|$)/.test(item.body.url ?? ''))
         .every(item => /\/(?:pulls|issues)\/17(?:\/|$)/.test(item.body.url!))).toBe(true);
       expect(sources.filter(item => (item.body.method ?? 'GET') !== 'GET').map(item => item.body)).toEqual([{
+        operationId: 'submission-pr-17-comment',
         url: 'https://api.github.com/repos/authorized/project/issues/17/comments', method: 'POST',
         body: JSON.stringify({ body: comment }),
       }]);
