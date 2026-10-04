@@ -590,7 +590,7 @@ captured ISO_TS string is the single source of truth for the filename and
 
 ### Pi root-owned capture delivery
 
-Pi reads real-user messages from the durable root session and snapshots only prompts after the successful counter at the 20-prompt boundary or after the durable resumed-session high-water. Despite its historical name, `MEMORY_CAPTURE_MAX_TOTAL_CHARS` caps the rendered transcript at 200,000 UTF-8 bytes, charging role headings, separators and rescued citations. `MEMORY_CAPTURE_MAX_TURN_CHARS` first slices each oversized turn to 10,000 JavaScript string code units; bounded rescue can then append up to 50 lost citations (`MEMORY_CAPTURE_MAX_RESCUED_REFS`).
+Pi reads real-user messages from the durable root session and snapshots only prompts after the successful counter at the 20-prompt boundary or after the durable resumed-session high-water. Despite its historical name, `MEMORY_CAPTURE_MAX_TOTAL_CHARS` caps the rendered transcript at 200,000 UTF-8 bytes, charging role headings, separators and rescued citations. `MEMORY_CAPTURE_MAX_TURN_CHARS` first slices each oversized turn to 10,000 JavaScript string code units; bounded rescue can then append up to 50 lost citations (`MEMORY_CAPTURE_MAX_RESCUED_REFS`). <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::selectTurns --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::capTurn -->
 
 Post-compaction recall uses separate UTF-8 byte budgets. Pi writes request-specific execution JSON before publishing `<sessionId>.vars` as the active request-ID pointer.
 
