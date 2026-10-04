@@ -12,24 +12,37 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
     return result;
   };
   class IDBCursor {
-    // Only empty range scans are needed by the empty-vault transport fixture.
-    advance() {}
-    continue() {}
-    continuePrimaryKey() {}
+    private position = 0;
+    constructor(readonly request: IDBRequest, readonly entries: Array<[string, unknown]>) {}
+    get key() { return this.entries[this.position][0]; }
+    get value() { return structuredClone(this.entries[this.position][1]); }
+    advance(count: number) {
+      this.position += count;
+      queueMicrotask(() => {
+        this.request.result = this.position < this.entries.length ? this : null;
+        this.request.dispatchEvent(new Event('success'));
+      });
+    }
+    continue() { this.advance(1); }
+    continuePrimaryKey() { throw new Error('Compound cursors are not used by the native file store'); }
   }
   class IDBIndex {}
   class IDBObjectStore {
     constructor(readonly rows: Map<string, unknown>) {}
-    get(key: string) { return request(this.rows.get(key)); }
-    put(value: unknown, key: string) { this.rows.set(key, value); return request(key); }
+    get(key: string) { return request(structuredClone(this.rows.get(key))); }
+    put(value: unknown, key: string) { this.rows.set(key, structuredClone(value)); return request(key); }
     delete(key: string) { this.rows.delete(key); return request(undefined); }
     clear() { this.rows.clear(); return request(undefined); }
     openCursor(range: { lower: string; upper: string }) {
-      // Reject fixture expansion rather than inventing cursor behavior.
-      if ([...this.rows.keys()].some(key => key >= range.lower && key <= range.upper)) {
-        throw new Error('Native-worker fixture supports empty range scans only');
-      }
-      return request(null);
+      const entries = [...this.rows.entries()]
+        .filter(([key]) => key >= range.lower && key <= range.upper)
+        .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+      const opening = new IDBRequest();
+      queueMicrotask(() => {
+        opening.result = entries.length ? new IDBCursor(opening, entries) : null;
+        opening.dispatchEvent(new Event('success'));
+      });
+      return opening;
     }
   }
   class IDBTransaction extends EventTarget {
@@ -69,7 +82,8 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
   const intervals: Array<() => unknown> = [];
   const timeouts = new Set<ReturnType<typeof setTimeout>>();
   let registered = true;
-  const clients = { matchAll: async () => [] }; // empty-vault/zero-window fixture
+  const windows = new Set<{ frameType: string; postMessage(value: Message): void }>();
+  const clients = { matchAll: async () => [...windows] };
   const self = {
     clients, registration: { scope: 'https://vault.test/', unregister: async () => { registered = false; return true; } },
     addEventListener: (type: string, listener: Listener) => listeners.set(type, listener),
@@ -95,6 +109,19 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
     databases,
     dispose() { for (const id of timeouts) clearTimeout(id); timeouts.clear(); intervals.length = 0; },
     isRegistered: () => registered,
+    connectClient(receive: (value: Message) => void) {
+      const client = { frameType: 'top-level', postMessage: receive };
+      windows.add(client);
+      return () => { windows.delete(client); };
+    },
+    async fetch(request: Request): Promise<Response> {
+      const listener = listeners.get('fetch');
+      if (!listener) throw new Error('Served worker did not register a fetch handler');
+      let response: Promise<Response> | undefined;
+      await listener({ request, respondWith(value: Promise<Response>) { response = value; } });
+      if (!response) throw new Error('Served worker did not respond to fetch');
+      return response;
+    },
     async message(data: Message) {
       const listener = listeners.get('message');
       if (!listener) throw new Error('Served worker did not register a message handler');

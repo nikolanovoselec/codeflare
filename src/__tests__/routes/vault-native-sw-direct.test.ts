@@ -19,11 +19,6 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(graftVaultKeyRecovery(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
   });
 
-  it('the graft injects the __cfRecover helper that the verbatim worker lacks', () => {
-    expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('__cfRecover');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
-  });
-
   async function runInstallPrecache(sw: string) {
     const marker = 'self.addEventListener("install",o=>{';
     const start = sw.indexOf(marker);
@@ -209,14 +204,81 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
   });
 
-  // REQ-VAULT-025 AC2 / REQ-VAULT-023 AC2: the graft GUARDS the remote
-  // `fetchFileList()` result. It normalizes a non-array (transient proxy error or a
-  // stray CF Access 302 HTML body) to [], then ABORTS the sync cycle (throws) when the
-  // remote list is empty while the persistent local store or snapshot is non-empty —
-  // i.e. the in-container SilverBullet server is not yet serving. That stops the
-  // reconciler from treating "server not ready" as "every file deleted on secondary"
-  // and wiping the bucket-stable local store on a 2nd-session start. A genuinely empty
-  // vault (empty primary AND empty snapshot) stays a safe no-op.
+  // REQ-VAULT-025 AC2 / REQ-VAULT-023 AC2: unreadable listings must fail,
+  // including on first boot. A valid [] is safe only with an empty local store
+  // and snapshot; populated-store and snapshot deletion fences remain binding.
+  function nextSync(runtime: ReturnType<typeof nativeWorkerRuntime>) {
+    return new Promise<Record<string, unknown>>(resolve => {
+      const disconnect = runtime.connectClient(value => {
+        if (value.type === 'sync-error' || value.type === 'space-sync-complete') {
+          disconnect();
+          resolve(value);
+        }
+      });
+    });
+  }
+
+  it.each([409, 404])('REQ-VAULT-025: JSON %s on a fresh native store fails sync and a later valid listing restores note visibility', async status => {
+    const text = '# Example\nRecovered note\n';
+    const meta = { name: 'Notes/example.md', created: 1000, lastModified: 2000,
+      size: new TextEncoder().encode(text).length, contentType: 'text/markdown', perm: 'rw' };
+    let valid = false;
+    let offline = false;
+    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SERVICE_WORKER_JS, async input => {
+      if (offline) throw new Error('Network unavailable: recovered visibility must come from the worker store');
+      const url = input instanceof Request ? input.url : String(input);
+      const path = new URL(url, 'https://vault.test').pathname;
+      if (path === '/.fs' || path === '/.fs/') {
+        return valid ? Response.json([meta]) : Response.json({ error: 'routing not ready' }, { status });
+      }
+      if (path === '/.fs/Notes/example.md') return new Response(text, { headers: {
+        'Content-Type': meta.contentType, 'X-Last-Modified': String(meta.lastModified),
+        'X-Created': String(meta.created), 'X-Content-Length': String(meta.size), 'X-Permission': meta.perm,
+      } });
+      throw new Error(`Unexpected native worker transport: ${url}`);
+    });
+    runtimes.add(runtime);
+    const broadcasts: Record<string, unknown>[] = [];
+    const disconnect = runtime.connectClient(value => { broadcasts.push(value); });
+    try {
+      await runtime.message({ type: 'set-encryption-key', key: aesKey });
+      const failed = nextSync(runtime);
+      await runtime.message({ type: 'config', config });
+      const failure = await failed;
+      expect(failure).toEqual(expect.objectContaining({ type: 'sync-error', message: expect.any(String) }));
+      expect(failure.message).not.toBe('');
+      expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: 'space-sync-complete' }));
+
+      valid = true;
+      const recovered = nextSync(runtime);
+      await runtime.message({ type: 'perform-space-sync' });
+      expect(await recovered).toEqual(expect.objectContaining({ type: 'space-sync-complete', operations: 1 }));
+      offline = true;
+      const listing = await runtime.fetch(new Request('https://vault.test/.fs/'));
+      expect(listing.status).toBe(200);
+      expect(await listing.json()).toEqual([meta]);
+      const note = await runtime.fetch(new Request('https://vault.test/.fs/Notes/example.md', { headers: { 'X-Sync-Mode': 'true' } }));
+      expect(note.status).toBe(200);
+      expect(await note.text()).toBe(text);
+    } finally {
+      disconnect();
+      await runtime.message({ type: 'shutdown' });
+    }
+  });
+
+  it('REQ-VAULT-025: a genuinely empty native store and valid empty remote array publish successful empty sync', async () => {
+    const runtime = servedRuntime();
+    const complete = nextSync(runtime);
+    try {
+      await runtime.message({ type: 'config', config });
+      expect(await complete).toEqual({ type: 'space-sync-complete', operations: 0 });
+      const listing = await runtime.fetch(new Request('https://vault.test/.fs/'));
+      expect(listing.status).toBe(200);
+      expect(await listing.json()).toEqual([]);
+    } finally {
+      await runtime.message({ type: 'shutdown' });
+    }
+  });
 
   // Build a runnable approximation of the worker's full-sync-cycle remote-list
   // consumer chain straight out of the SERVED worker string, so the tests exercise the
@@ -269,18 +331,16 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(result.remoteMapCount).toBe(2);
   });
 
-  it('the served sync cycle no-ops (no throw, zero candidates) on a non-array remote list when the local store is empty', async () => {
+  it('REQ-VAULT-025: the served sync consumer rejects non-array remote listings even when the local store and snapshot are empty', async () => {
     const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
     for (const nonArray of [{ error: 'transient 5xx' }, '<!doctype html>', null, 502]) {
-      const result = await run(nonArray);
-      expect(result.candidateCount).toBe(0);
-      expect(result.remoteMapCount).toBe(0);
+      await expect(run(nonArray)).rejects.toThrow();
     }
   });
 
   it('the guard is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
-    // Negative control — proves the served no-op above comes from the graft, not
-    // from upstream behavior. The pristine verbatim has no `Array.isArray` guard.
+    // The pristine verbatim rejects malformed listings too; the served graft
+    // must preserve rejection rather than turn that error into successful sync.
     const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
     await expect(runVerbatim({ error: 'transient 5xx' })).rejects.toThrow(/forEach is not a function|is not a function/);
 
@@ -292,14 +352,14 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   // "every file deleted on secondary" and wipe the store — the cycle aborts before any
   // deletion. These run the ACTUAL served bytes, so reverting the graft to a blind
   // coerce (or removing it) makes them fail.
-  it('aborts the sync cycle (no deletion) when the remote list is empty while the local store is populated', async () => {
+  it('REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the local store is populated', async () => {
     const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
     await expect(
       run([], { primaryList: [{ name: 'Index.md' }, { name: 'CONFIG.md' }] }),
     ).rejects.toThrow();
   });
 
-  it('aborts the sync cycle (no deletion) when the remote list is empty while the snapshot is populated', async () => {
+  it('REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the snapshot is populated', async () => {
     const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
     await expect(
       run([], { snapshot: new Map([['Index.md', [1, 1]]]) }),
