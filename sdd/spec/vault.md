@@ -597,9 +597,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The served worker suppresses or downgrades expected startup-only log noise (no controlled clients, auth-gated service-proxy reset, and sync retry errors) without changing the message flow to clients or the version-drift guard. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise) -->
-2. Non-array remote lists always abort sync. Valid empty lists abort before deletion with populated local store or snapshot; later valid lists resume reconciliation. Valid empty lists with empty local store and snapshot remain safe no-ops. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: the served sync consumer rejects non-array remote listings even when the local store and snapshot are empty) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the local store is populated) -->
+2. Valid empty remote lists abort before deletion when the local store or snapshot contains files. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the local store is populated) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the snapshot is populated) -->
 3. The worker graft introduces no duplicate lexical binding and always produces syntactically valid JavaScript. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (the served worker is syntactically valid JavaScript (graft introduces no parse error)) -->
 4. The served worker neuters the upstream's proactive key flush (wiping the key 5s after the last client disconnects): the graft retains the key for the worker's lifetime; cold-restart recovery is handled by the key-recovery helper ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC5). <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @impl: src/routes/vault/native-sw.ts::ANCHOR_PROACTIVE_FLUSH --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (CF-045: vault-native-sw direct unit tests) -->
+5. Non-array remote lists abort synchronization even with an empty local store and snapshot. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: the served sync consumer rejects non-array remote listings even when the local store and snapshot are empty) -->
+6. Rejected cycles retry later and resume normal reconciliation when a valid non-empty remote list becomes available. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: JSON %s on a fresh native store fails sync and a later valid listing restores note visibility) -->
+7. A valid empty remote list synchronizes successfully when both the local store and snapshot are empty. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-025: a genuinely empty native store and valid empty remote array publish successful empty sync) -->
 
 **Constraints:**
 
@@ -635,7 +638,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - Raw session captures and other folders remain visible during prewarm; priority indexing is out of scope.
 - The generic shell bridge stays inert unless the prewarm query and identifier are valid.
-- Sync-complete evidence must come from the current canonical controller, not another worker or the client's unscoped completion flag. Controller replacement resets evidence and the streak; in-flight reads from the previous controller cannot publish readiness.
+- Sync-complete evidence must come from the current canonical controller, not another worker or the client's unscoped completion flag.
+- Controller replacement resets sync evidence and the readiness streak.
+- In-flight reads from the previous controller cannot publish readiness.
 
 **Priority:** P0
 
@@ -848,7 +853,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - Bootstrap fails closed when session routing, worker support, or bounded activation cannot establish an encryption-capable editor.
 - During updates, bootstrap awaits the installing/waiting replacement rather than arming the retiring worker.
-- Activation, exact controller acquisition and native MessagePort key acknowledgement have bounded waits. Controller replacement before completion aborts without committing the encryption marker, completion cookie or redirect.
+- Activation, exact controller acquisition and native MessagePort key acknowledgement have bounded waits.
+- Controller replacement before completion aborts without committing the encryption marker, completion cookie or redirect.
 
 **Priority:** P0
 

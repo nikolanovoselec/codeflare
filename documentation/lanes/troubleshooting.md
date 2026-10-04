@@ -708,18 +708,20 @@ Fixed by the `isSessionOidcMode` gate in `src/routes/setup/index.ts` ([REQ-SETUP
 
 **Cause detail:**
 
-The remote `fetchFileList()` in the native worker's sync cycle returned a non-array body — a transient proxy 5xx, an auth hiccup, or a stray Cloudflare Access 302 HTML body — so `e.json()` was a non-array and the sync-cycle consumers (`getNonSyncCandidates`'s `forEach`, then the remote `map`) threw; the sync loop never sets `stopping` on this path, so it crash-loops forever
+Older sync consumers assumed `fetchFileList()` returned an array and threw on parsed non-array JSON, such as a 404/409 routing-error object. The retry loop could repeat that failure while the invalid response persisted. HTTP 5xx, authentication redirects/denials and invalid JSON fail upstream rather than becoming parsed non-array listings.
 
 **Fix detail:**
 
-Fixed by a graft-layer `Array.isArray` coercion in `src/routes/vault/native-sw.ts` (`ANCHOR_REMOTE_LIST_COERCE`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2): a non-array remote response normalizes to `[]`. The cycle aborts before deletion if the local store or snapshot contains files; only a genuinely empty vault is a safe no-op. Paired with the `isSessionOidcMode` setup fix above, which removes the stray CF Access 302 that was one trigger. If it recurs, check the proxy/`/api/vault/*` path is returning JSON arrays for the file-list endpoint and is not behind an unexpected redirect.
+[`graftVaultKeyRecovery`](../../src/routes/vault/native-sw.ts) rejects every non-array remote list, including on an empty local store. Valid empty arrays also abort before deletion when the local store or snapshot has files; only valid empty arrays with both stores empty succeed. The sync loop reports the error and retries later ([REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2/AC5-AC7).
+
+If it recurs, verify the proxy's file-list endpoint returns JSON arrays and is not behind an unexpected redirect. For unintended Access redirects, see the `isSessionOidcMode` setup fix above; listing validation does not replace authentication.
 
 <a id="vault-readiness-button-never-goes-ready-and-the-silverbullet-service-w"></a>
 #### Vault readiness button never goes ready and the SilverBullet service worker never registers (browser console shows a `SyntaxError` from `service_worker.js`, e.g. `Identifier 'o' has already been declared`)
 
 **Fix detail:**
 
-The SilverBullet 2.11.1 graft wraps the single `s=await this.secondary.fetchFileList()` initializer without adding another lexical binding. It normalizes a non-array response, then aborts before deletion when the remote list is empty but the persistent local store or snapshot contains files. A genuinely empty vault remains a safe no-op.
+The SilverBullet 2.11.1 graft wraps the single `s=await this.secondary.fetchFileList()` initializer without adding another lexical binding. Non-array responses always abort; valid empty arrays abort before deletion when the persistent local store or snapshot contains files. Only a valid empty array with both stores empty remains a safe no-op.
 
 `vault-native-sw-direct.test.ts` parses the served worker and verifies that a duplicate-`let` negative control is rejected. The historical `o` error above illustrates that failure class, not the current variable name. After a re-vendor, verify the graft anchors, parsing and populated-store deletion protection; do not restore an array-only coercion.
 
@@ -737,7 +739,11 @@ The SilverBullet 2.11.1 graft wraps the single `s=await this.secondary.fetchFile
 
 **Current timeout/error case:** A bounded preparation attempt failed; the UI reports only generic timeout or failure and never retries in the background. Open DevTools Network and Console: confirm `/api/vault/<sid>/status` returns `200` with `vaultReady: true`, then inspect the bootstrap navigation, service-worker registration, and `/.fs/` requests. A successful `/.fs/` response must be an array containing `CONFIG.md`, `Index.md`, and `STYLES.md`; HTTP 200 with any required file absent is still incomplete readiness.
 
-If no request fails, start one new attempt and select the hidden Vault iframe's execution context while the button breathes. Confirm `window.sbRuntime?.ready`, `window.client?.systemReady`, `window.client?.pageListLoaded`, and `window.client?.clientSystem?.scriptsLoaded` are true, and confirm `window.client?.objectIndex?.hasFullIndexCompleted` exists and returns true. `window.client?.fullSyncCompleted === true` directly confirms sync; false is inconclusive because the bridge also accepts a closure-local `space-sync-complete` event latch that is not retrospectively observable. For the index queue, when `getQueueStats` is a function, `await window.client.mq.getQueueStats('indexQueue')` must report `queued`, `processing`, and `dlq` all zero; otherwise, when `isQueueEmpty` is a function, `await window.client.mq.isQueueEmpty('indexQueue')` must return true. If neither API is callable, runtime performs no queue-specific check.
+If no request fails, start one new attempt and select the hidden Vault iframe's execution context while the button breathes. Confirm `window.sbRuntime?.ready`, `window.client?.systemReady`, `window.client?.pageListLoaded`, and `window.client?.clientSystem?.scriptsLoaded` are true, and confirm `window.client?.objectIndex?.hasFullIndexCompleted` exists and returns true.
+
+`window.client?.fullSyncCompleted` alone cannot certify sync because SilverBullet accepts unscoped broadcasts. During the current attempt, observe a new `space-sync-complete` message whose source is exactly `navigator.serviceWorker.controller`; that worker must be activated and its script URL must equal `new URL('service_worker.js', document.baseURI).href` under the canonical same-origin Vault scope. Inspect only message type and worker identity, never message bodies or keys. Earlier closure-local completion evidence is not retrospectively observable; controller changes invalidate it, the readiness streak and in-flight proof reads. See [`VAULT_PREWARM_BRIDGE_SOURCE`](../../src/lib/vault-browser-scripts.ts).
+
+For the index queue, when `getQueueStats` is a function, `await window.client.mq.getQueueStats('indexQueue')` must report `queued`, `processing`, and `dlq` all zero; otherwise, when `isQueueEmpty` is a function, `await window.client.mq.isQueueEmpty('indexQueue')` must return true. If neither API is callable, runtime performs no queue-specific check.
 
 Finally, confirm key recoverability without exposing key bytes: request `/api/vault/<sid>/.vault-key` with authenticated credentials and verify only its HTTP status; `200` follows successful key derivation. Do not open the request's Response or Preview, parse its JSON, or print or copy its body. Correct the observed condition, then click Vault once to retry. Verify that the button turns green only after two complete checks and opens on the following click ([REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC3/AC6, [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate) AC1-AC3, [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC4).
 
