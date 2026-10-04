@@ -218,9 +218,11 @@ After successful first provisioning, a strongly serialized Timekeeper claim sele
 Enterprise provisioning runs before the SaaS branch for a verified Access identity.
 
 1. `resolveOrProvisionEnterpriseUser()` returns an existing durable record without rewriting or downgrading it. Request-time Enterprise overrides are applied separately. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
-2. For an unknown identity, a nonempty configured user-entry group list enables a live gate against the union of user-entry and admin groups. Membership in either list admits the identity. An empty user-entry list leaves this additional gate off, even if admin groups are configured; a required check with non-membership, missing/invalid Access token, unsafe Access domain, or provider error fails closed and creates no user.
+2. For an unknown identity, apply the optional live group-admission gate described below before provisioning.
 3. On admission, the durable record uses `addedBy: 'enterprise-jit'`, role `user`, initial advanced access fields, and unlimited subscription projection. No subscription/welcome flow runs.
 4. Effective tier and mode resolvers force the active Enterprise behavior independently of stale stored compatibility fields.
+
+For an unknown identity, a nonempty configured user-entry group list enables a live gate against the union of user-entry and admin groups. Membership in either list admits the identity. An empty user-entry list leaves this additional gate off, even if admin groups are configured; a required check with non-membership, missing/invalid Access token, unsafe Access domain, or provider error fails closed and creates no user. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
 
 ### Existing-user preservation and admin union
 
