@@ -87,19 +87,35 @@ const canonicalScript = `${scope}service_worker.js`;
 // their private helpers, own all waiting, identity checks and completion logic.
 class BrowserPort extends EventTarget {
   peer!: BrowserPort;
-  onmessage: ((event: MessageEvent) => void) | null = null;
+  private handler: ((event: MessageEvent) => void) | null = null;
+  private enabled = false;
+  private pending: unknown[] = [];
+  private scheduled = false;
   closed = false;
+  get onmessage() { return this.handler; }
+  set onmessage(handler: ((event: MessageEvent) => void) | null) {
+    this.handler = handler;
+    if (handler) this.start();
+  }
   postMessage(data: unknown) {
-    const peer = this.peer;
+    if (this.closed || this.peer.closed) return;
+    this.peer.pending.push(structuredClone(data));
+    this.peer.deliver();
+  }
+  private deliver() {
+    if (!this.enabled || this.closed || this.scheduled) return;
+    this.scheduled = true;
     queueMicrotask(() => {
-      if (peer.closed) return;
-      const event = new MessageEvent('message', { data });
-      peer.dispatchEvent(event);
-      peer.onmessage?.(event);
+      this.scheduled = false;
+      while (this.enabled && !this.closed && this.pending.length) {
+        const event = new MessageEvent('message', { data: this.pending.shift() });
+        this.dispatchEvent(event);
+        this.handler?.(event);
+      }
     });
   }
-  start() {}
-  close() { this.closed = true; }
+  start() { this.enabled = true; this.deliver(); }
+  close() { this.closed = true; this.pending.length = 0; }
 }
 class BrowserChannel {
   port1 = new BrowserPort();
@@ -236,6 +252,32 @@ function expectPrewarmReady(browser: ReturnType<typeof prewarmBrowser>) {
       requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'], listedFileCount: 3 },
   } }]);
 }
+
+describe('browser MessagePort platform double', () => {
+  it('queues ACK delivery until explicit start or implicit onmessage activation', async () => {
+    const received: unknown[] = [];
+    const explicit = new BrowserChannel();
+    explicit.port1.addEventListener('message', event => { received.push((event as MessageEvent).data); });
+    explicit.port2.postMessage({ type: 'encryption-key-set' });
+    await flushBrowserTasks();
+    expect(received).toEqual([]);
+    explicit.port1.start();
+    await flushBrowserTasks();
+    expect(received).toEqual([{ type: 'encryption-key-set' }]);
+    explicit.port1.close();
+    explicit.port2.close();
+
+    const implicit = new BrowserChannel();
+    implicit.port2.postMessage({ type: 'encryption-key-set' });
+    await flushBrowserTasks();
+    expect(received).toEqual([{ type: 'encryption-key-set' }]);
+    implicit.port1.onmessage = event => { received.push(event.data); };
+    await flushBrowserTasks();
+    expect(received).toEqual([{ type: 'encryption-key-set' }, { type: 'encryption-key-set' }]);
+    implicit.port1.close();
+    implicit.port2.close();
+  });
+});
 
 describe('production-bundled Vault browser scripts', () => {
   it('REQ-VAULT-024: removes stale workers, registers the canonical worker, persists encryption, and redirects', async () => {

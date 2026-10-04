@@ -2,6 +2,14 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-04
+
+- **Require current-worker Vault readiness** ([REQ-VAULT-018](vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)). Controller-bound sync evidence and two complete polls replace unscoped completion flags; controller changes invalidate pending proof.
+
+- **Await acknowledged encrypted bootstrap** ([REQ-VAULT-024](vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention)). Await replacement activation, exact controller and native key-import acknowledgement before committing completion; timeout or replacement fails closed.
+
+- **Reject unreadable Vault listings** ([REQ-VAULT-025](vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft)). Non-arrays abort even on empty stores; valid empty arrays retain populated-store deletion protection and genuine-empty success.
+
 ## 2026-10-03
 
 - **Authorize native Pi independently of browser authority** ([REQ-ENTERPRISE-090](models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission)). Current Administration permission and the bound active owner/session/generation control native forwarding without a browser lease or Access identity fetch. Dynamic/managed Native Routes and separate Review authority remain unchanged. Exact-head CI, deployment and live acceptance remain pending.

@@ -50,7 +50,8 @@ export const VAULT_PREWARM_FOCUS_GUARD_SOURCE = String.raw`function (windowRef, 
 export const VAULT_PREWARM_BRIDGE_SOURCE = String.raw`function (windowRef, documentRef, navigatorRef, fetchRef, suppliedPrewarmId, requiredFiles) {
   var prewarmId = suppliedPrewarmId;
   var expectedScope;
-  var spaceSyncCompleted = false;
+  var completedController = null;
+  var controllerEpoch = 0;
   try {
     if (!prewarmId) {
       var params = new URLSearchParams(windowRef.location.search);
@@ -74,16 +75,31 @@ export const VAULT_PREWARM_BRIDGE_SOURCE = String.raw`function (windowRef, docum
     windowRef.parent.postMessage(payload, windowRef.location.origin);
   }
   var serviceWorker = navigatorRef.serviceWorker;
+  var expectedScript = new URL('service_worker.js', expectedScope).href;
+  function currentController() {
+    var controller = serviceWorker && serviceWorker.controller;
+    return controller && controller.state === 'activated' && controller.scriptURL === expectedScript ? controller : null;
+  }
   if (serviceWorker && typeof serviceWorker.addEventListener === 'function') {
+    serviceWorker.addEventListener('controllerchange', function () {
+      completedController = null;
+      controllerEpoch += 1;
+      readyStreak = 0;
+    });
     serviceWorker.addEventListener('message', function (event) {
-      if (event.data && event.data.type === 'space-sync-complete') spaceSyncCompleted = true;
+      var controller = currentController();
+      if (controller && event.source === controller && event.data && event.data.type === 'space-sync-complete') {
+        completedController = controller;
+      }
     });
   }
 
   async function buildContentProof() {
     try {
+      var controller = currentController();
+      var epoch = controllerEpoch;
       var client = windowRef.client;
-      if (!spaceSyncCompleted && (!client || client.fullSyncCompleted !== true)) return null;
+      if (!controller || completedController !== controller) return null;
       if (!client || client.systemReady !== true || client.pageListLoaded !== true) return null;
       if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return null;
       if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== 'function') return null;
@@ -99,6 +115,7 @@ export const VAULT_PREWARM_BRIDGE_SOURCE = String.raw`function (windowRef, docum
       if (!Array.isArray(listing)) return null;
       var names = new Set(listing.map(function (entry) { return entry && entry.name; }).filter(function (name) { return typeof name === 'string'; }));
       if (requiredFiles.some(function (name) { return !names.has(name); })) return null;
+      if (epoch !== controllerEpoch || currentController() !== controller || completedController !== controller) return null;
       return {
         scope: expectedScope,
         contentReady: true,
@@ -119,7 +136,10 @@ export const VAULT_PREWARM_BRIDGE_SOURCE = String.raw`function (windowRef, docum
     if (inFlight) return;
     inFlight = true;
     try {
+      var epoch = controllerEpoch;
+      var controller = currentController();
       var proof = windowRef.sbRuntime && windowRef.sbRuntime.ready === true ? await buildContentProof() : null;
+      if (epoch !== controllerEpoch || currentController() !== controller || completedController !== controller) proof = null;
       readyStreak = proof ? readyStreak + 1 : 0;
       if (proof && readyStreak >= requiredReadyStreak) {
         windowRef.clearInterval(timer);

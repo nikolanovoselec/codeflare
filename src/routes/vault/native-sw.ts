@@ -86,25 +86,15 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",n.message)";
 // DELETIONS: a file present in the local store AND in the sync snapshot but ABSENT
 // from the remote list is deleted from primary ("File deleted on secondary, deleting from primary").
 //
-// The in-container SB server takes ~1-2 min to become ready after a fresh session
-// starts. During that window `fetchFileList()` does NOT return the real list — it
-// returns a non-array body (a transient 5xx, an auth hiccup, or an HTML body from a
-// stray CF Access 302; `e.json()` then yields a non-array) or an empty `[]`. With the
-// bucket-stable PERSISTENT local store (REQ-VAULT-021), a populated primary + snapshot
-// reconciled against that empty/garbage remote makes EVERY local file look "deleted on
-// secondary" — the whole vault is wiped on 2nd-session start. (Coercing the non-array
-// to `[]` and proceeding — the prior graft's behavior — is exactly this catastrophe; an
-// empty array is NOT a safe no-op once the store persists.)
-//
-// So the graft GUARDS instead of blindly coercing: normalize a non-array to `[]`, then
-// if the remote list is EMPTY while the local primary OR the snapshot is non-empty,
-// THROW to abort the cycle BEFORE any deletion. `syncSpace` re-emits and rethrows, so
-// `run()` logs a (downgraded) warn and retries ~`_t`s (20s) later; once the server is
-// actually serving the real list the cycle proceeds and reconciles normally. A
-// genuinely empty vault (empty primary AND empty snapshot) stays a safe no-op. This is
-// "no blind deletion just because the server is momentarily unreachable" — the SW only
-// deletes once it has reached SB and SB has confirmed the file list. (REQ-VAULT-025 AC2,
-// REQ-VAULT-023 AC2.)
+// A warming server or unresolved session route may return an empty list or a JSON
+// error object. Upstream rejects 5xx/authentication failures and JSON parse errors,
+// but JSON 404/409 error bodies can reach this guard. Non-arrays must ALWAYS throw:
+// converting them to [] lets a fresh local store report a successful empty sync.
+// Valid [] must also throw when the persistent primary OR snapshot has files, to
+// prevent treating a transient empty response as authoritative remote deletions.
+// `syncSpace` emits the sync error and rethrows; `run()` warns and retries later.
+// Once a real list arrives reconciliation resumes. Only a valid empty array with
+// empty primary AND snapshot is a safe no-op. (REQ-VAULT-025 AC2, REQ-VAULT-023 AC2.)
 //
 // CRITICAL — The remote list is one binding in a single `let a=...,s=...,c=...,r=...,l=...` declarator
 // list (the minified sync-cycle declaration). The guard MUST wrap the `s=`
@@ -166,7 +156,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     .replace(ANCHOR_SYNC_SPACE_ERROR, 'console.warn("Sync space error",n.message)')
     .replace(
       ANCHOR_REMOTE_LIST_COERCE,
-      's=(cf=>{cf=Array.isArray(cf)?cf:[];if(cf.length===0&&(a.length>0||t.files.size>0))throw new Error("[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion");return cf})(await this.secondary.fetchFileList())',
+      's=(cf=>{if(!Array.isArray(cf))throw new Error("[codeflare] vault secondary file list unreadable; skipping sync cycle");if(cf.length===0&&(a.length>0||t.files.size>0))throw new Error("[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion");return cf})(await this.secondary.fetchFileList())',
     );
 }
 
