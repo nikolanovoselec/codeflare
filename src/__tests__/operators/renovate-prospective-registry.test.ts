@@ -54,7 +54,8 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
       enabled: true, revision: 1, releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
       operator: { id: 'dispatcher', operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
         invokers: { users: ['a@example.test', 'z@example.test'], groups: [] } },
-      release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: '{}' };
+      release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({
+        id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
     const restart = () => {
       const next = new OperatorRegistry(native, environment);
       vi.spyOn(next, 'resolveManagementExecution').mockImplementation(async () => state.enabled
@@ -86,6 +87,27 @@ function pr(registrationId: string, activatedAt: string, patch: Record<string, u
 }
 
 describe('REQ-OPERATOR-061: durable prospective activation and admission', () => {
+  it.each(['old-intent', 'future-intent', 'foreign-package', 'malformed-manifest'])('REQ-OPERATOR-061: unsupported %s cannot activate a prospective current-package registration or retain its cutoff', fault => fixture(async ({ registry, selection }) => {
+    const manifest = { id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' };
+    if (fault === 'old-intent') manifest.intentVersion = '2';
+    if (fault === 'future-intent') manifest.intentVersion = '4';
+    if (fault === 'foreign-package') manifest.id = 'foreign-dispatcher';
+    const selected = selection as { manifestJson: string };
+    selected.manifestJson = fault === 'malformed-manifest' ? '{' : JSON.stringify(manifest);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
+      selected.manifestJson = JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' });
+      clock.mockReturnValue(now + 1_000);
+      const supported = await enroll(registry, 'a');
+      expect(supported).toMatchObject({ ok: true, activatedAt: new Date(now + 1_000).toISOString() });
+      if (!supported.ok) throw Error('Supported activation unavailable');
+      expect(await registry.currentProspectiveRenovateRegistration(supported.registrationId)).not.toBeNull();
+      expect(await registry.reserveProspectiveRenovateActivity(pr(supported.registrationId, supported.activatedAt)))
+        .toMatchObject({ ok: true, activityId: 'activity-1' });
+    } finally { clock.mockRestore(); }
+  }));
   it('takes the first server cutoff, never lets a later activation move it, and excludes old and equal PR timestamps', () => fixture(async ({ registry }) => {
     const first = await enroll(registry, 'a');
     expect(first).toMatchObject({ ok: true, activatedAt: expect.any(String), registrationId: expect.any(String) });
@@ -176,7 +198,7 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
       human, accessJwt: 'a-jwt' }, environment);
     const selected = selection as { installation: { id: string } };
     const plan = { activityId: reservation.activityId, prospectiveAdmissionId: reservation.activityId,
-      deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'nikolanovoselec/komodo', pullRequest: 1300 }),
+      deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'nikolanovoselec/komodo' }),
       receipt: { selection: { ...selection as object }, installationId: selected.installation.id }, executionContext: context };
     const host = { ...environment, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env;
     await expect(authorizeDispatcherPlan(plan as never, host)).resolves.toBeDefined();
