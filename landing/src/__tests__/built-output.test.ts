@@ -15,14 +15,17 @@ describe('REQ-LANDING-016: dependency remediation preserves built static pages',
     expect(document.title.trim().length).toBeGreaterThan(0);
     expect(document.querySelectorAll('link[rel="stylesheet"][href]').length).toBeGreaterThan(0);
     expect(document.querySelectorAll('link[rel="preload"][as="font"][href]').length).toBeGreaterThan(0);
+    const analyticsBeacon = 'https://static.cloudflareinsights.com/beacon.min.js';
     if (page !== 'privacy/index.html') {
-      expect(document.querySelectorAll('script[src]').length).toBeGreaterThan(0);
+      expect(Array.from(document.querySelectorAll('script[src]'))
+        .some(script => script.getAttribute('src') !== analyticsBeacon)).toBe(true);
     }
-    const assets = Array.from(document.querySelectorAll('script[src], link[rel="stylesheet"][href], link[rel="preload"][as="font"][href]'))
-      .filter(asset => new URL((asset.getAttribute('src') ?? asset.getAttribute('href'))!, 'https://codeflare.ch').origin === 'https://codeflare.ch');
+    const assets = Array.from(document.querySelectorAll('script[src], link[rel="stylesheet"][href], link[rel="preload"][as="font"][href]'));
     for (const asset of assets) {
       const href = asset.getAttribute('src') ?? asset.getAttribute('href');
       const url = new URL(href!, 'https://codeflare.ch');
+      // BaseLayout's optional analytics beacon is not an application bundle.
+      if (asset.tagName === 'SCRIPT' && href === analyticsBeacon) continue;
       expect(url.origin).toBe('https://codeflare.ch');
       expect(url.pathname.startsWith('/landing/_astro/')).toBe(true);
       expect(statSync(resolve(output, decodeURIComponent(url.pathname.slice('/landing/'.length)))).size).toBeGreaterThan(0);

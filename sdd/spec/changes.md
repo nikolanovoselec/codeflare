@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-04
+
+- **Preserve Landing's cache-denial and self-hosted-asset contracts** ([REQ-LANDING-016](landing.md#req-landing-016-build-image-dependency-denies-cache-freshness)). Normalize equivalent specification terminology and boundaries, add verified source anchors, and assert application origins while exempting only the existing optional analytics beacon; reconcile generated seed with committed dependency locks without new dependency or runtime-policy changes.
+
 ## 2026-10-03
 
 - **Consolidate documentation and specification ownership without changing behavior.** Sixteen descriptive lanes and seventeen requirement-owning domains replace mechanism-specific and catchall owners. Operators absorbs registry contracts, Terminal absorbs Mobile, and Enterprise records move whole to their durable feature owners. All 825 baseline requirement IDs, acceptance criteria, constraints, statuses and traceability remain; only cross-reference destinations and two previously approved relocation labels change inside records. Compatibility aliases and immutable historical references preserve navigation. Pi package details have a package reference; Storage and Vault own durable reconciliation and knowledge lifecycle. No runtime, managed content, compiler ABI, schema or dependency changes are introduced. Exact-head review, CI and both integration deployments remain pending.

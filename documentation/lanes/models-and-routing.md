@@ -4,8 +4,8 @@
 
 **Owns:** sanctioned model/route identity, executable protocol contracts, reasoning semantics, explicit capability discovery, target-bound evidence and runtime authority, native replay/transport, prompt checkpoints and usage translation. **Does not own:** provider availability or entitlement, configuration inventories, administration editing procedures, access membership, Gateway policy, private deployment values, or deployment acceptance. Setting sources and editing remain in [Configuration & Administration](configuration.md); API shapes remain in [API Reference](api-reference.md).
 
-<a id="contents"></a>
-## Navigation
+<a id="navigation"></a>
+## Contents
 
 - [Identity and executable contracts](#identity-and-executable-contracts)
 - [Explicit checks and qualification](#explicit-checks-and-qualification)
@@ -15,7 +15,7 @@
 - [Input-prefix caching and accounting](#input-prefix-caching-and-accounting)
 - [Compatibility transport boundaries](#compatibility-transport-boundaries)
 - [Upgrade, verification and provenance](#upgrade-verification-and-provenance)
-- [Traceability](#traceability)
+- [Requirement and Source Map](#requirement-and-source-map)
 
 <a id="generic-anthropic-bedrock-model-support"></a>
 <a id="contract-not-a-model-release-checklist"></a>
@@ -36,7 +36,9 @@ Dynamic/direct-Bedrock compatibility search uses shared audited OpenAI, Workers 
 
 Each Dynamic assignment has one runtime `activeProfile`; conditional/fallback legs are selected by AI Gateway only after translation. Atomic reasoning configuration holds immutable custom revisions and exact route/leg assignments, optionally with active-version provenance, leg evidence and a common mapping; context windows remain a separate numeric map. Runtime requires matching saved server-owned authority, not legacy migration proposals or client evidence flags, and does not poll management inventory. Administrative checks/Save revalidate topology. A common mapping still needs current byte-identical evidence across reachable legs; a successful observed path instead carries an explicit untested-backend warning.
 
-Custom compatibility revisions use only `ai-gateway-chat-completions` ingress and literal string, finite-number, boolean or null writes. Limits: 256 KiB per document, 32 custom IDs, 64 retained revisions; ID 64 characters, name 128, description/operator note/limitation 512, at most 16 limitations. Each distinct level allows at most 16 removal paths and 16 writes; paths are at most 128 characters/four object-key segments, without array indexing, protected request roots or transport/provider controls. Scalar strings are at most 256 characters; each revision retains at most 20 sanitized validation/evidence summaries. Validation rejects, never truncates. Revisions are immutable/hash-addressed; referenced revisions cannot be disabled or collected. Generic native-provider discovery may produce a provider-default custom revision with empty reasoning levels/mappings/aliases; naming it preserves custom identity rather than assigning a Mesh built-in. Verification and explicit Save remain required.
+Custom compatibility revisions use only `ai-gateway-chat-completions` ingress and literal string, finite-number, boolean or null writes. Limits: 256 KiB per document, 32 custom IDs, 64 retained revisions; ID 64 characters, name 128, description/operator note/limitation 512, at most 16 limitations. Each distinct level allows at most 16 removal paths and 16 writes; paths are at most 128 characters/four object-key segments, without array indexing, protected request roots or transport/provider controls. Scalar strings are at most 256 characters; each revision retains at most 20 sanitized validation/evidence summaries. Validation rejects, never truncates.
+
+Revisions are immutable/hash-addressed; referenced revisions cannot be disabled or collected. Generic native-provider discovery may produce a provider-default custom revision with empty reasoning levels/mappings/aliases; naming it preserves custom identity rather than assigning a Mesh built-in. Verification and explicit Save remain required.
 
 <a id="target-capability-discovery"></a>
 <a id="normal-administrator-flow"></a>
@@ -239,8 +241,8 @@ Documentation describes provider contracts, not live capability of arbitrary tar
 - Cloudflare: [Bedrock forwarding](https://developers.cloudflare.com/ai-gateway/usage/providers/bedrock/), [chat completion](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/), [Dynamic compatibility and backend headers](https://developers.cloudflare.com/ai-gateway/features/dynamic-routing/usage/), [whole-response caching](https://developers.cloudflare.com/ai-gateway/features/caching/), [DLP buffering](https://developers.cloudflare.com/ai-gateway/features/dlp/).
 - Historical accounting source: `package/dist/api/openai-completions.js::parseChunkUsage` in the [reviewed 0.87.1 package](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz); that historical audit is not verification of the current locked client/head.
 
-<a id="requirement-and-source-map"></a>
-## Traceability
+<a id="traceability"></a>
+## Requirement and Source Map
 
 | Contract | Requirements | Primary source |
 | --- | --- | --- |
@@ -258,8 +260,8 @@ Source symbols without a prefix are under `src/lib/`, except the named intercept
 
 Original adapter composition traceability remains with this owner: Worker replay keys bind user/session/target/tool identity, and Bedrock chunks are decoded through the provider-native adapter before public streaming. <!-- @impl: src/llm-interceptor.ts::nativeReplayStateKey --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::decodeBedrockChunk -->
 
-<a id="related-documentation"></a>
-## Adjacent owners
+<a id="adjacent-owners"></a>
+## Related Documentation
 
 - [Configuration & Administration](configuration.md): settings, defaults and reviewed edits.
 - [Billing & Usage](billing.md): historical accounting and reports, separate from live quota authority.

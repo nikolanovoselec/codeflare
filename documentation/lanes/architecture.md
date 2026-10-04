@@ -54,8 +54,7 @@ graph TD
     W --> TK["Timekeeper DO: per-user accounting"]
     DO1 --> C1["Container A"]
     DO2 --> C2["Container B"]
-    DO1 -->|"generation-fenced observations"| DB
-    DO2 -->|"generation-fenced observations"| DB
+    DO1 & DO2 -->|"generation-fenced observations"| DB
     TK -->|"live usage projection"| KV
     TK -->|"historical snapshots"| DB
     C1 <-->|"restore + bounded bisync"| R2["R2 bucket: shared per user"]

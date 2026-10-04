@@ -16,9 +16,11 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
 
-5. **Durable ownership** - The sixteen lanes in the Lane Index are the canonical owners. Extend the existing owner before proposing another lane. A model release, implementation mechanism, repair, transport adapter, or delivery campaign is a section or reference, not a new domain. Preserve referenced assets, requirement IDs and fragment aliases when consolidating content.
+5. **Durable ownership** - The sixteen lanes in the Lane Index are the canonical owners. Extend the existing owner before proposing another lane.
 
 6. **Reference, not campaign history** - Lanes describe current behavior and qualified limitations. Exact CI receipts, deployment observations and dated measurements remain in existing Git, PR and CI records; architecture rationale belongs in the ADR ledger. Do not create execution-report lanes.
+
+A model release, implementation mechanism, repair, transport adapter, or delivery campaign is a section or reference, not a new domain. Preserve referenced assets, requirement IDs and fragment aliases when consolidating content.
 
 ## Public/private documentation boundary
 
