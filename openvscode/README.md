@@ -8,6 +8,17 @@
 
 The directory name is a retained private migration identifier. The selected IDE agent is always a separate process and conversation from terminal tab 1.
 
+## Contents
+
+- [Selection and UI](#selection-and-ui)
+- [Package map](#package-map)
+- [Native Pi Chat](#native-pi-chat)
+- [Official Claude Code](#official-claude-code)
+- [User-managed extension continuity](#user-managed-extension-continuity)
+- [Workspace selection and safe continuity](#workspace-selection-and-safe-continuity)
+- [Develop and verify](#develop-and-verify)
+- [Canonical references](#canonical-references)
+
 ## Selection and UI
 
 | Tab 1 | Immutable inventory | IDE experience |

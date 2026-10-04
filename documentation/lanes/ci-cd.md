@@ -123,13 +123,16 @@ The automatic path already carries its exact green gate. Same-repository success
 
 1. **prepare:** rejects non-main production dispatch; resolves exact SHA, environment, Worker, cache bust and canonical selected-agent set once.
 2. **build-worker:** web UI first, then landing into `web-ui/dist/landing/` because the UI build wipes `dist`; one-day dist artifact.
-3. **container:** input identity covers Dockerfile, workflow/ignore/scan policy, entrypoint, host production manifests/config/source, IDE/preseed/seed, npm pruning, image smoke, Pi lockstep verification, canonical agents and ISO week. Host tests do not invalidate the image. An existing tag is reusable only after registry-digest provenance verifies against `container-image.yml`; deployment binds that exact digest. Invalid/missing provenance, cache bust or uncovered COPY disables reuse.
+3. **container:** input identity covers Dockerfile, workflow/ignore/scan policy, entrypoint, host production manifests/config/source, IDE/preseed/seed, npm pruning, image smoke, Pi lockstep verification, canonical agents and ISO week.
+   - Host tests do not invalidate the image. An existing tag is reusable only after registry-digest provenance verifies against `container-image.yml`; deployment binds that exact digest. Invalid/missing provenance, cache bust or uncovered COPY disables reuse.
    - Fresh images record complete byte size with no fixed byte-ceiling rejection. Reuse retains original scan/SBOM, not a new scan. First deploy under a new ISO-week identity rebuilds/rescans, rather than claiming an unconditional weekly deployment.
    - BuildKit cache/layer timing remains deployment-owned; plain timing evidence is retained fourteen days. Late Pi extensions still invalidate Jiti prewarm while retaining dependency layers; IDE/generated-seed assembly does not invalidate unrelated installs (REQ-OPS-050).
    - Node bases resolve approved immutable manifests through `mirror.gcr.io/library/node`; embedded IDE stages retain their separately pinned Node 22.21.1 boundary. Publication still requires construction/smoke/scan/provenance, not availability checks alone (REQ-OPS-011).
    - Before scan/push, run selected launcher version commands with ten-second bounds plus Pi/Claude/empty-inventory, cold-readiness, process, resource and prefixed-proxy smoke.
-   - Locked Trivy primes daily vulnerability/Java databases, then scan, CycloneDX SBOM and registry-tool preparation run concurrently against isolated writable caches. All are awaited; prerequisite failure blocks publication. Apply `ignore-unfixed: true` and reviewed `.trivyignore`, validate exact bounded exceptions, upload SBOM, then push (REQ-OPS-052; [Security gate](security.md#container-image-scanning-req-sec-011)).
-   - Immutable artifacts with fixable embedded dependencies receive exact integrity-verified overlays at every affected path; smoke checks versions and operation/archive round trips before scanning (REQ-OPS-046). The current node-tar 7.5.21 and pacote 21.5.1 overlays retire only when upstream artifacts carry the fixed floor directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION -->
+   - Locked Trivy primes daily vulnerability/Java databases, then scan, CycloneDX SBOM and registry-tool preparation run concurrently against isolated writable caches. All are awaited; prerequisite failure blocks publication.
+   - Apply `ignore-unfixed: true` and reviewed `.trivyignore`, validate exact bounded exceptions, upload SBOM, then push (REQ-OPS-052; [Security gate](security.md#container-image-scanning-req-sec-011)).
+   - Immutable artifacts with fixable embedded dependencies receive exact integrity-verified overlays at every affected path; smoke checks versions and operation/archive round trips before scanning (REQ-OPS-046).
+   - The current node-tar 7.5.21 and pacote 21.5.1 overlays retire only when upstream artifacts carry the fixed floor directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION -->
    - Push retries thirty times at thirty-second intervals. COPY coverage guards reuse; ignore/scan policy is hashed. Registry credentials are masked/step-scoped away from build/scan actions.
 4. **deploy:** downloads assets, resolves/creates KV, prepares one environment-local usage D1 binding and additive migrations, patches Worker/container configuration, and applies reviewed authorization/config before Worker promotion (REQ-OPS-056/060).
    - `RESSOURCE_TIER`: low 0.25 vCPU/1 GiB/4 GB, default or saas 1 vCPU/3 GiB/6 GB, high 2 vCPU/6 GiB/12 GB; default max instances ten, positive `MAX_INSTANCES` override. This is deployment allocation, not capacity certification.
@@ -149,7 +152,8 @@ After classification every affected workload starts directly; required summary i
 - **quality:** seed drift, backend/frontend oxlint/knip, `bash -n` over tracked shell scripts (REQ-OPS-003).
 - **typecheck:** Wrangler types and backend/frontend `tsc --noEmit`.
 - **backend-tests:** twelve duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action.
-- **frontend-tests:** four duration-weighted groups through the same action; shard one also builds independently of tests.
+- **frontend-tests:** four duration-weighted test groups through the same action. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
+- **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
 - **host-tests:** nonempty, nonzero-assertion Node-runner selection reconciled against `ci-excluded.txt`; rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
 - **browser-ide:** clean Node 22.21.1 install, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
@@ -184,27 +188,27 @@ Distinct named owner for current security-probe methods formerly in `pentest.md`
 
 `normalize-https-origin.mjs` accepts HTTP, HTTPS or a bare DNS host, normalizes to HTTPS and rejects credentials, non-root paths, query/fragment, controls/padded whitespace, IP/single-label/malformed DNS names and invalid port zero. This is syntax normalization, not an allowlist or proof of DNS/port reachability. Use the configured intended public target; do not infer deployment identity from a historical report. Target/TLS jobs receive repository-read permission; the separate report job also has read plus issues-write. Other probes receive no repository permission.
 
-### Security-header probe
+### Security-header probe <!-- @impl: .github/workflows/pentest.yml::security-headers -->
 
 HEAD `/` requires HSTS `max-age`, CSP, framing, `nosniff`, referrer and permissions headers and rejects `X-Powered-By`. It proves the tested response's header patterns, not every route's semantic policy. [Security](security.md#security-headers) owns controls/route exceptions.
 
-### TLS probe
+### TLS probe <!-- @impl: .github/workflows/pentest.yml::tls -->
 
-TLS 1.3 and exactly TLS 1.2 must return HTTP 200/302. Owned direct ClientHello probes require server-originated legacy-version refusal for TLS 1.0/1.1; accepted ServerHello fails, and close/unclassified alert/malformed record/no answer is inconclusive and fails, never a pass. HSTS must be present; preload is reported when present but is not a separate workflow failure boundary. Certificate validity must be at least fourteen days. Target normalization accepts explicit ports, but the current openssl/legacy host extraction does not correctly handle non-default ports; use the intended default-port origin. This documents a method limitation, not a runtime or workflow repair.
+TLS 1.3 and exactly TLS 1.2 must return HTTP 200/302. Owned direct ClientHello probes require server-originated legacy-version refusal for TLS 1.0/1.1; accepted ServerHello fails, and close/unclassified alert/malformed record/no answer is inconclusive and fails, never a pass. HSTS must be present; preload is reported when present but is not a separate workflow failure boundary. Certificate validity must be at least fourteen days. Target normalization and the direct legacy-TLS helper support explicit host:port. The certificate-expiry and CL/TE openssl steps instead append `:443` and do not correctly handle non-default ports; use the intended default-port origin for the whole workflow. This documents a method limitation, not a runtime or workflow repair.
 
-### Authentication-gate probe
+### Authentication-gate probe <!-- @impl: .github/workflows/pentest.yml::auth-gate -->
 
 Samples `/api/sessions`, `/api/storage/files/`, `/api/users`, `/api/preferences`, `/api/container/health`: require 302/401/403, not 404. `/api/setup/status` separately requires 200 without secret-shaped response text. Spoofed identity headers must not bypass the sessions gate. This is a sample, not the dated report's complete protected endpoint inventory, nor proof of authenticated authorization.
 
-### Information-disclosure probe
+### Information-disclosure probe <!-- @impl: .github/workflows/pentest.yml::info-disclosure -->
 
 `/.env`, `/.git/config`, `/.git/HEAD`, `/api/debug`, `/api/internal` fail on 200, no response (000), or secret-shaped body. Invalid-session error prose is checked for stack/path signatures. A SPA 200 on a sensitive-file path fails this current method even if it contains no secret; the old dated observation is not the current pass boundary.
 
-### Injection probe
+### Injection probe <!-- @impl: .github/workflows/pentest.yml::injection -->
 
 Spoofed Host requires 403/421. `X-Forwarded-Host` must leave response content unchanged. CL/TE probe requires explicit 400/501 rejection. Four encoded URL traversal forms accept 302/400/401/403/404; delete traversal bodies require 302/401/403. Auth-layer rejection and URL 404 do not prove downstream authenticated storage validation or exhaustive parser safety.
 
-### HTTP-method probe
+### HTTP-method probe <!-- @impl: .github/workflows/pentest.yml::http-methods -->
 
 TRACE requires 405/403. An unauthenticated terminal upgrade requires 302/401/403. The workflow's `/api/terminal/ws` request is a boundary sample, not the canonical authenticated session WebSocket endpoint catalogue.
 
@@ -303,7 +307,7 @@ Setup normalizes target, requires public provider discovery 200 and authenticate
 <a id="test-suites"></a>
 ### Suite Contracts
 
-#### API Throughput (`api-throughput.js`)
+#### API Throughput (`api-throughput.js`) <!-- @impl: stress/api-throughput.js::options --> <!-- @impl: stress/api-throughput.js::default -->
 
 Mostly reads, with occasional `PATCH /api/preferences` writes. `sustained_load`: 30s to scaled five, 1m to scaled ten, 2m hold, 30s down; spike starts 4m30s and lasts 50s (10s up, 30s hold, 10s down) at scaled ten. Each cycle requests public `/api/health`, sessions and batch-status; 30% also gets user/preferences and 20% of those cycles patches mode; 20% browses storage. Independent random choices can overlap. Think time uniformly 4–6s.
 
@@ -317,7 +321,7 @@ Mostly reads, with occasional `PATCH /api/preferences` writes. `sustained_load`:
 
 The scripted approximately-five-second dashboard pattern is not the current product polling contract: stable visible session status now uses sixty-second polling, transitions five seconds, hidden pages stop (REQ-OPS-057). Individual check failures are not universally aggregated into a `checks` threshold in this suite.
 
-#### Session Lifecycle (`session-lifecycle.js`)
+#### Session Lifecycle (`session-lifecycle.js`) <!-- @impl: stress/session-lifecycle.js::options --> <!-- @impl: stress/session-lifecycle.js::default -->
 
 Three-minute create/list/get/delete churn: 30s up, 2m hold, 30s down at baseline three. It does not start containers, stop sessions or exercise terminal readiness. Think ranges: 3–8s after create, 2–5s before get, 5–15s before delete and 10–30s between cycles.
 
@@ -331,7 +335,7 @@ Three-minute create/list/get/delete churn: 30s up, 2m hold, 30s down at baseline
 
 429 creates/deletes are counted and sleep fifteen seconds before returning; floors prevent empty-success verdicts. Creation requires 201; deletion 200/204. List/get checks exist but no global checks threshold makes every read check individually fatal. A failed/throttled delete can leave a created session.
 
-#### Storage Operations (`storage-operations.js`)
+#### Storage Operations (`storage-operations.js`) <!-- @impl: stress/storage-operations.js::options --> <!-- @impl: stress/storage-operations.js::default -->
 
 Three-minute 30s/2m/30s workload at baseline five (initial ramp target three). Simple upload/browse/download/delete with 60% 1-KB, 30% 20-KB, 10% 50-KB payloads. About 20% of iterations additionally upload three folder objects and delete their prefix. Think ranges: 3–8s after upload, 2–5s between browse/download/delete, 5–15s between cycles, and 1–3s before folder deletion.
 
@@ -345,7 +349,7 @@ Three-minute 30s/2m/30s workload at baseline five (initial ramp target three). S
 
 429 uploads sleep ten seconds/return; successful-upload count prevents empty-success verdict. Browse/download/delete and folder checks are reported, but no global checks gate turns every check into a failing verdict and custom `errors` records upload outcomes only. Deletion/content persistence coverage must not be overstated.
 
-#### Stress Test with Rate Limits (`rate-limit-validation.js`)
+#### Stress Test with Rate Limits (`rate-limit-validation.js`) <!-- @impl: stress/rate-limit-validation.js::options --> <!-- @impl: stress/rate-limit-validation.js::sessionLimitTest --> <!-- @impl: stress/rate-limit-validation.js::preferencesLimitTest -->
 
 One VU/one session scenario (max three minutes) bursts fifteen creates against scripted cap ten. One VU preferences scenario starts at 3m10s (max two minutes) bursts twenty-five patches against scripted cap twenty. These are suite assumptions to reconcile with [API Reference](api-reference.md), not a second endpoint policy owner.
 

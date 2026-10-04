@@ -29,7 +29,7 @@ Diagnostic boundaries, common failures, and bounded recovery.
 
 ## Start Here
 
-1. **Classify the boundary.** If login, setup, or every route fails, start with public `/api/health`, provider discovery, Worker logs, and [Authentication](authentication.md). If only one session fails, continue with its owner-scoped D1 lifecycle/generation projection and container evidence, not stale KV list metadata.
+1. **Classify the boundary.** If login, setup, or every route fails, check public `/api/health`, provider discovery, Worker logs, and [Authentication](authentication.md). If only one session fails, continue with its owner-scoped D1 lifecycle/generation projection and container evidence, not stale KV list metadata.
 2. **Classify lifecycle versus transport.** Persisted D1 lifecycle and generation are durable signals; terminal or IDE failure while a workload remains owned is a transport/readiness problem, not proof of exit. Do not rewrite lifecycle state from a single failed probe.
 3. **Correlate the shared runtime.** Terminal, Browser IDE, `/activity`, and private host `/health` share the container listener. A multi-surface failure points below the client; a single-surface failure points to that proxy or client path.
 4. **Separate persistence from presentation.** Vault or workspace content errors require the R2/bisync evidence in [Storage & Sync](storage-and-sync.md); editor readiness alone does not prove persistence completed.

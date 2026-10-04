@@ -16,6 +16,7 @@
 - [Compatibility transport boundaries](#compatibility-transport-boundaries)
 - [Upgrade, verification and provenance](#upgrade-verification-and-provenance)
 - [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 <a id="generic-anthropic-bedrock-model-support"></a>
 <a id="contract-not-a-model-release-checklist"></a>

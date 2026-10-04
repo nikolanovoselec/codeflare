@@ -1266,7 +1266,9 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 - **Review-spawn enforcement not firing on push**: see [Review completion prompt or FIX is missing](#review-completion-prompt-or-fix-is-missing) below. Do not recreate retired checkpoint files.
 
-- **Default mode has Advanced-only managed hooks**: inspect the active `SESSION_MODE`, manifest membership, and image-owned settings assembly. Default mode may retain core or user-owned hooks; their presence alone is not a gating failure. Restore only the current Codeflare-owned entries through managed startup. Do not delete the whole `.hooks` object or unrelated custom settings.
+- **Default mode has Advanced-only managed hooks**:
+
+Inspect the active `SESSION_MODE`, manifest membership, and image-owned settings assembly. Default mode may retain core or user-owned hooks; their presence alone is not a gating failure. Restore only the current Codeflare-owned entries through managed startup. Do not delete the whole `.hooks` object or unrelated custom settings.
 
 - **`/dev/fd/63: No such file or directory` from a custom hook**:
   - A bash hook using process substitution (`done < <(...)`) is running where `/proc/self/fd` is unavailable.

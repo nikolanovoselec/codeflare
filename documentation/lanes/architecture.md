@@ -41,7 +41,7 @@ This lane owns runtime topology, component boundaries, authoritative state, cros
 <a id="architecture-overview"></a>
 ## System at a Glance
 
-Each backend session has one isolated Cloudflare Container. Browser tabs, terminal panes, MultiView, and Browser IDE connect to a session; they do not define its identity. A user's sessions share one R2 bucket for selected durable files, with ephemeral local working copies. D1 owns complete non-secret session records and generation-fenced lifecycle truth. KV retains users, setup/configuration, entitlement and live-usage projections. Container Durable Objects coordinate runtime processes and observations; Timekeeper coordinates per-user accounting.
+Each backend session has one isolated Cloudflare Container. Browser tabs, terminal panes, MultiView, and Browser IDE connect to a session; they do not define its identity. A user's sessions share one R2 bucket for selected durable files, with ephemeral local working copies. D1 owns complete non-secret session records and generation-fenced lifecycle truth. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> KV retains users, setup/configuration, entitlement and live-usage projections. Container Durable Objects coordinate runtime processes and observations; Timekeeper coordinates per-user accounting.
 
 ```mermaid
 graph TD
@@ -84,7 +84,13 @@ The `workers.dev` URL is a setup surface, not normal production entry. [Configur
 
 ### Worker (Hono Router)
 
-Authenticates public requests, applies edge policy, serves assets and routes APIs, WebSockets and session work. Bounded per-isolate caches are optimizations, not durable authority. It does not own workload processes or workspace bytes. Source entry: `src/index.ts`, `src/middleware/auth.ts`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
+**Responsibility:** Authenticates public requests, applies edge policy, serves assets and routes APIs, WebSockets and session work. Bounded per-isolate caches are optimizations, not durable authority. It does not own workload processes or workspace bytes.
+
+**Inputs:** HTTP/WebSocket requests, Worker bindings, setup state and verified identity.
+
+**Outputs:** API/assets responses, WebSocket upgrades and calls to owning components.
+
+**Source:** `src/index.ts`, `src/middleware/auth.ts`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
 **Contracts:** [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page), [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD34](../decisions/README.md#ad34-websocket-auth-bypass-of-hono-middleware).
 
@@ -92,7 +98,13 @@ Authenticates public requests, applies edge policy, serves assets and routes API
 
 ### Container DO (container)
 
-Coordinates one session's configuration, startup, proxy, metrics, idle policy, recovery and teardown. DO storage owns runtime coordination, shutdown fences and recovery evidence; D1 owns shared session lifecycle. The DO does not own durable files, entitlement or browser-local presentation. Source entries: `src/container/`, `src/routes/container/`.
+**Responsibility:** Coordinates one session's configuration, startup, proxy, metrics, idle policy, recovery and teardown. DO storage owns runtime coordination, shutdown fences and recovery evidence; D1 owns shared session lifecycle. The DO does not own durable files, entitlement or browser-local presentation.
+
+**Inputs:** Session/bucket identity, preferences, credentials, internal controls and host health/activity.
+
+**Outputs:** Lifecycle transitions, authenticated proxy traffic, status, usage and recovery evidence.
+
+**Source:** `src/container/`, `src/routes/container/`.
 
 **Contracts:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [AD1](../decisions/README.md#ad1-one-container-per-session). [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) records the historical KV decision, not current storage authority.
 
@@ -101,7 +113,13 @@ Coordinates one session's configuration, startup, proxy, metrics, idle policy, r
 <a id="enterprise-llm-routing"></a>
 ### LlmInterceptor (Enterprise Mode)
 
-Routes configured enterprise LLM traffic through customer AI Gateway without exposing its token to the container. Inputs are authorized route/native handles, capability profiles, matched configured groups and Worker-held connection configuration. Outputs are bound Dynamic compat contracts (historical REST-first assignments retained), saved native/custom compat or Bedrock Runtime requests, normalized responses or bounded fail-closed errors. No durable state, provider keys, Access policy or model-selection UI is owned here.
+**Responsibility:** Routes configured enterprise LLM traffic through customer AI Gateway without exposing its token to the container. No durable state, provider keys, Access policy or model-selection UI is owned here.
+
+**Inputs:** Authorized route/native handles, capability profiles, matched configured groups and Worker-held connection configuration.
+
+**Outputs:** Bound Dynamic compat contracts (historical REST-first assignments retained), saved native/custom compat or Bedrock Runtime requests, normalized responses or bounded fail-closed errors.
+
+**Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`.
 
 Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynamic timeout authority stays in the deployed Gateway graph. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates -->
 
@@ -113,7 +131,13 @@ Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynami
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed. Source entries: `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
+**Responsibility:** Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed.
+
+**Inputs:** Intercepted requests, strict-egress state, account/bucket identity, scoped credentials and `EGRESS` binding.
+
+**Outputs:** Gateway-routed traffic, scoped R2 requests, bridged WebSockets or fail-closed boundary errors.
+
+**Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
 
 **Contracts:** [REQ-ENTERPRISE-016](../../sdd/spec/security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/security.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props), [AD143](../decisions/README.md#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential).
 
@@ -122,7 +146,13 @@ Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway 
 <a id="cloudflarebrowserinterceptor-non-enterprise-oauth-mode"></a>
 ### CloudflareBrowserInterceptor
 
-Refreshes/injects user-scoped OAuth or enterprise Browser Rendering credentials at the Worker boundary for REST/CDP HTTP and WebSocket traffic. Identity is bound at wiring time, not chosen by a caller header. Missing valid credentials fail closed. Token storage belongs to the authentication/provider layer, not the interceptor. Source entries: `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`.
+**Responsibility:** Refreshes/injects user-scoped OAuth or enterprise Browser Rendering credentials at the Worker boundary for REST/CDP HTTP and WebSocket traffic. Identity is bound at wiring time, not chosen by a caller header. Missing valid credentials fail closed. Token storage belongs to the authentication/provider layer, not the interceptor.
+
+**Inputs:** Intercepted REST/CDP traffic, session-bound identity and Worker-held token state.
+
+**Outputs:** Authenticated HTTP/WebSocket traffic or fail-closed authentication responses.
+
+**Source:** `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`.
 
 **Contracts:** [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 
@@ -130,7 +160,13 @@ Refreshes/injects user-scoped OAuth or enterprise Browser Rendering credentials 
 
 ### GitHub Integration
 
-Connects verified users to repository discovery, cloning and mode-appropriate authenticated GitHub traffic. Encrypted `DeployKeys.githubToken` remains the credential store. Repository permissions, account policy and workspace durability are separate owners. Source entries: `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, `web-ui/src/components/github/`.
+**Responsibility:** Connects verified users to repository discovery, cloning and mode-appropriate authenticated GitHub traffic. Encrypted `DeployKeys.githubToken` remains the credential store. Repository permissions, account policy and workspace durability are separate owners.
+
+**Inputs:** OAuth state/tokens, repository selection, clone requests, session identity and intercepted GitHub traffic.
+
+**Outputs:** Connection metadata, repository lists, clone operations and authenticated GitHub requests.
+
+**Source:** `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, `web-ui/src/components/github/`.
 
 **Contracts:** [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport), [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens).
 
@@ -144,9 +180,15 @@ Connects verified users to repository discovery, cloning and mode-appropriate au
 <a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022-req-ide-024"></a>
 ### Browser IDE
 
-Provides a session-isolated code-server workbench with native Pi, official Claude or empty immutable agent inventory. The Worker snapshots the entitled default workspace at creation; absent/historical values mean Terminal. VS Code sessions are dashboard-owned, skip host PTY prewarm/terminal sockets, and open a stable session-keyed editor tab. Terminal sessions retain request-lazy editor startup.
+**Responsibility:** Provides a session-isolated code-server workbench with native Pi, official Claude or empty immutable agent inventory. The Worker snapshots the entitled default workspace at creation; absent/historical values mean Terminal. VS Code sessions are dashboard-owned, skip host PTY prewarm/terminal sockets, and open a stable session-keyed editor tab. Terminal sessions retain request-lazy editor startup.
 
 Live editor databases, package bytes and agent processes are ephemeral. Only bounded UI continuity and extension-intent manifests persist. Browser IDE does not own terminal Pi conversation, generic VS Code authentication, private galleries, durable credentials or future workspace preference. Developer composition stays in [openvscode/README.md](../../openvscode/README.md); runtime/persistence/security stay in their specialist lanes.
+
+**Inputs:** Session route, immutable workspace/agent selection, editor requests, bounded UI snapshot and extension manifest.
+
+**Outputs:** Editor UI, agent context, file changes, diagnostics and lazy extension restoration.
+
+**Source:** `host/src/vscode-proxy.ts`, `openvscode/agent-sidebar/`, `openvscode/claude/`; [package composition](../../openvscode/README.md).
 
 **Contracts:** [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-clean-browser-ide-url-and-private-workspace-selection), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol), [REQ-IDE-025](../../sdd/spec/browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](../../sdd/spec/browser-ide.md#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-result-envelope), [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle), [REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics), [REQ-IDE-035](../../sdd/spec/browser-ide.md#req-ide-035-canonical-browser-ide-workspace-projection), [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement), [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy), [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](../../sdd/spec/browser-ide.md#req-ide-050-browser-ide-status-and-ownership), [REQ-IDE-054](../../sdd/spec/browser-ide.md#req-ide-054-browser-ide-card-activation).
 
@@ -156,7 +198,13 @@ Live editor databases, package bytes and agent processes are ephemeral. Only bou
 
 ### Terminal Server (node-pty)
 
-Owns in-container PTYs, WebSocket framing, shared input activity, private health/control endpoints, connected-client state and resize authority. It reports observations, not public authorization or durable session lifecycle. Source entries: `host/src/server.ts`, `host/src/session.ts`, `host/src/activity-tracker.ts`, `host/src/terminal-ws.ts`, `host/src/request-router.ts`.
+**Responsibility:** Owns in-container PTYs, WebSocket framing, shared input activity, private health/control endpoints, connected-client state and resize authority. It reports observations, not public authorization or durable session lifecycle.
+
+**Inputs:** Authenticated traffic, terminal controls/input, editor client frames and PTY output.
+
+**Outputs:** Terminal/control frames, PTY writes, shared activity/health and internal sync responses.
+
+**Source:** `host/src/server.ts`, `host/src/session.ts`, `host/src/activity-tracker.ts`, `host/src/terminal-ws.ts`, `host/src/request-router.ts`.
 
 **Contracts:** [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity), [REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-away-only-agent-notification-delivery), [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual).
 
@@ -164,7 +212,13 @@ Owns in-container PTYs, WebSocket framing, shared input activity, private health
 
 ### Landing (Astro, prerendered)
 
-Builds mode-aware public marketing/onboarding assets from typed content and tokens. It owns no application state. The contact route relays validated submissions without persisting content; KV holds only rate-limit counters. Authentication, Worker routing and contact credentials remain separate owners.
+**Responsibility:** Builds mode-aware public marketing/onboarding assets from typed content and tokens. It owns no application state. The contact route relays validated submissions without persisting content; KV holds only rate-limit counters. Authentication, Worker routing and contact credentials remain separate owners.
+
+**Inputs:** Mode-aware typed content/tokens and public page requests; contact submissions enter the Worker route.
+
+**Outputs:** Prerendered public assets and validated contact relay responses.
+
+**Source:** `landing/src/`; [package composition](../../landing/README.md) and [Worker contact contract](api-reference.md#public-landing).
 
 **Contracts:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns).
 
@@ -187,7 +241,13 @@ The prerendered Astro package emits `/landing` assets into the web asset tree. R
 
 ### Frontend (SolidJS + xterm.js)
 
-Presents dashboard, terminal, storage, settings, billing/provisioning and session controls. Browser-local state owns virtual MultiView membership and visible/focused panes, not runtime truth, durable files or credentials. Source entry: `web-ui/src/`.
+**Responsibility:** Presents dashboard, terminal, storage, settings, billing/provisioning and session controls. Browser-local state owns virtual MultiView membership and visible/focused panes, not runtime truth, durable files or credentials.
+
+**Inputs:** API responses, terminal/control frames, user gestures and browser-local presentation state.
+
+**Outputs:** Rendered surfaces, authenticated API requests and visible-pane terminal traffic.
+
+**Source:** `web-ui/src/`.
 
 **Contracts:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual), [AD105](../decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
 
@@ -196,13 +256,25 @@ Visible panes own terminal sockets/resize; hidden running sessions mount neither
 
 ### KV
 
-Holds durable users, setup/configuration, entitlement/live-usage projections, rate limits and ancillary state. It is eventually consistent; process caches do not strengthen it. Session records, lifecycle, readiness and runtime metrics are D1-owned, not KV list metadata. Legacy KV evidence remains historical.
+**Responsibility:** Holds durable users, setup/configuration, entitlement/live-usage projections, rate limits and ancillary state. It is eventually consistent; process caches do not strengthen it. Session records, lifecycle, readiness and runtime metrics are D1-owned, not KV list metadata. Legacy KV evidence remains historical.
+
+**Inputs:** Worker-owned user/configuration, entitlement, live-usage and rate-limit writes.
+
+**Outputs:** Eventually consistent records and projections, not session authority.
+
+**Source:** `src/lib/kv-crypto.ts`, `src/routes/setup/`, `src/timekeeper/index.ts`.
 
 **Original references:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [AD6](../decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 
 ### R2
 
-Owns one user's selected durable file namespace, restored/reconciled by session containers, storage routes and seeding. It is not a live POSIX filesystem, process store, excluded-cache store or sync coordinator.
+**Responsibility:** Owns one user's selected durable file namespace, restored/reconciled by session containers, storage routes and seeding. It is not a live POSIX filesystem, process store, excluded-cache store or sync coordinator.
+
+**Inputs:** User-scoped object writes from storage, seeding and selected-file sync.
+
+**Outputs:** Durable object bytes/metadata for scoped reads and reconciliation.
+
+**Source:** `src/routes/storage/`, `src/lib/r2-seed.ts`, `entrypoint.sh`.
 
 **Contracts:** [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [AD3](../decisions/README.md#ad3-per-user-r2-buckets), [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery).
 
@@ -210,7 +282,13 @@ Owns one user's selected durable file namespace, restored/reconciled by session 
 
 ### Timekeeper
 
-Converts monotonic per-session runtime reports into per-user deltas, live usage/quota signals and separately acknowledged historical snapshots. Durable accumulator/period/outbox state belongs to the DO; live serving projection belongs to KV; historical analytics/report claims belong to D1. It does not own session lifecycle or checkout.
+**Responsibility:** Converts monotonic per-session runtime reports into per-user deltas, live usage/quota signals and separately acknowledged historical snapshots. Durable accumulator/period/outbox state belongs to the DO; live serving projection belongs to KV; historical analytics/report claims belong to D1. It does not own session lifecycle or checkout.
+
+**Inputs:** Session runtime reports, user/period identity and historical acknowledgement results.
+
+**Outputs:** Usage deltas, live KV quota projections and historical D1 snapshots.
+
+**Source:** `src/timekeeper/index.ts`; [Billing source map](billing.md#requirement-and-source-map).
 
 **Contracts:** [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402), [AD37](../decisions/README.md#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015).
 
@@ -239,7 +317,7 @@ Converts monotonic per-session runtime reports into per-user deltas, live usage/
 | State | Scope | Authority / durability | Writers/readers | Recovery owner |
 |---|---|---|---|---|
 | User/setup/configuration | Deployment/user | KV, persistent/eventually consistent | Authenticated Worker routes and policy/UI | Authentication/Configuration |
-| Complete session/lifecycle/readiness/metrics | Session | D1 `runtime_sessions`, generation/revision/sequence fenced | Lifecycle routes/DO observations; dashboard/API | Container |
+| Complete session/lifecycle/readiness/metrics | Session | D1 `runtime_sessions`, generation/revision/sequence fenced; [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority) retains Planned status | Lifecycle routes/DO observations; dashboard/API | Container |
 | Workload ownership during `starting/running/unreachable/stopping` | Session | D1 even without container wake | Session admission and managed mutation gates <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> | Container |
 | Runtime coordination/recovery/shutdown fence | Session | DO storage across reconstruction | Container DO <!-- @impl: src/container/index.ts::container --> | Container |
 | Live processes/ports | Session | Containers platform and successful host observations, ephemeral | Runtime/DO | Container |

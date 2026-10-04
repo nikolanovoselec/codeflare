@@ -9,6 +9,7 @@ Browser terminal and editor client contracts, mobile compatibility, viewport own
 ## Contents
 
 - [Terminal ownership and transport](#terminal-ownership-and-transport)
+- [GitHub and Storage workspace](#github-and-storage-workspace)
 - [Backend state and client connectivity](#backend-state-and-client-connectivity)
 - [Browser IDE](#browser-ide)
 - [Interaction and Focus Model](#interaction-and-focus-model)
@@ -46,6 +47,12 @@ Samsung may reject asynchronous writes. The latest failure remains browser-local
 Managed Pi/Claude fixed events use bounded authenticated loopback ingress in Herdr when inner OSC bytes are unavailable; no prose/paths/credentials enter it. Classic keeps native producer behavior. Herdr completion uses semantic status for every recognized Pi/Claude pane, private public-API socket subscriptions and one ten-minute all-idle/done timer after observed work. Working cancels timer/queued completion, not input-required events; blocked/unknown or initial-ready/no-agent state cannot trigger completion. No pane identity/socket path reaches browser; timer does not extend user activity/lifetime. Local/Push Pi copy is **Ready for input**, Claude remains **Task completed**. Classic has no completion producer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> [REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-031](../../sdd/spec/terminal.md#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), [REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented).
 
 Notification delivery retains event-specific global suppression, single local grant, no-client fallback, acknowledgement/expiry and idle isolation. Per-device enrollment alone requests permission. Existing Partial deployed notification verification remains Partial; this relocation does not supply acceptance evidence.
+
+## GitHub and Storage workspace
+
+The dashboard right column shares space between GitHub and Storage: when space permits, GitHub anchors at the top and Storage at the bottom, with adaptive scrollable allocation rather than a fixed repository row limit. Narrow or short viewports collapse to one content-sized, viewport-capped face. GitHub is the default when enabled; header controls flip to Storage and back, recomputing height. Disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
+
+Repository search is disclosed on demand at every breakpoint. Opening the magnify toggle reveals and synchronously focuses the input; touch also scrolls it above the keyboard. Closing hides the input and clears the filter, so hidden search cannot silently narrow the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::toggleSearch --> [REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus). Pixel allocation and protected-deployment viewport checks retain their manual qualifiers; source descriptions do not establish device acceptance.
 
 ## Backend state and client connectivity
 
