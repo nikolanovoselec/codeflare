@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-04
 
+- **Require Debian's patched PCRE2 runtime** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)). Refresh the runtime APT layer and require `libpcre2-8-0` at least `10.42-1+deb12u2` during build and packaged-image verification. Preserve the vulnerability scan and existing exceptions without suppressing CVE-2026-103111.
+
 - **Require current-worker Vault readiness** ([REQ-VAULT-018](vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)). Controller-bound sync evidence and two complete polls replace unscoped completion flags; controller changes invalidate pending proof.
 
 - **Await acknowledged encrypted bootstrap** ([REQ-VAULT-024](vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention)). Await replacement activation, exact controller and native key-import acknowledgement before committing completion; timeout or replacement fails closed.

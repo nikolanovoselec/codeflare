@@ -336,6 +336,9 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
             set -eu
+            libpcre2_version=$(dpkg-query -W -f="\${Version}" libpcre2-8-0)
+            dpkg --compare-versions "$libpcre2_version" ge "10.42-1+deb12u2"
+            printf "libpcre2-8-0=%s\n" "$libpcre2_version"
             libde265_version=$(dpkg-query -W -f="\${Version}" libde265-0)
             dpkg --compare-versions "$libde265_version" ge "1.0.11-1+deb12u3"
             printf "libde265-0=%s\n" "$libde265_version"
