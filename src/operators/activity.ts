@@ -11,6 +11,7 @@ import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
+import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, type DispatcherAdmittedTarget } from './operator-runtime-capability';
 import { z } from 'zod';
@@ -1658,10 +1659,11 @@ export class OperatorActivity extends Agent {
         rejected('authority', 'unparsed', undefined, 403);
         return denied();
       }
-      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
-      preparationStep = 'capability';
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
+      const inferenceBytes = inferenceRequestBytes(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
+      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes));
+      preparationStep = 'capability';
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
       }

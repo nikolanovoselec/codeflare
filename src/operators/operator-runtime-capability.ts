@@ -5,6 +5,7 @@ import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup
   resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
+import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
@@ -70,11 +71,12 @@ export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): st
 export type DispatcherOperation = { operationId: string; path: string; body: unknown; signal?: AbortSignal };
 
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
-export async function parseDispatcherOperation(request: Request): Promise<DispatcherOperation> {
+export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES): Promise<DispatcherOperation> {
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
-  const value = JSON.parse(await readDispatcherBody(request, request.signal));
+  const value = JSON.parse(await readDispatcherBody(request, request.signal,
+    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : DEFAULT_SOURCE_RESPONSE_BYTES));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema

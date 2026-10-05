@@ -157,7 +157,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(mutations).not.toContain('/api/operator-management/operators/operator-1/installations');
   });
 
-  it('offers guided first installation, pins the exact release, and never enables it automatically', async () => {
+  it.each([undefined, Number.MAX_SAFE_INTEGER])('offers guided first installation, pins the exact release, and never enables it automatically', async inferenceRequestBytes => {
     const mutations: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -171,7 +171,8 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
         id: 'operator-1', name: 'Dispatcher', profile: 'dispatcher', realm: 'internal', enabled: false,
         revision: 1, repositoryId: 1, repositoryUrl: 'https://github.com/acme/dispatcher',
         managers: { users: ['manager@example.test'], groups: [] }, invokers: { users: [], groups: [] },
-        policy: { capabilities: ['inference'], resourceProfileId: null }, source: { kind: 'github-release',
+        policy: { capabilities: ['inference'], resourceProfileId: null,
+          ...(inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes }) }, source: { kind: 'github-release',
           repositoryUrl: 'https://github.com/acme/dispatcher', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null },
       }, releases: [{ id: 'release-1', operatorId: 'operator-1', githubReleaseId: 17,
         description: 'Read-only pull-request assessment.', sourceCommit: 'a'.repeat(40),
@@ -179,8 +180,15 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
       installations: [], grants: { managers: { users: ['manager@example.test'], groups: [] }, invokers: { users: [], groups: [] } } });
       if (request.method === 'POST') {
         mutations.push(path);
-        if (path.endsWith('/installations')) return response({ id: 'install-1', name: 'default', operatorId: 'operator-1',
-          releaseId: null, revision: 1, enabled: false, policy: { capabilities: ['inference'], resourceProfileId: null }, configuration: {} }, 201);
+        if (path.endsWith('/installations')) {
+          // Installation creation has a strict policy wire; inference bytes belong only to the operator.
+          const input = await request.json();
+          if (Object.hasOwn(input.policy, 'inferenceRequestBytes')) {
+            return response({ error: 'Invalid installation policy' }, 400);
+          }
+          return response({ id: 'install-1', name: 'default', operatorId: 'operator-1',
+            releaseId: null, revision: 1, enabled: false, policy: input.policy, configuration: {} }, 201);
+        }
         if (path.endsWith('/promote')) return response({ id: 'install-1', name: 'default', operatorId: 'operator-1',
           releaseId: 'release-1', revision: 2, enabled: false, policy: { capabilities: ['inference'], resourceProfileId: null }, configuration: {} });
       }
@@ -196,6 +204,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     await waitFor(() => expect(mutations).toEqual([
       '/api/operator-management/operators/operator-1/installations', '/api/operator-management/installations/install-1/promote']));
     expect(mutations).not.toContain('/api/operator-management/installations/install-1/enable');
+    await screen.findByText('Version installed — not enabled for new runs. Enable it separately when ready.');
   });
 
   it('switches views on ordinary navigation without changing the current tab on modified clicks', async () => {

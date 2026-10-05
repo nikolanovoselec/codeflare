@@ -8,6 +8,8 @@ const revision = z.number().int().positive();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const grantSchema = z.object({ users: z.array(z.string()).max(128),
   groups: z.array(z.object({ issuer: z.string(), id: z.string() })).max(128) });
+export const DEFAULT_INFERENCE_REQUEST_BYTES = 65_536;
+export const MAX_INFERENCE_REQUEST_BYTES = Number.MAX_SAFE_INTEGER;
 export const DEFAULT_SOURCE_RESPONSE_BYTES = 65_536;
 export const MAX_SOURCE_RESPONSE_BYTES = 1_048_576;
 const sourceResponseBytes = z.number().int().positive().optional();
@@ -19,7 +21,8 @@ const summarySchema = z.object({ id, name: z.string().optional(), description: z
   installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(), repositoryId: z.number().int().positive().optional(),
   profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), enabled: z.boolean() });
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
-  repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema, policy: policySchema,
+  repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema,
+  policy: policySchema.extend({ inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional() }),
   source: z.object({ kind: z.literal('github-release'), repositoryUrl: z.string(), repositoryId: z.number().int().positive(),
     credentialConfigured: z.boolean(), approvedWorkflow: z.object({ id: z.number().int().positive(), ref: z.string() }).nullable() }),
 });
@@ -76,7 +79,7 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
-export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number }) =>
+export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number }) =>
   request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.

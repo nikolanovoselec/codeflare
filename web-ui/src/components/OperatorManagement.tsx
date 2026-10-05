@@ -12,6 +12,8 @@ export interface OperatorManagementProps { userEmail?: string; isAdmin?: boolean
 const emptyGrant = (): api.ManagementGrant => ({ users: [], groups: [] });
 const emptyPolicy = (): api.ManagementPolicy => ({ capabilities: [], resourceProfileId: null });
 const sourceBytes = (value?: number) => value ?? api.DEFAULT_SOURCE_RESPONSE_BYTES;
+const inferenceBytes = (value?: number) => value ?? api.DEFAULT_INFERENCE_REQUEST_BYTES;
+const validInferenceBytes = (value?: number) => Number.isSafeInteger(inferenceBytes(value)) && inferenceBytes(value) >= 1;
 const validSourceBytes = (value: number | undefined, ceiling: number) => Number.isInteger(sourceBytes(value)) && sourceBytes(value) >= 1 && sourceBytes(value) <= ceiling;
 const sourceResponseHelp = 'Includes the HTTP envelope: response body and headers. Does not change request, inference, final-output or SDK history limits.';
 const SourceResponseField: Component<{ label: string; value?: number; max: number; onChange: (value: number) => void }> = props =>
@@ -378,6 +380,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [policy, setPolicy] = createSignal(emptyPolicy());
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
+  const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
   const [assessmentRepository, setAssessmentRepository] = createSignal('');
@@ -392,6 +395,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setManagers(props.detail.grants.managers); setInvokers(props.detail.grants.invokers);
     setOperatorCapabilities(props.detail.operator.policy.capabilities);
     setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
+    setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
   createEffect(() => {
@@ -412,7 +416,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     : 'Purpose available after selecting a verified version.';
   const environmentSourceMax = () => sourceBytes(props.choices?.ceiling.sourceResponseBytes);
   const installationSourceMax = () => Math.min(sourceBytes(operator().policy.sourceResponseBytes), environmentSourceMax());
-  const validOperatorSource = () => operator().profile !== 'dispatcher' || validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax());
+  const validOperatorSource = () => operator().profile !== 'dispatcher'
+    || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes()));
   const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
@@ -436,7 +441,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         // Create once, then pin. A lost response requires a manual current-state refresh,
         // never an automatic second create.
         const created = await api.createInstallation(operator().id, {
-          name: 'default', policy: operator().policy, revision: operator().revision,
+          name: 'default', policy: { capabilities: operator().policy.capabilities, resourceProfileId: operator().policy.resourceProfileId,
+            ...(operator().policy.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: operator().policy.sourceResponseBytes }) }, revision: operator().revision,
         });
         await api.promoteInstallation(created.id, chosen.id, created.revision);
       }
@@ -495,8 +501,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <form onSubmit={event => { event.preventDefault(); if (!validOperatorSource()) return; void props.perform(() => api.saveOperatorCapabilities(operator().id, {
           revision: operator().revision, capabilities: operatorCapabilities(),
           ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
+          ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
-          <legend>Operator capabilities</legend><p>Operator-wide limits come from Environment. Changing these disables enabled installations; review each installation before re-enabling.</p>
+          <legend>Operator capabilities</legend><p>Allowed actions and source-response ceilings come from Environment. Inference request size is operator-specific. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
           <div class="admin-checkbox-list"><For each={props.choices?.ceiling.capabilities ?? []}>{capability =>
             <label class="admin-toggle-field"><input type="checkbox" checked={operatorCapabilities().includes(capability)} onChange={event => setOperatorCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} />
               <span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>
@@ -504,7 +511,12 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setOperatorCapabilities(values => values.filter(value => value !== capability))} />
               <span>{capability} · unavailable under current Environment limit; remove before saving</span></label>
           }</For></div>
-          <Show when={operator().profile === 'dispatcher'}><SourceResponseField label="Operator source response limit (bytes)" value={operatorSourceResponseBytes()} max={environmentSourceMax()} onChange={setOperatorSourceResponseBytes} /></Show>
+          <Show when={operator().profile === 'dispatcher'}><SourceResponseField label="Operator source response limit (bytes)" value={operatorSourceResponseBytes()} max={environmentSourceMax()} onChange={setOperatorSourceResponseBytes} />
+            <label class="admin-form-field"><span>Inference request limit (bytes)</span><input aria-label="Inference request limit (bytes)" type="number" required min="1" step="1" max={api.MAX_INFERENCE_REQUEST_BYTES}
+              value={Number.isFinite(inferenceBytes(operatorInferenceRequestBytes())) ? inferenceBytes(operatorInferenceRequestBytes()) : ''}
+              onInput={event => setOperatorInferenceRequestBytes(event.currentTarget.valueAsNumber)} />
+              <small>Complete inference request body, including messages and tools. Source responses and final output keep their own limits. Platform limits still apply. Maximum: {api.MAX_INFERENCE_REQUEST_BYTES} bytes.</small></label>
+          </Show>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
         <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {

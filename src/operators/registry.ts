@@ -13,6 +13,7 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseOperatorPolicy } from './policy';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceResponseBytes } from './dispatcher-source-limits';
+import { inferenceRequestBytes as effectiveInferenceRequestBytes } from './dispatcher-inference-limits';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';
@@ -107,6 +108,7 @@ export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
 export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number }
+interface ManagementOperatorPolicy extends ManagementPolicy { inferenceRequestBytes?: number }
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
@@ -208,14 +210,14 @@ interface ManagementOperatorState {
   id: string; revision: number; repositoryUrl: string; repositoryId: number;
   githubPatCiphertext: string; profile: ManagementOperatorProfile; realm: ManagementOperatorRealm;
   managers: ManagementGrant; invokers: ManagementGrant;
-  policy: ManagementPolicy; approvedWorkflow: { id: number; ref: string };
+  policy: ManagementOperatorPolicy; approvedWorkflow: { id: number; ref: string };
   sourceRevision: number;
 }
 export interface ManagementOperatorProjection {
   id: string; operatorId: string; revision: number; repositoryUrl: string; repositoryId: number;
   name?: string; description?: string; installedGithubReleaseId?: number; installedTagName?: string; installedPublishedAt?: string; installationCount?: number;
   profile: ManagementOperatorProfile; realm: ManagementOperatorRealm; enabled: boolean;
-  managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy;
+  managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementOperatorPolicy;
   source: { kind: 'github-release'; repositoryUrl: string; repositoryId: number;
     credentialConfigured: boolean; approvedWorkflow: { id: number; ref: string } | null };
 }
@@ -1279,18 +1281,24 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
       const fence = this.managementFence(state, authority);
       if (fence) return fence;
+      if (inferenceRequestBytes !== undefined && (state!.profile !== 'dispatcher'
+        || !Number.isSafeInteger(inferenceRequestBytes) || inferenceRequestBytes < 1)) {
+        throw new ValidationError('Invalid operator inference request byte limit');
+      }
       const policy = { ...state!.policy, capabilities,
-        ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }) };
+        ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }),
+        ...(inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes }) };
       if (!this.withinManagementCeiling(policy)) throw new ValidationError('Operator capabilities exceed management ceiling');
       if (capabilities.length === state!.policy.capabilities.length
         && capabilities.every(value => state!.policy.capabilities.includes(value))
-        && effectiveSourceResponseBytes(policy) === effectiveSourceResponseBytes(state!.policy)) return { ok: true, value: this.saveManagement(state!) };
+        && effectiveSourceResponseBytes(policy) === effectiveSourceResponseBytes(state!.policy)
+        && effectiveInferenceRequestBytes(policy) === effectiveInferenceRequestBytes(state!.policy)) return { ok: true, value: this.saveManagement(state!) };
       const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
       for (const row of rows) {
         const installation = this.parseManagementInstallation(row.data);
