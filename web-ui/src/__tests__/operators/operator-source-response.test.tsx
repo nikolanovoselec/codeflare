@@ -12,7 +12,7 @@ let operator: ManagementDetail['operator'];
 let installation: ManagementDetail['installations'][number];
 let access: ManagementAccess;
 let rejectSave: boolean;
-let saved: { revision: number; policy?: ManagementDetail['operator']['policy']; configuration?: unknown; capabilities?: string[]; sourceResponseBytes?: number; ceiling?: ManagementAccess['ceiling']; managers?: ManagementAccess['managers'] };
+let saved: { revision: number; policy?: ManagementDetail['operator']['policy']; configuration?: unknown; capabilities?: string[]; sourceResponseBytes?: number; inferenceRequestBytes?: number; ceiling?: ManagementAccess['ceiling']; managers?: ManagementAccess['managers'] };
 let holdSave: Promise<void> | undefined;
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators');
@@ -33,7 +33,8 @@ beforeEach(() => {
       if (path.endsWith('/access')) { access = { ...access, ...saved, ceiling: saved.ceiling!, managers: saved.managers!, revision: access.revision + 1 }; return response(access); }
       if (path.endsWith('/capabilities')) {
         operator = { ...operator, revision: operator.revision + 1, policy: { ...operator.policy, capabilities: saved.capabilities!,
-          ...(saved.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: saved.sourceResponseBytes }) } };
+          ...(saved.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: saved.sourceResponseBytes }),
+          ...(saved.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: saved.inferenceRequestBytes }) } };
         if (installation.enabled) installation = { ...installation, revision: installation.revision + 1, enabled: false };
         return response(operator);
       }
@@ -54,6 +55,58 @@ async function open() {
 }
 
 describe('Dispatcher source response allowance', () => {
+  it('REQ-OPERATOR-045: operator inference bytes default without being added on an unrelated save', async () => {
+    await open();
+    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(65536);
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072 });
+  });
+
+  it('REQ-OPERATOR-045: operator inference maximum persists independently of installation source bytes', async () => {
+    await open();
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' }), {
+      target: { value: String(Number.MAX_SAFE_INTEGER) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072,
+      inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
+    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(Number.MAX_SAFE_INTEGER);
+    expect(screen.getByRole('spinbutton', { name: 'Installation source response limit (bytes)' })).toHaveValue(65536);
+    expect(installation.policy).toEqual(basePolicy);
+    expect(installation.releaseId).toBe(release.id);
+    expect(operator.managers).toEqual(grant);
+    expect(operator.invokers).toEqual(grant);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable for new runs' })).toBeEnabled());
+  });
+
+  it.each(['', '0', '-1', '1.5', String(Number.MAX_SAFE_INTEGER + 1)])('REQ-OPERATOR-045: invalid inference bytes %s prevent saving', async value => {
+    await open();
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' }), { target: { value } });
+    expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeDisabled();
+  });
+
+  it('REQ-OPERATOR-045: pending and stale inference edits require confirmed refresh', async () => {
+    let releaseSave!: () => void;
+    holdSave = new Promise(resolve => { releaseSave = resolve; });
+    await open();
+    const field = screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' });
+    fireEvent.input(field, { target: { value: '1048576' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    expect(field).toBeDisabled();
+    releaseSave();
+    await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toBeEnabled());
+    rejectSave = true;
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' }), { target: { value: '2097152' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh current state' }));
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(1048576));
+  });
+
   it('edits and persists installation bytes while preserving its other policy and configuration', async () => {
     const field = await open();
     expect(field).toHaveValue(65536);
@@ -163,6 +216,7 @@ describe('Dispatcher source response allowance', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
     await screen.findByRole('region', { name: 'Runtime permissions' });
     expect(screen.queryByRole('spinbutton', { name: /source response limit/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Inference request limit (bytes)' })).not.toBeInTheDocument();
   });
 
   it.each(['', '0', '1.5', '1048577'])('rejects Environment value %s outside the supported integer allowance', async value => {

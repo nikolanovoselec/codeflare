@@ -155,7 +155,7 @@ async function fixture(test: (f: {
   afterTargetRead: (action: () => void | Promise<void>) => void; revokeGrant: () => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
-  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string } = {}) {
+  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number } = {}) {
   callerSessionCurrent = true;
   const fixtureInvocation = options.prospective ? { repository: 'nikolanovoselec/komodo',
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
@@ -173,7 +173,8 @@ async function fixture(test: (f: {
     const fixtureOperatorId = options.prospective ? 'renovate-dispatcher' : 'operator';
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
-    operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] } },
+    operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
+      policy: { ...policy, ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
       ...(options.prospective ? { intentVersion: options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
@@ -1400,6 +1401,48 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(f.sent.map(r => r.method)).toEqual(['GET']);
   }));
+  it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => fixture(async f => {
+    await start(f);
+    const content = 'x'.repeat(contentBytes);
+    const response = await f.capability.fetch(genericWire('inference', {
+      operationId: 'configured-inference', input: { messages: [{ role: 'user', content }] },
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('data: [DONE]\n\n');
+    expect(f.sent[0].url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(f.sent[0].headers.has('authorization')).toBe(false);
+    expect(await f.sent[0].json()).toMatchObject({ messages: [{ role: 'user', content }] });
+    f.revoke();
+    expect((await f.capability.fetch(genericWire('inference', {
+      operationId: 'revoked-large-inference', input: { messages: [{ role: 'user', content }] },
+    }))).status).toBe(403);
+  }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER }));
+
+  it('REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries', async () => {
+    const body = { operationId: 'exact-inference', input: { messages: [{ role: 'user', content: '🙂'.repeat(30) }] } };
+    const bytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+    for (const limit of [bytes - 1, bytes]) await fixture(async f => {
+      await start(f);
+      expect((await f.capability.fetch(genericWire('inference', body))).status).toBe(limit === bytes ? 200 : 403);
+    }, { inferenceRequestBytes: limit });
+  });
+
+  it('REQ-OPERATOR-047: source response configuration and child fields cannot raise inference request bytes', async () => {
+    await fixture(async f => {
+      await start(f);
+      expect((await f.capability.fetch(genericWire('inference', { operationId: 'default-limit',
+        input: { messages: [{ role: 'user', content: 'x'.repeat(65537) }] } }))).status).toBe(403);
+      expect((await f.capability.fetch(genericWire('inference', { operationId: 'child-limit',
+        inferenceRequestBytes: Number.MAX_SAFE_INTEGER, input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(403);
+      expect((await f.capability.fetch(genericWire('inference', { operationId: 'valid-default',
+        input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
+    }, { sourceResponseBytes: 131072 });
+    await fixture(async f => {
+      await start(f);
+      expect((await f.capability.fetch(read('source-unchanged', { padding: 'x'.repeat(65537) }))).status).toBe(403);
+    }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
+  });
+
   it('routes bounded inference through the parent interceptor without forwarding child authority', () => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
