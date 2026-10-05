@@ -183,7 +183,7 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
         if (path.endsWith('/installations')) {
           // Installation creation has a strict policy wire; inference bytes belong only to the operator.
           const input = await request.json();
-          if (Object.hasOwn(input.policy, 'inferenceRequestBytes')) {
+          if (Object.prototype.hasOwnProperty.call(input.policy, 'inferenceRequestBytes')) {
             return response({ error: 'Invalid installation policy' }, 400);
           }
           return response({ id: 'install-1', name: 'default', operatorId: 'operator-1',
