@@ -1651,6 +1651,7 @@ export class OperatorActivity extends Agent {
     let sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES;
     let lease: DispatcherLease | undefined;
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
+    let preparationStep: 'parse' | 'capability' = 'parse';
     try {
       lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease) {
@@ -1658,6 +1659,7 @@ export class OperatorActivity extends Agent {
         return denied();
       }
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request));
+      preparationStep = 'capability';
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
@@ -1718,7 +1720,21 @@ export class OperatorActivity extends Agent {
       perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext,
         current: () => this.dispatcherGenerationCurrent(generation),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
-    } catch { return denied(); }
+    } catch (error) {
+      try {
+        const state = await this.ctx.storage.get<AdmissionState>('admission');
+        if (state) {
+          const failureClass = preparationStep === 'capability' ? 'authority-denied'
+            : error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit'
+              : error instanceof SyntaxError ? 'invalid-json'
+                : error instanceof z.ZodError ? 'invalid-wire' : 'request-denied';
+          // Fixed diagnostic wire only: no request, exception text or child identity.
+          dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
+            activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403 });
+        }
+      } catch { /* Observability cannot replace the original denial. */ }
+      return denied();
+    }
     const resource = operation.path === '/v1/dispatcher/inference' ? 'inference'
       : operation.path === '/v1/dispatcher/source' ? 'source'
       : operation.path === '/v1/dispatcher/github/comment' ? 'comment'

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-05
+
+- Classify pre-reservation Dispatcher denials with fixed, trusted diagnostics ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Preserve request limits, authorization,403 wire and lifecycle; logging outages cannot mask denial. No prior Activity cause or live acceptance is inferred.
+
 ## 2026-10-04
 
 - **Restrict current prospective Renovate journeys** ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan), [REQ-OPERATOR-062](operators.md#req-operator-062-repository-only-dispatcher-transport)). Activation requires the supported first-party intent3 contract. Repository-only journeys select effects within immutable parent-fenced singleton authority; legacy assessed-publication retains its separate gates. Controlled verification does not establish activation or live acceptance.
