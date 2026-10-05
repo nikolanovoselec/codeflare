@@ -13,7 +13,7 @@ import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin, type DispatcherAdmittedTarget } from './operator-runtime-capability';
+  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
@@ -1732,7 +1732,8 @@ export class OperatorActivity extends Agent {
                 : error instanceof z.ZodError ? 'invalid-wire' : 'request-denied';
           // Fixed diagnostic wire only: no request, exception text or child identity.
           dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
-            activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403 });
+            activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403,
+            ...(preparationStep === 'parse' && error instanceof z.ZodError ? dispatcherWireRules(error) : {}) });
         }
       } catch { /* Observability cannot replace the original denial. */ }
       return denied();

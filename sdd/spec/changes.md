@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-05
 
+- Refine strict Dispatcher wire rejection diagnostics ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)) to four closed validation-rule labels with truncation. Retain private trusted attribution, generic403 and all authority/byte/output bounds. Authentic pinned-SDK recovery RED verifies an unsupported10000-token alias; live causality remains unproved.
+
 - Clarify byte-limit ownership and failure tuning ([REQ-OPERATOR-045](operators.md#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-049](operators.md#req-operator-049-operators-management-interface)). Offer explicit 1 MiB draft recommendations within existing ceilings, without changing saved defaults or model context. Preserve authorization and disable/re-enable fences; hosted verification remains pending.
 
 - Make Dispatcher inference request bytes configurable per operator ([REQ-OPERATOR-045](operators.md#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-047](operators.md#req-operator-047-generic-directed-profile-admission)). Default65536; positive safe integers through `Number.MAX_SAFE_INTEGER`. Preserve source/response bounds, authority and exact-revision disable/re-enable fencing. Hosted verification and deployed acceptance remain pending.

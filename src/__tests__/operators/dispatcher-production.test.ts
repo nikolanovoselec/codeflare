@@ -1259,10 +1259,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     { name: 'invalid JSON', preparationStep: 'parse', failureClass: 'invalid-json',
       request: () => new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
         headers: { 'content-type': 'application/json' }, body: '{"PRIVATE_PROMPT":' }) },
-    { name: 'forged wire identity', preparationStep: 'parse', failureClass: 'invalid-wire',
+    { name: 'forged wire identity', preparationStep: 'parse', failureClass: 'invalid-wire', wireRules: ['envelope-field'],
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', activityId: 'CHILD_ACTIVITY', generation: 909,
         input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
-    { name: 'pinned SDK compaction wire', preparationStep: 'parse', failureClass: 'invalid-wire',
+    { name: 'pinned SDK compaction wire', preparationStep: 'parse', failureClass: 'invalid-wire', wireRules: ['inference-max-completion-tokens'],
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
         messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], max_completion_tokens: 16000 } }) },
     { name: 'unsupported method', preparationStep: 'parse', failureClass: 'request-denied',
@@ -1276,7 +1276,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
         messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
   ])('REQ-OPERATOR-063: preparation rejection $name preserves denial and private diagnostic wire',
-  ({ preparationStep, failureClass, request, capabilities, revoked }) => fixture(async f => {
+  ({ preparationStep, failureClass, request, capabilities, revoked, wireRules }) => fixture(async f => {
     await start(f);
     if (revoked) f.revoke();
     const emitted: string[] = [];
@@ -1293,7 +1293,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         data?: Record<string, unknown> }).find(value => value.module === 'dispatcher-settlement'
         && value.message === 'Dispatcher operation rejected' && value.data?.stage === 'preparation');
       expect(event?.data).toEqual({ stage: 'preparation', preparationStep, failureClass,
-        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403 });
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
+        ...(wireRules ? { wireRules, wireRulesTruncated: false } : {}) });
       expect(emitted.join('\n')).not.toMatch(/PRIVATE_|CHILD_ACTIVITY|private\.jwt|inline-secret|owner@example/);
       const detail = await f.activity.getBrowserDetail();
       expect(detail?.executionStatus).toBe('running');
@@ -1315,6 +1316,70 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(f.sent).toEqual([]);
       expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-logging-outage',
         url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+  it.each([
+    { name: 'missing messages', input: {}, rule: 'inference-messages-shape' },
+    { name: 'empty messages', input: { messages: [] }, rule: 'inference-messages-count' },
+    { name: 'message count', input: { messages: Array.from({ length: 129 }, () => ({ role: 'user', content: 'PRIVATE_PROMPT' })) }, rule: 'inference-messages-count' },
+    { name: 'message list shape', input: { messages: 'PRIVATE_PROMPT' }, rule: 'inference-messages-shape' },
+    { name: 'tool count', input: { messages: [{}], tools: Array.from({ length: 33 }, () => ({})) }, rule: 'inference-tools-count' },
+    { name: 'tool list shape', input: { messages: [{}], tools: 'PRIVATE_TOOL' }, rule: 'inference-tools-shape' },
+    { name: 'completion token field', input: { messages: [{}], max_completion_tokens: 16000 }, rule: 'inference-max-completion-tokens' },
+    { name: 'output token upper bound', input: { messages: [{}], max_tokens: 8193 }, rule: 'inference-token-bound' },
+    { name: 'output token lower bound', input: { messages: [{}], max_tokens: 0 }, rule: 'inference-token-bound' },
+    { name: 'output token shape', input: { messages: [{}], max_tokens: 1.5 }, rule: 'inference-token-shape' },
+    { name: 'temperature bound', input: { messages: [{}], temperature: 3 }, rule: 'inference-temperature' },
+    { name: 'stream shape', input: { messages: [{}], stream: 'PRIVATE_STREAM' }, rule: 'inference-stream' },
+    { name: 'stream options', input: { messages: [{}], stream_options: { include_usage: false } }, rule: 'inference-stream-options' },
+    { name: 'private nested option key', input: { messages: [{}], stream_options: { include_usage: true, PRIVATE_KEY: 'inline-secret' } }, rule: 'inference-stream-options' },
+    { name: 'private input key', input: { messages: [{}], PRIVATE_KEY: 'private.jwt' }, rule: 'inference-unsupported-field' },
+    { name: 'input shape', input: null, rule: 'inference-input' },
+  ])('REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority', ({ input, rule }) => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION', input }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual([]);
+      // Intentional diagnostic security contract: bounded fixed rule labels,
+      // trusted identity, and the unchanged generic public denial.
+      const event = emitted.map(value => JSON.parse(value) as { module: string; data?: Record<string, unknown> })
+        .find(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'preparation');
+      expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
+        wireRules: [rule], wireRulesTruncated: false });
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|owner@example|8193|16000/);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+      expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-rule-denial',
+        url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+  it('REQ-OPERATOR-063: bounds multiple rejected rules without retaining arbitrary issue paths or values', () => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION'.repeat(20), input: {
+        messages: Array.from({ length: 129 }, () => ({ content: 'PRIVATE_PROMPT' })),
+        tools: Array.from({ length: 33 }, () => ({})), max_tokens: 8193, temperature: 3,
+        stream: 'PRIVATE_STREAM', stream_options: { include_usage: false }, PRIVATE_KEY: 'inline-secret',
+      } }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual([]);
+      const event = emitted.map(value => JSON.parse(value) as { module: string; data?: Record<string, unknown> })
+        .find(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'preparation');
+      expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
+        wireRules: ['operation-id', 'inference-messages-count', 'inference-tools-count', 'inference-token-bound'], wireRulesTruncated: true });
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|8193|ZodError|too_big/);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }, { repositoryOnly: true }));
   it.each([
@@ -1443,15 +1508,26 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
   });
 
-  it('routes bounded inference through the parent interceptor without forwarding child authority', () => fixture(async f => {
+  it.each([undefined, 5120, 8192])('REQ-OPERATOR-047: routes bounded ordinary or canonical summary budget %s without forwarding child authority', budget => fixture(async f => {
     await start(f);
+    const messages = budget === undefined ? [{ role: 'user', content: 'assess' }]
+      : [{ role: 'system', content: 'Summarize the supplied research.' }, { role: 'user', content: 'Synthetic research context.' }];
     const response = await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
       method: 'POST', headers: { authorization: 'child-secret', 'content-type': 'application/json' },
-      body: JSON.stringify({ operationId: 'inference-1', input: { messages: [{ role: 'user', content: 'assess' }] } }),
+      body: JSON.stringify({ operationId: 'inference-1', input: { messages,
+        ...(budget === undefined ? {} : { max_tokens: budget }) } }),
     }));
     expect(response.status).toBe(200); expect(await response.text()).toBe('data: [DONE]\n\n');
     expect(f.sent[0].url).toBe('https://api.openai.com/v1/chat/completions');
     expect(f.sent[0].headers.has('authorization')).toBe(false);
+    // Parent output-limit/default injection and canonical forwarding are wire contracts.
+    const forwarded = await f.sent[0].json();
+    expect(forwarded).toMatchObject({ messages, max_tokens: budget ?? 8192 });
+    expect(forwarded).not.toHaveProperty('max_completion_tokens');
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    f.revoke();
+    expect((await f.capability.fetch(genericWire('inference', { operationId: 'revoked-summary',
+      input: { messages, max_tokens: 5120 } }))).status).toBe(403);
   }));
   it('denies foreign resources, unknown routes, oversized input and foreign/root scheduling while allowed reads work', () => fixture(async f => {
     await start(f); expect((await f.capability.fetch(read())).status).toBe(200);

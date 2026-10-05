@@ -70,6 +70,32 @@ export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): st
 
 export type DispatcherOperation = { operationId: string; path: string; body: unknown; signal?: AbortSignal };
 
+/** Closed private diagnostic labels only; never export Zod paths, keys or values. */
+export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; wireRulesTruncated: boolean } {
+  const rules = new Set<string>();
+  for (const issue of error.issues) {
+    const [field, option] = issue.path;
+    if (field === 'operationId') rules.add('operation-id');
+    else if (field === 'input') {
+      if (option === 'messages' || option === 'tools') {
+        const bound = issue.code === 'too_big' || issue.code === 'too_small';
+        rules.add(option === 'messages' ? (bound ? 'inference-messages-count' : 'inference-messages-shape')
+          : (bound ? 'inference-tools-count' : 'inference-tools-shape'));
+      } else if (option === 'max_tokens') {
+        rules.add(issue.code === 'too_big' || issue.code === 'too_small' ? 'inference-token-bound' : 'inference-token-shape');
+      } else if (option === 'temperature') rules.add('inference-temperature');
+      else if (option === 'stream') rules.add('inference-stream');
+      else if (option === 'stream_options') rules.add('inference-stream-options');
+      else if (issue.code === 'unrecognized_keys') {
+        if (issue.keys.includes('max_completion_tokens')) rules.add('inference-max-completion-tokens');
+        if (issue.keys.some(key => key !== 'max_completion_tokens')) rules.add('inference-unsupported-field');
+      } else rules.add('inference-input');
+    } else rules.add('envelope-field');
+    if (rules.size > 4) break;
+  }
+  return { wireRules: [...rules].slice(0, 4), wireRulesTruncated: rules.size > 4 };
+}
+
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES): Promise<DispatcherOperation> {
   const url = new URL(request.url);

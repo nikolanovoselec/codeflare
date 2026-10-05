@@ -468,8 +468,8 @@ jobs:
       DISPATCHER_NATIVE_SHA256: eba1de279d506003d897e4dd8a82a90e2fb659c5f66b0061c61c0862b765e266
       DISPATCHER_NATIVE_SOURCE_SHA: 5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7
       DISPATCHER_JOURNEY_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-journey-native.generated.json
-      DISPATCHER_JOURNEY_NATIVE_SHA256: d5557bb27f9807f0cfcd725571c4c7275e2bf7be780d307b7ddd79076d2517dc
-      DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA: 6966e9d0d5a8ac1df4f9efdc816f5352fdf49106
+      DISPATCHER_JOURNEY_NATIVE_SHA256: f59897e2c7d8cb71e34c48b044c2433f6b884bd221f4482484c45add607a8f6c
+      DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA: 62ffaf7cd2059a0ceb6b5bfa4157a5be96ae93a8
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
