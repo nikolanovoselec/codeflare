@@ -30,6 +30,11 @@ export class FixtureActivity extends OperatorActivity {
       || typeof status !== 'string' || typeof deadline !== 'number' || !Number.isFinite(deadline)) return null;
     return { generation, status, deadline };
   }
+  /** Fixture-owner read avoids transporting opaque checkpoint/result values over RPC. */
+  async journeySession(): Promise<{ sessionId: string | null } | null> {
+    const detail = await this.getBrowserDetail();
+    return detail ? { sessionId: detail.sessionId } : null;
+  }
   evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }
 

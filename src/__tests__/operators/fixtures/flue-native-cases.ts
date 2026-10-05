@@ -271,6 +271,23 @@ export function registerNativeDispatcherCases(
       }
     }
 
+    it('REQ-OPERATOR-048: repeated identical successful comment requests violate the exactly-one-comment observation contract', async () => {
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...await pinnedArtifact(true), journey: true,
+        researchBodyBytes: 131072 })).toMatchObject({ ok: true });
+      // The command helper verifies transport HTTP200; the envelope verifies
+      // synthetic source201. Both deliveries carry the same operation/input.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(await command(id, { action: 'journey-comment-request' })).toMatchObject({ status: 201 });
+      }
+      const observation = await command<NativeJourneyObservation>(id, { action: 'journey-observation' });
+      expect(observation.effects).toEqual({ commentRequests: 2, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      expect(observation.effects).not.toMatchObject({ commentRequests: 1, commentMatches: true });
+    }, 30_000);
+
     it('REQ-OPERATOR-048: ordinary repository-only SDK requests pass the real parser and complete one cited result without extra effects', async () => {
       const run = await runProducerJourney('ordinary', 25_000);
       expect(run.observation.wire.length).toBeGreaterThan(0);

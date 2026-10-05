@@ -52,6 +52,7 @@ export type FlueFixtureCommand =
       readonly admittedTarget?: string; readonly journeyFacts?: { createdAt: string; unrelatedCreatedAt: string };
       readonly journeyScenario?: NativeJourneyScenario; readonly admittedInferenceBytes?: 1048576 }
   | { action: 'journey-observation' }
+  | { action: 'journey-comment-request' }
   | { action: 'journey-updates'; submissionId: string; previous: DispatcherResultProjection }
   | { action: 'journey-diagnostic'; submissionId: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest?: number };
@@ -302,20 +303,13 @@ export class FlueDispatcherAgent extends Pinned {
 
   /** Recovery cases never export inference bodies, prompts or SDK private state. */
   async journeyObservation(): Promise<NativeJourneyObservation> {
-    const operations = Object.values(await this.ctx.storage.get<Record<string, { path: string;
-      body: { url?: string; method?: string; body?: string } }>>('fixture:journey-operations') ?? {});
-    const mutations = operations.filter(item => item.path === '/v1/dispatcher/source' && (item.body.method ?? 'GET') !== 'GET');
-    const comments = mutations.filter(item => item.body.url === 'https://api.github.com/repos/authorized/project/issues/17/comments'
-      && item.body.method === 'POST');
-    const comment = 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration';
-    const activity = await this.env.ACTIVITY.getByName(this.name).getBrowserDetail();
+    const effects = await this.ctx.storage.get<NativeJourneyObservation['effects']>('fixture:journey-effects')
+      ?? { commentRequests: 0, otherMutationRequests: 0, commentMatches: false, researchSourceRequests: 0 };
+    const activity = await this.env.ACTIVITY.getByName(this.name).journeySession();
     if (!activity) throw new Error('Fixture Activity observation unavailable');
     return {
       wire: await this.ctx.storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [],
-      effects: { commentRequests: comments.length, otherMutationRequests: mutations.length - comments.length,
-        commentMatches: comments.length === 1 && comments[0].body.body === JSON.stringify({ body: comment }),
-        researchSourceRequests: operations.filter(item => item.path === '/v1/dispatcher/source'
-          && item.body.url === 'https://docs.example.test/large-migration').length },
+      effects,
       sessionId: activity.sessionId,
       interruptionObserved: Boolean(await this.ctx.storage.get('fixture:journey-interruption')),
       retryIdentityMatched: await this.ctx.storage.get('fixture:journey-retry-matched') === true,
@@ -852,6 +846,24 @@ export class FlueDispatcherAgent extends Pinned {
           body = JSON.stringify(allowed[source.url]);
         }
       }
+      // Count each accepted synthetic upstream request, including identical IDs.
+      // The separate operation map remains solely the identity/conflict ledger.
+      const isComment = source.method === 'POST' && source.url === commentUrl;
+      const isMutation = (source.method ?? 'GET') !== 'GET';
+      const isResearch = !isMutation && source.url === researchUrl;
+      if (isMutation || isResearch) await this.ctx.storage.transaction(async storage => {
+        const effects = await storage.get<NativeJourneyObservation['effects']>('fixture:journey-effects')
+          ?? { commentRequests: 0, otherMutationRequests: 0, commentMatches: false, researchSourceRequests: 0 };
+        if (effects.commentRequests + effects.otherMutationRequests + effects.researchSourceRequests >= 128) {
+          throw new Error('Fixture source request observation bound exceeded');
+        }
+        if (isComment) {
+          effects.commentRequests++;
+          effects.commentMatches = effects.commentRequests === 1 && source.body === JSON.stringify({ body: comment });
+        } else if (isMutation) effects.otherMutationRequests++;
+        else effects.researchSourceRequests++;
+        await storage.put('fixture:journey-effects', effects);
+      });
       await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
       return Response.json({ url: source.url, status, headers: { 'content-type': 'application/json',
         ...(facts && source.url === `${pullsUrl}1` ? { link: `<${pullsUrl}2>; rel="next"` } : {}) }, body });
@@ -1180,6 +1192,17 @@ export async function flueFixture(request: Request, env: NativeEnv) {
       command.oversizedSourceMetadata, command.researchBodyBytes, command.admittedTarget, command.journeyFacts,
       command.journeyScenario, command.admittedInferenceBytes));
     case 'journey-observation': return Response.json(await root.journeyObservation());
+    case 'journey-comment-request': {
+      const binding = await root.facetBridgeBinding();
+      if (binding.status !== 'current') return new Response(null, { status: 403 });
+      return root.transport(new Request('https://fixture.internal/v1/dispatcher/source', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'repeated-comment-control', method: 'POST',
+          url: 'https://api.github.com/repos/authorized/project/issues/17/comments',
+          body: JSON.stringify({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration' }),
+        }),
+      }), binding.generation);
+    }
     case 'journey-updates': return Response.json(await root.journeyUpdates(command.submissionId, command.previous));
     case 'journey-diagnostic': return Response.json(await root.journeyDiagnostic(command.submissionId));
     case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,
