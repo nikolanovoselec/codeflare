@@ -71,12 +71,9 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   if (state.position && (next.batch < state.position.batch
     || (next.batch === state.position.batch && next.index <= state.position.index))) return;
   if (chunk.unmatchedAssessment === true) state.unmatchedAssessment = true;
-  if (chunk.diagnosticTruncated === true && ['tool-input', 'tool-output', 'tool-output-error', 'conversation-reset'].includes(chunk.type as string)) {
-    (state.completion ??= { calls: [], truncated: false }).truncated = true;
-  }
   if (chunk.type === 'conversation-reset') {
-    const snapshot = chunk.snapshot as { messages?: Array<{ id?: string; submissionId?: string;
-      parts?: Array<{ type?: string; data?: unknown; toolName?: string; toolCallId?: string; state?: string }> }>;
+    const snapshot = chunk.snapshot as { messages?: Array<{ id?: string; submissionId?: string; diagnosticTruncated?: boolean;
+      parts?: Array<{ type?: string; data?: unknown; toolName?: string; toolCallId?: string; state?: string; diagnosticTruncated?: boolean }> }>;
       settlements?: Array<{ submissionId?: string; outcome?: string; error?: unknown }> } | undefined;
     if (!snapshot || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.settlements)
       || (chunk.snapshot as { conversationId?: unknown }).conversationId !== chunk.conversationId) throw new Error('Dispatcher reset unavailable');
@@ -85,11 +82,13 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
       if (message.submissionId !== submissionId) continue;
       if (typeof message.id !== 'string' || !Array.isArray(message.parts)) throw new Error('Dispatcher reset message unavailable');
       state.messageIds.push(message.id);
+      if (message.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
       for (const part of message.parts) {
         if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
         if (part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher') {
           observeCompletion(state, part.toolCallId, part.state === 'output-available' ? 'succeeded'
             : part.state === 'output-error' ? 'failed' : 'pending');
+          if (part.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
         }
       }
     }
@@ -193,7 +192,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       if (path.at(-1) === 'toolName') {
         if (value !== 'finish_dispatcher') return;
       } else if (typeof value !== 'string' || !value || value.length > MAX_COMPLETION_ID_LENGTH) {
-        put(['diagnosticTruncated'], true, false);
+        if (path.length === 6) put([...path.slice(0, -1), 'diagnosticTruncated'], true, false);
         return;
       }
     }
@@ -239,9 +238,10 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         && frame.path[4] === 'parts') {
         const part = snapshotMessages()?.[frame.path[3] as number]?.parts?.[frame.path[5] as number] as Record<string, unknown> | undefined;
         if (part) {
-          if (part.toolName !== 'finish_dispatcher' || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
-            if (part.toolName === 'finish_dispatcher') put(['diagnosticTruncated'], true, false);
-            for (const field of diagnosticFields) delete part[field];
+          const completionPart = part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher';
+          if (!completionPart || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
+            if (completionPart) put(['snapshot', 'messages', frame.path[3], 'diagnosticTruncated'], true, false);
+            for (const field of [...diagnosticFields, 'diagnosticTruncated']) delete part[field];
           } else diagnosticParts++;
         }
       }

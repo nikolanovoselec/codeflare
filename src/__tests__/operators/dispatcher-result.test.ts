@@ -68,7 +68,38 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
       data, settled,
     ]), initial(), 'requested');
     expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(final.completion).toEqual({ calls: [], truncated: true });
     expect(JSON.stringify(final).length).toBeLessThan(1000);
+  });
+  it.each(['overflow', 'invalid-state'] as const)('REQ-OPERATOR-063: requested reset %s preserves truthful truncation and valid collection', async mode => {
+    const parts = Array.from({ length: mode === 'overflow' ? 40 : 1 }, (_, index) => ({
+      type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: `finish-${index}`,
+      state: mode === 'overflow' ? 'output-available' : false,
+    }));
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested',
+        parts: [...parts, { type: 'data-result', data: result }] }],
+      settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } })]), initial(), 'requested');
+    expect(final.completion).toEqual({ calls: parts.slice(0, 32).map(part => ({ id: part.toolCallId,
+      outcome: mode === 'overflow' ? 'succeeded' : 'pending' })), truncated: true });
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
+  it.each(['oversized', 'overflow'] as const)('REQ-OPERATOR-063: foreign reset %s and unrelated invalid metadata cannot mark completion truncation', async mode => {
+    const foreignParts = Array.from({ length: mode === 'overflow' ? 40 : 1 }, (_, index) => ({
+      type: 'dynamic-tool', toolName: 'finish_dispatcher',
+      toolCallId: mode === 'oversized' ? 'x'.repeat(257) : `foreign-${index}`, state: 'output-available',
+    }));
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [
+        // JSON member order must not grant foreign observations current-submission attribution.
+        { id: 'foreign', parts: foreignParts, submissionId: 'foreign' },
+        { id: 'answer', submissionId: 'requested', parts: [{ type: 'dynamic-tool', toolName: 'other_tool',
+          toolCallId: null, state: false }, { type: 'data-result', data: result }] },
+      ], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } })]), initial(), 'requested');
+    expect(final.completion).toBeUndefined();
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
   });
   it('REQ-OPERATOR-063: unassociated assessment is observable but cannot authorize a result', async () => {
     const final = await readDispatcherUpdates(response([start,
@@ -80,12 +111,14 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(final.result).toBeUndefined();
     expect(JSON.stringify(final)).not.toContain('PRIVATE_ASSESSMENT');
   });
-  it('REQ-OPERATOR-063: foreign and unrelated tools cannot create completion observations', async () => {
+  it.each(['short', 'oversized', 'invalid'] as const)('REQ-OPERATOR-063: foreign and unrelated tools cannot create completion observations (%s)', async mode => {
+    const foreignId = mode === 'short' ? 'foreign-finish' : mode === 'oversized' ? 'x'.repeat(257) : null;
+    const unrelatedId = mode === 'short' ? 'other-tool' : mode === 'oversized' ? 'y'.repeat(257) : null;
     const final = await readDispatcherUpdates(response([start,
-      event(1, { type: 'tool-input', messageId: 'foreign', toolCallId: 'foreign-finish', toolName: 'finish_dispatcher' }),
-      event(2, { type: 'tool-output', toolCallId: 'foreign-finish', output: 'PRIVATE_TOOL_OUTPUT' }),
-      event(3, { type: 'tool-input', messageId: 'answer', toolCallId: 'other-tool', toolName: 'PRIVATE_TOOL_NAME' }),
-      event(4, { type: 'tool-output-error', toolCallId: 'other-tool', errorText: 'PRIVATE_TOOL_ERROR' }),
+      event(1, { type: 'tool-input', messageId: 'foreign', toolCallId: foreignId, toolName: 'finish_dispatcher' }),
+      event(2, { type: 'tool-output', toolCallId: foreignId, output: 'PRIVATE_TOOL_OUTPUT' }),
+      event(3, { type: 'tool-input', messageId: 'answer', toolCallId: unrelatedId, toolName: 'PRIVATE_TOOL_NAME' }),
+      event(4, { type: 'tool-output-error', toolCallId: unrelatedId, errorText: 'PRIVATE_TOOL_ERROR' }),
       event(5, { type: 'data-part', messageId: 'answer', name: 'assessment', data: result }),
       event(6, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
     ]), initial(), 'requested');
