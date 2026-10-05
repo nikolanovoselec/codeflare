@@ -828,6 +828,9 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
 - Detailed preserved wire and fencing clauses remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 - Schema diagnostics expose at most four unique closed rule labels plus a truncation flag, never raw validation issues or arbitrary field names.
+- Reservation denials distinguish lease mismatch from operation exhaustion using transaction-observed lease and parent-owned Activity/generation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: reservation diagnostic wire reports) -->
+- Exhaustion reports journal count and unchanged128-operation limit; existing receipts, conflicts and unknown-effect resolution retain their admission order. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution) -->
+- Reservation logging outages preserve generic403, lifecycle and original authority, even through the owner transport. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner reservation logging outage preserves) -->
 
 **Priority:** P0
 

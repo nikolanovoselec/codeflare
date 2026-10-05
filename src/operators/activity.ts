@@ -1747,7 +1747,8 @@ export class OperatorActivity extends Agent {
     const reserved = await this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!this.#leaseMatches(record, lease, generation)) return { kind: 'denied' } as const;
+      if (!this.#leaseMatches(record, lease, generation)) return { kind: 'denied', reason: 'lease-mismatch',
+        activityId: record?.intent.activityId, lease } as const;
       const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
       const prior = Object.hasOwn(operations, operation.operationId) ? operations[operation.operationId] : undefined;
       if (prior) {
@@ -1761,7 +1762,9 @@ export class OperatorActivity extends Agent {
         await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
         return { kind: 'unknown', lease: lease! } as const;
       }
-      if (Object.keys(operations).length >= 128) return { kind: 'denied' } as const;
+      const operationCount = Object.keys(operations).length;
+      if (operationCount >= 128) return { kind: 'denied', reason: 'operation-limit',
+        activityId: record!.intent.activityId, lease, operationCount } as const;
       await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
         generation, requestDigest, phase: 'reserved', ordinal: Object.keys(operations).length, ...(operation.path === '/v1/dispatcher/source'
           ? { request: { method: (operation.body as { method?: 'GET' | 'POST' | 'PUT' }).method ?? 'GET',
@@ -1769,7 +1772,12 @@ export class OperatorActivity extends Agent {
       return { kind: 'reserved', lease: lease! } as const;
     });
     if (reserved.kind === 'denied') {
-      rejected('reservation', resource, lease, 403);
+      try {
+        dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
+          ...(reserved.activityId === undefined ? {} : { activityId: reserved.activityId }), generation,
+          resource, deadline: deadline(reserved.lease), status: 403,
+          ...(reserved.reason === 'operation-limit' ? { operationCount: reserved.operationCount, operationLimit: 128 } : {}) });
+      } catch { /* Observability cannot replace the original denial. */ }
       return denied();
     }
     if (reserved.kind === 'conflict') {
