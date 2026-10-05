@@ -1195,7 +1195,7 @@ export async function flueFixture(request: Request, env: NativeEnv) {
     case 'journey-comment-request': {
       const binding = await root.facetBridgeBinding();
       if (binding.status !== 'current') return new Response(null, { status: 403 });
-      return root.transport(new Request('https://fixture.internal/v1/dispatcher/source', {
+      return root.transport(new Request('https://operator.internal/v1/dispatcher/source', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operationId: 'repeated-comment-control', method: 'POST',
           url: 'https://api.github.com/repos/authorized/project/issues/17/comments',
