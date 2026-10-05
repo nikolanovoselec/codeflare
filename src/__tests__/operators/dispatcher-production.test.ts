@@ -33,6 +33,162 @@ const genericWire = (path: string, body: unknown) => new Request(`https://operat
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 
+describe('REQ-OPERATOR-063: reservation denial private wire', () => {
+  const sourceUrl = 'https://api.github.com/repos/another/service';
+  const inference = (operationId: string) => genericWire('inference', { operationId,
+    input: { messages: [{ role: 'user', content: 'PRIVATE_RESERVATION_CONTENT {"activityId":"forged","generation":999}' }] } });
+  const receipt = async (f: DispatcherFixture, operationId: string) => {
+    const response = await f.capability.fetch(genericWire('receipt', { operationId }));
+    expect(response.status).toBe(200);
+    return await response.json() as { operationCount: number; operationLimit: number;
+      requestDigest: string; responseDigest: string; phase: string };
+  };
+  const fillReads = async (f: DispatcherFixture, count: number) => {
+    for (let index = 0; index < count; index++) {
+      const response = await f.capability.fetch(genericWire('source', { operationId: `capacity-read-${index}`, url: sourceUrl }));
+      expect(response.status).toBe(200);
+      const value = await response.json() as { status: number; body: string };
+      expect(value.status).toBe(200);
+      expect(JSON.parse(value.body)).toMatchObject({ number: 17 });
+    }
+  };
+  const fillMixedJournal = async (f: DispatcherFixture) => {
+    await fillReads(f, 127);
+    const response = await f.capability.fetch(inference('capacity-inference'));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('data: [DONE]\n\n');
+    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 128, operationLimit: 128 });
+  };
+  const reservationEvents = (events: string[]) => events.map(value => JSON.parse(value) as {
+    module: string; data: Record<string, unknown>;
+  }).filter(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'reservation').map(value => value.data);
+
+  it.each(['source', 'inference'] as const)(
+    'REQ-OPERATOR-063: reservation diagnostic wire reports operation-limit for %s without child content', resource => fixture(async f => {
+      await start(f);
+      await fillMixedJournal(f);
+      const before = await f.activity.getBrowserDetail();
+      const outbound = [...f.sent];
+      const events: string[] = [];
+      setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+      try {
+        const operationId = 'PRIVATE_RESERVATION_OPERATION';
+        const response = await f.capability.fetch(resource === 'inference' ? inference(operationId)
+          : genericWire('source', { operationId, url: sourceUrl, method: 'POST',
+            body: '{"activityId":"forged","generation":999,"content":"PRIVATE_RESERVATION_CONTENT"}' }));
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+        // Intentional private diagnostic wire: reason is the actual transaction branch, not an inferred SDK failure.
+        expect(reservationEvents(events)).toEqual([{ stage: 'reservation', reason: 'operation-limit',
+          activityId: f.activityId, generation: 1, resource, deadline: 'current', status: 403,
+          operationCount: 128, operationLimit: 128 }]);
+        expect(events.join('')).not.toContain('PRIVATE_RESERVATION');
+        expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 128, operationLimit: 128 });
+        expect((await f.capability.fetch(genericWire('receipt', { operationId }))).status).toBe(403);
+        expect(f.sent).toEqual(outbound);
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: before!.result,
+          cleanupStatus: before!.cleanupStatus, collectionStatus: before!.collectionStatus });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }, { repositoryOnly: true }));
+
+  it('REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution', () => fixture(async f => {
+    await start(f);
+    await fillReads(f, 125);
+    const comments = `${sourceUrl}/issues/17/comments`;
+    const completed = { operationId: 'capacity-comment', method: 'POST', url: comments, body: '{"body":"completed judgment"}' };
+    const unknown = { ...completed, operationId: 'capacity-unknown', body: '{"body":"uncertain judgment"}' };
+    const posted = await f.capability.fetch(genericWire('source', completed));
+    expect(posted.status).toBe(200);
+    const postedBody = await posted.json();
+    f.loseResponse();
+    expect(await (await f.capability.fetch(genericWire('source', unknown))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport();
+    const observed = await f.capability.fetch(genericWire('source', { operationId: 'capacity-readback', url: comments }));
+    expect(observed.status).toBe(200);
+    expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ body: 'completed judgment' }), expect.objectContaining({ body: 'uncertain judgment' }),
+    ]));
+    const original = await receipt(f, unknown.operationId);
+    const readback = await receipt(f, 'capacity-readback');
+    expect(original).toMatchObject({ operationCount: 128, operationLimit: 128, phase: 'unknown' });
+    const outbound = [...f.sent];
+    expect(await (await f.capability.fetch(genericWire('source', completed))).json()).toEqual(postedBody);
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+    const conflict = await f.capability.fetch(genericWire('source', { ...completed, body: '{"body":"changed judgment"}' }));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+    const uncertain = await f.capability.fetch(genericWire('source', unknown));
+    expect(uncertain.status).toBe(409);
+    expect(await uncertain.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    const resolution = { operationId: unknown.operationId, requestDigest: original.requestDigest,
+      readbacks: [{ operationId: 'capacity-readback', requestDigest: readback.requestDigest, responseDigest: readback.responseDigest }] };
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const resolved = await f.capability.fetch(genericWire('resolve', resolution));
+      expect(resolved.status).toBe(200);
+      expect(await resolved.json()).toEqual({ resolved: true, operationId: unknown.operationId, requestDigest: original.requestDigest });
+    }
+    expect(await receipt(f, unknown.operationId)).toMatchObject({ operationCount: 128, operationLimit: 128, phase: 'completed' });
+    expect(f.sent).toEqual(outbound);
+    const denied = await f.capability.fetch(inference('new-at-capacity'));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+  }, { repositoryOnly: true }));
+
+  it('REQ-OPERATOR-063: reservation diagnostic wire reports lease-mismatch after concurrent cancellation without protected I/O', () => fixture(async f => {
+    await start(f);
+    let cancelled: Awaited<ReturnType<OperatorActivity['getBrowserDetail']>> = null;
+    let alarm: number | null | undefined;
+    f.afterRegistryResolve(async () => { await f.activity.cancelDrive(); cancelled = await f.activity.getBrowserDetail(); alarm = await f.nextAlarm(); });
+    const events: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(inference('PRIVATE_LEASE_OPERATION'));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(reservationEvents(events)).toEqual([{ stage: 'reservation', reason: 'lease-mismatch',
+        activityId: f.activityId, generation: 1, resource: 'inference', deadline: 'current', status: 403 }]);
+      expect(events.join('')).not.toContain('PRIVATE_');
+      expect(f.sent).toEqual([]);
+      expect(cancelled).toBeDefined();
+      expect(await f.activity.getBrowserDetail()).toEqual(cancelled);
+      expect(await f.nextAlarm()).toBe(alarm);
+      expect((await f.capability.fetch(inference('old-capability'))).status).toBe(403);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+
+  it.each(['operation-limit', 'lease-mismatch'] as const)(
+    'REQ-OPERATOR-063: owner reservation logging outage preserves %s denial lifecycle and original authority', reason => fixture(async f => {
+      await start(f);
+      let baseline = await f.activity.getBrowserDetail();
+      let alarm = await f.nextAlarm();
+      if (reason === 'operation-limit') { await fillMixedJournal(f); baseline = await f.activity.getBrowserDetail(); }
+      else f.afterRegistryResolve(async () => { await f.activity.cancelDrive(); baseline = await f.activity.getBrowserDetail(); alarm = await f.nextAlarm(); });
+      const outbound = [...f.sent];
+      setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGING_OUTAGE'); });
+      try {
+        // Owner public transport, not the capability's outer catch: the original denial must resolve even when logging throws.
+        const response = await f.activity.dispatcherOperation(1, inference('outage-denied'));
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+        expect(f.sent).toEqual(outbound);
+        expect(await f.activity.getBrowserDetail()).toEqual(baseline);
+        expect(await f.nextAlarm()).toBe(alarm);
+        spy.mockImplementation(() => {});
+        if (reason === 'operation-limit') {
+          expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 128, operationLimit: 128 });
+          expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+        }
+        expect((await f.capability.fetch(inference('still-denied'))).status).toBe(403);
+        f.expire();
+        expect((await f.capability.fetch(inference('expired-original-authority'))).status).toBe(403);
+        expect(f.sent).toEqual(outbound);
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }, { repositoryOnly: true }));
+});
+
 describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
   it('exposes the configured API origin only to repository-only Loader code', async () => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -153,6 +309,7 @@ async function fixture(test: (f: {
   changeRegistration: (patch: Partial<CurrentProspectiveRegistration> | null) => void;
   changeTarget: (patch: Record<string, unknown>) => void;
   afterTargetRead: (action: () => void | Promise<void>) => void; revokeGrant: () => void;
+  afterRegistryResolve: (action: () => Promise<void>) => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number } = {}) {
@@ -199,6 +356,7 @@ async function fixture(test: (f: {
       sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt' };
     let targetPatch: Record<string, unknown> = {};
     let afterTargetRead: (() => void | Promise<void>) | undefined;
+    let afterRegistryResolve: (() => Promise<void>) | undefined;
     let revoked = false;
     let settlements: unknown[] = [];
     let messages: unknown[] = [];
@@ -375,7 +533,11 @@ async function fixture(test: (f: {
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
     const registry = { getManagementBundle: async () => bytes,
-      resolveManagementExecution: async () => revoked ? { ok: false, reason: 'disabled' } : { ok: true, value: selection },
+      resolveManagementExecution: async () => {
+        const action = afterRegistryResolve; afterRegistryResolve = undefined;
+        await action?.();
+        return revoked ? { ok: false, reason: 'disabled' } : { ok: true, value: selection };
+      },
       admitManagement: async (input: unknown) => ({ ok: true, value: { ...input as object, admittedAt: now, selection } }),
       upsertOwnedActivity: async () => {},
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
@@ -428,6 +590,7 @@ async function fixture(test: (f: {
         changeRegistration: patch => { currentRegistration = patch === null ? null : { ...currentRegistration!, ...patch }; },
         changeTarget: patch => { targetPatch = { ...targetPatch, ...patch }; },
         afterTargetRead: action => { afterTargetRead = action; },
+        afterRegistryResolve: action => { afterRegistryResolve = action; },
         revokeGrant: () => { selection.operator.invokers.users = []; },
         messages: value => { streamBatch++; messages = value; messagesSet = true; },
         sourceBody: value => { sourceBody = value; },
