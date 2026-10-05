@@ -12,6 +12,87 @@ const data = event(3, { type: 'data-part', messageId: 'answer', name: 'assessmen
 const settled = event(4, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' });
 
 describe('Dispatcher exact-submission public Flue updates contract', () => {
+  // Intentional SDK diagnostic wire: closed outcomes, never tool inputs/outputs/errors.
+  it.each(['tool-output', 'tool-output-error'])('REQ-OPERATOR-063: observes completion %s across pages without retaining private payloads', async type => {
+    const requested = event(1, { type: 'tool-input', messageId: 'answer', toolCallId: 'finish-1',
+      toolName: 'finish_dispatcher', input: { secret: 'PRIVATE_TOOL_INPUT' } });
+    const first = await readDispatcherUpdates(response([start, requested], 'first'), initial(), 'requested');
+    expect(Reflect.get(first, 'completion')).toEqual({ calls: [{ id: 'finish-1', outcome: 'pending' }], truncated: false });
+    const outcome = event(2, { type, toolCallId: 'finish-1', output: 'PRIVATE_TOOL_OUTPUT', errorText: 'PRIVATE_TOOL_ERROR' });
+    const final = await readDispatcherUpdates(response([outcome, data, settled]), first, 'requested');
+    expect(Reflect.get(final, 'completion')).toEqual({ calls: [{ id: 'finish-1',
+      outcome: type === 'tool-output' ? 'succeeded' : 'failed' }], truncated: false });
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_TOOL');
+    const repeated = await readDispatcherUpdates(response([outcome, data, settled]), final, 'requested');
+    expect(repeated).toEqual(final);
+  });
+  it('REQ-OPERATOR-063: reconstructs completion metadata only for the requested submission at an SDK reset', async () => {
+    const reset = event(5, { type: 'conversation-reset', snapshot: { conversationId: 'conversation', messages: [
+      { id: 'foreign', submissionId: 'foreign', parts: [{ type: 'dynamic-tool', toolName: 'finish_dispatcher',
+        toolCallId: 'foreign-finish', state: 'output-error', errorText: 'PRIVATE_TOOL_ERROR' }] },
+      { id: 'answer', submissionId: 'requested', parts: [{ type: 'dynamic-tool', toolName: 'finish_dispatcher',
+        toolCallId: 'finish-1', state: 'output-available', output: 'PRIVATE_TOOL_OUTPUT' }, { type: 'data-result', data: result }] },
+    ], settlements: [{ submissionId: 'requested', outcome: 'completed' }] } });
+    const final = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+    expect(Reflect.get(final, 'completion')).toEqual({ calls: [{ id: 'finish-1', outcome: 'succeeded' }], truncated: false });
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(JSON.stringify(final)).not.toMatch(/PRIVATE_TOOL|foreign-finish/);
+  });
+  it('REQ-OPERATOR-063: later compaction cannot erase a previously observed completion outcome', async () => {
+    const first = await readDispatcherUpdates(response([start,
+      event(1, { type: 'tool-input', messageId: 'answer', toolCallId: 'finish-1', toolName: 'finish_dispatcher' }),
+      event(2, { type: 'tool-output-error', toolCallId: 'finish-1', errorText: 'PRIVATE_TOOL_ERROR' }),
+    ]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested', parts: [] }], settlements: [],
+    } })]), first, 'requested');
+    expect(Reflect.get(final, 'completion')).toEqual({ calls: [{ id: 'finish-1', outcome: 'failed' }], truncated: false });
+    expect(final.result).toBeUndefined();
+  });
+  it('REQ-OPERATOR-063: caps completion observations without denying valid result collection', async () => {
+    const inputs = Array.from({ length: 40 }, (_, index) => event(index + 1, { type: 'tool-input', messageId: 'answer',
+      toolName: 'finish_dispatcher', toolCallId: `finish-${index}` }));
+    const final = await readDispatcherUpdates(response([start, ...inputs,
+      event(41, { ...data, position: undefined }), event(42, { ...settled, position: undefined }),
+    ].map((item, index) => ({ ...item, position: { batch: 1, index } }))), initial(), 'requested');
+    const diagnostics = Reflect.get(final, 'completion') as { calls: unknown[]; truncated: boolean };
+    expect(diagnostics.calls).toHaveLength(32);
+    expect(diagnostics.truncated).toBe(true);
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-063: oversized diagnostic metadata cannot deny an otherwise valid assessment', async () => {
+    const final = await readDispatcherUpdates(response([start,
+      event(1, { type: 'tool-input', messageId: 'answer', toolName: 'finish_dispatcher', toolCallId: 'x'.repeat(100000) }),
+      event(2, { type: 'tool-input', messageId: 'answer', toolName: 'x'.repeat(100000), toolCallId: 'unrelated' }),
+      data, settled,
+    ]), initial(), 'requested');
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(JSON.stringify(final).length).toBeLessThan(1000);
+  });
+  it('REQ-OPERATOR-063: unassociated assessment is observable but cannot authorize a result', async () => {
+    const final = await readDispatcherUpdates(response([start,
+      event(1, { type: 'data-part', messageId: 'unknown-message', name: 'assessment', data: { private: 'PRIVATE_ASSESSMENT' } }),
+      settled,
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'unmatchedAssessment')).toBe(true);
+    expect(final).toMatchObject({ writes: 0, outcome: 'completed' });
+    expect(final.result).toBeUndefined();
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_ASSESSMENT');
+  });
+  it('REQ-OPERATOR-063: foreign and unrelated tools cannot create completion observations', async () => {
+    const final = await readDispatcherUpdates(response([start,
+      event(1, { type: 'tool-input', messageId: 'foreign', toolCallId: 'foreign-finish', toolName: 'finish_dispatcher' }),
+      event(2, { type: 'tool-output', toolCallId: 'foreign-finish', output: 'PRIVATE_TOOL_OUTPUT' }),
+      event(3, { type: 'tool-input', messageId: 'answer', toolCallId: 'other-tool', toolName: 'PRIVATE_TOOL_NAME' }),
+      event(4, { type: 'tool-output-error', toolCallId: 'other-tool', errorText: 'PRIVATE_TOOL_ERROR' }),
+      event(5, { type: 'data-part', messageId: 'answer', name: 'assessment', data: result }),
+      event(6, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'completion')).toBeUndefined();
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_TOOL');
+  });
   it('accepts pinned SDK page checkpoints and retains immutable stream identity across reads', async () => {
     const checkpoint = { type: 'stream-checkpoint', incarnation: 'original-stream' };
     const first = await readDispatcherUpdates(response([checkpoint, start, data]), initial(), 'requested');

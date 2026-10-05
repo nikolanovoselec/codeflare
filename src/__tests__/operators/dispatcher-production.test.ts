@@ -1206,6 +1206,67 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
   }));
+  it.each(['not-observed', 'succeeded', 'failed'] as const)(
+    'REQ-OPERATOR-063: terminal diagnostic wire distinguishes %s completion from a missing assessment without accepting it', state => fixture(async f => {
+      await start(f);
+      const parts: unknown[] = [{ type: 'text', text: 'PRIVATE_MODEL_TEXT' }];
+      if (state !== 'not-observed') parts.push({ type: 'dynamic-tool', toolName: 'finish_dispatcher',
+        toolCallId: 'PRIVATE_TOOL_IDENTIFIER', state: state === 'succeeded' ? 'output-available' : 'output-error',
+        output: 'PRIVATE_TOOL_OUTPUT', errorText: 'PRIVATE_TOOL_ERROR' });
+      f.messages([{ submissionId: 'submission-1', parts }]);
+      const emitted: string[] = [];
+      setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      try {
+        f.settle(); await f.activity.reconcileDispatcherLease();
+        const events = emitted.map(value => JSON.parse(value) as { module: string; message: string; data?: Record<string, unknown> })
+          .filter(value => value.module === 'dispatcher-settlement' && value.message === 'Dispatcher settlement observed');
+        expect(events).toHaveLength(1);
+        expect(events[0].data).toEqual({ activityId: f.activityId, generation: 1, outcome: 'completed',
+          projectedWrites: 0, assessmentPresent: false, messageCount: 1,
+          completionCalls: state === 'not-observed' ? 0 : 1, completionSucceeded: state === 'succeeded' ? 1 : 0,
+          completionFailed: state === 'failed' ? 1 : 0, completionPending: 0,
+          completionTruncated: false, unmatchedAssessment: false });
+        expect(emitted.join('')).not.toContain('PRIVATE_');
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }),
+  );
+  it('REQ-OPERATOR-063: terminal diagnostic wire confirms an observed assessment without exposing it', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40), private: 'PRIVATE_ASSESSMENT_CONTENT' };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: 'PRIVATE_TOOL_IDENTIFIER', state: 'output-available', output: assessment },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const event = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+        .find(value => value.message === 'Dispatcher settlement observed');
+      expect(event?.data).toMatchObject({ activityId: f.activityId, generation: 1, outcome: 'completed',
+        projectedWrites: 1, assessmentPresent: true, completionCalls: 1, completionSucceeded: 1 });
+      expect(emitted.join('')).not.toContain('PRIVATE_');
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it('REQ-OPERATOR-063: unavailable terminal diagnostic logging cannot prevent valid collection or SDK release', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGING_FAILURE'); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
   it('fences a completed model turn with no submitted assessment instead of advertising waiting', () => fixture(async f => {
     await start(f);
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'text', text: 'Assessment incomplete' }] }]);

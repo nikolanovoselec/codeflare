@@ -251,6 +251,10 @@ export function registerNativeDispatcherCases(
     function assertCitedCompletion(run: Awaited<ReturnType<typeof runProducerJourney>>) {
       const comment = 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration';
       expect(run.projection).toMatchObject({ outcome: 'completed', writes: 1 });
+      // Intentional diagnostic wire, observed from the authentic pinned SDK's public stream.
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'succeeded' })], truncated: false,
+      });
       expect(run.projection.result).toEqual({ repository: 'authorized/project', results: [{
         ...run.target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
       }] });
