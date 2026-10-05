@@ -1249,6 +1249,74 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(f.sent.map(r => r.method)).toEqual(['GET']);
   }));
   it.each([
+    { name: 'oversized inference', preparationStep: 'parse', failureClass: 'body-limit',
+      request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
+        messages: [{ role: 'user', content: 'PRIVATE_PROMPT'.repeat(6000) }] } }) },
+    { name: 'oversized source', preparationStep: 'parse', failureClass: 'body-limit',
+      request: () => genericWire('source', { operationId: 'PRIVATE_OPERATION', method: 'POST',
+        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: 'PRIVATE_BODY'.repeat(6000) }) },
+    { name: 'invalid JSON', preparationStep: 'parse', failureClass: 'invalid-json',
+      request: () => new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: '{"PRIVATE_PROMPT":' }) },
+    { name: 'forged wire identity', preparationStep: 'parse', failureClass: 'invalid-wire',
+      request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', activityId: 'CHILD_ACTIVITY', generation: 909,
+        input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
+    { name: 'pinned SDK compaction wire', preparationStep: 'parse', failureClass: 'invalid-wire',
+      request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
+        messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], max_completion_tokens: 16000 } }) },
+    { name: 'unsupported method', preparationStep: 'parse', failureClass: 'request-denied',
+      request: () => new Request('https://operator.internal/v1/dispatcher/inference', { method: 'GET' }) },
+    { name: 'unsupported route', preparationStep: 'parse', failureClass: 'request-denied',
+      request: () => genericWire('PRIVATE_ROUTE', { operationId: 'PRIVATE_OPERATION' }) },
+    { name: 'missing inference capability', preparationStep: 'capability', failureClass: 'authority-denied', capabilities: ['fetch'],
+      request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
+        messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
+    { name: 'changed installation', preparationStep: 'capability', failureClass: 'authority-denied', revoked: true,
+      request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
+        messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
+  ])('REQ-OPERATOR-063: preparation rejection $name preserves denial and private diagnostic wire',
+  ({ preparationStep, failureClass, request, capabilities, revoked }) => fixture(async f => {
+    await start(f);
+    if (revoked) f.revoke();
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(request());
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual([]);
+      // REQ-OPERATOR-063 intentional security/observability wire: fixed categories,
+      // trusted correlation and no child identity, exception, request or credential data.
+      const event = emitted.map(value => JSON.parse(value) as { module: string; message: string;
+        data?: Record<string, unknown> }).find(value => value.module === 'dispatcher-settlement'
+        && value.message === 'Dispatcher operation rejected' && value.data?.stage === 'preparation');
+      expect(event?.data).toEqual({ stage: 'preparation', preparationStep, failureClass,
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403 });
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|CHILD_ACTIVITY|private\.jwt|inline-secret|owner@example/);
+      const detail = await f.activity.getBrowserDetail();
+      expect(detail?.executionStatus).toBe('running');
+      expect(detail?.result).toBeNull();
+      if (!revoked) expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-denial',
+        url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true, capabilities }));
+  it('REQ-OPERATOR-063: preparation logging outage preserves denial and later authorized work', () => fixture(async f => {
+    await start(f);
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw Error('PRIVATE_LOGGING_FAILURE'); });
+    try {
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION',
+        input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], actor: 'CHILD_ACTIVITY' } }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      expect(f.sent).toEqual([]);
+      expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-logging-outage',
+        url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+  it.each([
     { name: 'conflict', stage: 'reservation', resource: 'files', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
         await f.capability.fetch(read('diagnostic-conflict'));
