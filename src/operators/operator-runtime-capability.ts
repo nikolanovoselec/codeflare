@@ -5,6 +5,7 @@ import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup
   resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
+import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
@@ -14,7 +15,13 @@ import { parseOperatorPolicy } from './policy';
 import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
-import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
+import { prospectiveRenovatePackageSupported, prospectiveRenovateTimestamp,
+  type OperatorAdmissionReceipt, type ManagementAdmissionReceipt } from './registry';
+
+export interface DispatcherAdmittedTarget {
+  repository: string; repositoryId: number; pullRequest: number; headSha: string;
+  createdAt: string; createdAfter: string; baseBranch: string;
+}
 
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherSourceSchema = z.strictObject({ operationId: dispatcherOperationId,
@@ -64,11 +71,12 @@ export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): st
 export type DispatcherOperation = { operationId: string; path: string; body: unknown; signal?: AbortSignal };
 
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
-export async function parseDispatcherOperation(request: Request): Promise<DispatcherOperation> {
+export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES): Promise<DispatcherOperation> {
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
-  const value = JSON.parse(await readDispatcherBody(request, request.signal));
+  const value = JSON.parse(await readDispatcherBody(request, request.signal,
+    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : DEFAULT_SOURCE_RESPONSE_BYTES));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema
@@ -127,13 +135,26 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     pullRequest: z.number().safe().int().positive().optional() }).parse(JSON.parse(plan.invocationJson));
   // No resource resolver is introduced: only the direct read/inference profile is supported.
   if (pinned.installation.policy.resourceProfileId !== null) throw new Error('Dispatcher resource profile unavailable');
+  let admittedTarget: DispatcherAdmittedTarget | undefined;
   if (plan.prospectiveAdmissionId) {
+    const repositoryOnly = parent.pullRequest === undefined;
+    if (repositoryOnly ? parent.repository !== 'nikolanovoselec/komodo'
+      || !prospectiveRenovatePackageSupported(pinned.manifestJson)
+      || !prospectiveRenovatePackageSupported(selected.value.manifestJson)
+      : prospectiveRenovatePackageSupported(pinned.manifestJson)) {
+      throw new Error('Prospective package unsupported');
+    }
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
     const proof = await registry.readProspectiveRenovateAdmission(plan.prospectiveAdmissionId);
+    const created = proof ? prospectiveRenovateTimestamp(proof.createdAt) : null;
+    const cutoff = proof ? prospectiveRenovateTimestamp(proof.activatedAt) : null;
     if (!proof || plan.prospectiveAdmissionId !== plan.activityId || proof.activityId !== plan.activityId
-      || proof.repositoryId !== 973175879
-      || proof.pullRequest !== parent.pullRequest || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo'
-      || proof.installationId !== pinned.installation.id || proof.createdAt <= proof.activatedAt
+      || plan.executionContext.activityId !== plan.activityId || proof.repositoryId !== 973175879
+      || (!repositoryOnly && (proof.pullRequest !== parent.pullRequest
+        || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo'))
+      || !Number.isSafeInteger(proof.pullRequest) || proof.pullRequest < 1 || !/^[0-9a-f]{40}$/.test(proof.head)
+      || created === null || cutoff === null || created <= cutoff || created > Date.now()
+      || proof.installationId !== pinned.installation.id
       || proof.ownerKey !== await operatorOwnerKey(human)
       || proof.actor.subject !== human.subject || proof.actor.issuer !== human.issuer
       || proof.actor.email.toLowerCase() !== human.email.toLowerCase()
@@ -141,7 +162,8 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       throw new Error('Prospective admission changed');
     }
     const selectedActor = await registry.currentProspectiveRenovateRegistration(proof.actor.registrationId);
-    if (!selectedActor || selectedActor.installationId !== proof.installationId
+    if (!selectedActor || selectedActor.registrationId !== proof.actor.registrationId
+      || selectedActor.installationId !== proof.installationId || selectedActor.activatedAt !== proof.activatedAt
       || selectedActor.bucket !== proof.actor.bucket || selectedActor.sessionId !== proof.actor.sessionId
       || selectedActor.sessionGeneration !== proof.actor.sessionGeneration
       || selectedActor.human.subject !== human.subject || selectedActor.human.issuer !== human.issuer
@@ -150,8 +172,11 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       || !await operatorAccessSessionCurrent(human, authority.accessJwt)) {
       throw new Error('Prospective actor expired');
     }
+    if (repositoryOnly) admittedTarget = { repository: parent.repository, repositoryId: proof.repositoryId,
+      pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
+      createdAfter: proof.activatedAt, baseBranch: 'main' };
   }
-  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy };
+  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget };
 }
 
 /** Parent-only composition with the existing credential-injecting interceptors, never direct upstream fetch. */
@@ -161,7 +186,7 @@ export async function createDispatcherOperation(input: {
   effectContext?: { authorize: () => Promise<void>; reconcileOnly: boolean };
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
-  const { authority, parent, policy: installationPolicy } = await authorizeDispatcherPlan(plan, env);
+  const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
   const current = async () => {
     await authorizeDispatcherPlan(plan, env);
     if (!await input.current()) throw new Error('Dispatcher generation changed');
@@ -187,6 +212,17 @@ export async function createDispatcherOperation(input: {
     if (method !== 'GET' && (!github || url.origin !== dispatcherGithubApiOrigin(env))) {
       throw new Error('Mutation transport denied');
     }
+    if (admittedTarget && method !== 'GET') {
+      const base = `${dispatcherGithubApiOrigin(env)}/repos/${admittedTarget.repository}`;
+      // Compare the original wire, not URL-normalized aliases (queries, encodings or traversal).
+      const comment = method === 'POST' && source.url === `${base}/issues/${admittedTarget.pullRequest}/comments`;
+      const merge = method === 'PUT' && source.url === `${base}/pulls/${admittedTarget.pullRequest}/merge`;
+      if (!comment && !merge) throw new Error('Prospective mutation target denied');
+      const body = JSON.parse(source.body!);
+      if (comment) z.strictObject({ body: z.string().min(1).max(2000)
+        .refine(value => value.trim().length > 0) }).parse(body);
+      else z.strictObject({ sha: z.literal(admittedTarget.headSha), merge_method: z.literal('merge') }).parse(body);
+    }
     const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
     if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
     const bucket = await resolveBucketName(env, authority.human.email);
@@ -199,6 +235,31 @@ export async function createDispatcherOperation(input: {
       await sourceCurrent();
       const timeout = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
       const signal = operation.signal ? AbortSignal.any([timeout, operation.signal]) : timeout;
+      if (admittedTarget && method !== 'GET') {
+        // Only NEW reserved mutations execute this closure. Cached and unknown receipts do not preflight/replay.
+        const base = `${dispatcherGithubApiOrigin(env)}/repos/${admittedTarget.repository}`;
+        const get = async (path: string) => {
+          await sourceCurrent();
+          const response = await transport.fetch(new Request(base + path, { redirect: 'manual', signal,
+            headers: { accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Dispatcher' } }));
+          if (response.status !== 200 || response.redirected) throw new Error('Prospective target unavailable');
+          const value = JSON.parse(await readDispatcherBody(response, signal, responseBytes));
+          await sourceCurrent();
+          return value;
+        };
+        const repository = await get('');
+        if (repository?.id !== admittedTarget.repositoryId || repository?.full_name !== admittedTarget.repository) {
+          throw new Error('Prospective repository changed');
+        }
+        const pull = await get(`/pulls/${admittedTarget.pullRequest}`);
+        if (pull?.number !== admittedTarget.pullRequest || pull?.state !== 'open' || pull?.draft !== false
+          || pull?.head?.sha !== admittedTarget.headSha
+          || prospectiveRenovateTimestamp(pull?.created_at) !== prospectiveRenovateTimestamp(admittedTarget.createdAt)
+          || pull?.base?.ref !== admittedTarget.baseBranch || pull?.base?.repo?.id !== admittedTarget.repositoryId
+          || pull?.base?.repo?.full_name !== admittedTarget.repository) throw new Error('Prospective target changed');
+        await sourceCurrent();
+        if (signal.aborted) throw new Error('Prospective preflight expired');
+      }
       let response: Response;
       try {
         response = await transport.fetch(new Request(url, { method, body: source.body, redirect: 'manual', signal,
@@ -245,11 +306,16 @@ export async function createDispatcherOperation(input: {
     : phase === 'merge' ? dispatcherMergeSchema.parse(operation.body) : undefined;
   const read = !inference && !phase ? dispatcherReadSchema.parse(operation.body) : undefined;
   const resource = read?.resource;
+  if (admittedTarget && (phase || resource === 'open-pull-requests')) {
+    throw new Error('Prospective legacy endpoint denied');
+  }
   if (read?.target && (read.pullRequest !== undefined || read.headSha !== undefined)) {
     throw new Error('Contradictory read target');
   }
   const target = effect?.target ?? read?.target ?? read;
   const pullRequest = target?.pullRequest ?? parent.pullRequest;
+  if (admittedTarget && !inference && (pullRequest !== admittedTarget.pullRequest
+    || target?.headSha !== admittedTarget.headSha)) throw new Error('Prospective read target denied');
   if (resource === 'open-pull-requests' && (read?.target || read?.pullRequest !== undefined || read?.headSha !== undefined)) {
     throw new Error('Discovery target denied');
   }

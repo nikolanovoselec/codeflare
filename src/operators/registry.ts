@@ -13,6 +13,7 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseOperatorPolicy } from './policy';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceResponseBytes } from './dispatcher-source-limits';
+import { inferenceRequestBytes as effectiveInferenceRequestBytes } from './dispatcher-inference-limits';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';
@@ -107,6 +108,7 @@ export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
 export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number }
+interface ManagementOperatorPolicy extends ManagementPolicy { inferenceRequestBytes?: number }
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
@@ -160,6 +162,23 @@ export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
   admittedAt: number; selection: ManagementExecutionSelection;
 }
 
+/** Compatibility metadata only; the selected immutable release remains the code authority. */
+export function prospectiveRenovatePackageSupported(manifestJson: string): boolean {
+  try {
+    const manifest = JSON.parse(manifestJson);
+    return manifest !== null && typeof manifest === 'object' && !Array.isArray(manifest)
+      && manifest.id === 'renovate-dispatcher' && manifest.profile === 'dispatcher' && manifest.intentVersion === '3';
+  } catch { return false; }
+}
+
+/** GitHub UTC seconds and parent UTC milliseconds denote the same canonical instant. */
+export function prospectiveRenovateTimestamp(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
+  const time = Date.parse(value);
+  const milliseconds = value.length === 20 ? `${value.slice(0, -1)}.000Z` : value;
+  return Number.isFinite(time) && new Date(time).toISOString() === milliseconds ? time : null;
+}
+
 interface ProspectiveActivation { installationId: string; activatedAt: string; repositoryId: typeof RENOVATE_REPOSITORY_ID }
 interface ProspectiveRegistration {
   registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
@@ -191,14 +210,14 @@ interface ManagementOperatorState {
   id: string; revision: number; repositoryUrl: string; repositoryId: number;
   githubPatCiphertext: string; profile: ManagementOperatorProfile; realm: ManagementOperatorRealm;
   managers: ManagementGrant; invokers: ManagementGrant;
-  policy: ManagementPolicy; approvedWorkflow: { id: number; ref: string };
+  policy: ManagementOperatorPolicy; approvedWorkflow: { id: number; ref: string };
   sourceRevision: number;
 }
 export interface ManagementOperatorProjection {
   id: string; operatorId: string; revision: number; repositoryUrl: string; repositoryId: number;
   name?: string; description?: string; installedGithubReleaseId?: number; installedTagName?: string; installedPublishedAt?: string; installationCount?: number;
   profile: ManagementOperatorProfile; realm: ManagementOperatorRealm; enabled: boolean;
-  managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementPolicy;
+  managers: ManagementGrant; invokers: ManagementGrant; policy: ManagementOperatorPolicy;
   source: { kind: 'github-release'; repositoryUrl: string; repositoryId: number;
     credentialConfigured: boolean; approvedWorkflow: { id: number; ref: string } | null };
 }
@@ -1262,18 +1281,24 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
       const fence = this.managementFence(state, authority);
       if (fence) return fence;
+      if (inferenceRequestBytes !== undefined && (state!.profile !== 'dispatcher'
+        || !Number.isSafeInteger(inferenceRequestBytes) || inferenceRequestBytes < 1)) {
+        throw new ValidationError('Invalid operator inference request byte limit');
+      }
       const policy = { ...state!.policy, capabilities,
-        ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }) };
+        ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }),
+        ...(inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes }) };
       if (!this.withinManagementCeiling(policy)) throw new ValidationError('Operator capabilities exceed management ceiling');
       if (capabilities.length === state!.policy.capabilities.length
         && capabilities.every(value => state!.policy.capabilities.includes(value))
-        && effectiveSourceResponseBytes(policy) === effectiveSourceResponseBytes(state!.policy)) return { ok: true, value: this.saveManagement(state!) };
+        && effectiveSourceResponseBytes(policy) === effectiveSourceResponseBytes(state!.policy)
+        && effectiveInferenceRequestBytes(policy) === effectiveInferenceRequestBytes(state!.policy)) return { ok: true, value: this.saveManagement(state!) };
       const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
       for (const row of rows) {
         const installation = this.parseManagementInstallation(row.data);
@@ -1543,7 +1568,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
     const selected = await this.resolveManagementExecution(input.installationId);
     if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
-      || selected.value.installation.policy.resourceProfileId !== null) return { ok: false, reason: 'installation-unavailable' };
+      || selected.value.installation.policy.resourceProfileId !== null
+      || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { ok: false, reason: 'installation-unavailable' };
     const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
       ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
       revision: 0, context: await createOperatorExecutionContext({ activityId: registrationId,
@@ -1617,10 +1643,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       || input.repositoryId !== RENOVATE_REPOSITORY_ID || !Number.isSafeInteger(input.pullRequest)
       || input.pullRequest < 1 || !sha.test(input.head)) return { ok: false, reason: 'invalid-target' };
     const activation = await this.ctx.storage.get<ProspectiveActivation>('renovate-activation');
-    let created: string;
-    try { created = new Date(input.createdAt).toISOString(); }
-    catch { return { ok: false, reason: 'invalid-target' }; }
-    if (!activation || created !== input.createdAt || created <= activation.activatedAt) {
+    const created = prospectiveRenovateTimestamp(input.createdAt);
+    const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
+    if (created === null) return { ok: false, reason: 'invalid-target' };
+    if (!activation || cutoff === null || created <= cutoff) {
       return { ok: false, reason: 'pre-activation' };
     }
     const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
@@ -1658,7 +1684,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         || stillRegistered?.revision !== winner.record.revision) return { ok: false, reason: 'stale-election' } as const;
       const admission: ProspectiveAdmission = { activityId: input.activityId,
         installationId: activation.installationId, repositoryId: RENOVATE_REPOSITORY_ID,
-        pullRequest: input.pullRequest, head: input.head, createdAt: created,
+        pullRequest: input.pullRequest, head: input.head, createdAt: input.createdAt,
         activatedAt: activation.activatedAt, ownerKey: winner.record.ownerKey, actor };
       await tx.put(key, admission);
       await tx.put(`renovate-activity:${input.activityId}`, admission);

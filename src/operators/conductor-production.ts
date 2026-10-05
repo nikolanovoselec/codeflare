@@ -26,7 +26,9 @@ import { createAuthenticatedHistoryTransport, readGithubActionsPublisherIdentity
 import { operatorActivitySessionStore, createOperatorSyncReader,
   type OperatorActivityStub } from './owned-session-production';
 import { verifyOperatorSync } from './sync-verification';
-import type { OperatorRuntimePlan } from './activity';
+import type { OperatorRuntimePlan, OperatorActivity } from './activity';
+import type { OperatorPackageResourceProjection } from './package-resources';
+import { operatorOwnerKey } from './browser-activity';
 import type { ManagementAdmissionReceipt } from './registry';
 
 function management(receipt: OperatorRuntimePlan['receipt']): receipt is ManagementAdmissionReceipt {
@@ -42,6 +44,84 @@ function base64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 32 * 1024));
   }
   return btoa(binary);
+}
+
+/** Add transport authority only after the real claim/drive; preserve the frozen prepared intent. */
+export async function bindClaimedConductorInvocation(input: { env: Env; plan: OperatorRuntimePlan;
+  activity: Pick<OperatorActivity, 'getBoundaryStartBinding' | 'operatorGenerationCurrent'>;
+  resources: OperatorPackageResourceProjection | null; generation: number; driveDeadline: number }) {
+  const { env, plan, activity, resources, generation } = input;
+  const binding = await activity.getBoundaryStartBinding(plan.activityId);
+  if (!binding) return null; // Ordinary managed/local consumers keep their existing path.
+  const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
+  if (!management(plan.receipt) || plan.receipt.selection.operator.profile !== 'conductor'
+    || !env.OPERATOR_REGISTRY || !resources) throw Error('Conductor boundary authority denied');
+  const registry = env.OPERATOR_REGISTRY.getByName('registry');
+  const pinned = plan.receipt.selection;
+  const guard = await registry.getBoundaryStartGuard(plan.activityId);
+  const prepared = guard && await registry.getBoundaryPreparation(guard.repositoryId, guard.pullRequest);
+  const business = invocation.input as { context?: unknown; boundary?: unknown };
+  const context = business?.context as Record<string, unknown> | undefined;
+  if (!guard?.claimed || !prepared || prepared.activityId !== plan.activityId || prepared.phase !== 'claimed'
+    || prepared.roundGeneration !== 1 || prepared.contextDigest !== guard.contextDigest
+    || prepared.claimedWorkflowSha !== guard.workflowSha || !guard.workflowSha
+    || !/^[a-f0-9]{40}$/i.test(guard.workflowSha)
+    || binding.repositoryId !== guard.repositoryId || binding.pullRequest !== guard.pullRequest
+    || binding.contextDigest !== guard.contextDigest || binding.session.bucket !== guard.session.bucket
+    || binding.session.sessionId !== guard.session.sessionId || binding.session.generation !== guard.session.generation
+    || invocation.activityId !== plan.activityId || invocation.operatorId !== pinned.operator.operatorId
+    || invocation.revision.reference !== guard.head || invocation.revision.digest !== guard.contextDigest
+    || !business || typeof business !== 'object' || Array.isArray(business) || 'boundary' in business
+    || !context || typeof context !== 'object' || Array.isArray(context)
+    || context.repositoryId !== guard.repositoryId || context.pullRequest !== guard.pullRequest
+    || context.head !== guard.head || context.base !== guard.base || context.mergeBase !== guard.mergeBase
+    || ![guard.workflowId, guard.runId, guard.runAttempt].every(value => Number.isSafeInteger(value) && value > 0)
+    || resources.artifactDigest !== pinned.release.bundleDigest
+    || plan.executionContext.artifactDigest !== pinned.release.bundleDigest
+    || await digest(JSON.stringify(business)) !== invocation.inputDigest
+    || await digest(JSON.stringify(pinned.installation.policy)) !== plan.executionContext.policyDigest) {
+    throw Error('Conductor boundary binding changed');
+  }
+  const current = async () => {
+    if (Math.min(plan.deadline, input.driveDeadline) <= Date.now()
+      || !await activity.operatorGenerationCurrent(generation)) throw Error('Conductor generation changed');
+    const selected = await registry.resolveManagementExecution(pinned.installation.id);
+    if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
+      || selected.value.operator.revision !== pinned.operator.revision
+      || selected.value.controlsRevision !== pinned.controlsRevision
+      || selected.value.release.bundleDigest !== pinned.release.bundleDigest
+      || selected.value.operator.profile !== 'conductor') throw Error('Conductor installation changed');
+    const authority = await openOperatorExecutionAccess(plan.executionContext, env);
+    const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
+    if (!canInvokeOperator(human, selected.value.operator) || await operatorOwnerKey(human) !== prepared.ownerKey
+      || await resolveBucketName(env, human.email) !== guard.session.bucket
+      || !await verifyCurrentClaimedBoundaryPacket(env, plan.activityId, invocation.source.reference)) {
+      throw Error('Conductor claimant changed');
+    }
+    const next = await registry.getBoundaryStartGuard(plan.activityId);
+    if (!next?.claimed || next.repositoryId !== guard.repositoryId || next.pullRequest !== guard.pullRequest
+      || next.contextDigest !== guard.contextDigest || next.head !== guard.head || next.base !== guard.base
+      || next.mergeBase !== guard.mergeBase || next.workflowId !== guard.workflowId || next.workflowSha !== guard.workflowSha
+      || next.runId !== guard.runId || next.runAttempt !== guard.runAttempt || next.generation !== guard.generation
+      || next.session.bucket !== guard.session.bucket || next.session.sessionId !== guard.session.sessionId
+      || next.session.generation !== guard.session.generation) throw Error('Conductor claim changed');
+    if (Math.min(plan.deadline, input.driveDeadline) <= Date.now()
+      || !await activity.operatorGenerationCurrent(generation)) throw Error('Conductor generation changed');
+  };
+  await current();
+  const token = await getValidGithubToken(env, guard.session.bucket);
+  if (!token) throw Error('Conductor publisher unavailable');
+  const publisher = await readGithubActionsPublisherIdentity({ token, fetch: request => fetch(request) });
+  if (!publisher) throw Error('Conductor publisher unavailable');
+  const resourceDigest = await digest(JSON.stringify(resources.files.map(({ destination, sha256, size }) => ({ destination, sha256, size }))));
+  await current();
+  return parseOperatorConsumerInvocation({ ...invocation, input: { ...business, boundary: {
+    activityId: plan.activityId, generation: prepared.roundGeneration,
+    workflowId: guard.workflowId, runId: guard.runId, runAttempt: guard.runAttempt,
+    commentAuthorId: publisher.commentAuthorId, checkAppId: publisher.checkAppId,
+    inputDigest: invocation.inputDigest, packageDigest: pinned.release.bundleDigest,
+    resourceDigest, policyDigest: plan.executionContext.policyDigest,
+  } } });
 }
 
 /** Profile-neutral managed Conductor composition over existing enterprise owners. */

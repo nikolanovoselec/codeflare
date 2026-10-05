@@ -8,6 +8,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
+import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -41,7 +42,8 @@ const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
-const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes });
+const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes,
+  inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional() });
 const configureBody = z.strictObject({ policy, configuration, revision });
 const boundaryEnrollmentBody = z.strictObject({
   repositoryUrl: z.string().min(1).max(2048),
@@ -282,9 +284,10 @@ app.post('/operators/:operatorId/capabilities', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   requireMutationCsrf(c);
   const input = await parseJsonBody(c, capabilitiesBody);
+  if (input.inferenceRequestBytes !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Inference request bytes require a Dispatcher operator');
   withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities,
     ...(input.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: input.sourceResponseBytes }) });
-  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes));
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes));
   logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);
 });

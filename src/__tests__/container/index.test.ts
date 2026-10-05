@@ -355,7 +355,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     expect(seen).toEqual([]);
   });
 
-  it('REQ-OPERATOR-061: a winning scan reconciles lost start and publishes a simulated result from one real Activity', async () => {
+  it.each(['valid', 'empty', 'extra-target', 'duplicate-target', 'wrong-head', 'foreign-pr', 'wrong-repository'])('REQ-OPERATOR-061/048: a winning scan retains repository-only admission and fences %s simulated singleton collection without parent publication', async resultCase => {
     const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
     await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, native) => {
       const stored = new Map<string, unknown>();
@@ -387,7 +387,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         revision: 1, enabled: true, releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
         operator: { id: 'dispatcher', operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
           invokers: { users: [human.email], groups: [] } },
-        release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: '{}' };
+        release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: JSON.stringify({
+          id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
       let reservedActivityId: string | null = null;
       const registry = { resolveManagementExecution: async () => ({ ok: true, value: selection }),
         getManagementBundle: async () => bundleBytes,
@@ -455,15 +456,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const pending: Promise<unknown>[] = [];
       (mockCtx as any).waitUntil = (work: Promise<unknown>) => { pending.push(work); };
       scanRuntime.enabled = true;
-      scanRuntime.result = { repository: 'nikolanovoselec/komodo', pullRequest: 1302,
-        observedHead: 'c'.repeat(40), readOnly: true,
-        evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
-        bounds: { files: 1, checks: 0 },
-        assessment: { classification: 'unknown', observedHead: 'c'.repeat(40), baseSha: 'b'.repeat(40),
-          checks: { state: 'unavailable', observedHead: 'c'.repeat(40) },
-          reasons: ['Upstream compatibility is not established'],
-          compatibility: 'The release and configuration evidence is incomplete.',
-          citations: [], gaps: ['Missing upstream compatibility evidence'] } };
+      const terminal = { pullRequest: 1302, headSha: 'c'.repeat(40), decision: 'DO_NOT_MERGE',
+        comment: 'Missing authoritative upgrade evidence.', outcome: 'NOT_MERGED' };
+      scanRuntime.result = { repository: resultCase === 'wrong-repository' ? 'foreign/repo' : 'nikolanovoselec/komodo', results:
+        resultCase === 'empty' ? [] : resultCase === 'duplicate-target' ? [terminal, terminal]
+          : resultCase === 'extra-target' ? [terminal, { ...terminal, pullRequest: 1303 }]
+          : [{ ...terminal, ...(resultCase === 'wrong-head' ? { headSha: 'd'.repeat(40) } : {}),
+            ...(resultCase === 'foreign-pr' ? { pullRequest: 1303 } : {}) }] };
       (mockCtx as any).exports = { OperatorRuntimeCapability: () => ({ fetch: async () => Response.json({}) }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
         const url = new URL(request.url);
@@ -508,10 +507,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(['queued', 'running', 'completed']).toContain(detail?.executionStatus);
       const pinned = await activity.getRuntimePlan();
       expect(pinned).toMatchObject({ invocationJson: JSON.stringify({
-        repository: 'nikolanovoselec/komodo', pullRequest: 1302 }),
+        repository: 'nikolanovoselec/komodo' }),
         executionContext: { owner: { subject: human.subject, email: human.email } } });
-      // Seed the simulated child's durable output, then exercise the real collector
-      // and publication fences. This case is not native SDK settlement evidence.
+      // Seed only simulated SDK settlement, then exercise actual Activity collection.
+      // This is a focused scanner/collector test, not native compiled journey or effect evidence.
       const saved = await native.storage.get<{ drive: { generation: number }; receipt: { intentDigest: string } }>('admission');
       await native.storage.put('admission', { ...saved, drive: { generation: saved!.drive.generation,
         status: 'waiting', checkpoint: { submissionId: 'submission-1',
@@ -537,14 +536,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
       finally { nextClock.mockRestore(); }
       expect((await activity.getBrowserDetail())?.activityId).toBe(detail?.activityId);
-      expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
-      expect((await activity.getBrowserDetail())?.result).toMatchObject({ assessment: { classification: 'unknown' } });
-      expect(writes).toEqual(['comment']);
+      if (resultCase === 'valid') {
+        expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+        expect((await activity.getBrowserDetail())?.result).toEqual(scanRuntime.result);
+      } else {
+        expect((await activity.getBrowserDetail())?.executionStatus).not.toBe('completed');
+        expect((await activity.getBrowserDetail())?.result).toBeNull();
+      }
+      expect(writes).toEqual([]);
       const publishClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
       finally { publishClock.mockRestore(); }
-      expect(writes).toEqual(['comment']);
-      expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+      expect(writes).toEqual([]);
+      if (resultCase === 'valid') expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+      else expect((await activity.getBrowserDetail())?.executionStatus).not.toBe('completed');
       } finally { globalThis.fetch = originalFetch; scanRuntime.enabled = false; scanRuntime.result = null; }
     });
   });

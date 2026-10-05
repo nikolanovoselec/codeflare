@@ -607,7 +607,7 @@ export class container extends Container<Env> implements ContainerEnvState {
           let prepared;
           try {
             prepared = await prepareOperatorActivity({ installationId: pin.installationId,
-              invocation: { repository: 'nikolanovoselec/komodo', pullRequest: candidate.pullRequest } },
+              invocation: { repository: 'nikolanovoselec/komodo' } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
             { activityId: reserved.activityId });
           } catch { continue; }
@@ -627,13 +627,8 @@ export class container extends Container<Env> implements ContainerEnvState {
             bindOperatorRuntimeCapability(this.ctx)).catch(error => {
             this.logger.warn('Prospective Renovate drive unavailable', { error: toErrorMessage(error) });
           }));
-        } else if (detail?.executionStatus === 'completed') {
-          const refreshed = await registry.currentProspectiveRenovateRegistration(actor.registrationId);
-          if (refreshed) await activity.publishRenovateAssessment({ bucket: actor.bucket,
-            sessionId: actor.sessionId, sessionGeneration: actor.sessionGeneration,
-            operationId: `scan-${reserved.activityId}` }, { human: refreshed.human,
-            accessJwt: refreshed.accessJwt, platformAdmin: true });
         }
+        // Current repository-only journeys own their effects; completion is not a parent publication trigger.
         } catch (error) {
           this.logger.warn('Prospective Renovate activity unavailable', { error: toErrorMessage(error) });
         }
