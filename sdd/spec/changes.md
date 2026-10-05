@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-05
 
+- Observe bounded completion-tool outcomes alongside assessment projection ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Terminal logs use trusted correlation and closed counters, never model/tool/result content. Preserve collection authority, bounds and unknown effects through diagnostic overflow or logging outages. Hosted GREEN and live diagnosis remain pending; observations cannot establish historical causality.
+
 - Distinguish Dispatcher reservation lease mismatch from the unchanged128-operation ceiling ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Report trusted correlation and transaction-observed evidence without child content. Preserve generic403 through owner logging outages, receipt/conflict/recovery ordering and original authority. Missing historical diagnostics cannot establish a prior failure's branch.
 
 - Refine strict Dispatcher wire rejection diagnostics ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)) to four closed validation-rule labels with truncation. Retain private trusted attribution, generic403 and all authority/byte/output bounds. Authentic pinned-SDK recovery RED verifies an unsupported10000-token alias; live causality remains unproved.

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Tokenizer, TokenParser, TokenType } from '@streamparser/json';
 
-/** Only exact-submission result/settlement state is retained; SDK history is not a result. */
+/** Exact-submission authority and bounded observations only; SDK history is not a result. */
 export interface DispatcherResultProjection {
   offset: string;
   conversationId?: string;
@@ -13,7 +13,12 @@ export interface DispatcherResultProjection {
   outcome?: 'completed' | 'failed' | 'aborted';
   error?: { type?: string; meta?: { reason?: string; operation?: string } };
   position?: { batch: number; index: number };
+  /** Observation only; opaque correlations never enter owner logs or result authority. */
+  completion?: { calls: Array<{ id: string; outcome: 'pending' | 'succeeded' | 'failed' }>; truncated: boolean };
+  unmatchedAssessment?: boolean;
 }
+const MAX_COMPLETION_OBSERVATIONS = 32;
+const MAX_COMPLETION_ID_LENGTH = 256;
 const MAX_UPDATE_PAGE_BYTES = 16 * 1024 * 1024;
 const MAX_PROJECTED_RECORD_BYTES = 1024 * 1024;
 const MAX_RESULT_BYTES = 64 * 1024;
@@ -27,6 +32,19 @@ function captureResult(state: DispatcherResultProjection, value: unknown): void 
   state.writes++;
   if (state.writes !== 1) throw new Error('Dispatcher result duplicated');
   state.result = value;
+}
+
+function observeCompletion(state: DispatcherResultProjection, id: unknown,
+  outcome: 'pending' | 'succeeded' | 'failed'): void {
+  const completion = state.completion ??= { calls: [], truncated: false };
+  if (typeof id !== 'string' || !id || id.length > MAX_COMPLETION_ID_LENGTH) {
+    completion.truncated = true; return;
+  }
+  const previous = completion.calls.find(call => call.id === id);
+  if (previous) {
+    if (outcome !== 'pending') previous.outcome = outcome;
+  } else if (completion.calls.length < MAX_COMPLETION_OBSERVATIONS) completion.calls.push({ id, outcome });
+  else completion.truncated = true;
 }
 
 function project(state: DispatcherResultProjection, value: unknown, submissionId: string): void {
@@ -52,8 +70,13 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   const next = { batch: position.batch as number, index: position.index as number };
   if (state.position && (next.batch < state.position.batch
     || (next.batch === state.position.batch && next.index <= state.position.index))) return;
+  if (chunk.unmatchedAssessment === true) state.unmatchedAssessment = true;
+  if (chunk.diagnosticTruncated === true && ['tool-input', 'tool-output', 'tool-output-error', 'conversation-reset'].includes(chunk.type as string)) {
+    (state.completion ??= { calls: [], truncated: false }).truncated = true;
+  }
   if (chunk.type === 'conversation-reset') {
-    const snapshot = chunk.snapshot as { messages?: Array<{ id?: string; submissionId?: string; parts?: Array<{ type?: string; data?: unknown }> }>;
+    const snapshot = chunk.snapshot as { messages?: Array<{ id?: string; submissionId?: string;
+      parts?: Array<{ type?: string; data?: unknown; toolName?: string; toolCallId?: string; state?: string }> }>;
       settlements?: Array<{ submissionId?: string; outcome?: string; error?: unknown }> } | undefined;
     if (!snapshot || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.settlements)
       || (chunk.snapshot as { conversationId?: unknown }).conversationId !== chunk.conversationId) throw new Error('Dispatcher reset unavailable');
@@ -62,7 +85,13 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
       if (message.submissionId !== submissionId) continue;
       if (typeof message.id !== 'string' || !Array.isArray(message.parts)) throw new Error('Dispatcher reset message unavailable');
       state.messageIds.push(message.id);
-      for (const part of message.parts) if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
+      for (const part of message.parts) {
+        if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
+        if (part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher') {
+          observeCompletion(state, part.toolCallId, part.state === 'output-available' ? 'succeeded'
+            : part.state === 'output-error' ? 'failed' : 'pending');
+        }
+      }
     }
     const settlements = snapshot.settlements.filter(item => item.submissionId === submissionId);
     if (settlements.length > 1) throw new Error('Dispatcher settlement duplicated');
@@ -70,9 +99,15 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   } else if (chunk.type === 'message-started' && chunk.submissionId === submissionId) {
     if (typeof chunk.messageId !== 'string' || chunk.messageId.length > 256) throw new Error('Dispatcher message unavailable');
     if (!state.messageIds.includes(chunk.messageId)) state.messageIds.push(chunk.messageId);
-  } else if (chunk.type === 'data-part' && state.messageIds.includes(chunk.messageId as string)
-    && (chunk.name === 'assessment' || chunk.name === 'result')) {
-    captureResult(state, chunk.data);
+  } else if (chunk.type === 'data-part' && (chunk.name === 'assessment' || chunk.name === 'result')) {
+    if (state.messageIds.includes(chunk.messageId as string)) captureResult(state, chunk.data);
+    else state.unmatchedAssessment = true;
+  } else if (chunk.type === 'tool-input' && chunk.toolName === 'finish_dispatcher'
+    && state.messageIds.includes(chunk.messageId as string)) {
+    observeCompletion(state, chunk.toolCallId, 'pending');
+  } else if ((chunk.type === 'tool-output' || chunk.type === 'tool-output-error')
+    && state.completion?.calls.some(call => call.id === chunk.toolCallId)) {
+    observeCompletion(state, chunk.toolCallId, chunk.type === 'tool-output' ? 'succeeded' : 'failed');
   }
   if ((chunk.type === 'submission-settled' && chunk.submissionId === submissionId)
     || (chunk.type === 'conversation-reset' && chunk.outcome !== undefined)) {
@@ -92,7 +127,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   state.position = next;
 }
 
-/** Project only SDK identity, named data and settlements; discard history as it is tokenized. */
+/** Project SDK identity, named data, settlements and bounded completion metadata; discard history bodies. */
 export async function readDispatcherUpdates(response: Response, previous: DispatcherResultProjection,
   submissionId: string, signal?: AbortSignal): Promise<DispatcherResultProjection> {
   const offset = response.headers.get('stream-next-offset');
@@ -101,11 +136,14 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
   const state = structuredClone(previous);
   const reader = response.body.getReader();
   const tokenizer = new Tokenizer();
-  const fields = ['type', 'incarnation', 'conversationId', 'position', 'messageId', 'submissionId', 'name', 'data', 'outcome', 'error'];
+  const diagnosticFields = ['toolName', 'toolCallId', 'state'];
+  const fields = ['type', 'incarnation', 'conversationId', 'position', 'messageId', 'submissionId', 'name', 'data', 'outcome', 'error',
+    'toolName', 'toolCallId'];
   const parser = new TokenParser({ keepStack: false, paths: [
     ...fields.map(field => `$.*.${field}`), '$.*.snapshot.conversationId',
     '$.*.snapshot.messages.*.id', '$.*.snapshot.messages.*.submissionId',
     '$.*.snapshot.messages.*.parts.*.type', '$.*.snapshot.messages.*.parts.*.data',
+    ...diagnosticFields.map(field => `$.*.snapshot.messages.*.parts.*.${field}`),
     '$.*.snapshot.settlements.*',
   ] });
   type Frame = { path: Array<string | number>; array: boolean; index: number; key?: string; expectingKey: boolean };
@@ -113,13 +151,15 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
   let record: Record<string, unknown> = Object.create(null);
   let bytes = 0;
   let records = 0;
+  let diagnosticParts = 0;
   let ended = false;
-  const put = (path: Array<string | number>, value: unknown) => {
+  // Diagnostic metadata is separately bounded and must not consume the existing result-record allowance.
+  const put = (path: Array<string | number>, value: unknown, enumerable = true) => {
     let target = record as Record<string | number, unknown>;
     for (let index = 0; index < path.length; index++) {
       const key = path[index];
       if (index === path.length - 1) {
-        Object.defineProperty(target, key, { value, enumerable: true, configurable: true, writable: true });
+        Object.defineProperty(target, key, { value, enumerable, configurable: true, writable: true });
       } else {
         if (!Object.hasOwn(target, key)) Object.defineProperty(target, key, {
           value: typeof path[index + 1] === 'number' ? [] : Object.create(null),
@@ -137,17 +177,36 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
     if (path[0] === 'snapshot' && path[1] === 'messages') {
       const index = path[2] as number;
       const message = snapshotMessages()?.[index];
-      if (path[3] === 'parts' && message?.submissionId !== undefined && message.submissionId !== submissionId) return;
+      if (path[3] === 'parts' && message?.submissionId !== undefined && message.submissionId !== submissionId) {
+        if (path[5] === 'type' && (value === 'data-assessment' || value === 'data-result')) put(['unmatchedAssessment'], true, false);
+        return;
+      }
       if (path[3] === 'parts' && path[5] === 'data') {
         const part = message?.parts?.[path[4] as number] as { type?: string } | undefined;
         if (part?.type !== undefined && part.type !== 'data-assessment' && part.type !== 'data-result') return;
       }
     }
+    const diagnostic = (path.length === 1 && diagnosticFields.includes(String(path[0])))
+      || (path.length === 6 && path[0] === 'snapshot' && path[1] === 'messages'
+        && path[3] === 'parts' && diagnosticFields.includes(String(path[5])));
+    if (diagnostic) {
+      if (path.at(-1) === 'toolName') {
+        if (value !== 'finish_dispatcher') return;
+      } else if (typeof value !== 'string' || !value || value.length > MAX_COMPLETION_ID_LENGTH) {
+        put(['diagnosticTruncated'], true, false);
+        return;
+      }
+    }
     if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_RESULT_BYTES) throw new Error('Dispatcher projected value exceeds limit');
-    put(path, value);
+    put(path, value, !diagnostic);
     if (path[0] === 'snapshot' && path[1] === 'messages' && path[3] === 'submissionId' && value !== submissionId) {
       const message = snapshotMessages()?.[path[2] as number];
-      if (message) message.parts = [];
+      if (message) {
+        if (message.parts?.some(part => ['data-assessment', 'data-result'].includes((part as { type?: string })?.type ?? ''))) {
+          put(['unmatchedAssessment'], true, false);
+        }
+        message.parts = [];
+      }
     }
   };
   tokenizer.onError = error => { throw error; };
@@ -176,6 +235,16 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       parser.write(token);
       const frame = frames.pop();
       if (!frame) throw new Error('Dispatcher update trailer unavailable');
+      if (frame.path.length === 6 && frame.path[1] === 'snapshot' && frame.path[2] === 'messages'
+        && frame.path[4] === 'parts') {
+        const part = snapshotMessages()?.[frame.path[3] as number]?.parts?.[frame.path[5] as number] as Record<string, unknown> | undefined;
+        if (part) {
+          if (part.toolName !== 'finish_dispatcher' || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
+            if (part.toolName === 'finish_dispatcher') put(['diagnosticTruncated'], true, false);
+            for (const field of diagnosticFields) delete part[field];
+          } else diagnosticParts++;
+        }
+      }
       if (frame.path.length === 1) {
         if (++records > 65536) throw new Error('Dispatcher update count exceeds limit');
         const snapshot = record.snapshot as { messages?: Array<{ submissionId?: string }> } | undefined;
@@ -183,6 +252,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         if (new TextEncoder().encode(JSON.stringify(record)).byteLength > MAX_PROJECTED_RECORD_BYTES) throw new Error('Dispatcher projection exceeds limit');
         project(state, record, submissionId);
         record = Object.create(null);
+        diagnosticParts = 0;
       }
       if (frame.path.length === 0) ended = true;
       return;

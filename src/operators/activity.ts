@@ -1519,6 +1519,20 @@ export class OperatorActivity extends Agent {
             'reconcileDispatcherLease', { generation: lease.generation }, { idempotent: true });
           return;
         }
+        // SDK observations diagnose the producer/collector boundary, never authorize settlement.
+        const completionCalls = value.completion?.calls ?? [];
+        try {
+          dispatcherLog.warn('Dispatcher settlement observed', {
+            activityId: plan.activityId, generation: lease.generation, outcome: settlement.outcome,
+            projectedWrites: value.writes, assessmentPresent: value.result !== undefined,
+            messageCount: value.messageIds.length, completionCalls: completionCalls.length,
+            completionSucceeded: completionCalls.filter(call => call.outcome === 'succeeded').length,
+            completionFailed: completionCalls.filter(call => call.outcome === 'failed').length,
+            completionPending: completionCalls.filter(call => call.outcome === 'pending').length,
+            completionTruncated: value.completion?.truncated ?? false,
+            unmatchedAssessment: value.unmatchedAssessment ?? false,
+          });
+        } catch { /* Observability failure cannot prevent settlement or collection. */ }
         stage = 'authorize';
         const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
