@@ -83,18 +83,40 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     expect(JSON.stringify(events)).not.toContain(privateMarker);
   }));
 
-  it.each(['plain', 'identity-transform'] as const)('control: %s Response preserves the same controlled read failure without the adapter', async path => {
-    const originalFailure = new Error(path === 'plain' ? 'PRIVATE_PLAIN_RESPONSE_CONTROL' : 'PRIVATE_IDENTITY_TRANSFORM_CONTROL');
+  it.each(['plain', 'identity-transform', 'source-observer'] as const)('control: %s Response preserves the same controlled read failure without the adapter', async path => {
+    const markers = { plain: 'PRIVATE_PLAIN_RESPONSE_CONTROL', 'identity-transform': 'PRIVATE_IDENTITY_TRANSFORM_CONTROL',
+      'source-observer': 'PRIVATE_SOURCE_OBSERVER_CONTROL' };
+    const originalFailure = new Error(markers[path]);
     const { response: source, failSource } = readFailureSource(originalFailure);
-    const response = path === 'plain' ? source : new Response(source.body!.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-      async transform(chunk, controller) { controller.enqueue(chunk); },
-    })));
+    const sourceOutcomes: Promise<unknown>[] = [];
+    let response = source;
+    if (path !== 'plain') {
+      const transform = new TransformStream<Uint8Array, Uint8Array>({
+        async transform(chunk, controller) { controller.enqueue(chunk); },
+      });
+      if (path === 'source-observer') {
+        const sourceReader = source.body!.getReader();
+        sourceOutcomes.push(expect(sourceReader.closed).rejects.toBe(originalFailure));
+        const observedSource = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            try {
+              const next = await sourceReader.read();
+              if (next.done) controller.close();
+              else controller.enqueue(next.value);
+            } catch (error) { controller.error(error); }
+          },
+          async cancel(reason) { await sourceReader.cancel(reason); },
+        });
+        sourceOutcomes.push(expect(observedSource.pipeTo(transform.writable)).rejects.toBe(originalFailure));
+        response = new Response(transform.readable);
+      } else response = new Response(source.body!.pipeThrough(transform));
+    }
     const reader = response.body!.getReader();
     const closed = expect(reader.closed).rejects.toBe(originalFailure);
     const first = await reader.read();
     expect(first.done).toBe(false);
     expect(first.value).toEqual(start);
-    const failedReads = Promise.all([closed, expect(reader.read()).rejects.toBe(originalFailure)]);
+    const failedReads = Promise.all([...sourceOutcomes, closed, expect(reader.read()).rejects.toBe(originalFailure)]);
     failSource();
     await failedReads;
     reader.releaseLock();
