@@ -8,7 +8,7 @@
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { FixtureActivity } from './loader-worker';
-import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
+import { parseDispatcherOperation, readDispatcherBody } from '../../../operators/operator-runtime-capability';
 import { OperatorDispatcherTail } from '../../../operators/activity';
 import { setLogLevel } from '../../../lib/logger';
 import { readDispatcherUpdates, type DispatcherResultProjection } from '../../../operators/dispatcher-result';
@@ -34,9 +34,25 @@ export type NativeJourneyDiagnostic = {
   firstFailedTool: string | null;
   tools: Array<{ tool: string; state: string; reason: string }>;
 };
+export type NativeJourneyScenario = 'ordinary' | 'overflow-once' | 'transient-interruption-once' | 'finish-undiscovered' | 'seal-undiscovered';
+type NativeInferenceWire = {
+  admission: 'accepted' | 'rejected'; stage: 'normal' | 'summary';
+  tokenField: 'absent' | 'canonical' | 'completion-alias' | 'dual' | 'other';
+  outputBudget: number | null; messages: number; tools: number;
+};
+export type NativeJourneyObservation = {
+  wire: NativeInferenceWire[];
+  effects: { commentRequests: number; otherMutationRequests: number; commentMatches: boolean; researchSourceRequests: number };
+  sessionId: string | null;
+  interruptionObserved: boolean;
+  retryIdentityMatched: boolean;
+};
 export type FlueFixtureCommand =
   | { action: 'configure'; artifact: NativeArtifact; digest: string; journey?: boolean; readonly oversizedSourceMetadata?: boolean; readonly researchBodyBytes?: 131072 | 262144 | 1044480;
-      readonly admittedTarget?: string; readonly journeyFacts?: { createdAt: string; unrelatedCreatedAt: string } }
+      readonly admittedTarget?: string; readonly journeyFacts?: { createdAt: string; unrelatedCreatedAt: string };
+      readonly journeyScenario?: NativeJourneyScenario; readonly admittedInferenceBytes?: 1048576 }
+  | { action: 'journey-observation' }
+  | { action: 'journey-comment-request' }
   | { action: 'journey-updates'; submissionId: string; previous: DispatcherResultProjection }
   | { action: 'journey-diagnostic'; submissionId: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest?: number };
@@ -66,7 +82,7 @@ type Facet = Fetcher & {
   fixtureDiagnosticProbeWarningReceipt?(): Promise<boolean>;
   fixtureDiagnosticProbeReleaseFiber?(): Promise<{ released: boolean }>;
 };
-type NativeEnv = Cloudflare.Env & {
+type NativeEnv = Omit<Cloudflare.Env, 'ACTIVITY'> & {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
   TAIL_INBOX: DurableObjectNamespace<FixtureTailInbox>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
@@ -109,15 +125,24 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
 
   async configure(artifact: NativeArtifact, digest: string, journey = false, oversizedSourceMetadata = false,
     researchBodyBytes?: 131072 | 262144 | 1044480, admittedTarget?: string,
-    journeyFacts?: { createdAt: string; unrelatedCreatedAt: string }) {
+    journeyFacts?: { createdAt: string; unrelatedCreatedAt: string }, journeyScenario?: NativeJourneyScenario,
+    admittedInferenceBytes?: 1048576) {
     const bytes = new TextEncoder().encode(JSON.stringify(artifact));
     const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
     if (actual !== digest || bytes.length > 8 * 1024 * 1024 || Object.keys(artifact.modules).length > 128 ||
       artifact.className !== 'FlueDispatcherAgent' || artifact.versions.runtime !== '2.1.0' || artifact.versions.agents !== '0.20.1') {
       return { ok: false, reason: 'fixture-artifact-rejected' };
     }
+    // Closed host-only scenarios cannot change artifact modules or SDK settings.
+    if ((journeyScenario !== undefined && (!journey || researchBodyBytes !== 131072
+      || !['ordinary', 'overflow-once', 'transient-interruption-once', 'finish-undiscovered', 'seal-undiscovered'].includes(journeyScenario)))
+      || (admittedInferenceBytes !== undefined && (!journeyScenario || admittedInferenceBytes !== 1048576))) {
+      return { ok: false, reason: 'fixture-scenario-rejected' };
+    }
     if (journey) {
       await this.ctx.storage.put('fixture:journey', true);
+      if (journeyScenario) await this.ctx.storage.put('fixture:journey-scenario', journeyScenario);
+      if (admittedInferenceBytes) await this.ctx.storage.put('fixture:admitted-inference-bytes', admittedInferenceBytes);
       if (oversizedSourceMetadata) await this.ctx.storage.put('fixture:oversized-source-metadata', true);
       if (researchBodyBytes) await this.ctx.storage.put('fixture:research-body-bytes', researchBodyBytes);
       // Test parent metadata and authenticated remote facts are separate inputs.
@@ -274,6 +299,21 @@ export class FlueDispatcherAgent extends Pinned {
     const response = await (await this.child()).fetch(new Request(
       `https://flue.internal/agents/Dispatcher/dispatcher?view=updates&offset=${encodeURIComponent(previous.offset)}`));
     return readDispatcherUpdates(response, previous, submissionId);
+  }
+
+  /** Recovery cases never export inference bodies, prompts or SDK private state. */
+  async journeyObservation(): Promise<NativeJourneyObservation> {
+    const effects = await this.ctx.storage.get<NativeJourneyObservation['effects']>('fixture:journey-effects')
+      ?? { commentRequests: 0, otherMutationRequests: 0, commentMatches: false, researchSourceRequests: 0 };
+    const activity = await this.env.ACTIVITY.getByName(this.name).journeySession();
+    if (!activity) throw new Error('Fixture Activity observation unavailable');
+    return {
+      wire: await this.ctx.storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [],
+      effects,
+      sessionId: activity.sessionId,
+      interruptionObserved: Boolean(await this.ctx.storage.get('fixture:journey-interruption')),
+      retryIdentityMatched: await this.ctx.storage.get('fixture:journey-retry-matched') === true,
+    };
   }
 
   /** Public SDK history only: no fixtureSnapshot/private tables or raw error prose. */
@@ -687,9 +727,40 @@ export class FlueDispatcherAgent extends Pinned {
 
   private async journeyTransport(request: Request): Promise<Response> {
     const wireRequest = request.clone();
-    let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
-    try { operation = await parseDispatcherOperation(request); }
-    catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
+    const scenario = await this.ctx.storage.get<NativeJourneyScenario>('fixture:journey-scenario');
+    const inferenceByteLimit = await this.ctx.storage.get<number>('fixture:admitted-inference-bytes');
+    let operation: Awaited<ReturnType<typeof parseDispatcherOperation>> | undefined;
+    // Every authentic request, including summaries/retries, crosses the unchanged
+    // production parser. This is admitted fixture policy, not a product limit.
+    try { operation = await parseDispatcherOperation(request, inferenceByteLimit); }
+    catch { /* Record closed semantic evidence below, never exception text. */ }
+    let wireText: string | undefined;
+    let wire: NativeInferenceWire | undefined;
+    if (scenario && new URL(wireRequest.url).pathname === '/v1/dispatcher/inference') {
+      try {
+        wireText = await readDispatcherBody(wireRequest, wireRequest.signal, inferenceByteLimit);
+        const envelope = JSON.parse(wireText) as { input?: Record<string, unknown> };
+        const input = envelope?.input;
+        if (input && typeof input === 'object' && !Array.isArray(input)) {
+          const canonical = Object.hasOwn(input, 'max_tokens');
+          const alias = Object.hasOwn(input, 'max_completion_tokens');
+          const other = Object.hasOwn(input, 'max_output_tokens');
+          const tools = Array.isArray(input.tools) ? input.tools.length : 0;
+          const budget = canonical ? input.max_tokens : alias ? input.max_completion_tokens : null;
+          wire = { admission: operation ? 'accepted' : 'rejected', stage: tools ? 'normal' : 'summary',
+            tokenField: other ? 'other' : canonical && alias ? 'dual' : canonical ? 'canonical' : alias ? 'completion-alias' : 'absent',
+            outputBudget: typeof budget === 'number' && Number.isFinite(budget) ? budget : null,
+            messages: Array.isArray(input.messages) ? input.messages.length : 0, tools };
+          // Parallel main/prefix summaries must not race a global append ordinal.
+          await this.ctx.storage.transaction(async storage => {
+            const observed = await storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [];
+            if (observed.length >= 64) throw new Error('Fixture inference observation bound exceeded');
+            await storage.put('fixture:journey-wire', [...observed, wire!]);
+          });
+        }
+      } catch { /* Malformed/oversized bodies produce no content-bearing diagnostic. */ }
+    }
+    if (!operation) return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
     const operations = await this.ctx.storage.get<Record<string, { path: string; body: unknown }>>('fixture:journey-operations') ?? {};
     if (operation.path === '/v1/dispatcher/receipt') {
       const prior = operations[operation.operationId];
@@ -705,7 +776,26 @@ export class FlueDispatcherAgent extends Pinned {
     const researchUrl = 'https://docs.example.test/large-migration';
     const quote = 'Migration compatibility remains unverified.';
     const comment = `${quote} Source: ${researchUrl}`;
-    const entry = { path: operation.path, body: operation.body };
+    // Older artifact-window cases intentionally inspect model-facing bodies.
+    // New recovery cases retain only an internal conflict digest and closed wire
+    // evidence; no prompts/tool bodies are persisted in their inference ledger.
+    const entry = { path: operation.path, body: scenario && operation.path === '/v1/dispatcher/inference' ? {} : operation.body };
+    if (scenario && operation.path === '/v1/dispatcher/inference') {
+      if (!wire || wireText === undefined) return new Response(null, { status: 403 });
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(wireText))),
+        b => b.toString(16).padStart(2, '0')).join('');
+      const digests = await this.ctx.storage.get<Record<string, string>>('fixture:journey-wire-digests') ?? {};
+      if (digests[operation.operationId] && digests[operation.operationId] !== digest) {
+        return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+      }
+      if (scenario === 'transient-interruption-once') {
+        const interrupted = await this.ctx.storage.get<{ operationId: string; digest: string }>('fixture:journey-interruption');
+        if (interrupted?.operationId === operation.operationId && interrupted.digest === digest) {
+          await this.ctx.storage.put('fixture:journey-retry-matched', true);
+        }
+      }
+      await this.ctx.storage.put('fixture:journey-wire-digests', { ...digests, [operation.operationId]: digest });
+    }
     if (operations[operation.operationId] && JSON.stringify(operations[operation.operationId]) !== JSON.stringify(entry)) {
       return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
     }
@@ -748,34 +838,136 @@ export class FlueDispatcherAgent extends Pinned {
         if (researchBodyBytes && source.url === researchUrl) {
           await this.ctx.storage.put('fixture:journey-research-reads',
             (await this.ctx.storage.get<number>('fixture:journey-research-reads') ?? 0) + 1);
-          body = 'x'.repeat(researchBodyBytes - 2000) + quote + 'y'.repeat(2000 - quote.length);
+          body = scenario === 'overflow-once'
+            ? 'x'.repeat(23 * 2000) + quote + 'x'.repeat(researchBodyBytes - 23 * 2000 - quote.length)
+            : 'x'.repeat(researchBodyBytes - 2000) + quote + 'y'.repeat(2000 - quote.length);
         } else {
           if (!Object.hasOwn(allowed, source.url)) return new Response(null, { status: 403 });
           body = JSON.stringify(allowed[source.url]);
         }
       }
+      // Count each accepted synthetic upstream request, including identical IDs.
+      // The separate operation map remains solely the identity/conflict ledger.
+      const isComment = source.method === 'POST' && source.url === commentUrl;
+      const isMutation = (source.method ?? 'GET') !== 'GET';
+      const isResearch = !isMutation && source.url === researchUrl;
+      if (isMutation || isResearch) await this.ctx.storage.transaction(async storage => {
+        const effects = await storage.get<NativeJourneyObservation['effects']>('fixture:journey-effects')
+          ?? { commentRequests: 0, otherMutationRequests: 0, commentMatches: false, researchSourceRequests: 0 };
+        if (effects.commentRequests + effects.otherMutationRequests + effects.researchSourceRequests >= 128) {
+          throw new Error('Fixture source request observation bound exceeded');
+        }
+        if (isComment) {
+          effects.commentRequests++;
+          effects.commentMatches = effects.commentRequests === 1 && source.body === JSON.stringify({ body: comment });
+        } else if (isMutation) effects.otherMutationRequests++;
+        else effects.researchSourceRequests++;
+        await storage.put('fixture:journey-effects', effects);
+      });
       await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
       return Response.json({ url: source.url, status, headers: { 'content-type': 'application/json',
         ...(facts && source.url === `${pullsUrl}1` ? { link: `<${pullsUrl}2>; rel="next"` } : {}) }, body });
     }
     if (operation.path !== '/v1/dispatcher/inference') return new Response(null, { status: 403 });
-    const turn = Object.values(operations).filter(item => item.path === operation.path).length;
-    const tool = (researchBodyBytes
-      ? ['discover_renovate', 'research_renovate', 'research_renovate', 'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher']
-      : ['discover_renovate', 'seal_dispatcher', 'finish_dispatcher'])[turn];
-    if (!tool) return new Response(null, { status: 403 });
-    const bytes = new TextEncoder().encode(await wireRequest.text()).byteLength;
-    await this.ctx.storage.put('fixture:journey-inference-bytes',
-      [...(await this.ctx.storage.get<number[]>('fixture:journey-inference-bytes') ?? []), bytes]);
+    const sse = (chunks: unknown[]) => new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n', {
+      headers: { 'content-type': 'text/event-stream' },
+    });
     const artifactKey = JSON.stringify({ target, url: researchUrl, kind: 'upstream' });
     const artifactHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(artifactKey))),
       b => b.toString(16).padStart(2, '0')).join('');
-    const args = tool === 'research_renovate' ? { target, url: researchUrl, kind: 'upstream', offset: turn === 2 ? researchBodyBytes! - 2000 : 0 }
+    const summaryPrefix = `Repository authorized/project; admitted PR 17, head ${target.headSha}. Discovery authenticated Renovate.`;
+    if (scenario && wire?.stage === 'summary') {
+      // External summary model response only. The real SDK owns preparation,
+      // summary requests, compaction state and continuation of this submission.
+      // Identical deterministic text is safe for concurrently requested summaries.
+      const summary = `${summaryPrefix} Research artifact artifact-${artifactHash.slice(0, 24)} for ${researchUrl} contains exact quotation: ${quote} `
+        + `Record DO_NOT_MERGE with comment "${comment}" and the artifact citation; seal, comment once, then finish. No merge.`;
+      await this.ctx.storage.transaction(async storage => {
+        const current = await storage.get<Record<string, { path: string; body: unknown }>>('fixture:journey-operations') ?? {};
+        await storage.put('fixture:journey-operations', { ...current, [operation.operationId]: entry });
+      });
+      return sse([{ choices: [{ index: 0, delta: { content: summary }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 9000, completion_tokens: 150, total_tokens: 9150 } }]);
+    }
+    if (scenario === 'overflow-once' && await this.ctx.storage.get('fixture:journey-injected')) {
+      const observed = await this.ctx.storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [];
+      // A continuation is answered only when the SDK really carried our public
+      // upstream summary into the new normal wire context. Export no text.
+      const input = (JSON.parse(wireText!) as { input: { messages: unknown[] } }).input;
+      if (!observed.some(item => item.stage === 'summary' && item.admission === 'accepted')
+        || !JSON.stringify(input.messages).includes(summaryPrefix)) return new Response(null, { status: 403 });
+    }
+    const turn = scenario ? await this.ctx.storage.get<number>('fixture:journey-domain-turn') ?? 0
+      : Object.values(operations).filter(item => item.path === operation.path).length;
+    // Synthetic upstream model stop after a genuine failed producer completion tool.
+    if ((scenario === 'finish-undiscovered' && turn > 0) || (scenario === 'seal-undiscovered' && turn > 1)) {
+      await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+      return sse([{ choices: [{ index: 0, delta: { content: 'Diagnostic fixture stop.' }, finish_reason: 'stop' }] }]);
+    }
+    // 24 genuine SDK tool turns, each a successive 2000-character artifact
+    // window: >12000 estimated text tokens, a kept cut point, <128 messages/ops.
+    const researchTurns = scenario === 'overflow-once' ? 24 : 2;
+    const tool = scenario === 'seal-undiscovered' ? ['seal_dispatcher', 'finish_dispatcher'][turn]
+      : scenario === 'finish-undiscovered' ? 'finish_dispatcher' : (researchBodyBytes
+        ? ['discover_renovate', ...Array.from({ length: researchTurns }, () => 'research_renovate'),
+          'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher']
+        : ['discover_renovate', 'seal_dispatcher', 'finish_dispatcher'])[turn];
+    if (!tool) return new Response(null, { status: 403 });
+    if (!scenario) {
+      const bytes = new TextEncoder().encode(await wireRequest.text()).byteLength;
+      await this.ctx.storage.put('fixture:journey-inference-bytes',
+        [...(await this.ctx.storage.get<number[]>('fixture:journey-inference-bytes') ?? []), bytes]);
+    }
+    const injectAt = scenario === 'overflow-once' ? researchTurns + 1 : 2;
+    if (scenario && scenario !== 'ordinary' && turn === injectAt
+      && !await this.ctx.storage.get('fixture:journey-injected')) {
+      if (scenario === 'overflow-once') {
+        // Validate actual SDK model-facing tool results before injecting overflow.
+        // No asserted token usage or scripted turn ordinal substitutes for real
+        // retained text. Only the existing artifact window wire contract is read.
+        const windows = new Map<number, number>();
+        let inspected = 0;
+        const visit = (value: unknown, depth = 0): void => {
+          if (++inspected > 4096 || depth > 16) return;
+          if (typeof value === 'string') {
+            if (/^\s*[[{]/.test(value)) {
+              try { visit(JSON.parse(value), depth + 1); } catch { /* Plain text. */ }
+            }
+          } else if (Array.isArray(value)) {
+            for (const item of value) visit(item, depth + 1);
+          } else if (value && typeof value === 'object') {
+            const item = value as Record<string, unknown>;
+            if (item.bodyLength === 131072 && item.bodyTruncated === true && typeof item.bodyOffset === 'number'
+              && typeof item.body === 'string' && item.body.length === 2000) windows.set(item.bodyOffset, item.body.length);
+            for (const field of Object.values(item)) visit(field, depth + 1);
+          }
+        };
+        visit((JSON.parse(wireText!) as { input: { messages: unknown[] } }).input.messages);
+        if (windows.size !== 24 || !Array.from({ length: 24 }, (_, index) => index * 2000).every(offset => windows.has(offset))
+          || [...windows.values()].reduce((sum, length) => sum + length / 4, 0) <= 8000) return new Response(null, { status: 403 });
+      }
+      await this.ctx.storage.put('fixture:journey-injected', true);
+      if (scenario === 'transient-interruption-once') {
+        const digests = await this.ctx.storage.get<Record<string, string>>('fixture:journey-wire-digests');
+        await this.ctx.storage.put('fixture:journey-interruption', { operationId: operation.operationId,
+          digest: digests![operation.operationId] });
+      }
+      await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+      // Successful admitted HTTP200 SSE failure inputs, not handwritten child
+      // requests or private SDK calls. Neither injection consumes a domain turn.
+      return sse([{ choices: [{ index: 0, delta: {},
+        finish_reason: scenario === 'overflow-once' ? 'context_length_exceeded' : null }],
+        usage: { prompt_tokens: scenario === 'overflow-once' ? 14000 : 2000, completion_tokens: 0,
+          total_tokens: scenario === 'overflow-once' ? 14000 : 2000 } }]);
+    }
+    const args = tool === 'research_renovate' ? { target, url: researchUrl, kind: 'upstream',
+      offset: scenario === 'overflow-once' ? (turn - 1) * 2000 : turn === 2 ? researchBodyBytes! - 2000 : 0 }
       : tool === 'decide_renovate' ? { target, decision: 'DO_NOT_MERGE', comment,
         claims: [{ artifactId: `artifact-${artifactHash.slice(0, 24)}`, quote, relevance: 'migration uncertainty', authority: 'publisher guidance' }],
         analysis: { changedUsage: 'unverified', configuration: 'unverified', interoperability: 'unverified', migration: 'unverified', gaps: ['No verified compatibility declaration'] } }
       : tool === 'comment_renovate' ? { target } : {};
     await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+    if (scenario) await this.ctx.storage.put('fixture:journey-domain-turn', turn + 1);
     const chunks = [
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `journey-${turn}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
@@ -1003,7 +1195,20 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   const command = await request.json<FlueFixtureCommand>();
   switch (command.action) {
     case 'configure': return Response.json(await root.configure(command.artifact, command.digest, command.journey,
-      command.oversizedSourceMetadata, command.researchBodyBytes, command.admittedTarget, command.journeyFacts));
+      command.oversizedSourceMetadata, command.researchBodyBytes, command.admittedTarget, command.journeyFacts,
+      command.journeyScenario, command.admittedInferenceBytes));
+    case 'journey-observation': return Response.json(await root.journeyObservation());
+    case 'journey-comment-request': {
+      const binding = await root.facetBridgeBinding();
+      if (binding.status !== 'current') return new Response(null, { status: 403 });
+      return root.transport(new Request('https://operator.internal/v1/dispatcher/source', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'repeated-comment-control', method: 'POST',
+          url: 'https://api.github.com/repos/authorized/project/issues/17/comments',
+          body: JSON.stringify({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration' }),
+        }),
+      }), binding.generation);
+    }
     case 'journey-updates': return Response.json(await root.journeyUpdates(command.submissionId, command.previous));
     case 'journey-diagnostic': return Response.json(await root.journeyDiagnostic(command.submissionId));
     case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,

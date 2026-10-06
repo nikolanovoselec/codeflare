@@ -13,7 +13,7 @@ import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin, type DispatcherAdmittedTarget } from './operator-runtime-capability';
+  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
@@ -1519,6 +1519,46 @@ export class OperatorActivity extends Agent {
             'reconcileDispatcherLease', { generation: lease.generation }, { idempotent: true });
           return;
         }
+        // SDK observations diagnose the producer/collector boundary, never authorize settlement.
+        const completionCalls = value.completion?.calls ?? [];
+        try {
+          dispatcherLog.warn('Dispatcher settlement observed', {
+            activityId: plan.activityId, generation: lease.generation, outcome: settlement.outcome,
+            projectedWrites: value.writes, assessmentPresent: value.result !== undefined,
+            messageCount: value.messageIds.length, completionCalls: completionCalls.length,
+            completionSucceeded: completionCalls.filter(call => call.outcome === 'succeeded').length,
+            completionFailed: completionCalls.filter(call => call.outcome === 'failed').length,
+            completionPending: completionCalls.filter(call => call.outcome === 'pending').length,
+            completionTruncated: value.completion?.truncated ?? false,
+            unmatchedAssessment: value.unmatchedAssessment ?? false,
+            ...(value.readiness ? {
+              producerReadinessObserved: value.readiness.latest !== undefined,
+              producerReadinessTruncated: value.readiness.truncated,
+              ...(value.readiness.latest ? {
+                producerCategory: value.readiness.latest.category,
+                producerDiscovered: value.readiness.latest.discovered,
+                producerSealed: value.readiness.latest.sealed,
+                producerTargetCount: value.readiness.latest.targetCount,
+                producerDecisionCount: value.readiness.latest.decisionCount,
+                producerResultCount: value.readiness.latest.resultCount,
+                producerUnknownOperationCount: value.readiness.latest.unknownOperationCount,
+              } : {}),
+            } : {}),
+            ...(value.sealPreflight ? {
+              producerSealObserved: value.sealPreflight.latest !== undefined,
+              producerSealTruncated: value.sealPreflight.truncated,
+              ...(value.sealPreflight.latest ? {
+                producerSealCategory: value.sealPreflight.latest.category,
+                producerSealTargetCount: value.sealPreflight.latest.targetCount,
+                producerSealDecisionCount: value.sealPreflight.latest.decisionCount,
+                producerSealSealed: value.sealPreflight.latest.sealed,
+                producerSealOperationCount: value.sealPreflight.latest.operationCount,
+                producerSealOperationLimit: value.sealPreflight.latest.operationLimit,
+                producerSealRequiredOperationCount: value.sealPreflight.latest.requiredOperationCount,
+              } : {}),
+            } : {}),
+          });
+        } catch { /* Observability failure cannot prevent settlement or collection. */ }
         stage = 'authorize';
         const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
@@ -1732,7 +1772,8 @@ export class OperatorActivity extends Agent {
                 : error instanceof z.ZodError ? 'invalid-wire' : 'request-denied';
           // Fixed diagnostic wire only: no request, exception text or child identity.
           dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
-            activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403 });
+            activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403,
+            ...(preparationStep === 'parse' && error instanceof z.ZodError ? dispatcherWireRules(error) : {}) });
         }
       } catch { /* Observability cannot replace the original denial. */ }
       return denied();
@@ -1746,7 +1787,8 @@ export class OperatorActivity extends Agent {
     const reserved = await this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!this.#leaseMatches(record, lease, generation)) return { kind: 'denied' } as const;
+      if (!this.#leaseMatches(record, lease, generation)) return { kind: 'denied', reason: 'lease-mismatch',
+        activityId: record?.intent.activityId, lease } as const;
       const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
       const prior = Object.hasOwn(operations, operation.operationId) ? operations[operation.operationId] : undefined;
       if (prior) {
@@ -1760,7 +1802,9 @@ export class OperatorActivity extends Agent {
         await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
         return { kind: 'unknown', lease: lease! } as const;
       }
-      if (Object.keys(operations).length >= 128) return { kind: 'denied' } as const;
+      const operationCount = Object.keys(operations).length;
+      if (operationCount >= 128) return { kind: 'denied', reason: 'operation-limit',
+        activityId: record!.intent.activityId, lease, operationCount } as const;
       await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
         generation, requestDigest, phase: 'reserved', ordinal: Object.keys(operations).length, ...(operation.path === '/v1/dispatcher/source'
           ? { request: { method: (operation.body as { method?: 'GET' | 'POST' | 'PUT' }).method ?? 'GET',
@@ -1768,7 +1812,12 @@ export class OperatorActivity extends Agent {
       return { kind: 'reserved', lease: lease! } as const;
     });
     if (reserved.kind === 'denied') {
-      rejected('reservation', resource, lease, 403);
+      try {
+        dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
+          ...(reserved.activityId === undefined ? {} : { activityId: reserved.activityId }), generation,
+          resource, deadline: deadline(reserved.lease), status: 403,
+          ...(reserved.reason === 'operation-limit' ? { operationCount: reserved.operationCount, operationLimit: 128 } : {}) });
+      } catch { /* Observability cannot replace the original denial. */ }
       return denied();
     }
     if (reserved.kind === 'conflict') {

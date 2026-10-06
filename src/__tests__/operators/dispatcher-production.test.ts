@@ -33,6 +33,162 @@ const genericWire = (path: string, body: unknown) => new Request(`https://operat
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 
+describe('REQ-OPERATOR-063: reservation denial private wire', () => {
+  const sourceUrl = 'https://api.github.com/repos/another/service';
+  const inference = (operationId: string) => genericWire('inference', { operationId,
+    input: { messages: [{ role: 'user', content: 'PRIVATE_RESERVATION_CONTENT {"activityId":"forged","generation":999}' }] } });
+  const receipt = async (f: DispatcherFixture, operationId: string) => {
+    const response = await f.capability.fetch(genericWire('receipt', { operationId }));
+    expect(response.status).toBe(200);
+    return await response.json() as { operationCount: number; operationLimit: number;
+      requestDigest: string; responseDigest: string; phase: string };
+  };
+  const fillReads = async (f: DispatcherFixture, count: number) => {
+    for (let index = 0; index < count; index++) {
+      const response = await f.capability.fetch(genericWire('source', { operationId: `capacity-read-${index}`, url: sourceUrl }));
+      expect(response.status).toBe(200);
+      const value = await response.json() as { status: number; body: string };
+      expect(value.status).toBe(200);
+      expect(JSON.parse(value.body)).toMatchObject({ number: 17 });
+    }
+  };
+  const fillMixedJournal = async (f: DispatcherFixture) => {
+    await fillReads(f, 127);
+    const response = await f.capability.fetch(inference('capacity-inference'));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('data: [DONE]\n\n');
+    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 128, operationLimit: 128 });
+  };
+  const reservationEvents = (events: string[]) => events.map(value => JSON.parse(value) as {
+    module: string; data: Record<string, unknown>;
+  }).filter(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'reservation').map(value => value.data);
+
+  it.each(['source', 'inference'] as const)(
+    'REQ-OPERATOR-063: reservation diagnostic wire reports operation-limit for %s without child content', resource => fixture(async f => {
+      await start(f);
+      await fillMixedJournal(f);
+      const before = await f.activity.getBrowserDetail();
+      const outbound = [...f.sent];
+      const events: string[] = [];
+      setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+      try {
+        const operationId = 'PRIVATE_RESERVATION_OPERATION';
+        const response = await f.capability.fetch(resource === 'inference' ? inference(operationId)
+          : genericWire('source', { operationId, url: sourceUrl, method: 'POST',
+            body: '{"activityId":"forged","generation":999,"content":"PRIVATE_RESERVATION_CONTENT"}' }));
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+        // Intentional private diagnostic wire: reason is the actual transaction branch, not an inferred SDK failure.
+        expect(reservationEvents(events)).toEqual([{ stage: 'reservation', reason: 'operation-limit',
+          activityId: f.activityId, generation: 1, resource, deadline: 'current', status: 403,
+          operationCount: 128, operationLimit: 128 }]);
+        expect(events.join('')).not.toContain('PRIVATE_RESERVATION');
+        expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 128, operationLimit: 128 });
+        expect((await f.capability.fetch(genericWire('receipt', { operationId }))).status).toBe(403);
+        expect(f.sent).toEqual(outbound);
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: before!.result,
+          cleanupStatus: before!.cleanupStatus, collectionStatus: before!.collectionStatus });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }, { repositoryOnly: true }));
+
+  it('REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution', () => fixture(async f => {
+    await start(f);
+    await fillReads(f, 125);
+    const comments = `${sourceUrl}/issues/17/comments`;
+    const completed = { operationId: 'capacity-comment', method: 'POST', url: comments, body: '{"body":"completed judgment"}' };
+    const unknown = { ...completed, operationId: 'capacity-unknown', body: '{"body":"uncertain judgment"}' };
+    const posted = await f.capability.fetch(genericWire('source', completed));
+    expect(posted.status).toBe(200);
+    const postedBody = await posted.json();
+    f.loseResponse();
+    expect(await (await f.capability.fetch(genericWire('source', unknown))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport();
+    const observed = await f.capability.fetch(genericWire('source', { operationId: 'capacity-readback', url: comments }));
+    expect(observed.status).toBe(200);
+    expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ body: 'completed judgment' }), expect.objectContaining({ body: 'uncertain judgment' }),
+    ]));
+    const original = await receipt(f, unknown.operationId);
+    const readback = await receipt(f, 'capacity-readback');
+    expect(original).toMatchObject({ operationCount: 128, operationLimit: 128, phase: 'unknown' });
+    const outbound = [...f.sent];
+    expect(await (await f.capability.fetch(genericWire('source', completed))).json()).toEqual(postedBody);
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+    const conflict = await f.capability.fetch(genericWire('source', { ...completed, body: '{"body":"changed judgment"}' }));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+    const uncertain = await f.capability.fetch(genericWire('source', unknown));
+    expect(uncertain.status).toBe(409);
+    expect(await uncertain.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    const resolution = { operationId: unknown.operationId, requestDigest: original.requestDigest,
+      readbacks: [{ operationId: 'capacity-readback', requestDigest: readback.requestDigest, responseDigest: readback.responseDigest }] };
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const resolved = await f.capability.fetch(genericWire('resolve', resolution));
+      expect(resolved.status).toBe(200);
+      expect(await resolved.json()).toEqual({ resolved: true, operationId: unknown.operationId, requestDigest: original.requestDigest });
+    }
+    expect(await receipt(f, unknown.operationId)).toMatchObject({ operationCount: 128, operationLimit: 128, phase: 'completed' });
+    expect(f.sent).toEqual(outbound);
+    const denied = await f.capability.fetch(inference('new-at-capacity'));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+  }, { repositoryOnly: true }));
+
+  it('REQ-OPERATOR-063: reservation diagnostic wire reports lease-mismatch after concurrent cancellation without protected I/O', () => fixture(async f => {
+    await start(f);
+    let cancelled: Awaited<ReturnType<OperatorActivity['getBrowserDetail']>> = null;
+    let alarm: number | null | undefined;
+    f.afterRegistryResolve(async () => { await f.activity.cancelDrive(); cancelled = await f.activity.getBrowserDetail(); alarm = await f.nextAlarm(); });
+    const events: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(inference('PRIVATE_LEASE_OPERATION'));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(reservationEvents(events)).toEqual([{ stage: 'reservation', reason: 'lease-mismatch',
+        activityId: f.activityId, generation: 1, resource: 'inference', deadline: 'current', status: 403 }]);
+      expect(events.join('')).not.toContain('PRIVATE_');
+      expect(f.sent).toEqual([]);
+      expect(cancelled).toBeDefined();
+      expect(await f.activity.getBrowserDetail()).toEqual(cancelled);
+      expect(await f.nextAlarm()).toBe(alarm);
+      expect((await f.capability.fetch(inference('old-capability'))).status).toBe(403);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+
+  it.each(['operation-limit', 'lease-mismatch'] as const)(
+    'REQ-OPERATOR-063: owner reservation logging outage preserves %s denial lifecycle and original authority', reason => fixture(async f => {
+      await start(f);
+      let baseline = await f.activity.getBrowserDetail();
+      let alarm = await f.nextAlarm();
+      if (reason === 'operation-limit') { await fillMixedJournal(f); baseline = await f.activity.getBrowserDetail(); }
+      else f.afterRegistryResolve(async () => { await f.activity.cancelDrive(); baseline = await f.activity.getBrowserDetail(); alarm = await f.nextAlarm(); });
+      const outbound = [...f.sent];
+      setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGING_OUTAGE'); });
+      try {
+        // Owner public transport, not the capability's outer catch: the original denial must resolve even when logging throws.
+        const response = await f.activity.dispatcherOperation(1, inference('outage-denied'));
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+        expect(f.sent).toEqual(outbound);
+        expect(await f.activity.getBrowserDetail()).toEqual(baseline);
+        expect(await f.nextAlarm()).toBe(alarm);
+        spy.mockImplementation(() => {});
+        if (reason === 'operation-limit') {
+          expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 128, operationLimit: 128 });
+          expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+        }
+        expect((await f.capability.fetch(inference('still-denied'))).status).toBe(403);
+        f.expire();
+        expect((await f.capability.fetch(inference('expired-original-authority'))).status).toBe(403);
+        expect(f.sent).toEqual(outbound);
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }, { repositoryOnly: true }));
+});
+
 describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
   it('exposes the configured API origin only to repository-only Loader code', async () => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -153,6 +309,7 @@ async function fixture(test: (f: {
   changeRegistration: (patch: Partial<CurrentProspectiveRegistration> | null) => void;
   changeTarget: (patch: Record<string, unknown>) => void;
   afterTargetRead: (action: () => void | Promise<void>) => void; revokeGrant: () => void;
+  afterRegistryResolve: (action: () => Promise<void>) => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number } = {}) {
@@ -199,6 +356,7 @@ async function fixture(test: (f: {
       sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt' };
     let targetPatch: Record<string, unknown> = {};
     let afterTargetRead: (() => void | Promise<void>) | undefined;
+    let afterRegistryResolve: (() => Promise<void>) | undefined;
     let revoked = false;
     let settlements: unknown[] = [];
     let messages: unknown[] = [];
@@ -375,7 +533,11 @@ async function fixture(test: (f: {
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
     const registry = { getManagementBundle: async () => bytes,
-      resolveManagementExecution: async () => revoked ? { ok: false, reason: 'disabled' } : { ok: true, value: selection },
+      resolveManagementExecution: async () => {
+        const action = afterRegistryResolve; afterRegistryResolve = undefined;
+        await action?.();
+        return revoked ? { ok: false, reason: 'disabled' } : { ok: true, value: selection };
+      },
       admitManagement: async (input: unknown) => ({ ok: true, value: { ...input as object, admittedAt: now, selection } }),
       upsertOwnedActivity: async () => {},
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
@@ -428,6 +590,7 @@ async function fixture(test: (f: {
         changeRegistration: patch => { currentRegistration = patch === null ? null : { ...currentRegistration!, ...patch }; },
         changeTarget: patch => { targetPatch = { ...targetPatch, ...patch }; },
         afterTargetRead: action => { afterTargetRead = action; },
+        afterRegistryResolve: action => { afterRegistryResolve = action; },
         revokeGrant: () => { selection.operator.invokers.users = []; },
         messages: value => { streamBatch++; messages = value; messagesSet = true; },
         sourceBody: value => { sourceBody = value; },
@@ -1043,6 +1206,187 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
   }));
+  it.each(['not-observed', 'succeeded', 'failed'] as const)(
+    'REQ-OPERATOR-063: terminal diagnostic wire distinguishes %s completion from a missing assessment without accepting it', state => fixture(async f => {
+      await start(f);
+      const parts: unknown[] = [{ type: 'text', text: 'PRIVATE_MODEL_TEXT' }];
+      if (state !== 'not-observed') parts.push({ type: 'dynamic-tool', toolName: 'finish_dispatcher',
+        toolCallId: 'PRIVATE_TOOL_IDENTIFIER', state: state === 'succeeded' ? 'output-available' : 'output-error',
+        output: 'PRIVATE_TOOL_OUTPUT', errorText: 'PRIVATE_TOOL_ERROR' });
+      f.messages([{ submissionId: 'submission-1', parts }]);
+      const emitted: string[] = [];
+      setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      try {
+        f.settle(); await f.activity.reconcileDispatcherLease();
+        const events = emitted.map(value => JSON.parse(value) as { module: string; message: string; data?: Record<string, unknown> })
+          .filter(value => value.module === 'dispatcher-settlement' && value.message === 'Dispatcher settlement observed');
+        expect(events).toHaveLength(1);
+        expect(events[0].data).toEqual({ activityId: f.activityId, generation: 1, outcome: 'completed',
+          projectedWrites: 0, assessmentPresent: false, messageCount: 1,
+          completionCalls: state === 'not-observed' ? 0 : 1, completionSucceeded: state === 'succeeded' ? 1 : 0,
+          completionFailed: state === 'failed' ? 1 : 0, completionPending: 0,
+          completionTruncated: false, unmatchedAssessment: false });
+        expect(emitted.join('')).not.toContain('PRIVATE_');
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }),
+  );
+  it('REQ-OPERATOR-063: terminal diagnostic wire confirms an observed assessment without exposing it', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40), private: 'PRIVATE_ASSESSMENT_CONTENT' };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: 'PRIVATE_TOOL_IDENTIFIER', state: 'output-available', output: assessment },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const event = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+        .find(value => value.message === 'Dispatcher settlement observed');
+      expect(event?.data).toMatchObject({ activityId: f.activityId, generation: 1, outcome: 'completed',
+        projectedWrites: 1, assessmentPresent: true, completionCalls: 1, completionSucceeded: 1 });
+      expect(emitted.join('')).not.toContain('PRIVATE_');
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it.each(['capacity', 'receipt', 'ready'] as const)(
+    'REQ-OPERATOR-076: seal-preflight.v1 trusted terminal %s metadata cannot authorize missing assessment', category => fixture(async f => {
+      await start(f);
+      const seal = { category, targetCount: 24, decisionCount: 24, sealed: category === 'ready',
+        operationCount: category === 'receipt' ? null : 32, operationLimit: category === 'receipt' ? null : 128,
+        requiredOperationCount: category === 'receipt' ? null : 97 };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-dispatcher-seal-preflight', data: seal }] }]);
+      const emitted: string[] = []; setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      try {
+        f.settle(); await f.activity.reconcileDispatcherLease();
+        const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+          .find(value => value.message === 'Dispatcher settlement observed');
+        expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1, outcome: 'completed',
+          projectedWrites: 0, assessmentPresent: false, producerSealObserved: true, producerSealTruncated: false,
+          producerSealCategory: category, producerSealTargetCount: 24, producerSealDecisionCount: 24,
+          producerSealSealed: category === 'ready', producerSealOperationCount: seal.operationCount,
+          producerSealOperationLimit: seal.operationLimit, producerSealRequiredOperationCount: seal.requiredOperationCount });
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }),
+  );
+  it('REQ-OPERATOR-076: invalid seal-preflight.v1 cannot expose private content or block validated collection', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-seal-preflight', data: { category: 'PRIVATE_PRODUCER_CONTENT', receipt: 'PRIVATE_RECEIPT_CONTENT' } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    const emitted: string[] = []; setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+        .find(value => value.message === 'Dispatcher settlement observed');
+      expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1,
+        projectedWrites: 1, assessmentPresent: true, producerSealObserved: false, producerSealTruncated: true });
+      expect(emitted.join('')).not.toContain('PRIVATE_');
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it('REQ-OPERATOR-076: seal-preflight.v1 logger outage preserves actual collection and SDK release', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-seal-preflight', data: { category: 'ready', targetCount: 1, decisionCount: 1,
+        operationCount: 10, operationLimit: 128, requiredOperationCount: 5, sealed: true } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    setLogLevel('warn'); const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGER_ERROR'); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it.each(['ready', 'incomplete-results', 'unknown-operation'] as const)(
+    'REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment', category => fixture(async f => {
+      await start(f);
+      f.messages([{ submissionId: 'submission-1', parts: [
+        { type: 'data-dispatcher-readiness', data: { discovered: true, sealed: true,
+          targetCount: 2, decisionCount: 2, resultCount: category === 'ready' ? 2 : 1,
+          unknownOperationCount: category === 'unknown-operation' ? 1 : 0, category } },
+        { type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: 'PRIVATE_TOOL_IDENTIFIER',
+          state: 'output-error', errorText: 'PRIVATE_TOOL_ERROR' },
+      ] }]);
+      const emitted: string[] = []; setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      try {
+        f.settle(); await f.activity.reconcileDispatcherLease();
+        const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+          .find(value => value.message === 'Dispatcher settlement observed');
+        expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1, outcome: 'completed',
+          projectedWrites: 0, assessmentPresent: false, producerReadinessObserved: true, producerReadinessTruncated: false,
+          producerCategory: category, producerDiscovered: true, producerSealed: true,
+          producerTargetCount: 2, producerDecisionCount: 2, producerResultCount: category === 'ready' ? 2 : 1,
+          producerUnknownOperationCount: category === 'unknown-operation' ? 1 : 0 });
+        expect(emitted.join('')).not.toContain('PRIVATE_');
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }),
+  );
+  it('REQ-OPERATOR-063: invalid readiness.v1 terminal wire cannot expose content or block validated collection', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-readiness', data: { category: 'PRIVATE_PRODUCER_CONTENT' } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    const emitted: string[] = []; setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+        .find(value => value.message === 'Dispatcher settlement observed');
+      expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1,
+        projectedWrites: 1, assessmentPresent: true, producerReadinessObserved: false, producerReadinessTruncated: true });
+      expect(emitted.join('')).not.toContain('PRIVATE_');
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it('REQ-OPERATOR-063: readiness.v1 logging outage preserves actual result and SDK release', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-readiness', data: { discovered: true, sealed: false,
+        targetCount: 0, decisionCount: 0, resultCount: 0, unknownOperationCount: 0, category: 'ready' } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    setLogLevel('warn'); const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGER_ERROR'); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it('REQ-OPERATOR-063: unavailable terminal diagnostic logging cannot prevent valid collection or SDK release', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGING_FAILURE'); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
   it('fences a completed model turn with no submitted assessment instead of advertising waiting', () => fixture(async f => {
     await start(f);
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'text', text: 'Assessment incomplete' }] }]);
@@ -1259,10 +1603,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     { name: 'invalid JSON', preparationStep: 'parse', failureClass: 'invalid-json',
       request: () => new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
         headers: { 'content-type': 'application/json' }, body: '{"PRIVATE_PROMPT":' }) },
-    { name: 'forged wire identity', preparationStep: 'parse', failureClass: 'invalid-wire',
+    { name: 'forged wire identity', preparationStep: 'parse', failureClass: 'invalid-wire', wireRules: ['envelope-field'],
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', activityId: 'CHILD_ACTIVITY', generation: 909,
         input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
-    { name: 'pinned SDK compaction wire', preparationStep: 'parse', failureClass: 'invalid-wire',
+    { name: 'pinned SDK compaction wire', preparationStep: 'parse', failureClass: 'invalid-wire', wireRules: ['inference-max-completion-tokens'],
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
         messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], max_completion_tokens: 16000 } }) },
     { name: 'unsupported method', preparationStep: 'parse', failureClass: 'request-denied',
@@ -1276,7 +1620,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
         messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } }) },
   ])('REQ-OPERATOR-063: preparation rejection $name preserves denial and private diagnostic wire',
-  ({ preparationStep, failureClass, request, capabilities, revoked }) => fixture(async f => {
+  ({ preparationStep, failureClass, request, capabilities, revoked, wireRules }) => fixture(async f => {
     await start(f);
     if (revoked) f.revoke();
     const emitted: string[] = [];
@@ -1293,7 +1637,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         data?: Record<string, unknown> }).find(value => value.module === 'dispatcher-settlement'
         && value.message === 'Dispatcher operation rejected' && value.data?.stage === 'preparation');
       expect(event?.data).toEqual({ stage: 'preparation', preparationStep, failureClass,
-        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403 });
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
+        ...(wireRules ? { wireRules, wireRulesTruncated: false } : {}) });
       expect(emitted.join('\n')).not.toMatch(/PRIVATE_|CHILD_ACTIVITY|private\.jwt|inline-secret|owner@example/);
       const detail = await f.activity.getBrowserDetail();
       expect(detail?.executionStatus).toBe('running');
@@ -1315,6 +1660,70 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(f.sent).toEqual([]);
       expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-logging-outage',
         url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+  it.each([
+    { name: 'missing messages', input: {}, rule: 'inference-messages-shape' },
+    { name: 'empty messages', input: { messages: [] }, rule: 'inference-messages-count' },
+    { name: 'message count', input: { messages: Array.from({ length: 129 }, () => ({ role: 'user', content: 'PRIVATE_PROMPT' })) }, rule: 'inference-messages-count' },
+    { name: 'message list shape', input: { messages: 'PRIVATE_PROMPT' }, rule: 'inference-messages-shape' },
+    { name: 'tool count', input: { messages: [{}], tools: Array.from({ length: 33 }, () => ({})) }, rule: 'inference-tools-count' },
+    { name: 'tool list shape', input: { messages: [{}], tools: 'PRIVATE_TOOL' }, rule: 'inference-tools-shape' },
+    { name: 'completion token field', input: { messages: [{}], max_completion_tokens: 16000 }, rule: 'inference-max-completion-tokens' },
+    { name: 'output token upper bound', input: { messages: [{}], max_tokens: 8193 }, rule: 'inference-token-bound' },
+    { name: 'output token lower bound', input: { messages: [{}], max_tokens: 0 }, rule: 'inference-token-bound' },
+    { name: 'output token shape', input: { messages: [{}], max_tokens: 1.5 }, rule: 'inference-token-shape' },
+    { name: 'temperature bound', input: { messages: [{}], temperature: 3 }, rule: 'inference-temperature' },
+    { name: 'stream shape', input: { messages: [{}], stream: 'PRIVATE_STREAM' }, rule: 'inference-stream' },
+    { name: 'stream options', input: { messages: [{}], stream_options: { include_usage: false } }, rule: 'inference-stream-options' },
+    { name: 'private nested option key', input: { messages: [{}], stream_options: { include_usage: true, PRIVATE_KEY: 'inline-secret' } }, rule: 'inference-stream-options' },
+    { name: 'private input key', input: { messages: [{}], PRIVATE_KEY: 'private.jwt' }, rule: 'inference-unsupported-field' },
+    { name: 'input shape', input: null, rule: 'inference-input' },
+  ])('REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority', ({ input, rule }) => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION', input }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual([]);
+      // Intentional diagnostic security contract: bounded fixed rule labels,
+      // trusted identity, and the unchanged generic public denial.
+      const event = emitted.map(value => JSON.parse(value) as { module: string; data?: Record<string, unknown> })
+        .find(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'preparation');
+      expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
+        wireRules: [rule], wireRulesTruncated: false });
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|owner@example|8193|16000/);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+      expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-rule-denial',
+        url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
+  it('REQ-OPERATOR-063: bounds multiple rejected rules without retaining arbitrary issue paths or values', () => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION'.repeat(20), input: {
+        messages: Array.from({ length: 129 }, () => ({ content: 'PRIVATE_PROMPT' })),
+        tools: Array.from({ length: 33 }, () => ({})), max_tokens: 8193, temperature: 3,
+        stream: 'PRIVATE_STREAM', stream_options: { include_usage: false }, PRIVATE_KEY: 'inline-secret',
+      } }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual([]);
+      const event = emitted.map(value => JSON.parse(value) as { module: string; data?: Record<string, unknown> })
+        .find(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'preparation');
+      expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
+        activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
+        wireRules: ['operation-id', 'inference-messages-count', 'inference-tools-count', 'inference-token-bound'], wireRulesTruncated: true });
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|8193|ZodError|too_big/);
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }, { repositoryOnly: true }));
   it.each([
@@ -1443,15 +1852,26 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
   });
 
-  it('routes bounded inference through the parent interceptor without forwarding child authority', () => fixture(async f => {
+  it.each([undefined, 5120, 8192])('REQ-OPERATOR-047: routes bounded ordinary or canonical summary budget %s without forwarding child authority', budget => fixture(async f => {
     await start(f);
+    const messages = budget === undefined ? [{ role: 'user', content: 'assess' }]
+      : [{ role: 'system', content: 'Summarize the supplied research.' }, { role: 'user', content: 'Synthetic research context.' }];
     const response = await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
       method: 'POST', headers: { authorization: 'child-secret', 'content-type': 'application/json' },
-      body: JSON.stringify({ operationId: 'inference-1', input: { messages: [{ role: 'user', content: 'assess' }] } }),
+      body: JSON.stringify({ operationId: 'inference-1', input: { messages,
+        ...(budget === undefined ? {} : { max_tokens: budget }) } }),
     }));
     expect(response.status).toBe(200); expect(await response.text()).toBe('data: [DONE]\n\n');
     expect(f.sent[0].url).toBe('https://api.openai.com/v1/chat/completions');
     expect(f.sent[0].headers.has('authorization')).toBe(false);
+    // Parent output-limit/default injection and canonical forwarding are wire contracts.
+    const forwarded = await f.sent[0].json();
+    expect(forwarded).toMatchObject({ messages, max_tokens: budget ?? 8192 });
+    expect(forwarded).not.toHaveProperty('max_completion_tokens');
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    f.revoke();
+    expect((await f.capability.fetch(genericWire('inference', { operationId: 'revoked-summary',
+      input: { messages, max_tokens: 5120 } }))).status).toBe(403);
   }));
   it('denies foreign resources, unknown routes, oversized input and foreign/root scheduling while allowed reads work', () => fixture(async f => {
     await start(f); expect((await f.capability.fetch(read())).status).toBe(200);

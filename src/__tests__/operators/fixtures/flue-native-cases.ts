@@ -10,7 +10,8 @@ vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatche
 import type { OperatorActivityPreparation } from '../../../operators/activity';
 import { parsePublishableAssessment } from '../../../operators/renovate-publication';
 import type { ActivityFixtureCommand } from './loader-worker';
-import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery, NativeJourneyDiagnostic } from './flue-native-fixture';
+import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery, NativeJourneyDiagnostic,
+  NativeJourneyObservation, NativeJourneyScenario } from './flue-native-fixture';
 
 type Assessment = NativeDelivery & {
   result: { status: number; body: { accepted?: boolean; evidence?: unknown } };
@@ -207,6 +208,226 @@ export function registerNativeDispatcherCases(
       expect(evidence.external).toEqual([]);
       expect(evidence.activity.sessionId).toBeNull();
     }, 30_000);
+  });
+
+  if (group === 'authority') describe('REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility', () => {
+    beforeEach(() => harness.reset(), 60_000);
+
+    // SDK-real + production-parser-real + synthetic upstream only. In particular,
+    // this fixture does NOT exercise Activity's cached HTTP200 interruption replay,
+    // full reservation/recovery, or collection. Root owns that separate boundary.
+    async function runProducerJourney(scenario: NativeJourneyScenario, observationMs: number) {
+      const pinned = await pinnedArtifact(true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      const now = Date.now();
+      const createdAt = new Date(now - 86400000).toISOString();
+      const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
+      const admittedTarget = JSON.stringify({ repository: 'authorized/project', repositoryId: 123, ...target,
+        createdAt, createdAfter: new Date(now - 2 * 86400000).toISOString(), baseBranch: 'main' });
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, researchBodyBytes: 131072,
+        admittedTarget, journeyFacts: { createdAt, unrelatedCreatedAt: new Date(now - 3600000).toISOString() },
+        journeyScenario: scenario, admittedInferenceBytes: 1048576,
+      })).toMatchObject({ ok: true });
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      let observation: NativeJourneyObservation;
+      const end = Date.now() + observationMs;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        observation = await command(id, { action: 'journey-observation' });
+        // RED stops on actual no-tools summary rejection, not generic SDK failure.
+        if (projection.outcome || observation.wire.some(item => item.stage === 'summary' && item.admission === 'rejected')) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      console.info(`[native-flue] producer=${scenario} wire=${JSON.stringify(observation!.wire)}`);
+      return { id, target, submissionId: admission.body.submissionId, projection, observation: observation! };
+    }
+
+    function assertCitedCompletion(run: Awaited<ReturnType<typeof runProducerJourney>>) {
+      const comment = 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration';
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 1 });
+      // Intentional diagnostic wire, observed from the authentic pinned SDK's public stream.
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'succeeded' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toEqual({ observations: 1, truncated: false, latest: {
+        discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1,
+        unknownOperationCount: 0, category: 'ready',
+      } });
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: expect.any(Number), truncated: false, latest: {
+        category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
+        operationLimit: 128, requiredOperationCount: 5, sealed: true,
+      } });
+      const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number; latest: { operationCount: number } };
+      // Observations count accepted stream records, not unique producer tool calls.
+      expect(Number.isSafeInteger(seal.observations)).toBe(true);
+      expect(seal.observations).toBeGreaterThanOrEqual(1);
+      expect(seal.observations).toBeLessThanOrEqual(32);
+      expect(Number.isSafeInteger(seal.latest.operationCount)).toBe(true);
+      expect(seal.latest.operationCount).toBeGreaterThanOrEqual(1);
+      expect(seal.latest.operationCount).toBeLessThanOrEqual(123);
+      expect(run.projection.result).toEqual({ repository: 'authorized/project', results: [{
+        ...run.target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
+      }] });
+      expect(new TextEncoder().encode(JSON.stringify(run.projection.result)).byteLength).toBeLessThanOrEqual(48 * 1024);
+      expect(run.observation.effects).toEqual({ commentRequests: 1, otherMutationRequests: 0,
+        commentMatches: true, researchSourceRequests: 1 });
+      expect(run.observation.sessionId).toBeNull();
+      for (const wire of run.observation.wire) {
+        expect(wire.admission).toBe('accepted');
+        expect(wire.messages).toBeGreaterThanOrEqual(1);
+        expect(wire.messages).toBeLessThanOrEqual(128);
+        expect(wire.tools).toBeLessThanOrEqual(32);
+        if (wire.outputBudget !== null) {
+          expect(Number.isInteger(wire.outputBudget)).toBe(true);
+          expect(wire.outputBudget).toBeGreaterThan(0);
+          expect(wire.outputBudget).toBeLessThanOrEqual(8192);
+        }
+      }
+    }
+
+    it('REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys', async () => {
+      const runs = [];
+      // Retain the global native bail fence. Run the full diagnostic scenario batch before asserting metadata.
+      for (const scenario of ['seal-undiscovered', 'ordinary', 'overflow-once', 'transient-interruption-once'] as const) {
+        runs.push({ scenario, run: await runProducerJourney(scenario, scenario === 'overflow-once' ? 45_000 : 25_000) });
+      }
+      for (const { scenario, run } of runs) {
+        expect(run.projection.outcome).toBe('completed');
+        if (scenario === 'seal-undiscovered') {
+          expect(run.projection.writes).toBe(0); expect(run.projection.result).toBeUndefined();
+          expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+            commentMatches: false, researchSourceRequests: 0 });
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: 1, truncated: false, latest: {
+            category: 'undiscovered', targetCount: 0, decisionCount: 0, operationCount: null,
+            operationLimit: null, requiredOperationCount: null, sealed: false,
+          } });
+        } else {
+          expect(run.projection.writes).toBe(1);
+          expect(run.projection.result).toMatchObject({ repository: 'authorized/project', results: [{
+            ...run.target, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+          }] });
+          expect(run.observation.effects).toEqual({ commentRequests: 1, otherMutationRequests: 0,
+            commentMatches: true, researchSourceRequests: 1 });
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: expect.any(Number), truncated: false, latest: {
+            category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
+            operationLimit: 128, requiredOperationCount: 5, sealed: true,
+          } });
+          const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number } | undefined;
+          expect.soft(Number.isSafeInteger(seal?.observations), scenario).toBe(true);
+          expect.soft(seal?.observations, scenario).toBeGreaterThanOrEqual(1);
+          expect.soft(seal?.observations, scenario).toBeLessThanOrEqual(32);
+        }
+        for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+      }
+    }, 150_000);
+
+    it('REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment', async () => {
+      const run = await runProducerJourney('seal-undiscovered', 25_000);
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
+      expect(run.projection.result).toBeUndefined();
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: 1, truncated: false, latest: {
+        category: 'undiscovered', targetCount: 0, decisionCount: 0, operationCount: null,
+        operationLimit: null, requiredOperationCount: null, sealed: false,
+      } });
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'failed' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toMatchObject({ observations: 1, truncated: false,
+        latest: { category: 'undiscovered', discovered: false, sealed: false } });
+      expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+    }, 45_000);
+
+    it('REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects', async () => {
+      const run = await runProducerJourney('finish-undiscovered', 25_000);
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
+      expect(run.projection.result).toBeUndefined();
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'failed' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toEqual({ observations: 1, truncated: false, latest: {
+        discovered: false, sealed: false, targetCount: 0, decisionCount: 0, resultCount: 0,
+        unknownOperationCount: 0, category: 'undiscovered',
+      } });
+      expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+    }, 45_000);
+
+    it('REQ-OPERATOR-048: repeated identical successful comment requests violate the exactly-one-comment observation contract', async () => {
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...await pinnedArtifact(true), journey: true,
+        researchBodyBytes: 131072 })).toMatchObject({ ok: true });
+      // The command helper verifies transport HTTP200; the envelope verifies
+      // synthetic source201. Both deliveries carry the same operation/input.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(await command(id, { action: 'journey-comment-request' })).toMatchObject({ status: 201 });
+      }
+      const observation = await command<NativeJourneyObservation>(id, { action: 'journey-observation' });
+      expect(observation.effects).toEqual({ commentRequests: 2, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      expect(observation.effects).not.toMatchObject({ commentRequests: 1, commentMatches: true });
+    }, 30_000);
+
+    it('REQ-OPERATOR-048: ordinary repository-only SDK requests pass the real parser and complete one cited result without extra effects', async () => {
+      const run = await runProducerJourney('ordinary', 25_000);
+      expect(run.observation.wire.length).toBeGreaterThan(0);
+      expect(run.observation.wire.every(item => item.stage === 'normal' && item.tools > 0
+        && item.tokenField === 'absent' && item.outputBudget === null)).toBe(true);
+      assertCitedCompletion(run);
+    }, 45_000);
+
+    it('REQ-OPERATOR-048: admitted overflow produces a real no-tools SDK summary, then continues the same submission to one cited complete result', async () => {
+      const run = await runProducerJourney('overflow-once', 45_000);
+      const wire = run.observation.wire;
+      const firstSummary = wire.findIndex(item => item.stage === 'summary');
+      expect(firstSummary, 'Overflow must reach an authentic SDK summary, not fail generically').toBeGreaterThan(0);
+      // Discover + 24 successive genuine 2000-character research tool results
+      // leave >8000 retained tokens and a valid cut point without 128 messages.
+      expect(wire[firstSummary - 1]).toMatchObject({ admission: 'accepted', stage: 'normal' });
+      expect(wire[firstSummary - 1].messages).toBeGreaterThanOrEqual(50);
+      const summaries = wire.filter(item => item.stage === 'summary');
+      expect(summaries.every(item => item.tools === 0 && item.messages === 2)).toBe(true);
+      // Installed v0.1.8 RED must print completion-alias + actual budget (the
+      // prefix can be 10000, not necessarily 16000), with parser=rejected.
+      // Root's official rebuilt package must instead emit canonical <=8192.
+      expect(summaries.map(item => item.admission), `Authentic summary parser admission: ${JSON.stringify(summaries)}`)
+        .toEqual(summaries.map(() => 'accepted'));
+      for (const summary of summaries) {
+        expect(summary.tokenField).toBe('canonical');
+        expect(summary.outputBudget).not.toBeNull();
+        expect(Number.isInteger(summary.outputBudget)).toBe(true);
+        expect(summary.outputBudget).toBeGreaterThan(0);
+        expect(summary.outputBudget).toBeLessThanOrEqual(8192);
+      }
+      expect(wire.slice(firstSummary + 1).some(item => item.stage === 'normal' && item.admission === 'accepted' && item.tools > 0),
+        'A happy journey with no SDK normal continuation is not recovery coverage').toBe(true);
+      // The host answers continuation only if the real SDK wire carries the
+      // summary response. Projection is scoped to the original submitted ID.
+      assertCitedCompletion(run);
+      const collectedAgain = await command<DispatcherResultProjection>(run.id, { action: 'journey-updates',
+        submissionId: run.submissionId, previous: run.projection });
+      expect(collectedAgain).toEqual(run.projection);
+    }, 65_000);
+
+    it('REQ-OPERATOR-048: a genuine SDK transient interruption retry has compatible normal wire and completes only in the parser-real synthetic upstream', async () => {
+      const run = await runProducerJourney('transient-interruption-once', 40_000);
+      const wire = run.observation.wire;
+      expect(wire.every(item => item.stage === 'normal' && item.tokenField === 'absent' && item.tools > 0)).toBe(true);
+      // Only closed booleans cross the observation boundary. Internal content
+      // digests bind the actual post-interruption request to its original wire.
+      expect(run.observation).toMatchObject({ interruptionObserved: true, retryIdentityMatched: true });
+      assertCitedCompletion(run);
+    }, 60_000);
   });
 
   if (group === 'authority') describe('REQ-OPERATOR-048/062: admitted-target compiled entry compatibility', () => {
