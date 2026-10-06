@@ -4,7 +4,11 @@ export type BedrockAnthropicTransport = 'invoke' | 'eventstream';
 type JsonObject = Record<string, any>;
 
 class NativeStreamDiagnosticError extends Error {
-  constructor(message: string, readonly failureClass: string) { super(message); }
+  readonly failureClass: string;
+  constructor(message: string, failureClass: string) {
+    super(message);
+    this.failureClass = failureClass;
+  }
 }
 
 /** Caller-owned, session-scoped storage for authentic assistant tool turns.
@@ -604,6 +608,9 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       elapsedMs: performance.now() - began, ...extra });
   diagnostic('started');
   const sourceReader = response.body.getReader();
+  // The owned reader's closure can reject independently of read(); the latter
+  // remains the diagnostic and consumer-visible failure path.
+  void sourceReader.closed.catch(() => {});
   const observedSource = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
@@ -628,7 +635,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
     controller.enqueue(sse({ error: { message: 'Native Bedrock stream failed', code: 'NATIVE_BEDROCK_STREAM_ERROR' } }));
     controller.enqueue(sse('[DONE]'));
   };
-  const body = observedSource.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, controller) {
       if (streamFailed) return;
       try {
@@ -715,8 +722,11 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
         emitTerminalError(controller);
       }
     },
-  }));
-  return new Response(body, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
+  });
+  // Own the piping promise explicitly. A rejection still errors the readable
+  // with the original failure; it must not escape as a second unhandled error.
+  void observedSource.pipeTo(transform.writable).catch(() => {});
+  return new Response(transform.readable, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
 export async function adaptBedrockAnthropicResponse(response: Response, transport: BedrockAnthropicTransport, state: BedrockReplayState, streamRequested = false, observe?: BedrockThinkingObserver): Promise<Response> {
