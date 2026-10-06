@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { inferenceDiagnostic, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
 import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
@@ -211,6 +212,7 @@ export async function createDispatcherOperation(input: {
   plan: OperatorRuntimePlan; env: Env; exports: Record<string, (options: { props: Record<string, unknown> }) => Fetcher>;
   operation: DispatcherOperation; current: () => Promise<boolean>;
   effectContext?: { authorize: () => Promise<void>; reconcileOnly: boolean };
+  diagnosticContext?: InferenceDiagnosticContext;
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
@@ -287,19 +289,24 @@ export async function createDispatcherOperation(input: {
         await sourceCurrent();
         if (signal.aborted) throw new Error('Prospective preflight expired');
       }
+      const fetchBegan = performance.now();
+      inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'started', resource: 'source' });
       let response: Response;
       try {
         response = await transport.fetch(new Request(url, { method, body: source.body, redirect: 'manual', signal,
           headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher',
             ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}) } }));
       } catch {
+        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'failed', failureClass: 'source-fetch', elapsedMs: performance.now() - fetchBegan });
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation response unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
       }
+      inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'completed', sourceStatus: response.status, elapsedMs: performance.now() - fetchBegan });
       let body: string;
       try { body = response.body ? await readDispatcherBody(response, signal, responseBytes) : ''; }
       catch {
+        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-read', outcome: signal.aborted ? 'canceled' : 'failed', failureClass: 'source-read', sourceStatus: response.status });
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation body unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
@@ -315,12 +322,15 @@ export async function createDispatcherOperation(input: {
         const value = response.headers.get(name);
         if (value !== null) headers[name] = value;
       }
+      inferenceDiagnostic(input.diagnosticContext, { stage: 'source-read', outcome: 'completed', sourceStatus: response.status, responseBytes: new TextEncoder().encode(body).byteLength, elapsedMs: performance.now() - fetchBegan });
       const envelope = JSON.stringify({ url: url.href, status: response.status, headers, body });
       if (envelope.includes(authority.accessJwt)) {
+        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-read', outcome: 'failed', failureClass: 'source-reflection' });
         if (method !== 'GET') throw new Error('Mutation receipt unavailable');
         return Response.json({ code: 'OPERATOR_SOURCE_CREDENTIAL_REFLECTION' }, { status: 422 });
       }
       if (new TextEncoder().encode(envelope).byteLength > responseBytes) {
+        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-read', outcome: 'failed', failureClass: 'source-envelope' });
         if (method !== 'GET') throw new Error('Mutation receipt incomplete');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
@@ -366,14 +376,16 @@ export async function createDispatcherOperation(input: {
     const trusted = resolveOperatorInference({ policy, eligible: { routeIds: routes.routeCatalog,
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
     const aig = await getAigConfig(env);
-    const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
-      // Existing native replay storage needs a stable owner-scoped namespace, not a workspace session.
-      sessionId: plan.activityId,
-      gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
-      operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted } } });
     const value = dispatcherInferenceSchema.parse(operation.body);
     return async () => {
       await current();
+      inferenceDiagnostic(input.diagnosticContext, { stage: 'authority', outcome: 'completed', resource: 'inference', messages: value.input.messages.length, tools: value.input.tools?.length ?? 0 });
+      const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
+        // Stable owner-scoped native replay, with the now-reserved parent ordinal.
+        sessionId: plan.activityId,
+        gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
+        operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted,
+          diagnosticContext: input.diagnosticContext } } });
       return transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST',
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
           max_tokens: value.input.max_tokens ?? 8192, model: trusted.routeId, stream: value.input.stream ?? true }) }));

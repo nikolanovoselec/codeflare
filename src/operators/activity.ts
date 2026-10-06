@@ -21,6 +21,7 @@ import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmi
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
+import { inferenceDiagnostic, inferenceResponseObservation, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
 import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { D1SessionRepository } from '../lib/session-repository';
 import { parsePublishableAssessment, renovateGithub } from './renovate-publication';
@@ -1364,8 +1365,12 @@ export class OperatorActivity extends Agent {
   /** REQ-OPERATOR-048: bind one already-reserved drive to immutable code/input and one Flue submission. */
   async admitDispatcher(generation: number, bundle: DispatcherBundle, artifactDigest: string,
     invocation: unknown): Promise<OperatorDriveResult> {
+    let trace: InferenceDiagnosticContext | undefined;
+    let boundary = 'authority';
     try {
       const plan = await this.getRuntimePlan();
+      if (plan) trace = { activityId: plan.activityId, generation };
+      boundary = 'artifact';
       if (!plan || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher'
         || artifactDigest !== plan.receipt.selection.release.bundleDigest
         || artifactDigest !== plan.executionContext.artifactDigest
@@ -1375,10 +1380,14 @@ export class OperatorActivity extends Agent {
       const approved = await parseDispatcherBundle(bytes, artifactDigest);
       if (JSON.stringify(approved) !== JSON.stringify(bundle)
         || approved.sourceCommit !== plan.receipt.selection.release.sourceCommit) throw new Error('Dispatcher artifact mismatch');
+      boundary = 'authority';
       await authorizeDispatcherPlan(plan, this.#appEnv);
+      inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary });
+      inferenceDiagnostic({ activityId: plan.activityId, generation }, { stage: 'drive', outcome: 'started', operationLimit: dispatcherOperationLimit(plan.receipt.selection.operator.policy), inferenceRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy) });
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
         expiresAt: Math.floor(plan.deadline / 1000) * 1000,
         submissionId: null, status: 'admitting' };
+      boundary = 'lease';
       await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
         const previous = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -1395,20 +1404,26 @@ export class OperatorActivity extends Agent {
       // SDK scheduling owns the physical alarm; this is a one-shot deadline, not a new scheduler.
       await this.schedule(new Date(lease.expiresAt), 'reconcileDispatcherLease', { generation }, { idempotent: true });
       const admitted = await this.#boundedDispatcher(lease, async () => {
+        boundary = 'loader';
         const child = await this.#dispatcherFacet(lease, approved);
+        inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary });
+        boundary = 'admission';
         const response = await child.fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ kind: 'user', body: plan.invocationJson }),
         }));
+        inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary, status: response.status });
         if (response.status !== 202) throw new Error('Dispatcher admission failed');
         const value = JSON.parse(await readDispatcherBody(response));
         if (typeof value?.submissionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.submissionId)) {
           throw new Error('Dispatcher admission receipt invalid');
         }
+        boundary = 'cursor';
         const offset = response.headers.get('stream-next-offset') ?? value.offset;
         if (typeof offset !== 'string' || !offset || offset.length > 2048) throw new Error('Dispatcher admission cursor invalid');
         return { submissionId: value.submissionId as string, offset };
       });
+      boundary = 'commit';
       const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
         const record = await tx.get<AdmissionState>('admission');
         const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -1420,8 +1435,12 @@ export class OperatorActivity extends Agent {
         return { ok: true, state: record!.drive! };
       });
       if (!result.ok) return this.interruptDrive(generation);
+      inferenceDiagnostic(trace, { stage: 'drive', outcome: 'completed', boundary });
       return result;
-    } catch { return this.interruptDrive(generation); }
+    } catch {
+      inferenceDiagnostic(trace, { stage: 'drive', outcome: 'failed', boundary });
+      return this.interruptDrive(generation);
+    }
   }
 
   #leaseMatches(record: AdmissionState | undefined, lease: DispatcherLease | undefined, generation: number): boolean {
@@ -1554,6 +1573,7 @@ export class OperatorActivity extends Agent {
         const settlement = value.outcome ? { outcome: value.outcome, error: value.error } : null;
         if (!settlement || !value.upToDate) {
           stage = 'recheck';
+          inferenceDiagnostic({ activityId: plan.activityId, generation: lease.generation }, { stage: 'settlement', outcome: 'pending', boundary: stage });
           // A child may settle just after this snapshot; the deadline alarm cannot
           // read it once the lease expires. Recheck within the original lease.
           const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
@@ -1563,6 +1583,8 @@ export class OperatorActivity extends Agent {
         }
         // SDK observations diagnose the producer/collector boundary, never authorize settlement.
         const completionCalls = value.completion?.calls ?? [];
+        const trace = { activityId: plan.activityId, generation: lease.generation };
+        inferenceDiagnostic(trace, { stage: 'settlement', outcome: settlement.outcome, assessmentPresent: value.result !== undefined, completionCalls: completionCalls.length });
         try {
           dispatcherLog.warn('Dispatcher settlement observed', {
             activityId: plan.activityId, generation: lease.generation, outcome: settlement.outcome,
@@ -1614,6 +1636,7 @@ export class OperatorActivity extends Agent {
             : reason === 'Stream ended without finish_reason (retryable_interruption)' ? 'model-completion'
               : reason === 'the session advanced past this input before it completed' ? 'superseded'
                 : reason === 'the input could not be persisted' ? 'persistence' : 'unknown';
+          inferenceDiagnostic(trace, { stage: 'settlement', outcome: 'failed', failureClass });
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
             activityId: plan.activityId, generation: lease.generation, operation, failureClass,
             outcome: ['failed', 'aborted', 'completed'].includes(settlement.outcome) ? settlement.outcome : 'unrecognized',
@@ -1633,11 +1656,13 @@ export class OperatorActivity extends Agent {
         }
         stage = 'assessment';
         const assessmentParts = value.writes === 1 ? [{ data: value.result }] : [];
+        inferenceDiagnostic(trace, { stage: 'assessment', outcome: 'observed', assessmentPresent: value.result !== undefined });
         if (assessmentParts.length !== 1 || !z.json().safeParse(assessmentParts[0].data).success
           || !assessmentParts[0].data || typeof assessmentParts[0].data !== 'object'
           || Array.isArray(assessmentParts[0].data)
           || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > 64 * 1024
           || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget))) {
+          inferenceDiagnostic(trace, { stage: 'assessment', outcome: 'denied', failureClass: 'assessment' });
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
           await this.interruptDrive(lease.generation); return;
         }
@@ -1717,7 +1742,13 @@ export class OperatorActivity extends Agent {
   }
 
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
-    const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
+    const diagnosticState = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
+    const trace: InferenceDiagnosticContext | undefined = diagnosticState ? { activityId: diagnosticState.intent.activityId, generation } : undefined;
+    const began = performance.now();
+    const denied = () => {
+      inferenceDiagnostic(trace, { stage: 'authority', outcome: 'denied' });
+      return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
+    };
     const deadline = (lease?: DispatcherLease) => !lease ? 'unavailable'
       : lease.expiresAt <= Date.now() ? 'expired' : 'current';
     const rejected = (stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'forwarded-upstream' | 'commit',
@@ -1804,7 +1835,8 @@ export class OperatorActivity extends Agent {
           || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher effect authority unavailable');
       } };
       if (operation.path === '/v1/dispatcher/github/comment' || operation.path === '/v1/dispatcher/github/merge') await effectContext.authorize();
-      perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext,
+      if (trace) trace.requestDigest = await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
+      perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext, diagnosticContext: trace,
         current: () => this.dispatcherGenerationCurrent(generation),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch (error) {
@@ -1828,7 +1860,8 @@ export class OperatorActivity extends Agent {
       : operation.path === '/v1/dispatcher/github/comment' ? 'comment'
         : operation.path === '/v1/dispatcher/github/merge' ? 'merge'
           : (operation.body as { resource: 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' }).resource;
-    const requestDigest = await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
+    const requestDigest = trace?.requestDigest ?? await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
+    inferenceDiagnostic(trace, { stage: 'operation-prepared', outcome: 'completed', resource });
     const reserved = await this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -1837,15 +1870,15 @@ export class OperatorActivity extends Agent {
       const journal = await loadDispatcherJournal(tx, generation);
       const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operation.operationId));
       if (prior) {
-        if (prior.requestDigest !== requestDigest) return { kind: 'conflict' } as const;
+        if (prior.requestDigest !== requestDigest) return { kind: 'conflict', ordinal: prior.ordinal, operationCount: journal.count } as const;
         if (prior.phase === 'completed') {
           const response = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${operation.operationId}`);
-          if (response) return { kind: 'completed', response } as const;
+          if (response) return { kind: 'completed', response, responseDigest: prior.responseDigest, ordinal: prior.ordinal, operationCount: journal.count } as const;
           await putDispatcherEntry(tx, journal, operation.operationId, prior, { ...prior, phase: 'unknown' });
-          return { kind: 'unknown', lease: lease! } as const;
+          return { kind: 'unknown', lease: lease!, ordinal: prior.ordinal, operationCount: journal.count } as const;
         }
         await putDispatcherEntry(tx, journal, operation.operationId, prior, { ...prior, phase: 'unknown' });
-        return { kind: 'unknown', lease: lease! } as const;
+        return { kind: 'unknown', lease: lease!, ordinal: prior.ordinal, operationCount: journal.count } as const;
       }
       const operationCount = journal.count;
       if (operationCount >= operationLimit) return { kind: 'denied', reason: 'operation-limit',
@@ -1854,9 +1887,10 @@ export class OperatorActivity extends Agent {
         generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, ...(operation.path === '/v1/dispatcher/source'
           ? { request: { method: (operation.body as { method?: 'GET' | 'POST' | 'PUT' }).method ?? 'GET',
             url: (operation.body as { url: string }).url } } : {}) });
-      return { kind: 'reserved', lease: lease! } as const;
+      return { kind: 'reserved', lease: lease!, ordinal: journal.nextOrdinal, operationCount: journal.count + 1 } as const;
     });
     if (reserved.kind === 'denied') {
+      inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource, operationLimit, ...('operationCount' in reserved ? { operationCount: reserved.operationCount } : {}) });
       try {
         dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
           ...(reserved.activityId === undefined ? {} : { activityId: reserved.activityId }), generation,
@@ -1865,6 +1899,10 @@ export class OperatorActivity extends Agent {
       } catch { /* Observability cannot replace the original denial. */ }
       return denied();
     }
+    if ('ordinal' in reserved && trace) trace.operationOrdinal = reserved.ordinal;
+    inferenceDiagnostic(trace, { stage: 'journal', outcome: reserved.kind === 'completed' ? 'cached' : reserved.kind,
+      resource, operationLimit, ...('operationCount' in reserved ? { operationCount: reserved.operationCount } : {}),
+      ...(reserved.kind === 'completed' ? { ...inferenceResponseObservation(reserved.response), responseDigest: reserved.responseDigest } : {}) });
     if (reserved.kind === 'conflict') {
       rejected('reservation', resource, lease, 409);
       return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
@@ -1877,6 +1915,7 @@ export class OperatorActivity extends Agent {
     if (reserved.kind === 'unknown' && genericMutation) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
     let upstreamStatus: number | undefined;
+    let bodyReading = false;
     try {
       if (reserved.kind === 'unknown' && !readOnly) {
         if ((resource !== 'comment' && resource !== 'merge') || !effectContext) throw new Error('Unknown protected operation');
@@ -1888,12 +1927,15 @@ export class OperatorActivity extends Agent {
       if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Stale protected operation');
       stage = 'effect';
       const result = await this.#boundedDispatcher(reserved.lease, async () => {
+        inferenceDiagnostic(trace, { stage: 'upstream', outcome: 'started', resource });
         const upstream = await perform();
+        inferenceDiagnostic(trace, { stage: 'upstream', outcome: upstream.status >= 500 || upstream.status < 200 || (upstream.status >= 300 && upstream.status < 400) ? 'failed' : 'completed', resource, status: upstream.status, elapsedMs: performance.now() - began });
         if (upstream.status >= 500 || upstream.status < 200 || (upstream.status >= 300 && upstream.status < 400)) {
           upstreamStatus = upstream.status;
           stage = 'upstream';
           throw new Error('Protected operation did not complete');
         }
+        bodyReading = true;
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
           body: await readDispatcherBody(upstream, undefined, resource === 'source' ? sourceBytes : undefined) };
       });
@@ -1908,6 +1950,7 @@ export class OperatorActivity extends Agent {
             : receipt.outcome === 'MERGED');
       }
       stage = 'commit';
+      let committedResponseDigest: string | undefined;
       const committedResult = await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
         const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -1918,16 +1961,19 @@ export class OperatorActivity extends Agent {
         if (prior.phase === 'completed') {
           const cached = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${operation.operationId}`);
           if (!cached) throw new Error('Protected receipt unavailable');
+          committedResponseDigest = prior.responseDigest;
           return cached;
         }
         if (prior.phase !== 'reserved' && !(prior.phase === 'unknown' && (readOnly || confirmedEffect))) {
           throw new Error('Unresolved protected result');
         }
         await tx.put(`dispatcher:response:${operation.operationId}`, result);
+        committedResponseDigest = await sha256(result.body);
         await putDispatcherEntry(tx, journal, operation.operationId, prior,
-          { ...prior, phase: 'completed', responseDigest: await sha256(result.body) });
+          { ...prior, phase: 'completed', responseDigest: committedResponseDigest });
         return result;
       });
+      inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'completed', resource, status: committedResult.status, ...inferenceResponseObservation(committedResult), responseDigest: committedResponseDigest, elapsedMs: performance.now() - began });
       if (committedResult.status >= 400) rejected('forwarded-upstream', resource, lease, committedResult.status);
       return response(committedResult);
     } catch {
@@ -1945,6 +1991,7 @@ export class OperatorActivity extends Agent {
       if ((!genericMutation && resource !== 'comment' && resource !== 'merge') || !await this.dispatcherGenerationCurrent(generation)) {
         await this.interruptDrive(generation);
       }
+      inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : stage === 'upstream' ? 'upstream-status' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     }
@@ -1956,19 +2003,29 @@ export class OperatorActivity extends Agent {
     if (!lease || lease.sdkReleased || lease.status === 'running' || lease.status === 'admitting') return;
     const admission = await this.ctx.storage.get<AdmissionState>('admission');
     if (!admission) return;
+    const trace = { activityId: admission.intent.activityId, generation: lease.generation };
+    inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: 'started' });
+    try {
     await super._cf_cleanupFacetPrefix([{ className: 'OperatorActivity', name: admission.intent.activityId },
       { className: 'FlueDispatcherAgent', name: 'dispatcher' }]);
     const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
     for (const [token, generation] of Object.entries(tokens)) {
       if (generation === lease.generation) await super._cf_releaseFacetKeepAlive(token);
     }
-    await this.ctx.storage.transaction(async tx => {
+    const released = await this.ctx.storage.transaction(async tx => {
       const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
       if (current?.generation === lease.generation) {
         await tx.put(DISPATCHER_LEASE, { ...current, sdkReleased: true });
         await tx.delete('dispatcher:keepalive');
+        return true;
       }
+      return false;
     });
+    inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: released ? 'completed' : 'unknown', sdkReleased: released });
+    } catch (error) {
+      inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: 'failed', failureClass: 'sdk-cleanup' });
+      throw error;
+    }
   }
 
   async #dispatcherPath(path: DispatcherFacetPath): Promise<void> {
@@ -2121,10 +2178,46 @@ export class OperatorActivity extends Agent {
     return state?.ownerKey && state.ownerKey === ownerKey ? this.browserSummary(state) : null;
   }
 
+  /** Metadata-only owner inspection; never migrate, replay or change a journal. */
+  private async inspectDispatcherJournal(state: AdmissionState): Promise<void> {
+    try {
+      if (!state.drive || !state.receipt || !isManagementReceipt(state.receipt)
+        || state.receipt.selection.operator.profile !== 'dispatcher') return;
+      const generation = state.drive.generation;
+      const journal = await this.ctx.storage.get<DispatcherJournal>(DISPATCHER_JOURNAL);
+      if (!journal || journal.generation !== generation) return;
+      const prefix = `dispatcher:operation:${generation}:`;
+      let after: string | undefined;
+      const latest: Array<{ key: string; record: DispatcherOperationRecord }> = [];
+      let inspectedEntries = 0;
+      for (let page = 0; page < 32; page++) {
+        const entries = await this.ctx.storage.list<DispatcherOperationRecord>({ prefix, limit: 32, ...(after ? { startAfter: after } : {}) });
+        for (const [key, record] of entries) {
+          inspectedEntries++;
+          latest.push({ key, record });
+          latest.sort((a, b) => (b.record.ordinal ?? -1) - (a.record.ordinal ?? -1));
+          if (latest.length > 8) latest.pop();
+          after = key;
+        }
+        if (entries.size < 32) break;
+      }
+      for (const { key, record } of latest) {
+        const trace = { activityId: state.intent.activityId, generation, operationOrdinal: record.ordinal, requestDigest: record.requestDigest };
+        const response = record.phase === 'completed'
+          ? await this.ctx.storage.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${key.slice(prefix.length)}`) : undefined;
+        const matchingResponse = response && record.responseDigest && await sha256(response.body) === record.responseDigest;
+        const observation = matchingResponse ? inferenceResponseObservation(response!) : undefined;
+        inferenceDiagnostic(trace, { stage: 'journal-inspection', outcome: response && !matchingResponse ? 'unknown' : 'observed', journalCount: journal.count,
+          inspectedEntries, responseDigest: record.responseDigest, ...observation, sampled: inspectedEntries < journal.count || observation?.sampled === true });
+      }
+    } catch { /* Inspection failure cannot change an authorized owner's status read. */ }
+  }
+
   async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
     sdkCleanupReleased?: boolean }) | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state) return null;
+    await this.inspectDispatcherJournal(state);
     const released = state.drive && state.receipt && isManagementReceipt(state.receipt)
       && state.receipt.selection.operator.profile === 'dispatcher'
       ? this.sdkCleanupReleased(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)) : undefined;
@@ -2195,7 +2288,12 @@ export class OperatorActivity extends Agent {
       return { ok: true, detail: { ...this.browserSummary(consumed), checkpoint: consumed.drive?.checkpoint ?? null,
         result: consumed.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) } };
     });
-    if (outcome.ok) await this.publishBrowserSummary();
+    const trace = before?.drive ? { activityId: before.intent.activityId, generation: before.drive.generation } : undefined;
+    inferenceDiagnostic(trace, { stage: 'collection', outcome: outcome.ok ? 'completed' : 'denied' });
+    if (outcome.ok) {
+      inferenceDiagnostic(trace, { stage: 'cleanup', outcome: 'observed', sdkReleased: outcome.detail.sdkCleanupReleased, physicalCleanup: outcome.detail.cleanupStatus });
+      await this.publishBrowserSummary();
+    }
     return outcome;
   }
 

@@ -1226,7 +1226,16 @@ describe('native provider authorization and compat dispatch', () => {
         const request = input as Request;
         lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
         if (scenario === 'fetch-failure') throw new Error(marker);
-        if (scenario === 'complete') return bedrockToolResponse([{ type: 'text', text: marker }], 'eventstream', 'end_turn');
+        if (scenario === 'complete') return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          for (const event of [
+            { type: 'message_start', message: {} },
+            { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: marker } },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+            { type: 'message_stop' },
+          ]) controller.enqueue(bedrockChunkFrame(event));
+          controller.close();
+        } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
         return new Response(new ReadableStream<Uint8Array>({ start(controller) {
           controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: marker }, 'exception')); controller.close();
         } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream', 'x-private-header': marker } });

@@ -2681,7 +2681,7 @@ describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
       const cached = await f.capability.fetch(wire());
       expect(cached.status).toBe(200);
       expect(await cached.text()).toBe(body);
-      const source = await f.capability.fetch(genericWire('source', { operationId: 'diagnostic-capacity-observation', url: 'https://api.github.com/repos/owner/repo' }));
+      const source = await f.capability.fetch(genericWire('source', { operationId: 'diagnostic-capacity-observation', url: 'https://api.github.com/repos/another/service' }));
       expect(source.status).toBe(200);
       const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'diagnostic-capacity-observation' }));
       expect(await receipt.json()).toMatchObject({ operationCount: 2, operationLimit: 1024 });
@@ -2703,7 +2703,7 @@ describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
       ]));
       privateWire(events);
     });
-  }, { inferenceBody: body }));
+  }, { repositoryOnly: true, inferenceBody: body }));
 
   it('correlates payload conflict without altering original cache or authority', () => fixture(async f => {
     await start(f);
@@ -2738,7 +2738,7 @@ describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
   it.each(['budget', 'authority'] as const)('traces %s denial without protected I/O or lifecycle repair', name => fixture(async f => {
     await start(f);
     if (name === 'budget') expect((await f.capability.fetch(wire('consume-only-slot'))).status).toBe(200);
-    else f.revokeSession();
+    else f.revoke();
     const before = await f.activity.getBrowserDetail();
     const issued = f.sent.map(request => ({ method: request.method, url: request.url }));
     await capture(async events => {

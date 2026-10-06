@@ -816,7 +816,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 <a id="req-operator-063-bounded-dispatcher-diagnostics"></a>
 ### REQ-OPERATOR-063: Bounded Dispatcher diagnostics
 
-**Intent:** Diagnostics explain observed rejection boundaries without becoming authority.
+**Intent:** Diagnostics explain observed execution and rejection boundaries without becoming authority.
 
 **Applies To:** User
 
@@ -830,6 +830,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 6. Pre-reservation parsing/capability failures report fixed categories, bounded validation-rule labels and parent-owned Activity/generation without logging credentials, prompts, bodies, arbitrary child values or exception text. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: preparation rejection $name preserves denial and private diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: bounds multiple rejected rules without retaining arbitrary issue paths or values) -->
 
 7. Terminal settlement diagnostics distinguish observed completion-tool outcomes from assessment projection using trusted Activity/generation and bounded counters. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: observes completion) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility) -->
+
+8. Stage-based diagnostics correlate inference, cache, native-stream failures, settlement, collection and cleanup without changing execution or exposing private content. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor.fetch --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates fresh and reconstructed cached %s inference without changing bytes or charging resend) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates admission SDK settlement assessment collection and honest cleanup state) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error without replay or lifecycle mutation) --> <!-- @test: src/__tests__/lib/bedrock-native-diagnostics.test.ts (identifies %s while preserving failed completion and private content) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (correlates %s without exposing authority or provider data) -->
 
 **Constraints:**
 

@@ -60,6 +60,7 @@ import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repa
 import { nativeProviderSelector } from './lib/native-ai-targets';
 import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
 import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
+import { inferenceDiagnostic, type InferenceDiagnosticContext } from './lib/inference-diagnostics';
 import { encryptForKV, getAndDecrypt, getOrImportKey } from './lib/kv-crypto';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 import type { OperatorPolicy } from './operators/policy';
@@ -148,7 +149,7 @@ interface InterceptorProps extends PersonalPiProps {
   jwtAuthority?: JwtStampingAuthority;
   /** Parent-owned selection; child payload cannot widen or replace it. */
   operatorInference?: { activityId: string; operatorId: string; policy: OperatorPolicy;
-    trusted: { routeId: string; reasoningLevel: string | null } };
+    trusted: { routeId: string; reasoningLevel: string | null }; diagnosticContext?: InferenceDiagnosticContext };
 }
 
 /**
@@ -328,6 +329,19 @@ function applyEffectiveReasoning(payload: Record<string, unknown>, profile: Norm
 
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
+    const context = (this.ctx as unknown as { props?: InterceptorProps }).props?.operatorInference?.diagnosticContext;
+    const began = performance.now();
+    try {
+      const response = await this.#fetchObserved(request);
+      inferenceDiagnostic(context, { stage: 'interceptor-response', outcome: 'observed', status: response.status, elapsedMs: performance.now() - began });
+      return response;
+    } catch (error) {
+      inferenceDiagnostic(context, { stage: 'interceptor-response', outcome: 'failed', failureClass: 'unknown', elapsedMs: performance.now() - began });
+      throw error;
+    }
+  }
+
+  async #fetchObserved(request: Request): Promise<Response> {
     // AI Gateway URL/token come from the DO props (wizard-first KV with deploy-secret env
     // fallback — REQ-ENTERPRISE-017); fall back to env directly when a prop is absent.
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
@@ -552,12 +566,34 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
                 return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
               }
               const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId, native.replayBinding);
+              const replayMetrics = { replayLoads: 0, replayMissing: 0 };
               nativeBedrockState = {
-                load: async (toolId) => getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey),
+                diagnosticContext: props.operatorInference?.diagnosticContext,
+                load: async (toolId) => {
+                  const began = performance.now();
+                  try {
+                    const value = await getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey);
+                    replayMetrics.replayLoads++;
+                    if (value === null) replayMetrics.replayMissing++;
+                    return value;
+                  } catch (error) {
+                    inferenceDiagnostic(props.operatorInference?.diagnosticContext, { stage: 'native-replay', outcome: 'failed', failureClass: 'replay-load', elapsedMs: performance.now() - began });
+                    throw error;
+                  }
+                },
                 save: async (toolId, content) => {
                   const key = stateKey(toolId);
-                  const encrypted = await encryptForKV(JSON.stringify(content), encryptionKey!, key);
-                  await this.env.KV!.put(key, encrypted, { expirationTtl: NATIVE_REPLAY_TTL_SECONDS });
+                  let encrypted: string;
+                  try { encrypted = await encryptForKV(JSON.stringify(content), encryptionKey!, key); }
+                  catch (error) {
+                    nativeBedrockState!.diagnosticReplayFailure ??= 'replay-encryption';
+                    throw error;
+                  }
+                  try { await this.env.KV!.put(key, encrypted, { expirationTtl: NATIVE_REPLAY_TTL_SECONDS }); }
+                  catch (error) {
+                    nativeBedrockState!.diagnosticReplayFailure ??= 'replay-persistence';
+                    throw error;
+                  }
                 },
               };
               try {
@@ -567,7 +603,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
                 // boundary or changing a target explicitly configured as Invoke.
                 nativeBedrockTransport = selectBedrockAnthropicTransport(configuredTransport, nativePayload.output_config?.effort);
                 payload = nativePayload;
+                inferenceDiagnostic(props.operatorInference?.diagnosticContext, { stage: 'native-request', outcome: 'completed', ...replayMetrics });
+                inferenceDiagnostic(props.operatorInference?.diagnosticContext, { stage: 'route-selection', outcome: 'completed', transport: nativeBedrockTransport });
               } catch (error) {
+                inferenceDiagnostic(props.operatorInference?.diagnosticContext, { stage: 'native-request', outcome: 'failed', failureClass: 'request-invalid' });
                 return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid native Bedrock request', code: 'INVALID_NATIVE_REQUEST' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
               }
               if (nativeBedrockTransport === 'eventstream' && !nativeStreamRequested) {
@@ -640,10 +679,14 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       return fetch(forward);
     };
 
+    const diagnosticContext = (this.ctx as unknown as { props?: InterceptorProps }).props?.operatorInference?.diagnosticContext;
+    const fetchBegan = performance.now();
+    inferenceDiagnostic(diagnosticContext, { stage: 'gateway-fetch', outcome: 'started', transport: nativeBedrockTransport ?? (nativeRequest ? 'compat' : 'rest') });
     let upstream: Response;
     try {
       const directCompat = nativeRequest || compatibilityWire?.transport === 'compat';
       upstream = directCompat ? await sendTo(nativeBedrockUrl || compatUrl, compatHeaders, nativeBedrockUrl ? outboundBody : stripOpenAiOnlyFields(outboundBody as string)) : await sendTo(restUrl, restHeaders);
+      inferenceDiagnostic(diagnosticContext, { stage: 'gateway-fetch', outcome: 'observed', status: upstream.status });
       if (!directCompat && upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
         // Compat reaches non-OpenAI providers (e.g. google-ai-studio) that reject
         // OpenAI-only fields (store, prompt_cache_key) with a 400; strip them on
@@ -656,9 +699,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       }), { status: 403, headers: { 'Content-Type': 'application/json' } });
       // A thrown fetch (DNS, TLS, connection reset to the gateway) would otherwise
       // escape as an opaque 500; surface it as a clean 502 and log the cause.
-      console.error('LlmInterceptor: upstream gateway fetch failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      inferenceDiagnostic(diagnosticContext, { stage: 'gateway-fetch', outcome: 'failed', failureClass: 'gateway-fetch', elapsedMs: performance.now() - fetchBegan });
       return new Response(JSON.stringify({ error: 'gateway fetch failed', code: 'GATEWAY_FETCH_FAILED' }), {
         status: 502,
         headers: { 'Content-Type': 'application/json' },
@@ -668,11 +709,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // reaches the container. Returning upstream.body (the ReadableStream) WITHOUT
     // reading it preserves text/event-stream + chunked transfer — tokens reach
     // the agent as they arrive.
+    inferenceDiagnostic(diagnosticContext, { stage: 'gateway-fetch', outcome: 'completed', status: upstream.status, elapsedMs: performance.now() - fetchBegan,
+      contentType: upstream.headers.get('content-type')?.includes('eventstream') ? 'eventstream' : upstream.headers.get('content-type')?.includes('text/event-stream') ? 'sse' : upstream.headers.get('content-type')?.includes('json') ? 'json' : 'other' });
     if (nativeRequest && effectiveAdapter === 'gemini-openai-compat') upstream = exposeGeminiThoughtSignatures(upstream);
     if (nativeBedrockTransport && nativeBedrockState) {
       try { upstream = await adaptBedrockAnthropicResponse(upstream, nativeBedrockTransport, nativeBedrockState, nativeStreamRequested); }
-      catch (error) {
-        console.error('LlmInterceptor: native Bedrock response adaptation failed', { error: error instanceof Error ? error.message : String(error) });
+      catch {
+        inferenceDiagnostic(diagnosticContext, { stage: 'native-response', outcome: 'failed', failureClass: 'native-response' });
         return new Response(JSON.stringify({ error: 'Invalid native Bedrock response', code: 'INVALID_NATIVE_RESPONSE' }), { status: 502, headers: { 'Content-Type': 'application/json' } });
       }
     }
