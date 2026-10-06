@@ -76,13 +76,23 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
   }));
 
   it('observes upstream read failure without replacing the original thrown failure', async () => capture(async events => {
-    let first = true;
     const originalFailure = new Error(privateMarker);
-    const upstream = new Response(new ReadableStream<Uint8Array>({ pull(controller) {
-      if (first) { first = false; controller.enqueue(start); } else controller.error(originalFailure);
+    let failSource!: () => void;
+    const upstream = new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(start);
+      failSource = () => controller.error(originalFailure);
     } }));
     const response = await adaptBedrockAnthropicResponse(upstream, 'eventstream', replay());
-    await expect(response.text()).rejects.toBe(originalFailure);
+    const reader = response.body!.getReader();
+    // Observe actual delivery before injecting failure, with the consumer's
+    // rejection handlers already attached rather than racing eager pulls.
+    void reader.closed.catch(() => {});
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain('"role":"assistant"');
+    const failedRead = expect(reader.read()).rejects.toBe(originalFailure);
+    failSource();
+    await failedRead;
+    reader.releaseLock();
     expect(observations(events)).toContainEqual(expect.objectContaining({ outcome: 'failed', failureClass: 'stream-read' }));
     expect(JSON.stringify(events)).not.toContain(privateMarker);
   }));
