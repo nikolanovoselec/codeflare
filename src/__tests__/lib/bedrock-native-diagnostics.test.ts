@@ -83,17 +83,20 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     expect(JSON.stringify(events)).not.toContain(privateMarker);
   }));
 
-  it('control: plain Response preserves the same controlled read failure without the adapter', async () => {
-    const originalFailure = new Error('PRIVATE_PLAIN_RESPONSE_CONTROL');
-    const { response, failSource } = readFailureSource(originalFailure);
+  it.each(['plain', 'identity-transform'] as const)('control: %s Response preserves the same controlled read failure without the adapter', async path => {
+    const originalFailure = new Error(path === 'plain' ? 'PRIVATE_PLAIN_RESPONSE_CONTROL' : 'PRIVATE_IDENTITY_TRANSFORM_CONTROL');
+    const { response: source, failSource } = readFailureSource(originalFailure);
+    const response = path === 'plain' ? source : new Response(source.body!.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      async transform(chunk, controller) { controller.enqueue(chunk); },
+    })));
     const reader = response.body!.getReader();
-    void reader.closed.catch(() => {});
+    const closed = expect(reader.closed).rejects.toBe(originalFailure);
     const first = await reader.read();
     expect(first.done).toBe(false);
     expect(first.value).toEqual(start);
-    const failedRead = expect(reader.read()).rejects.toBe(originalFailure);
+    const failedReads = Promise.all([closed, expect(reader.read()).rejects.toBe(originalFailure)]);
     failSource();
-    await failedRead;
+    await failedReads;
     reader.releaseLock();
   });
 
@@ -104,12 +107,12 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     const reader = response.body!.getReader();
     // Observe actual delivery before injecting failure, with the consumer's
     // rejection handlers already attached rather than racing eager pulls.
-    void reader.closed.catch(() => {});
+    const closed = expect(reader.closed).rejects.toBe(originalFailure);
     const first = await reader.read();
     expect(new TextDecoder().decode(first.value)).toContain('"role":"assistant"');
-    const failedRead = expect(reader.read()).rejects.toBe(originalFailure);
+    const failedReads = Promise.all([closed, expect(reader.read()).rejects.toBe(originalFailure)]);
     failSource();
-    await failedRead;
+    await failedReads;
     reader.releaseLock();
     expect(observations(events)).toContainEqual(expect.objectContaining({ outcome: 'failed', failureClass: 'stream-read' }));
     expect(JSON.stringify(events)).not.toContain(privateMarker);
