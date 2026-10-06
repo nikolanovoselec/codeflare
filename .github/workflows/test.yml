@@ -465,8 +465,8 @@ jobs:
     needs: changes
     env:
       DISPATCHER_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-native.generated.json
-      DISPATCHER_NATIVE_SHA256: 20654d7932132e08dd12907700d8f17e98adc6a5b0abd5bc1fd4880f1b43dcef
-      DISPATCHER_NATIVE_SOURCE_SHA: f1a0beccb0c305e418e441d93924adf49b0c39e6
+      DISPATCHER_NATIVE_SHA256: eba1de279d506003d897e4dd8a82a90e2fb659c5f66b0061c61c0862b765e266
+      DISPATCHER_NATIVE_SOURCE_SHA: 5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7
       DISPATCHER_JOURNEY_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-journey-native.generated.json
       DISPATCHER_JOURNEY_NATIVE_SHA256: 20654d7932132e08dd12907700d8f17e98adc6a5b0abd5bc1fd4880f1b43dcef
       DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA: f1a0beccb0c305e418e441d93924adf49b0c39e6
@@ -499,8 +499,8 @@ jobs:
       - name: Verify exact compiler-produced Dispatcher fixture
         if: matrix.group != 'rest'
         run: |
-          echo '20654d7932132e08dd12907700d8f17e98adc6a5b0abd5bc1fd4880f1b43dcef  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
-          grep -qF '"sourceCommit":"f1a0beccb0c305e418e441d93924adf49b0c39e6"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
+          echo 'eba1de279d506003d897e4dd8a82a90e2fb659c5f66b0061c61c0862b765e266  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
+          grep -qF '"sourceCommit":"5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
 
       - uses: ./.github/actions/install-deps
         with:
