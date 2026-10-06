@@ -185,12 +185,26 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
 
 
 describe('REQ-OPERATOR-047: real Access source response allowance', () => {
-  it('REQ-OPERATOR-047: rejects a 100 KiB source under the default allowance', async () => {
+  it('REQ-OPERATOR-047: rejects a 100 KiB source under an explicitly saved 64 KiB allowance', async () => {
     const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
-      { sourceBody: 'x'.repeat(100 * 1024) });
+      { sourceResponseBytes: 65536, sourceBody: 'x'.repeat(100 * 1024) });
     const response = await f.execute();
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+  });
+
+  it('REQ-OPERATOR-047: absent source allowance accepts an exact 1 MiB envelope and rejects one extra byte', async () => {
+    const headers = { 'content-type': 'application/json', etag: '"source-version"' };
+    const overhead = new TextEncoder().encode(JSON.stringify({ url: sourceUrl, status: 200, headers, body: '' })).byteLength;
+    const body = 'x'.repeat(1048576 - overhead);
+    const valid = await fixture(() => Response.json(documentedIdentity), false, issuer, { sourceBody: body });
+    const response = await valid.execute();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: sourceUrl, status: 200, headers, body });
+    const oversized = await fixture(() => Response.json(documentedIdentity), false, issuer, { sourceBody: body + 'x' });
+    const denied = await oversized.execute();
+    expect(denied.status).toBe(422);
+    expect(await denied.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
   });
 
   it('REQ-OPERATOR-047: returns the exact large source envelope under approved 128 KiB', async () => {

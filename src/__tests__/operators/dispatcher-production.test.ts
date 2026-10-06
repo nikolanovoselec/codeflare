@@ -1635,7 +1635,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   it.each([
     { name: 'oversized inference', preparationStep: 'parse', failureClass: 'body-limit',
       request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: {
-        messages: [{ role: 'user', content: 'PRIVATE_PROMPT'.repeat(6000) }] } }) },
+        messages: [{ role: 'user', content: 'PRIVATE_PROMPT'.repeat(100000) }] } }) },
     { name: 'oversized source', preparationStep: 'parse', failureClass: 'body-limit',
       request: () => genericWire('source', { operationId: 'PRIVATE_OPERATION', method: 'POST',
         url: 'https://api.github.com/repos/another/service/issues/17/comments', body: 'PRIVATE_BODY'.repeat(6000) }) },
@@ -1866,6 +1866,18 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }))).status).toBe(403);
   }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER }));
 
+  it('REQ-OPERATOR-047: absent inference limit accepts an exact 1 MiB request and rejects one extra byte', () => fixture(async f => {
+    await start(f);
+    const operationId = 'default-inference-bytes';
+    const empty = { operationId, input: { messages: [{ role: 'user', content: '' }] } };
+    const overhead = new TextEncoder().encode(JSON.stringify(empty)).byteLength;
+    const content = 'x'.repeat(1048576 - overhead);
+    expect((await f.capability.fetch(genericWire('inference', { operationId,
+      input: { messages: [{ role: 'user', content }] } }))).status).toBe(200);
+    expect((await f.capability.fetch(genericWire('inference', { operationId,
+      input: { messages: [{ role: 'user', content: content + 'x' }] } }))).status).toBe(403);
+  }));
+
   it('REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries', async () => {
     const body = { operationId: 'exact-inference', input: { messages: [{ role: 'user', content: '🙂'.repeat(30) }] } };
     const bytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
@@ -1884,7 +1896,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         inferenceRequestBytes: Number.MAX_SAFE_INTEGER, input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(403);
       expect((await f.capability.fetch(genericWire('inference', { operationId: 'valid-default',
         input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
-    }, { sourceResponseBytes: 131072 });
+    }, { sourceResponseBytes: 131072, inferenceRequestBytes: 65536 });
     await fixture(async f => {
       await start(f);
       expect((await f.capability.fetch(read('source-unchanged', { padding: 'x'.repeat(65537) }))).status).toBe(403);
@@ -2056,17 +2068,17 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     for (const repositoryOnly of [false, true]) await fixture(async f => {
       await start(f);
       expect((await f.loaderEnv()).OPERATOR_SOURCE_RESPONSE_BYTES)
-        .toBe(repositoryOnly ? String(sourceResponseBytes ?? 65536) : undefined);
+        .toBe(repositoryOnly ? String(sourceResponseBytes ?? 1048576) : undefined);
     }, { repositoryOnly, sourceResponseBytes });
   });
 
-  it.each([undefined, 131072])('REQ-OPERATOR-047: enforces source allowance %s through Activity and immutable cache', sourceResponseBytes => fixture(async f => {
+  it.each([undefined, 65536, 131072])('REQ-OPERATOR-047: enforces source allowance %s through Activity and immutable cache', sourceResponseBytes => fixture(async f => {
     await start(f);
     const request = () => sourceRead('large-source', 'https://docs.example.test/migration');
     const response = await f.capability.fetch(request());
-    expect(response.status).toBe(sourceResponseBytes === undefined ? 422 : 200);
+    expect(response.status).toBe(sourceResponseBytes === 65536 ? 422 : 200);
     const body = await response.json();
-    expect(body).toEqual(sourceResponseBytes === undefined ? { code: 'OPERATOR_SOURCE_INCOMPLETE' } : {
+    expect(body).toEqual(sourceResponseBytes === 65536 ? { code: 'OPERATOR_SOURCE_INCOMPLETE' } : {
       url: 'https://docs.example.test/migration', status: 200,
       headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'x'.repeat(100 * 1024),
     });
@@ -2118,7 +2130,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(await response.text()).toBe('x'.repeat(100 * 1024));
   }, { repositoryOnly: true, sourceResponseBytes: 131072, sourceBody: 'x'.repeat(100 * 1024) }));
 
-  it.each(['source', 'inference'])('REQ-OPERATOR-047: raising source responses leaves %s request limit at 64 KiB', path => fixture(async f => {
+  it.each(['source', 'inference'])('REQ-OPERATOR-047: raising source responses leaves %s explicitly configured request limit at 64 KiB', path => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(genericWire(path, path === 'source' ? {
       operationId: 'oversized-source-request', method: 'POST',
@@ -2127,7 +2139,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
     expect(f.sent).toEqual([]);
-  }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceRequestBytes: 65536 }));
 
   it('REQ-OPERATOR-047: raising source responses leaves inference response limit at 64 KiB', () => fixture(async f => {
     await start(f);
