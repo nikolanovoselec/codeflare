@@ -288,6 +288,22 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 2, truncated: false });
     expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
   });
+  it('REQ-OPERATOR-076: distinct seal records count across resets while replayed positions do not', async () => {
+    const reset = event(2, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested',
+        parts: [{ type: 'data-dispatcher-seal-preflight', data: sealReady }] }], settlements: [],
+    } });
+    const first = await readDispatcherUpdates(response([start, sealPart(1)], 'first'), initial(), 'requested');
+    const second = await readDispatcherUpdates(response([reset, sealPart(3)], 'second'), first, 'requested');
+    expect(Reflect.get(second, 'sealPreflight')).toEqual({ latest: sealReady, observations: 3, truncated: false });
+    expect(second.writes).toBe(0); expect(second.result).toBeUndefined();
+    const final = await readDispatcherUpdates(response([reset, sealPart(3),
+      event(4, { type: 'data-part', messageId: 'answer', name: 'assessment', data: result }),
+      event(5, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
+    ]), second, 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 3, truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
   it('REQ-OPERATOR-076: seal-preflight.v1 survives reset omission of earlier metadata', async () => {
     const first = await readDispatcherUpdates(response([start, sealPart(1)]), initial(), 'requested');
     const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {

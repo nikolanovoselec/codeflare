@@ -259,11 +259,15 @@ export function registerNativeDispatcherCases(
         discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1,
         unknownOperationCount: 0, category: 'ready',
       } });
-      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: 1, truncated: false, latest: {
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: expect.any(Number), truncated: false, latest: {
         category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
         operationLimit: 128, requiredOperationCount: 5, sealed: true,
       } });
-      const seal = Reflect.get(run.projection, 'sealPreflight') as { latest: { operationCount: number } };
+      const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number; latest: { operationCount: number } };
+      // Observations count accepted stream records, not unique producer tool calls.
+      expect(Number.isSafeInteger(seal.observations)).toBe(true);
+      expect(seal.observations).toBeGreaterThanOrEqual(1);
+      expect(seal.observations).toBeLessThanOrEqual(32);
       expect(Number.isSafeInteger(seal.latest.operationCount)).toBe(true);
       expect(seal.latest.operationCount).toBeGreaterThanOrEqual(1);
       expect(seal.latest.operationCount).toBeLessThanOrEqual(123);
@@ -310,10 +314,14 @@ export function registerNativeDispatcherCases(
           }] });
           expect(run.observation.effects).toEqual({ commentRequests: 1, otherMutationRequests: 0,
             commentMatches: true, researchSourceRequests: 1 });
-          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: 1, truncated: false, latest: {
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: expect.any(Number), truncated: false, latest: {
             category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
             operationLimit: 128, requiredOperationCount: 5, sealed: true,
           } });
+          const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number } | undefined;
+          expect.soft(Number.isSafeInteger(seal?.observations), scenario).toBe(true);
+          expect.soft(seal?.observations, scenario).toBeGreaterThanOrEqual(1);
+          expect.soft(seal?.observations, scenario).toBeLessThanOrEqual(32);
         }
         for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
       }
