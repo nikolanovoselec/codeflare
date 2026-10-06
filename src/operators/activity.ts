@@ -84,6 +84,46 @@ interface DispatcherOperationRecord {
 }
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
+const DISPATCHER_JOURNAL = 'dispatcher:journal';
+interface DispatcherJournal { generation: number; count: number; nextOrdinal: number; unresolved: number }
+type DispatcherJournalTx = Pick<DurableObjectTransaction, 'get' | 'put' | 'delete'>;
+const dispatcherEntryKey = (journal: DispatcherJournal, operationId: string) =>
+  `dispatcher:operation:${journal.generation}:${operationId}`;
+
+/** Migrate the bounded legacy aggregate atomically; never discard uncertain entries. */
+async function loadDispatcherJournal(tx: DispatcherJournalTx, generation: number): Promise<DispatcherJournal> {
+  const current = await tx.get<DispatcherJournal>(DISPATCHER_JOURNAL);
+  if (current && current.generation !== generation) throw new Error('Stale Dispatcher journal');
+  const legacy = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS);
+  if (legacy !== undefined) {
+    const entries = Object.entries(legacy);
+    if (entries.length && current?.count) throw new Error('Conflicting Dispatcher journals');
+    const journal = entries.length || !current
+      ? { generation, count: entries.length, nextOrdinal: entries.reduce((next, [, entry]) =>
+        Math.max(next, entry.ordinal === undefined ? 0 : entry.ordinal + 1), entries.length),
+      unresolved: entries.filter(([, entry]) => entry.phase !== 'completed').length }
+      : current;
+    for (const [id, entry] of entries) await tx.put(dispatcherEntryKey(journal, id), entry);
+    await tx.put(DISPATCHER_JOURNAL, journal);
+    await tx.delete(DISPATCHER_OPERATIONS);
+    return journal;
+  }
+  if (current) return current;
+  const journal = { generation, count: 0, nextOrdinal: 0, unresolved: 0 };
+  await tx.put(DISPATCHER_JOURNAL, journal);
+  return journal;
+}
+
+/** Entry, capacity and unresolved-state changes belong to the caller's fenced transaction. */
+async function putDispatcherEntry(tx: DispatcherJournalTx, journal: DispatcherJournal, id: string,
+  prior: DispatcherOperationRecord | undefined, next: DispatcherOperationRecord): Promise<void> {
+  await tx.put(dispatcherEntryKey(journal, id), next);
+  await tx.put(DISPATCHER_JOURNAL, { ...journal,
+    count: journal.count + (prior ? 0 : 1),
+    nextOrdinal: prior ? journal.nextOrdinal : Math.max(journal.nextOrdinal, (next.ordinal ?? journal.nextOrdinal) + 1),
+    unresolved: journal.unresolved + (next.phase === 'completed' ? 0 : 1) - (prior && prior.phase !== 'completed' ? 1 : 0),
+  });
+}
 const admittedDispatcherResultSchema = z.strictObject({ repository: z.string(),
   results: z.tuple([z.strictObject({ pullRequest: z.number().safe().int().positive(),
     headSha: z.string().regex(/^[0-9a-f]{40}$/), decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
@@ -1234,10 +1274,10 @@ export class OperatorActivity extends Agent {
       }
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
       if (lease && lease.generation === generation) {
-        const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
+        const journal = await loadDispatcherJournal(tx, generation);
         if (lease.status !== 'running' || lease.expiresAt <= Date.now()
           || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
-          || Object.values(operations).some(operation => operation.phase !== 'completed')) {
+          || journal.unresolved !== 0) {
           return { ok: false, reason: 'invalid-update' };
         }
         await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' || parsed.status === 'completed' ? 'settled' : 'unknown' });
@@ -1346,10 +1386,11 @@ export class OperatorActivity extends Agent {
           || lease.expiresAt <= Date.now() || (previous && (previous.status !== 'settled' || previous.generation !== generation - 1))) {
           throw new Error('Dispatcher generation unavailable');
         }
+        const journal = await loadDispatcherJournal(tx, previous?.generation ?? generation);
+        if (journal.unresolved !== 0) throw new Error('Unresolved Dispatcher journal');
         await tx.put(DISPATCHER_LEASE, lease);
-        // Operation identities and cached outputs are generation-scoped. A safely
-        // continued generation must perform and receipt its own protected reads.
-        await tx.put(DISPATCHER_OPERATIONS, {});
+        // Old completed entries remain isolated; a continued generation reserves its own reads.
+        await tx.put<DispatcherJournal>(DISPATCHER_JOURNAL, { generation, count: 0, nextOrdinal: 0, unresolved: 0 });
       });
       // SDK scheduling owns the physical alarm; this is a one-shot deadline, not a new scheduler.
       await this.schedule(new Date(lease.expiresAt), 'reconcileDispatcherLease', { generation }, { idempotent: true });
@@ -1602,8 +1643,8 @@ export class OperatorActivity extends Agent {
         }
         stage = 'operations';
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
-        const operations = await this.ctx.storage.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        if (Object.values(operations).some(operation => operation.phase !== 'completed')) {
+        const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, lease.generation));
+        if (journal.unresolved !== 0) {
           dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'operations' });
           await this.interruptDrive(lease.generation); return;
         }
@@ -1612,6 +1653,7 @@ export class OperatorActivity extends Agent {
           const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
           if (!this.#leaseMatches(record, current, lease.generation)
             || current!.submissionId !== lease.submissionId) throw new Error('Stale Dispatcher settlement');
+          if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) throw new Error('Unresolved Dispatcher settlement');
           await tx.put(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease.submissionId });
           await tx.put(`dispatcher:result:${lease.generation}`, assessmentParts[0].data);
         });
@@ -1720,12 +1762,12 @@ export class OperatorActivity extends Agent {
           const record = await tx.get<AdmissionState>('admission');
           const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
           if (!this.#leaseMatches(record, live, generation)) return denied();
-          const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-          const original = Object.hasOwn(operations, value.operationId) ? operations[value.operationId] : undefined;
+          const journal = await loadDispatcherJournal(tx, generation);
+          const original = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, value.operationId));
           if (!original?.request || original.generation !== generation) return denied();
           if (operation.path.endsWith('/receipt')) return Response.json({ operationId: value.operationId,
             generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
-            operationCount: Object.keys(operations).length, operationLimit,
+            operationCount: journal.count, operationLimit,
             ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}) });
           if (original.requestDigest !== value.requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
           const readbacks = value.readbacks!;
@@ -1735,7 +1777,7 @@ export class OperatorActivity extends Agent {
             : Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
           if (original.phase !== 'unknown') return denied();
           for (const reference of readbacks) {
-            const readback = Object.hasOwn(operations, reference.operationId) ? operations[reference.operationId] : undefined;
+            const readback = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, reference.operationId));
             if (!readback || readback.generation !== generation || readback.phase !== 'completed'
               || readback.request?.method !== 'GET' || original.ordinal === undefined || readback.ordinal === undefined
               || readback.ordinal <= original.ordinal || readback.requestDigest !== reference.requestDigest
@@ -1747,8 +1789,8 @@ export class OperatorActivity extends Agent {
           const resolved = { resolved: true, operationId: value.operationId, requestDigest: original.requestDigest };
           const response = { status: 200, contentType: 'application/json', body: JSON.stringify(resolved) };
           await tx.put(`dispatcher:response:${value.operationId}`, response);
-          await tx.put(DISPATCHER_OPERATIONS, { ...operations, [value.operationId]: { ...original,
-            phase: 'completed', resolution: { readbacks }, responseDigest: await sha256(response.body) } });
+          await putDispatcherEntry(tx, journal, value.operationId, original, { ...original,
+            phase: 'completed', resolution: { readbacks }, responseDigest: await sha256(response.body) });
           return Response.json(resolved);
         });
       }
@@ -1792,26 +1834,26 @@ export class OperatorActivity extends Agent {
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!this.#leaseMatches(record, lease, generation)) return { kind: 'denied', reason: 'lease-mismatch',
         activityId: record?.intent.activityId, lease } as const;
-      const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-      const prior = Object.hasOwn(operations, operation.operationId) ? operations[operation.operationId] : undefined;
+      const journal = await loadDispatcherJournal(tx, generation);
+      const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operation.operationId));
       if (prior) {
         if (prior.requestDigest !== requestDigest) return { kind: 'conflict' } as const;
         if (prior.phase === 'completed') {
           const response = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${operation.operationId}`);
           if (response) return { kind: 'completed', response } as const;
-          await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
+          await putDispatcherEntry(tx, journal, operation.operationId, prior, { ...prior, phase: 'unknown' });
           return { kind: 'unknown', lease: lease! } as const;
         }
-        await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
+        await putDispatcherEntry(tx, journal, operation.operationId, prior, { ...prior, phase: 'unknown' });
         return { kind: 'unknown', lease: lease! } as const;
       }
-      const operationCount = Object.keys(operations).length;
+      const operationCount = journal.count;
       if (operationCount >= operationLimit) return { kind: 'denied', reason: 'operation-limit',
         activityId: record!.intent.activityId, lease, operationCount } as const;
-      await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
-        generation, requestDigest, phase: 'reserved', ordinal: Object.keys(operations).length, ...(operation.path === '/v1/dispatcher/source'
+      await putDispatcherEntry(tx, journal, operation.operationId, undefined, {
+        generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, ...(operation.path === '/v1/dispatcher/source'
           ? { request: { method: (operation.body as { method?: 'GET' | 'POST' | 'PUT' }).method ?? 'GET',
-            url: (operation.body as { url: string }).url } } : {}) } satisfies DispatcherOperationRecord });
+            url: (operation.body as { url: string }).url } } : {}) });
       return { kind: 'reserved', lease: lease! } as const;
     });
     if (reserved.kind === 'denied') {
@@ -1869,8 +1911,8 @@ export class OperatorActivity extends Agent {
       const committedResult = await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
         const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        const prior = operations[operation.operationId];
+        const journal = await loadDispatcherJournal(tx, generation);
+        const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operation.operationId));
         if (!this.#leaseMatches(record, lease, generation)
           || prior?.generation !== generation || prior.requestDigest !== requestDigest) throw new Error('Stale protected result');
         if (prior.phase === 'completed') {
@@ -1882,18 +1924,21 @@ export class OperatorActivity extends Agent {
           throw new Error('Unresolved protected result');
         }
         await tx.put(`dispatcher:response:${operation.operationId}`, result);
-        await tx.put(DISPATCHER_OPERATIONS, { ...operations,
-          [operation.operationId]: { ...prior, phase: 'completed', responseDigest: await sha256(result.body) } });
+        await putDispatcherEntry(tx, journal, operation.operationId, prior,
+          { ...prior, phase: 'completed', responseDigest: await sha256(result.body) });
         return result;
       });
       if (committedResult.status >= 400) rejected('forwarded-upstream', resource, lease, committedResult.status);
       return response(committedResult);
     } catch {
       await this.ctx.storage.transaction(async tx => {
-        const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-        const prior = operations[operation.operationId];
-        if (prior?.phase === 'reserved') await tx.put(DISPATCHER_OPERATIONS, {
-          ...operations, [operation.operationId]: { ...prior, phase: 'unknown' } });
+        const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (live?.generation !== generation) return;
+        const journal = await loadDispatcherJournal(tx, generation);
+        const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operation.operationId));
+        if (prior?.generation === generation && prior.requestDigest === requestDigest && prior.phase === 'reserved') {
+          await putDispatcherEntry(tx, journal, operation.operationId, prior, { ...prior, phase: 'unknown' });
+        }
       });
       // Leave a live write's unknown intent available for read-only reconciliation.
       // Terminal SDK reconciliation still refuses collection while any intent remains unknown.
@@ -2121,8 +2166,7 @@ export class OperatorActivity extends Agent {
       const [record, currentLease] = await Promise.all([tx.get<AdmissionState>('admission'),
         tx.get<DispatcherLease>(DISPATCHER_LEASE)]);
       if (!matches(record, currentLease) || currentLease!.generation !== lease!.generation) return false;
-      const operations = await tx.get<Record<string, DispatcherOperationRecord>>(DISPATCHER_OPERATIONS) ?? {};
-      if (Object.values(operations).some(operation => operation.phase !== 'completed')) return false;
+      if ((await loadDispatcherJournal(tx, lease!.generation)).unresolved !== 0) return false;
       await tx.put<AdmissionState>('admission', { ...record!, drive: {
         ...record!.drive!, status: 'completed', checkpoint: null, result: assessment,
       }, updatedAt: Date.now() });

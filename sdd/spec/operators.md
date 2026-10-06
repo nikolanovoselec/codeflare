@@ -736,7 +736,12 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 
-**Constraints:** Profile admission can only narrow verified human authority. Original operator policy supplies finite journal capacity, default1024; distinct reservations consume entries, completed retries reuse them, and receipt/resolution calls consume none. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary) -->
+**Constraints:**
+
+- Profile admission only narrows verified human authority.
+- Original operator policy supplies finite capacity, default 1024. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary) -->
+- Distinct reservations consume entries; completed retries reuse them. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/activity.ts::loadDispatcherJournal --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload) -->
+- Receipt and resolution calls consume no entries. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (projects actual journal consumption on receipts without charging cached receipt observations) -->
 
 **Priority:** P0
 

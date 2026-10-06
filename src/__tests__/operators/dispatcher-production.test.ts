@@ -258,7 +258,7 @@ describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', 
     const source = { operationId: 'budget-read', url: 'https://api.github.com/repos/another/service' };
     expect((await f.capability.fetch(genericWire('source', source))).status).toBe(200);
     const first = await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json() as { operationCount: number; operationLimit: number };
-    expect(first.operationLimit).toBe(128);
+    expect(first.operationLimit).toBe(1024);
     expect(first.operationCount).toBeGreaterThanOrEqual(1);
     expect((await f.capability.fetch(genericWire('source', { ...source, operationId: 'budget-read-next' }))).status).toBe(200);
     const next = await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json() as { operationCount: number };
@@ -1754,7 +1754,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
         activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
         wireRules: [rule], wireRulesTruncated: false });
-      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|owner@example|8193|16000/);
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|owner@example/);
+      // Trusted identity is checked exactly above; rejected numeric values must not
+      // occur in the remaining diagnostic fields, not arbitrary generated UUID text.
+      expect(JSON.stringify({ ...event!.data, activityId: undefined })).not.toMatch(/8193|16000/);
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
       expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-rule-denial',
@@ -2175,6 +2178,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       const original = await receipt(mutation.operationId, 3);
       // Recovery may conservatively promote a stranded reservation to unknown.
       expect(['reserved', 'unknown']).toContain(original.phase);
+      f.genericReadback([{ id: 9999, body: 'Changed upstream must not replace legacy cached responses', user: { id: 42 } }]);
       for (const body of [oldRead, laterRead]) {
         const cached = await f.capability.fetch(genericWire('source', body));
         expect(cached.status).toBe(200);
@@ -2198,11 +2202,13 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       // A fresh read after recovery must have a later reservation order and consume
       // exactly one slot. Its empty remote result also proves the seeded write was not replayed.
       const freshRead = { operationId: 'legacy-fresh-read', url };
+      f.genericReadback(undefined);
       const observed = await f.capability.fetch(genericWire('source', freshRead));
       expect(observed.status).toBe(200);
       expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual([]);
       await receipt(oldRead.operationId, 4);
       f.restart();
+      f.genericReadback([{ id: 9999, body: 'Changed upstream after reload must not replace legacy cache', user: { id: 42 } }]);
       for (const body of [oldRead, laterRead]) {
         const cached = await f.capability.fetch(genericWire('source', body));
         expect(cached.status).toBe(200);
