@@ -1255,6 +1255,68 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }));
+  it.each(['ready', 'incomplete-results', 'unknown-operation'] as const)(
+    'REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment', category => fixture(async f => {
+      await start(f);
+      f.messages([{ submissionId: 'submission-1', parts: [
+        { type: 'data-dispatcher-readiness', data: { discovered: true, sealed: true,
+          targetCount: 2, decisionCount: 2, resultCount: category === 'ready' ? 2 : 1,
+          unknownOperationCount: category === 'unknown-operation' ? 1 : 0, category } },
+        { type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: 'PRIVATE_TOOL_IDENTIFIER',
+          state: 'output-error', errorText: 'PRIVATE_TOOL_ERROR' },
+      ] }]);
+      const emitted: string[] = []; setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      try {
+        f.settle(); await f.activity.reconcileDispatcherLease();
+        const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+          .find(value => value.message === 'Dispatcher settlement observed');
+        expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1, outcome: 'completed',
+          projectedWrites: 0, assessmentPresent: false, producerReadinessObserved: true, producerReadinessTruncated: false,
+          producerCategory: category, producerDiscovered: true, producerSealed: true,
+          producerTargetCount: 2, producerDecisionCount: 2, producerResultCount: category === 'ready' ? 2 : 1,
+          producerUnknownOperationCount: category === 'unknown-operation' ? 1 : 0 });
+        expect(emitted.join('')).not.toContain('PRIVATE_');
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }),
+  );
+  it('REQ-OPERATOR-063: invalid readiness.v1 terminal wire cannot expose content or block validated collection', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-readiness', data: { category: 'PRIVATE_PRODUCER_CONTENT' } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    const emitted: string[] = []; setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+        .find(value => value.message === 'Dispatcher settlement observed');
+      expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1,
+        projectedWrites: 1, assessmentPresent: true, producerReadinessObserved: false, producerReadinessTruncated: true });
+      expect(emitted.join('')).not.toContain('PRIVATE_');
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it('REQ-OPERATOR-063: readiness.v1 logging outage preserves actual result and SDK release', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-readiness', data: { discovered: true, sealed: false,
+        targetCount: 0, decisionCount: 0, resultCount: 0, unknownOperationCount: 0, category: 'ready' } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    setLogLevel('warn'); const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGER_ERROR'); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
   it('REQ-OPERATOR-063: unavailable terminal diagnostic logging cannot prevent valid collection or SDK release', () => fixture(async f => {
     await start(f);
     const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };

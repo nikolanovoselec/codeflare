@@ -255,6 +255,10 @@ export function registerNativeDispatcherCases(
       expect(Reflect.get(run.projection, 'completion')).toMatchObject({
         calls: [expect.objectContaining({ outcome: 'succeeded' })], truncated: false,
       });
+      expect(Reflect.get(run.projection, 'readiness')).toEqual({ observations: 1, truncated: false, latest: {
+        discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1,
+        unknownOperationCount: 0, category: 'ready',
+      } });
       expect(run.projection.result).toEqual({ repository: 'authorized/project', results: [{
         ...run.target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
       }] });
@@ -274,6 +278,22 @@ export function registerNativeDispatcherCases(
         }
       }
     }
+
+    it('REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects', async () => {
+      const run = await runProducerJourney('finish-undiscovered', 25_000);
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
+      expect(run.projection.result).toBeUndefined();
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'failed' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toEqual({ observations: 1, truncated: false, latest: {
+        discovered: false, sealed: false, targetCount: 0, decisionCount: 0, resultCount: 0,
+        unknownOperationCount: 0, category: 'undiscovered',
+      } });
+      expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+    }, 45_000);
 
     it('REQ-OPERATOR-048: repeated identical successful comment requests violate the exactly-one-comment observation contract', async () => {
       const intent = await harness.queuedActivity();

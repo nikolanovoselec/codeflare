@@ -263,4 +263,88 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     await expect(readDispatcherUpdates(response([event(0, { type: 'tool-output', output: 'x'.repeat(16 * 1024 * 1024) })]), initial(), 'requested')).rejects.toThrow('Dispatcher update page exceeds limit');
     await expect(readDispatcherUpdates(response([start, { ...data, data: { text: 'x'.repeat(65536) } }]), initial(), 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
   });
+  // Intentional readiness.v1 wire: closed producer metadata is not an assessment or authority.
+  const ready = { discovered: true, sealed: true, targetCount: 1, decisionCount: 1,
+    resultCount: 1, unknownOperationCount: 0, category: 'ready' };
+  const readinessPart = (index: number, value: unknown = ready, messageId = 'answer') =>
+    event(index, { type: 'data-part', messageId, name: 'dispatcher-readiness', data: value });
+  it('REQ-OPERATOR-063: readiness.v1 projects an exact producer snapshot without granting assessment authority', async () => {
+    const projected = await readDispatcherUpdates(response([start, readinessPart(1), settled]), initial(), 'requested');
+    expect(Reflect.get(projected, 'readiness')).toEqual({ latest: ready, observations: 1, truncated: false });
+    expect(projected.writes).toBe(0); expect(projected.result).toBeUndefined(); expect(projected.outcome).toBe('completed');
+  });
+  it('REQ-OPERATOR-063: readiness.v1 carries the latest exact snapshot across pages', async () => {
+    const incomplete = { ...ready, resultCount: 0, category: 'incomplete-results' };
+    const first = await readDispatcherUpdates(response([start, readinessPart(1, incomplete)], 'first'), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([readinessPart(2), data, settled]), first, 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ latest: ready, observations: 2, truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-063: readiness.v1 replay cannot consume the observation allowance twice', async () => {
+    const first = await readDispatcherUpdates(response([start, readinessPart(1)]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([readinessPart(1), data, settled]), first, 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ latest: ready, observations: 1, truncated: false });
+    expect(final.result).toEqual(result);
+  });
+  it('REQ-OPERATOR-063: readiness.v1 survives compaction which omits earlier producer metadata', async () => {
+    const first = await readDispatcherUpdates(response([start, readinessPart(1)]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested', parts: [] }], settlements: [],
+    } })]), first, 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ latest: ready, observations: 1, truncated: false });
+    expect(final.result).toBeUndefined();
+  });
+  it.each(['normal', 'member-order'])('REQ-OPERATOR-063: readiness.v1 selects exact reset metadata with %s ordering', async ordering => {
+    const part = { type: 'data-dispatcher-readiness', data: ready };
+    const exact = ordering === 'normal' ? { id: 'answer', submissionId: 'requested', parts: [part] }
+      : { parts: [part], submissionId: 'requested', id: 'answer' };
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'foreign', submissionId: 'foreign', parts: [
+        { type: 'data-dispatcher-readiness', data: { ...ready, category: 'PRIVATE_FOREIGN_VALUE' } },
+      ] }, exact], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } })]), initial(), 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ latest: ready, observations: 1, truncated: false });
+    expect(final.writes).toBe(0); expect(JSON.stringify(final)).not.toContain('PRIVATE_FOREIGN_VALUE');
+  });
+  it('REQ-OPERATOR-063: foreign readiness.v1 records cannot create metadata or truncate exact metadata', async () => {
+    const final = await readDispatcherUpdates(response([start,
+      event(1, { type: 'message-started', messageId: 'other', submissionId: 'foreign' }),
+      readinessPart(2, { ...ready, category: 'PRIVATE_FOREIGN_VALUE'.repeat(1000) }, 'other'), data, settled,
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'readiness')).toBeUndefined(); expect(final.result).toEqual(result);
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_FOREIGN_VALUE');
+  });
+  it.each([
+    ['extra-field', { ...ready, body: 'PRIVATE_PRODUCER_CONTENT' }],
+    ['missing-field', { category: 'ready' }],
+    ['wrong-category', { ...ready, category: 'PRIVATE_PRODUCER_CONTENT' }],
+    ['wrong-flag', { ...ready, discovered: 'PRIVATE_PRODUCER_CONTENT' }],
+    ['negative-count', { ...ready, resultCount: -1 }],
+    ['fractional-count', { ...ready, resultCount: 0.5 }],
+    ['unsafe-count', { ...ready, resultCount: Number.MAX_SAFE_INTEGER + 1 }],
+    ['oversized', { ...ready, category: 'PRIVATE_PRODUCER_CONTENT'.repeat(5000) }],
+  ])('REQ-OPERATOR-063: invalid readiness.v1 %s cannot retain content or deny a valid assessment', async (_caseName, value) => {
+    const final = await readDispatcherUpdates(response([start, readinessPart(1, value), data, settled]), initial(), 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ observations: 1, truncated: true });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_PRODUCER_CONTENT');
+  });
+  it('REQ-OPERATOR-063: readiness.v1 keeps latest valid metadata when a later record is invalid', async () => {
+    const final = await readDispatcherUpdates(response([start, readinessPart(1),
+      readinessPart(2, { ...ready, category: 'PRIVATE_PRODUCER_CONTENT' }), data, settled]), initial(), 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ latest: ready, observations: 2, truncated: true });
+    expect(final.result).toEqual(result);
+  });
+  it('REQ-OPERATOR-063: readiness.v1 caps observation work at32 without consuming result allowance', async () => {
+    const parts = Array.from({ length: 40 }, (_, index) => readinessPart(index + 1,
+      { ...ready, resultCount: index, category: 'incomplete-results' }));
+    const final = await readDispatcherUpdates(response([start, ...parts,
+      event(41, { type: 'data-part', messageId: 'answer', name: 'assessment', data: result }),
+      event(42, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'readiness')).toEqual({ latest: { ...ready, resultCount: 31, category: 'incomplete-results' },
+      observations: 32, truncated: true });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+
 });
