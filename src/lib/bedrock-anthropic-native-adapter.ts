@@ -607,28 +607,6 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       frameLimit: MAX_FRAME_BYTES, toolBlocks: [...blocks.values()].filter(block => block.type === 'tool_use').length,
       elapsedMs: performance.now() - began, ...extra });
   diagnostic('started');
-  const sourceReader = response.body.getReader();
-  // The owned reader's closure can reject independently of read(); the latter
-  // remains the diagnostic and consumer-visible failure path.
-  void sourceReader.closed.catch(() => {});
-  const observedSource = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const value = await sourceReader.read();
-        if (value.done) { controller.close(); return; }
-        metrics.inputBytes += value.value.byteLength; metrics.chunks++;
-        controller.enqueue(value.value);
-      } catch (error) {
-        inferenceDiagnostic(state.diagnosticContext, { stage: 'native-stream', outcome: 'failed', transport: 'eventstream',
-          ...metrics, failureClass: 'stream-read', elapsedMs: performance.now() - began });
-        controller.error(error);
-      }
-    },
-    async cancel(reason) {
-      inferenceDiagnostic(state.diagnosticContext, { stage: 'native-stream', outcome: 'canceled', transport: 'eventstream', ...metrics });
-      await sourceReader.cancel(reason);
-    },
-  });
   const emitTerminalError = (controller: TransformStreamDefaultController<Uint8Array>) => {
     if (streamFailed) return;
     streamFailed = true;
@@ -723,9 +701,31 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       }
     },
   });
-  // Own the piping promise explicitly. A rejection still errors the readable
-  // with the original failure; it must not escape as a second unhandled error.
-  void observedSource.pipeTo(transform.writable).catch(() => {});
+  // Observe at the writable boundary without adding an async-pull readable.
+  // Source failure aborts this sink; consumer cancellation errors the owned
+  // writer and is forwarded to the sink so pipeTo cancels the original source.
+  const writer = transform.writable.getWriter();
+  let sinkController!: WritableStreamDefaultController;
+  let sourceReadFailed = false;
+  const sink = new WritableStream<Uint8Array>({
+    start(controller) { sinkController = controller; },
+    write(chunk) {
+      metrics.inputBytes += chunk.byteLength; metrics.chunks++;
+      return writer.write(chunk);
+    },
+    close() { return writer.close(); },
+    abort(error) {
+      sourceReadFailed = true;
+      inferenceDiagnostic(state.diagnosticContext, { stage: 'native-stream', outcome: 'failed', transport: 'eventstream',
+        ...metrics, failureClass: 'stream-read', elapsedMs: performance.now() - began });
+      return writer.abort(error);
+    },
+  });
+  void writer.closed.catch(error => { sinkController.error(error); });
+  void response.body.pipeTo(sink).catch(() => {
+    if (!sourceReadFailed) inferenceDiagnostic(state.diagnosticContext,
+      { stage: 'native-stream', outcome: 'canceled', transport: 'eventstream', ...metrics });
+  });
   return new Response(transform.readable, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
 }
 

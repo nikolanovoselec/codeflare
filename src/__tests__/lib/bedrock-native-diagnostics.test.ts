@@ -95,19 +95,17 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
         async transform(chunk, controller) { controller.enqueue(chunk); },
       });
       if (path === 'source-observer') {
-        const sourceReader = source.body!.getReader();
-        sourceOutcomes.push(expect(sourceReader.closed).rejects.toBe(originalFailure));
-        const observedSource = new ReadableStream<Uint8Array>({
-          async pull(controller) {
-            try {
-              const next = await sourceReader.read();
-              if (next.done) controller.close();
-              else controller.enqueue(next.value);
-            } catch (error) { controller.error(error); }
-          },
-          async cancel(reason) { await sourceReader.cancel(reason); },
+        const writer = transform.writable.getWriter();
+        sourceOutcomes.push(expect(writer.closed).rejects.toBe(originalFailure));
+        let sinkController!: WritableStreamDefaultController;
+        const sink = new WritableStream<Uint8Array>({
+          start(controller) { sinkController = controller; },
+          write(chunk) { return writer.write(chunk); },
+          close() { return writer.close(); },
+          abort(error) { return writer.abort(error); },
         });
-        sourceOutcomes.push(expect(observedSource.pipeTo(transform.writable)).rejects.toBe(originalFailure));
+        void writer.closed.catch(error => { sinkController.error(error); });
+        sourceOutcomes.push(expect(source.body!.pipeTo(sink)).rejects.toBe(originalFailure));
         response = new Response(transform.readable);
       } else response = new Response(source.body!.pipeThrough(transform));
     }
