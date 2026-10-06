@@ -5,7 +5,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import worker from '../../index';
 import type { Env } from '../../types';
 import { OperatorRegistry, type ManagementPolicy, type ManagementInstallation } from '../../operators/registry';
-import { DEFAULT_SOURCE_RESPONSE_BYTES, MAX_SOURCE_RESPONSE_BYTES } from '../../operators/dispatcher-source-limits';
+import { MAX_SOURCE_RESPONSE_BYTES } from '../../operators/dispatcher-source-limits';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
@@ -110,7 +110,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
       installations: ManagementInstallation[]; grants: unknown };
     const before = await (await request(detailPath)).json() as Detail;
     const revision = before.operator.revision;
-    const noOp = await request(path, 'POST', { revision, capabilities: [], inferenceRequestBytes: 65536 });
+    const noOp = await request(path, 'POST', { revision, capabilities: [], inferenceRequestBytes: 1048576 });
     expect(noOp.status).toBe(200);
     expect(await noOp.json()).toMatchObject({ revision, policy: registration.policy });
     expect((await (await request(detailPath)).json() as Detail).installations).toEqual(before.installations);
@@ -236,7 +236,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     })).status).toBe(200);
     actor.role = 'admin';
     expect((await request('/api/operator-management/access', 'POST', { revision: 1, managers: registration.managers,
-      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+      ceiling: { capabilities: [], resourceProfileIds: [], sourceResponseBytes: 65536 } })).status).toBe(200);
     actor.role = 'user';
     expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
       revision: installation.revision + 2, enabled: true,
@@ -254,18 +254,19 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect((await request('/api/operator-management/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [], sourceResponseBytes: 262144 } })).status).toBe(200);
     actor.role = 'user';
-    const registered = await request('/api/operator-management/operators', 'POST', registration);
+    const registrationPolicy = { ...registration.policy, sourceResponseBytes: 65536 };
+    const registered = await request('/api/operator-management/operators', 'POST', { ...registration, policy: registrationPolicy });
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { id: string; revision: number };
-    const id = await enabledInstallation(request, operator);
+    const id = await enabledInstallation(request, operator, registrationPolicy);
     const detailPath = `/api/operator-management/operators/${operator.id}`;
     const path = `${detailPath}/capabilities`;
     const before = await (await request(detailPath)).json() as { operator: { revision: number; policy: ManagementPolicy }; installations: ManagementInstallation[]; grants: unknown };
     const revision = before.operator.revision;
     const installation = before.installations[0]!;
-    const noOp = await request(path, 'POST', { revision, capabilities: [], sourceResponseBytes: DEFAULT_SOURCE_RESPONSE_BYTES });
+    const noOp = await request(path, 'POST', { revision, capabilities: [], sourceResponseBytes: 65536 });
     expect(noOp.status).toBe(200);
-    expect(await noOp.json()).toMatchObject({ revision, policy: registration.policy });
+    expect(await noOp.json()).toMatchObject({ revision, policy: registrationPolicy });
     expect((await (await request(detailPath)).json() as typeof before).installations).toEqual(before.installations);
     for (const sourceResponseBytes of [0, -1, 1.5, NaN, '65536', MAX_SOURCE_RESPONSE_BYTES + 1]) {
       expect((await request(path, 'POST', { revision, capabilities: [], sourceResponseBytes })).status).toBe(400);
@@ -303,7 +304,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect((await (await request('/api/operator-management/access')).json() as { ceiling: object }).ceiling).not.toHaveProperty('sourceResponseBytes');
     actor.role = 'user';
     expect((await request('/api/operator-management/operators', 'POST', { ...registration,
-      policy: { ...registration.policy, sourceResponseBytes: DEFAULT_SOURCE_RESPONSE_BYTES + 1 } })).status).toBe(404);
+      policy: { ...registration.policy, sourceResponseBytes: 1048577 } })).status).toBe(400);
     const created = await request('/api/operator-management/operators', 'POST', registration);
     expect(created.status).toBe(201);
     const operator = await created.json() as { id: string; revision: number; policy: ManagementPolicy };
@@ -314,7 +315,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(installed.status).toBe(201);
     expect(await installed.json()).toMatchObject({ policy: registration.policy });
     expect((await request(`/api/operator-management/operators/${operator.id}/installations`, 'POST', {
-      revision: operator.revision, name: 'explicit-default', policy: { ...registration.policy, sourceResponseBytes: DEFAULT_SOURCE_RESPONSE_BYTES },
+      revision: operator.revision, name: 'explicit-default', policy: { ...registration.policy, sourceResponseBytes: 1048576 },
     })).status).toBe(201);
   }));
 
@@ -365,12 +366,13 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect((await request(`/api/operator-management/operators/${operator.id}/installations`, 'POST', {
       revision: operator.revision, name: 'too-wide', policy: { ...registration.policy, sourceResponseBytes: 196609 },
     })).status).toBe(400);
-    const defaultOperatorResponse = await request('/api/operator-management/operators', 'POST', registration);
+    const defaultOperatorResponse = await request('/api/operator-management/operators', 'POST', { ...registration,
+      policy: { ...registration.policy, sourceResponseBytes: 65536 } });
     expect(defaultOperatorResponse.status).toBe(201);
     const defaultOperator = await defaultOperatorResponse.json() as { id: string; revision: number };
     expect((await request(`/api/operator-management/operators/${defaultOperator.id}/installations`, 'POST', {
       revision: defaultOperator.revision, name: 'above-default-operator',
-      policy: { ...registration.policy, sourceResponseBytes: DEFAULT_SOURCE_RESPONSE_BYTES + 1 },
+      policy: { ...registration.policy, sourceResponseBytes: 65537 },
     })).status).toBe(400);
   }));
   it('edits operator capabilities within Environment limits and disables current runs without changing pins or installation restrictions', async () => withApi(async request => {
