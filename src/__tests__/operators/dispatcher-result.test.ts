@@ -263,6 +263,110 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     await expect(readDispatcherUpdates(response([event(0, { type: 'tool-output', output: 'x'.repeat(16 * 1024 * 1024) })]), initial(), 'requested')).rejects.toThrow('Dispatcher update page exceeds limit');
     await expect(readDispatcherUpdates(response([start, { ...data, data: { text: 'x'.repeat(65536) } }]), initial(), 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
   });
+  // Intentional seal-preflight.v1 closed wire: never an assessment or authority.
+  const sealReady = { category: 'ready', targetCount: 1, decisionCount: 1, operationCount: 10,
+    operationLimit: 128, requiredOperationCount: 5, sealed: true };
+  const sealPart = (index: number, value: unknown = sealReady, messageId = 'answer') =>
+    event(index, { type: 'data-part', messageId, name: 'dispatcher-seal-preflight', data: value });
+  it.each(['ready', 'capacity', 'schema', 'oversized'])('REQ-OPERATOR-076: seal-preflight.v1 projects exact %s metadata without assessment authority', async category => {
+    const value = { ...sealReady, category, sealed: category === 'ready' };
+    const final = await readDispatcherUpdates(response([start, sealPart(1, value), settled]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: value, observations: 1, truncated: false });
+    expect(final.writes).toBe(0); expect(final.result).toBeUndefined(); expect(final.outcome).toBe('completed');
+  });
+  it.each(['undiscovered', 'incomplete-decisions', 'receipt'])('REQ-OPERATOR-076: seal-preflight.v1 %s retains unknown counts as null not fabricated zero', async category => {
+    const value = { ...sealReady, category, operationCount: null, operationLimit: null, requiredOperationCount: null, sealed: false };
+    const final = await readDispatcherUpdates(response([start, sealPart(1, value), data, settled]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: value, observations: 1, truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-076: seal-preflight.v1 keeps latest valid metadata across pages and replay without result accounting', async () => {
+    const refused = { ...sealReady, operationCount: 125, category: 'capacity', sealed: false };
+    const first = await readDispatcherUpdates(response([start, sealPart(1, refused)], 'first'), initial(), 'requested');
+    const second = await readDispatcherUpdates(response([sealPart(1, refused), sealPart(2)]), first, 'requested');
+    const final = await readDispatcherUpdates(response([sealPart(2), data, settled]), second, 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 2, truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-076: seal-preflight.v1 survives reset omission of earlier metadata', async () => {
+    const first = await readDispatcherUpdates(response([start, sealPart(1)]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested', parts: [] }], settlements: [],
+    } })]), first, 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 1, truncated: false });
+    expect(final.result).toBeUndefined(); expect(final.writes).toBe(0);
+  });
+  it.each(['normal', 'data-first'])('REQ-OPERATOR-076: seal-preflight.v1 exact reset association survives %s member order', async order => {
+    const part = order === 'normal' ? { type: 'data-dispatcher-seal-preflight', data: sealReady }
+      : { data: sealReady, type: 'data-dispatcher-seal-preflight' };
+    const exact = { parts: [part], submissionId: 'requested', id: 'answer' };
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ parts: [{ data: { ...sealReady, category: 'PRIVATE_FOREIGN_CONTENT'.repeat(5000) },
+        type: 'data-dispatcher-seal-preflight' }], submissionId: 'foreign', id: 'foreign' }, exact],
+      settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } })]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 1, truncated: false });
+    expect(final.writes).toBe(0); expect(final.result).toBeUndefined();
+  });
+  it('REQ-OPERATOR-076: foreign seal-preflight.v1 cannot consume exact observations or alter validated assessment', async () => {
+    const final = await readDispatcherUpdates(response([start,
+      event(1, { type: 'message-started', messageId: 'other', submissionId: 'foreign' }),
+      sealPart(2, { ...sealReady, body: 'PRIVATE_FOREIGN_CONTENT'.repeat(5000) }, 'other'), data, settled,
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toBeUndefined(); expect(final).toMatchObject({ writes: 1, result });
+  });
+  it.each([
+    ['extra-field', { ...sealReady, body: 'PRIVATE_PRODUCER_CONTENT' }],
+    ['missing-field', { category: 'ready' }],
+    ['wrong-category', { ...sealReady, category: 'PRIVATE_PRODUCER_CONTENT' }],
+    ['wrong-flag', { ...sealReady, sealed: 'PRIVATE_PRODUCER_CONTENT' }],
+    ['negative-count', { ...sealReady, targetCount: -1 }],
+    ['fractional-count', { ...sealReady, decisionCount: 0.5 }],
+    ['unsafe-count', { ...sealReady, targetCount: Number.MAX_SAFE_INTEGER + 1 }],
+    ['journal-over-limit', { ...sealReady, operationCount: 129 }],
+    ['zero-reserve', { ...sealReady, requiredOperationCount: 0 }],
+    ['fractional-reserve', { ...sealReady, requiredOperationCount: 4.5 }],
+    ['unsafe-reserve', { ...sealReady, requiredOperationCount: Number.MAX_SAFE_INTEGER + 1 }],
+    ['wrong-limit', { ...sealReady, operationLimit: 256 }],
+    ['oversized', { ...sealReady, category: 'PRIVATE_PRODUCER_CONTENT'.repeat(5000) }],
+  ])('REQ-OPERATOR-076: invalid seal-preflight.v1 %s cannot retain content or deny actual assessment', async (_caseName, value) => {
+    const final = await readDispatcherUpdates(response([start, sealPart(1, value), data, settled]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ observations: 1, truncated: true });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-076: seal-preflight.v1 retains latest valid observation when later metadata is invalid', async () => {
+    const final = await readDispatcherUpdates(response([start, sealPart(1),
+      sealPart(2, { ...sealReady, category: 'PRIVATE_PRODUCER_CONTENT' }), data, settled]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 2, truncated: true });
+    expect(final.result).toEqual(result);
+  });
+  it('REQ-OPERATOR-076: seal-preflight.v1 limits32 observations separately from valid assessment and readiness', async () => {
+    const parts = Array.from({ length: 40 }, (_, index) => sealPart(index + 1, { ...sealReady, operationCount: index + 1 }));
+    const final = await readDispatcherUpdates(response([start, ...parts,
+      event(41, { type: 'data-part', messageId: 'answer', name: 'assessment', data: result }),
+      event(42, { type: 'data-part', messageId: 'answer', name: 'dispatcher-readiness', data: {
+        discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1, unknownOperationCount: 0, category: 'ready' } }),
+      event(43, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: { ...sealReady, operationCount: 32 }, observations: 32, truncated: true });
+    expect(Reflect.get(final, 'readiness')).toMatchObject({ observations: 1, truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-076: seal-preflight.v1 data-before-name overflow truncates only diagnostic work', async () => {
+    const final = await readDispatcherUpdates(response([start,
+      event(1, { data: sealReady, messageId: 'answer', name: 'dispatcher-seal-preflight', type: 'data-part' }),
+      event(2, { data: { ...sealReady, category: 'PRIVATE_PRODUCER_CONTENT'.repeat(5000) },
+        messageId: 'answer', name: 'dispatcher-seal-preflight', type: 'data-part' }), data, settled,
+    ]), initial(), 'requested');
+    expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: sealReady, observations: 2, truncated: true });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-076: seal-preflight.v1 never relaxes oversized actual assessment denial', async () => {
+    const first = await readDispatcherUpdates(response([start, sealPart(1)]), initial(), 'requested');
+    await expect(readDispatcherUpdates(response([event(2, { data: { body: 'x'.repeat(100000) }, messageId: 'answer',
+      name: 'assessment', type: 'data-part' })]), first, 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
+  });
+
   // Intentional readiness.v1 wire: closed producer metadata is not an assessment or authority.
   const ready = { discovered: true, sealed: true, targetCount: 1, decisionCount: 1,
     resultCount: 1, unknownOperationCount: 0, category: 'ready' };

@@ -1255,6 +1255,64 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }));
+  it.each(['capacity', 'receipt', 'ready'] as const)(
+    'REQ-OPERATOR-076: seal-preflight.v1 trusted terminal %s metadata cannot authorize missing assessment', category => fixture(async f => {
+      await start(f);
+      const seal = { category, targetCount: 24, decisionCount: 24, sealed: category === 'ready',
+        operationCount: category === 'receipt' ? null : 32, operationLimit: category === 'receipt' ? null : 128,
+        requiredOperationCount: category === 'receipt' ? null : 97 };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-dispatcher-seal-preflight', data: seal }] }]);
+      const emitted: string[] = []; setLogLevel('warn');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+      try {
+        f.settle(); await f.activity.reconcileDispatcherLease();
+        const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+          .find(value => value.message === 'Dispatcher settlement observed');
+        expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1, outcome: 'completed',
+          projectedWrites: 0, assessmentPresent: false, producerSealObserved: true, producerSealTruncated: false,
+          producerSealCategory: category, producerSealTargetCount: 24, producerSealDecisionCount: 24,
+          producerSealSealed: category === 'ready', producerSealOperationCount: seal.operationCount,
+          producerSealOperationLimit: seal.operationLimit, producerSealRequiredOperationCount: seal.requiredOperationCount });
+        expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      } finally { spy.mockRestore(); setLogLevel('silent'); }
+    }),
+  );
+  it('REQ-OPERATOR-076: invalid seal-preflight.v1 cannot expose private content or block validated collection', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-seal-preflight', data: { category: 'PRIVATE_PRODUCER_CONTENT', receipt: 'PRIVATE_RECEIPT_CONTENT' } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    const emitted: string[] = []; setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const observed = emitted.map(value => JSON.parse(value) as { message: string; data?: Record<string, unknown> })
+        .find(value => value.message === 'Dispatcher settlement observed');
+      expect(observed?.data).toMatchObject({ activityId: f.activityId, generation: 1,
+        projectedWrites: 1, assessmentPresent: true, producerSealObserved: false, producerSealTruncated: true });
+      expect(emitted.join('')).not.toContain('PRIVATE_');
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
+  it('REQ-OPERATOR-076: seal-preflight.v1 logger outage preserves actual collection and SDK release', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [
+      { type: 'data-dispatcher-seal-preflight', data: { category: 'ready', targetCount: 1, decisionCount: 1,
+        operationCount: 10, operationLimit: 128, requiredOperationCount: 5, sealed: true } },
+      { type: 'data-assessment', data: assessment },
+    ] }]);
+    setLogLevel('warn'); const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_LOGGER_ERROR'); });
+    try {
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
   it.each(['ready', 'incomplete-results', 'unknown-operation'] as const)(
     'REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment', category => fixture(async f => {
       await start(f);

@@ -34,7 +34,7 @@ export type NativeJourneyDiagnostic = {
   firstFailedTool: string | null;
   tools: Array<{ tool: string; state: string; reason: string }>;
 };
-export type NativeJourneyScenario = 'ordinary' | 'overflow-once' | 'transient-interruption-once' | 'finish-undiscovered';
+export type NativeJourneyScenario = 'ordinary' | 'overflow-once' | 'transient-interruption-once' | 'finish-undiscovered' | 'seal-undiscovered';
 type NativeInferenceWire = {
   admission: 'accepted' | 'rejected'; stage: 'normal' | 'summary';
   tokenField: 'absent' | 'canonical' | 'completion-alias' | 'dual' | 'other';
@@ -135,7 +135,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     }
     // Closed host-only scenarios cannot change artifact modules or SDK settings.
     if ((journeyScenario !== undefined && (!journey || researchBodyBytes !== 131072
-      || !['ordinary', 'overflow-once', 'transient-interruption-once', 'finish-undiscovered'].includes(journeyScenario)))
+      || !['ordinary', 'overflow-once', 'transient-interruption-once', 'finish-undiscovered', 'seal-undiscovered'].includes(journeyScenario)))
       || (admittedInferenceBytes !== undefined && (!journeyScenario || admittedInferenceBytes !== 1048576))) {
       return { ok: false, reason: 'fixture-scenario-rejected' };
     }
@@ -900,17 +900,18 @@ export class FlueDispatcherAgent extends Pinned {
     const turn = scenario ? await this.ctx.storage.get<number>('fixture:journey-domain-turn') ?? 0
       : Object.values(operations).filter(item => item.path === operation.path).length;
     // Synthetic upstream model stop after a genuine failed producer completion tool.
-    if (scenario === 'finish-undiscovered' && turn > 0) {
+    if ((scenario === 'finish-undiscovered' && turn > 0) || (scenario === 'seal-undiscovered' && turn > 1)) {
       await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
       return sse([{ choices: [{ index: 0, delta: { content: 'Diagnostic fixture stop.' }, finish_reason: 'stop' }] }]);
     }
     // 24 genuine SDK tool turns, each a successive 2000-character artifact
     // window: >12000 estimated text tokens, a kept cut point, <128 messages/ops.
     const researchTurns = scenario === 'overflow-once' ? 24 : 2;
-    const tool = scenario === 'finish-undiscovered' ? 'finish_dispatcher' : (researchBodyBytes
-      ? ['discover_renovate', ...Array.from({ length: researchTurns }, () => 'research_renovate'),
-        'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher']
-      : ['discover_renovate', 'seal_dispatcher', 'finish_dispatcher'])[turn];
+    const tool = scenario === 'seal-undiscovered' ? ['seal_dispatcher', 'finish_dispatcher'][turn]
+      : scenario === 'finish-undiscovered' ? 'finish_dispatcher' : (researchBodyBytes
+        ? ['discover_renovate', ...Array.from({ length: researchTurns }, () => 'research_renovate'),
+          'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher']
+        : ['discover_renovate', 'seal_dispatcher', 'finish_dispatcher'])[turn];
     if (!tool) return new Response(null, { status: 403 });
     if (!scenario) {
       const bytes = new TextEncoder().encode(await wireRequest.text()).byteLength;

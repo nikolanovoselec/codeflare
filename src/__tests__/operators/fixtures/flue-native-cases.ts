@@ -259,6 +259,14 @@ export function registerNativeDispatcherCases(
         discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1,
         unknownOperationCount: 0, category: 'ready',
       } });
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: 1, truncated: false, latest: {
+        category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
+        operationLimit: 128, requiredOperationCount: 5, sealed: true,
+      } });
+      const seal = Reflect.get(run.projection, 'sealPreflight') as { latest: { operationCount: number } };
+      expect(Number.isSafeInteger(seal.latest.operationCount)).toBe(true);
+      expect(seal.latest.operationCount).toBeGreaterThanOrEqual(1);
+      expect(seal.latest.operationCount).toBeLessThanOrEqual(123);
       expect(run.projection.result).toEqual({ repository: 'authorized/project', results: [{
         ...run.target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
       }] });
@@ -278,6 +286,24 @@ export function registerNativeDispatcherCases(
         }
       }
     }
+
+    it('REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment', async () => {
+      const run = await runProducerJourney('seal-undiscovered', 25_000);
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
+      expect(run.projection.result).toBeUndefined();
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: 1, truncated: false, latest: {
+        category: 'undiscovered', targetCount: 0, decisionCount: 0, operationCount: null,
+        operationLimit: null, requiredOperationCount: null, sealed: false,
+      } });
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'failed' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toMatchObject({ observations: 1, truncated: false,
+        latest: { category: 'undiscovered', discovered: false, sealed: false } });
+      expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+    }, 45_000);
 
     it('REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects', async () => {
       const run = await runProducerJourney('finish-undiscovered', 25_000);
