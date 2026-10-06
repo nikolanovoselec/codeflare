@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-06
 
+- Observe separate closed seal-preflight metadata on the existing exact-submission Flue stream ([REQ-OPERATOR-076](operators.md#req-operator-076-bounded-seal-preflight-diagnostics)). Retain latest valid counts/categories without weakening assessment, result accounting, collection, SDK release or authority. Trusted terminal logging is best-effort; missing metadata does not establish a skipped seal or prior cause.
+
 - Observe strict bounded producer readiness on the existing exact-submission Flue stream ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Add only closed flags/counts/categories to terminal diagnostics; preserve assessment/result authority and collection through malformed, foreign, overflowing metadata and logger outages.
 
 ## 2026-10-05

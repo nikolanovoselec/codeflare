@@ -1544,6 +1544,19 @@ export class OperatorActivity extends Agent {
                 producerUnknownOperationCount: value.readiness.latest.unknownOperationCount,
               } : {}),
             } : {}),
+            ...(value.sealPreflight ? {
+              producerSealObserved: value.sealPreflight.latest !== undefined,
+              producerSealTruncated: value.sealPreflight.truncated,
+              ...(value.sealPreflight.latest ? {
+                producerSealCategory: value.sealPreflight.latest.category,
+                producerSealTargetCount: value.sealPreflight.latest.targetCount,
+                producerSealDecisionCount: value.sealPreflight.latest.decisionCount,
+                producerSealSealed: value.sealPreflight.latest.sealed,
+                producerSealOperationCount: value.sealPreflight.latest.operationCount,
+                producerSealOperationLimit: value.sealPreflight.latest.operationLimit,
+                producerSealRequiredOperationCount: value.sealPreflight.latest.requiredOperationCount,
+              } : {}),
+            } : {}),
           });
         } catch { /* Observability failure cannot prevent settlement or collection. */ }
         stage = 'authorize';

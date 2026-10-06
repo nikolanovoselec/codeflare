@@ -851,6 +851,40 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Status:** Implemented
 
+### REQ-OPERATOR-076: Bounded seal preflight diagnostics
+
+**Intent:** Explain observed producer seal branches without changing result authority or lifecycle outcomes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exact-submission seal observations retain only the [closed preflight fields](../../documentation/lanes/operators.md#non-authorizing-dispatcher-diagnostics). <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 projects exact %s metadata without assessment authority) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 %s retains unknown counts as null not fabricated zero) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 exact reset association survives %s member order) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: foreign seal-preflight.v1 cannot consume exact observations or alter validated assessment) -->
+2. Advancing updates retain the latest valid seal observation. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 keeps latest valid metadata across pages and replay without result accounting) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 survives reset omission of earlier metadata) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 retains latest valid observation when later metadata is invalid) -->
+3. Replayed update positions cannot duplicate seal observations. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 keeps latest valid metadata across pages and replay without result accounting) -->
+4. Invalid seal metadata only marks diagnostic truncation. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: invalid seal-preflight.v1 %s cannot retain content or deny actual assessment) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 data-before-name overflow truncates only diagnostic work) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 never relaxes oversized actual assessment denial) -->
+5. Seal observations have a separate admission cap from readiness metadata and result accounting. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 limits32 observations separately from valid assessment and readiness) -->
+6. Trusted terminal diagnostics report bounded seal fields without granting result authority. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-076: seal-preflight.v1 trusted terminal %s metadata cannot authorize missing assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-076: invalid seal-preflight.v1 cannot expose private content or block validated collection) -->
+7. Authorized collection remains available through diagnostic logger failure. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-076: seal-preflight.v1 logger outage preserves actual collection and SDK release) -->
+
+**Constraints:**
+
+- Separate `dispatcher-seal-preflight` channel; original readiness fields/categories and result authority unchanged.
+- Exactly category, targetCount, decisionCount, operationCount, operationLimit, requiredOperationCount and sealed; closed categories and count bounds follow the linked contract.
+- At most512 encoded bytes/value and32 exact-submission observations; invalid/excess metadata only truncates diagnostics.
+- Diagnostic data is excluded from existing result-record accounting; page/record/result/source/operation bounds and authorization/revision/generation/deadline fences remain unchanged.
+- No prompts, bodies, assessment values, tool payloads, raw errors, credentials or opaque identifiers; foreign records never affect exact observations.
+- Best-effort terminal logging leaves collection and SDK release unchanged; missing metadata proves neither skipped sealing nor a historical cause.
+- Ready sealing is not effects, finish, validated result, collection or cleanup; nullable producer counts are observations, never capacity reservations.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics).
+
+**Verification:** Named projection/production tests above; authentic generated SDK emission uses [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts). <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment) --> Hosted RED closure37432344160 verified missing diagnostics; hosted GREEN, official artifact identity/release/installation, live effects, validated collection, SDK release and cleanup are separate gates.
+
+**Status:** Implemented
+
 ## Owned sessions, inert inputs and explicit persistence
 
 <a id="req-operator-005-owned-operator-session-lifecycle"></a>
