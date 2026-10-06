@@ -825,21 +825,17 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 7. Terminal settlement diagnostics distinguish observed completion-tool outcomes from assessment projection using trusted Activity/generation and bounded counters. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: observes completion) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility) -->
 
-8. Exact-submission producer readiness observations appear as bounded, non-authorizing flags, counts and fixed categories in the existing trusted terminal diagnostic. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 projects an exact producer snapshot without granting assessment authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: invalid readiness.v1 terminal wire cannot expose content or block validated collection) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 logging outage preserves actual result and SDK release) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects) -->
-
 **Constraints:**
 
 - Original parent authority and deadlines remain mandatory; no activation or new principal.
 - Preserved wire/fencing details: [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
-- Completion: ≤32 correlations, ≤256 characters each; reset preserves observed outcomes. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: caps completion observations) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: later compaction) -->
+- Completion: ≤32 correlations, ≤256 characters each; reset preserves observed outcomes and foreign messages cannot spend the requested budget. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: caps completion observations) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: later compaction) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: foreign reset calls cannot hide requested completion) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: reset completion cap remains shared across requested messages) -->
 - Terminal logging: best-effort, no tool/model/assessment content or opaque identifiers; collection authority unchanged. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: unavailable terminal diagnostic logging) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: unassociated assessment) -->
 - Schema diagnostics: ≤4 unique closed rule labels plus truncation; no raw validation issues/arbitrary field names.
 - Reservation denials distinguish lease-mismatch/operation-limit using transaction-observed lease and parent-owned Activity/generation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: reservation diagnostic wire reports) -->
 - Exhaustion: journal count/unchanged128-operation limit; existing receipt/conflict/unknown-effect-resolution admission order preserved. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution) -->
 - Reservation logging outages preserve generic403/lifecycle/original authority, including owner transport. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner reservation logging outage preserves) -->
-- Producer allowlist: discovered/sealed booleans, target/decision/result/unknown-operation nonnegative safe-integer counts, ready/undiscovered/unknown-operation/incomplete-results/schema/oversized/emission categories.
-- Producer: ≤512 encoded bytes/32 observations; latest-valid exact-submission metadata survives compaction; replayed positions deduplicated.
-- Malformed/excessive producer metadata only truncates diagnostics; foreign records cannot affect requested observations or otherwise-valid assessment/collection/SDK release.
+- Producer readiness observations follow [REQ-OPERATOR-077](#req-operator-077-bounded-producer-readiness-diagnostics).
 - Exclude bodies, assessment values, prompts, tool inputs/outputs, raw errors, credentials and opaque identifiers; never assessment/settlement authority.
 - Diagnostic data excluded from existing projected-result accounting; page/record/result/operation/source bounds unchanged.
 
@@ -850,6 +846,36 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Verification:** Automated test: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts), [dispatcher-native.test.ts](../../src/__tests__/operators/dispatcher-native.test.ts), [dispatcher-tail.test.ts](../../src/__tests__/operators/dispatcher-tail.test.ts).
 
 **Status:** Implemented
+
+---
+
+### REQ-OPERATOR-077: Bounded producer readiness diagnostics
+
+**Intent:** Explain observed producer readiness without changing result authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exact-submission producer readiness observations appear as bounded, non-authorizing flags, counts and fixed categories in the existing trusted terminal diagnostic. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 projects an exact producer snapshot without granting assessment authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: invalid readiness.v1 terminal wire cannot expose content or block validated collection) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 logging outage preserves actual result and SDK release) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects) -->
+
+**Constraints:**
+
+- Allowlist: discovered/sealed booleans, target/decision/result/unknown-operation nonnegative safe-integer counts, ready/undiscovered/unknown-operation/incomplete-results/schema/oversized/emission categories.
+- ≤512 encoded bytes/32 observations; latest-valid exact-submission metadata survives compaction; replayed positions deduplicated. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 caps observation work at32 without consuming result allowance) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 survives compaction which omits earlier producer metadata) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 replay cannot consume the observation allowance twice) -->
+- Malformed/excessive metadata only truncates diagnostics; foreign records cannot affect requested observations or otherwise-valid assessment/collection/SDK release. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: invalid readiness.v1 %s cannot retain content or deny a valid assessment) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: foreign readiness.v1 records cannot create metadata or truncate exact metadata) -->
+- Original authority, deadlines and page/record/result/operation/source bounds remain mandatory; diagnostic data is excluded from projected-result accounting.
+- No bodies, assessments, prompts, tool content, raw errors, credentials or opaque identifiers; logging remains best-effort and never result/settlement authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
+
+**Verification:** Named projection/production/native tests above.
+
+**Status:** Implemented
+
+---
 
 ### REQ-OPERATOR-076: Bounded seal preflight diagnostics
 

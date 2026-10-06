@@ -119,7 +119,7 @@ A digest-pinned Node 22.21.1 stage builds the owned Pi Chat participant with no 
 The exact upstream code-server release is the image baseline. Build deliberately removes bundled GitHub Copilot; code-server and embedded Code editor source remain unpatched. Complete-image evidence checks archive/package identity and Copilot absence; no former OpenVSCode scanner exception transfers automatically. Client contracts live in [Terminal & IDE](terminal-and-ide.md#code-server-browser-ide); package inventory/adapters and verification live in [`openvscode/README.md`](../../openvscode/README.md).
 
 <a id="code-server-dependency-overlay"></a>
-The archive checksum identifies the upstream baseline, not the entire installed dependency tree. A bounded image overlay replaces compression with SHA-512-verified 1.8.2, supplies its private destroy 1.2.0 dependency, and preserves nested debug 2.6.9. It changes dependencies, not editor source or authentication. Remove the overlay when the upstream artifact supplies compression 1.8.2 or later with its required dependency closure. Existing image smoke and vulnerability gates remain mandatory.
+The archive checksum identifies the upstream baseline, not the entire installed dependency tree. A bounded image overlay replaces compression with SHA-512-verified 1.8.2, supplies its private destroy 1.2.0 dependency, and preserves nested debug 2.6.9. It changes dependencies, not editor source or authentication. Remove the overlay when the upstream artifact supplies compression 1.8.2 or later with its required dependency closure. Existing image smoke and vulnerability gates remain mandatory. <!-- @impl: Dockerfile::COMPRESSION_VERSION -->
 
 ## Runtime Paths
 

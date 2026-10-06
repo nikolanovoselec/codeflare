@@ -219,7 +219,8 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
     ...diagnosticFields.map(field => `$.*.snapshot.messages.*.parts.*.${field}`),
     '$.*.snapshot.settlements.*',
   ] });
-  type Frame = { path: Array<string | number>; array: boolean; index: number; key?: string; expectingKey: boolean };
+  type Frame = { path: Array<string | number>; array: boolean; index: number; key?: string; expectingKey: boolean;
+    diagnosticStart?: number };
   const frames: Frame[] = [];
   let record: Record<string, unknown> = Object.create(null);
   let bytes = 0;
@@ -306,7 +307,9 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         if (kind !== TokenType.LEFT_BRACKET) throw new Error('Dispatcher reset parts unavailable');
         put(path.slice(1), []);
       }
-      frames.push({ path, array: kind === TokenType.LEFT_BRACKET, index: 0, expectingKey: true });
+      frames.push({ path, array: kind === TokenType.LEFT_BRACKET, index: 0, expectingKey: true,
+        ...(path.length === 4 && path[1] === 'snapshot' && path[2] === 'messages'
+          ? { diagnosticStart: diagnosticParts } : {}) });
       if (frames.length > 128) throw new Error('Dispatcher update nesting exceeds limit');
       parser.write(token);
       return;
@@ -328,6 +331,11 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
             for (const field of [...diagnosticFields, 'diagnosticTruncated']) delete part[field];
           } else diagnosticParts++;
         }
+      }
+      // Parts may precede submissionId. Foreign candidates remain bounded but cannot spend the requested budget.
+      if (frame.diagnosticStart !== undefined
+        && snapshotMessages()?.[frame.path[3] as number]?.submissionId !== submissionId) {
+        diagnosticParts = frame.diagnosticStart;
       }
       if (frame.path.length === 1) {
         if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record);

@@ -101,6 +101,48 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(final.completion).toBeUndefined();
     expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
   });
+  it.each([32, 40].flatMap(foreignCount => [false, true].flatMap(foreignPartsFirst =>
+    [false, true].flatMap(requestedPartsFirst => ['output-available', 'output-error'].map(state =>
+      ({ foreignCount, foreignPartsFirst, requestedPartsFirst, state }))))))(
+    'REQ-OPERATOR-063: foreign reset calls cannot hide requested completion ($foreignCount/$foreignPartsFirst/$requestedPartsFirst/$state)',
+    async ({ foreignCount, foreignPartsFirst, requestedPartsFirst, state }) => {
+      const foreignParts = Array.from({ length: foreignCount }, (_, index) => ({
+        type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: `foreign-${index}`,
+        state: 'output-available', output: 'PRIVATE_TOOL_OUTPUT',
+      }));
+      const requestedParts = [{ type: 'dynamic-tool', toolName: 'finish_dispatcher',
+        toolCallId: 'requested-finish', state, errorText: 'PRIVATE_TOOL_ERROR' }, { type: 'data-result', data: result }];
+      const reset = event(5, { type: 'conversation-reset', snapshot: {
+        conversationId: 'conversation', messages: [
+          foreignPartsFirst ? { id: 'foreign', parts: foreignParts, submissionId: 'foreign' }
+            : { id: 'foreign', submissionId: 'foreign', parts: foreignParts },
+          requestedPartsFirst ? { id: 'answer', parts: requestedParts, submissionId: 'requested' }
+            : { id: 'answer', submissionId: 'requested', parts: requestedParts },
+        ], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+      } });
+      const final = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+      expect(final.completion).toEqual({ calls: [{ id: 'requested-finish',
+        outcome: state === 'output-available' ? 'succeeded' : 'failed' }], truncated: false });
+      expect(final).toMatchObject({ result, writes: 1, outcome: 'completed', messageIds: ['answer'] });
+      expect(JSON.stringify(final)).not.toMatch(/foreign-|PRIVATE_TOOL/);
+      expect(await readDispatcherUpdates(response([reset]), final, 'requested')).toEqual(final);
+    });
+  it.each([false, true])('REQ-OPERATOR-063: reset completion cap remains shared across requested messages (parts first=%s)', async partsFirst => {
+    const messages = [0, 1].map(messageIndex => {
+      const parts = Array.from({ length: 20 }, (_, index) => ({ type: 'dynamic-tool', toolName: 'finish_dispatcher',
+        toolCallId: `requested-${messageIndex * 20 + index}`, state: 'output-available' }));
+      return partsFirst ? { id: `answer-${messageIndex}`, parts, submissionId: 'requested' }
+        : { id: `answer-${messageIndex}`, submissionId: 'requested', parts };
+    });
+    const final = await readDispatcherUpdates(response([event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [...messages,
+        { id: 'assessment', submissionId: 'requested', parts: [{ type: 'data-result', data: result }] }],
+      settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } })]), initial(), 'requested');
+    expect(final.completion).toEqual({ calls: Array.from({ length: 32 }, (_, index) =>
+      ({ id: `requested-${index}`, outcome: 'succeeded' })), truncated: true });
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
   it('REQ-OPERATOR-063: unassociated assessment is observable but cannot authorize a result', async () => {
     const final = await readDispatcherUpdates(response([start,
       event(1, { type: 'data-part', messageId: 'unknown-message', name: 'assessment', data: { private: 'PRIVATE_ASSESSMENT' } }),
