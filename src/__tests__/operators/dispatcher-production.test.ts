@@ -328,6 +328,8 @@ async function fixture(test: (f: {
   deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
   settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
+  seedLegacyJournal: (entries: Array<{ body: { operationId: string; url: string; method?: 'GET' | 'POST' | 'PUT'; body?: string };
+    phase: 'reserved' | 'completed' | 'unknown'; ordinal: number; response?: unknown }>) => Promise<void>;
   revoke: () => void; sent: Request[]; childSubmissions: Request[]; abortStatus: () => string | undefined;
   restart: () => OperatorActivity; loseResponse: () => void; restoreTransport: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
@@ -658,6 +660,23 @@ async function fixture(test: (f: {
         upstreamConflict: enabled => { upstreamConflict = enabled; },
         oversizedChecks: (count = 76, outputBytes = 3000, overlap = false) => {
           oversizedChecks = { count, outputBytes, overlap };
+        },
+        // Persist the pre-migration aggregate and response blobs in real SQLite storage.
+        // This is fixture setup only; recovery assertions use the public capability wire.
+        seedLegacyJournal: async entries => {
+          const operations: Record<string, unknown> = {};
+          for (const entry of entries) {
+            const operation = await parseDispatcherOperation(genericWire('source', entry.body));
+            const response = entry.response === undefined ? undefined : {
+              status: 200, contentType: 'application/json', body: JSON.stringify(entry.response),
+            };
+            operations[entry.body.operationId] = { generation: 1, ordinal: entry.ordinal, phase: entry.phase,
+              requestDigest: await digest(JSON.stringify({ path: operation.path, body: operation.body })),
+              request: { method: entry.body.method ?? 'GET', url: entry.body.url },
+              ...(response ? { responseDigest: await digest(response.body) } : {}) };
+            if (response) await native.storage.put(`dispatcher:response:${entry.body.operationId}`, response);
+          }
+          await native.storage.put('dispatcher:operations', operations);
         },
         nextAlarm: () => native.storage.getAlarm(),
       });
@@ -2088,6 +2107,128 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(cached.status).toBe(response.status);
     expect(await cached.json()).toEqual(body);
   }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
+
+  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => fixture(async f => {
+    await start(f);
+    const urlFor = (index: number) => {
+      const prefix = `https://docs.example.test/migration?request=${String(index).padStart(4, '0')}&padding=`;
+      return prefix + 'x'.repeat(4096 - prefix.length);
+    };
+    const receipt = async (index: number, count: number) => {
+      const response = await f.capability.fetch(genericWire('receipt', { operationId: `max-url-${index}` }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ operationId: `max-url-${index}`, generation: 1,
+        method: 'GET', url: urlFor(index), phase: 'completed', operationCount: count, operationLimit: 1024 });
+    };
+    // Real native SQLite KV enforces the platform's 2 MiB serialized value limit.
+    // Only the upstream transport is controlled: no real network or synthetic journal limit.
+    for (let index = 0; index < 1024; index++) {
+      const response = await f.capability.fetch(sourceRead(`max-url-${index}`, urlFor(index)));
+      expect(response.status, `source reservation/completion ${index + 1} of 1024`).toBe(200);
+      expect(await response.json()).toEqual({ url: urlFor(index), status: 200,
+        headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
+      if (index === 0 || index === 511 || index === 1023) await receipt(0, index + 1);
+    }
+    f.sourceBody('Changed upstream content must not replace completed long-URL receipts');
+    f.restart();
+    for (const index of [0, 511, 1023]) {
+      const cached = await f.capability.fetch(sourceRead(`max-url-${index}`, urlFor(index)));
+      expect(cached.status).toBe(200);
+      expect(await cached.json()).toEqual({ url: urlFor(index), status: 200,
+        headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
+      await receipt(index, 1024);
+    }
+    const denied = await f.capability.fetch(sourceRead('max-url-next', urlFor(1024)));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    expect((await f.capability.fetch(genericWire('receipt', { operationId: 'max-url-next' }))).status).toBe(403);
+    await receipt(0, 1024);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+  }, { repositoryOnly: true }), 120000);
+
+  it.each(['reserved', 'unknown'] as const)(
+    'REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload', phase => fixture(async f => {
+      await start(f);
+      const url = 'https://api.github.com/repos/another/service/issues/17/comments';
+      const oldRead = { operationId: 'legacy-before', url };
+      const mutation = { operationId: 'legacy-mutation', url, method: 'POST' as const, body: '{"body":"legacy judgment"}' };
+      const laterRead = { operationId: 'legacy-after', url };
+      const cachedEnvelope = { url, status: 200, headers: { 'content-type': 'application/json' }, body: '[]' };
+      // Enumeration order deliberately differs from historical reservation order.
+      // Ordinals are seed data, never asserted as an internal schema contract.
+      await f.seedLegacyJournal([
+        { body: mutation, ordinal: 1, phase },
+        { body: laterRead, ordinal: 2, phase: 'completed', response: cachedEnvelope },
+        { body: oldRead, ordinal: 0, phase: 'completed', response: cachedEnvelope },
+      ]);
+      f.restart();
+      const receipt = async (operationId: string, count: number) => {
+        const response = await f.capability.fetch(genericWire('receipt', { operationId }));
+        expect(response.status).toBe(200);
+        const value = await response.json() as { operationId: string; requestDigest: string; responseDigest: string; phase: string };
+        expect(value).toMatchObject({ operationId, operationCount: count, operationLimit: 4 });
+        return value;
+      };
+      const reference = (value: { operationId: string; requestDigest: string; responseDigest: string }) => ({
+        operationId: value.operationId, requestDigest: value.requestDigest, responseDigest: value.responseDigest,
+      });
+      const original = await receipt(mutation.operationId, 3);
+      // Recovery may conservatively promote a stranded reservation to unknown.
+      expect(['reserved', 'unknown']).toContain(original.phase);
+      for (const body of [oldRead, laterRead]) {
+        const cached = await f.capability.fetch(genericWire('source', body));
+        expect(cached.status).toBe(200);
+        expect(await cached.json()).toEqual(cachedEnvelope);
+      }
+      const conflict = await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed judgment"}' }));
+      expect(conflict.status).toBe(409);
+      expect(await conflict.json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      for (let reload = 0; reload < 2; reload++) {
+        f.restart();
+        const unresolved = await f.capability.fetch(genericWire('source', mutation));
+        expect(unresolved.status).toBe(409);
+        expect(await unresolved.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+        expect(await receipt(mutation.operationId, 3)).toMatchObject({ phase: 'unknown', requestDigest: original.requestDigest });
+      }
+      const resolution = { operationId: mutation.operationId, requestDigest: original.requestDigest,
+        readbacks: [reference(await receipt(oldRead.operationId, 3))] };
+      const tooEarly = await f.capability.fetch(genericWire('resolve', resolution));
+      expect(tooEarly.status).toBe(409);
+      expect(await tooEarly.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      // A fresh read after recovery must have a later reservation order and consume
+      // exactly one slot. Its empty remote result also proves the seeded write was not replayed.
+      const freshRead = { operationId: 'legacy-fresh-read', url };
+      const observed = await f.capability.fetch(genericWire('source', freshRead));
+      expect(observed.status).toBe(200);
+      expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual([]);
+      await receipt(oldRead.operationId, 4);
+      f.restart();
+      for (const body of [oldRead, laterRead]) {
+        const cached = await f.capability.fetch(genericWire('source', body));
+        expect(cached.status).toBe(200);
+        expect(await cached.json()).toEqual(cachedEnvelope);
+      }
+      // Both migrated historical evidence and post-recovery evidence remain later
+      // than the unknown mutation; only the earlier receipt was rejected above.
+      const readbacks = [reference(await receipt(laterRead.operationId, 4)), reference(await receipt(freshRead.operationId, 4))];
+      for (let reload = 0; reload < 2; reload++) {
+        f.restart();
+        const resolved = await f.capability.fetch(genericWire('resolve', { ...resolution, readbacks }));
+        expect(resolved.status).toBe(200);
+        expect(await resolved.json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+        expect(await receipt(mutation.operationId, 4)).toMatchObject({ phase: 'completed', requestDigest: original.requestDigest });
+        const cached = await f.capability.fetch(genericWire('source', mutation));
+        expect(cached.status).toBe(200);
+        expect(await cached.json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      }
+      const changed = await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed judgment"}' }));
+      expect(changed.status).toBe(409);
+      expect(await changed.json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      const denied = await f.capability.fetch(genericWire('source', { operationId: 'legacy-over-budget', url }));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      await receipt(mutation.operationId, 4);
+    }, { repositoryOnly: true, operationLimit: 4 }));
 
   it('REQ-OPERATOR-047: SQL-backed Activity journals and reloads an exact 1 MiB source envelope', async () => {
     const url = 'https://docs.example.test/migration';
