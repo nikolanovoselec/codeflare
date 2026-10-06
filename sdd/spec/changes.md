@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-06
 
+- Configure Dispatcher operation capacity per operator, default1024, and default all three byte settings to1MiB (REQ-OPERATOR-045/047/049). Replace recommendation buttons with autorenew draft resets and explain shared journal accounting. Retain explicit lower policies, CAS/re-enable, authentication, unknown-effect and other byte/token/deadline fences; diagnostics validate actual configured capacities (REQ-OPERATOR-063/076). Revised hosted RED verified missing behavior; final GREEN, delivery and live acceptance remain separate gates.
+
 - Preserve the requested submission's completion-diagnostic budget through foreign reset messages ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Bound provisional candidates until attribution; keep the shared32-observation ceiling and assessment/settlement authority unchanged. Hosted RED reproduced eight lost-completion cases; final GREEN and live acceptance remain separate gates.
 
 - Observe separate closed seal-preflight metadata on the existing exact-submission Flue stream ([REQ-OPERATOR-076](operators.md#req-operator-076-bounded-seal-preflight-diagnostics)). Retain latest valid counts/categories without weakening assessment, result accounting, collection, SDK release or authority. Trusted terminal logging is best-effort; missing metadata does not establish a skipped seal or prior cause.

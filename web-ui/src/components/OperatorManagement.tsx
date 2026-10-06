@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, untrack, type Component, type JSX } from 'solid-js';
-import { mdiLayersSearch } from '@mdi/js';
+import { mdiAutorenew, mdiLayersSearch } from '@mdi/js';
 import * as api from '../api/operator-management';
 import { ApiError, apiErrorMessage } from '../api/fetch-helper';
 import OperatorManagementActivity from './OperatorManagementActivity';
@@ -14,21 +14,26 @@ const emptyPolicy = (): api.ManagementPolicy => ({ capabilities: [], resourcePro
 const sourceBytes = (value?: number) => value ?? api.DEFAULT_SOURCE_RESPONSE_BYTES;
 const inferenceBytes = (value?: number) => value ?? api.DEFAULT_INFERENCE_REQUEST_BYTES;
 const validInferenceBytes = (value?: number) => Number.isSafeInteger(inferenceBytes(value)) && inferenceBytes(value) >= 1;
+const operationLimit = (value?: number) => value ?? api.DEFAULT_DISPATCHER_OPERATION_LIMIT;
+const validOperationLimit = (value?: number) => Number.isSafeInteger(operationLimit(value)) && operationLimit(value) >= 1;
+const DefaultReset: Component<{ label: string; onReset: () => void }> = props =>
+  <button type="button" class="operator-reset-default" aria-label={`Reset ${props.label} to default`} title={`Reset ${props.label} to default`} onClick={props.onReset}>
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={mdiAutorenew} fill="currentColor" /></svg>
+  </button>;
 const validSourceBytes = (value: number | undefined, ceiling: number) => Number.isInteger(sourceBytes(value)) && sourceBytes(value) >= 1 && sourceBytes(value) <= ceiling;
 const sourceResponseHelp = 'Includes the HTTP envelope: response body and headers. Does not change request, inference, final-output or SDK history limits.';
 const RECOMMENDED_INFERENCE_REQUEST_BYTES = 1_048_576;
 const SourceResponseField: Component<{ label: string; value?: number; max: number; help?: string; recommended?: number;
   blockedRecommendationHelp?: string; onChange: (value: number) => void }> = props => {
   const id = createUniqueId();
-  return <div class="admin-form-field"><label for={id}>{props.label}</label><input id={id} aria-label={props.label} aria-describedby={id + '-help'} type="number" required min="1" step="1" max={props.max}
+  return <div class="admin-form-field"><label for={id}>{props.label}</label><div class="operator-value-input"><input id={id} aria-label={props.label} aria-describedby={id + '-help'} type="number" required min="1" step="1" max={props.max}
     value={Number.isFinite(sourceBytes(props.value)) ? sourceBytes(props.value) : ''} onInput={event => props.onChange(event.currentTarget.valueAsNumber)} />
+    <DefaultReset label={props.label} onReset={() => props.onChange(api.DEFAULT_SOURCE_RESPONSE_BYTES)} /></div>
     <small id={id + '-help'}>{props.help ?? sourceResponseHelp} Current ceiling: {props.max} bytes.
       <Show when={props.recommended !== undefined}> Recommended: {props.recommended} bytes (1 MiB).
         <Show when={props.recommended! > props.max}> {props.blockedRecommendationHelp}</Show>
       </Show>
     </small>
-    <Show when={props.recommended !== undefined}><button type="button" class="admin-secondary-button" aria-label={'Use recommended ' + props.label}
-      disabled={props.recommended! > props.max} onClick={() => props.onChange(props.recommended!)}>Use recommended (1 MiB)</button></Show>
   </div>;
 };
 const lines = (value: string) => [...new Set(value.split('\n').map(line => line.trim()).filter(Boolean))];
@@ -399,7 +404,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
   const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
+  const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
   const inferenceFieldId = createUniqueId();
+  const operationFieldId = createUniqueId();
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
   const [assessmentRepository, setAssessmentRepository] = createSignal('');
@@ -415,6 +422,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setOperatorCapabilities(props.detail.operator.policy.capabilities);
     setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
     setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
+    setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
   createEffect(() => {
@@ -436,7 +444,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const environmentSourceMax = () => sourceBytes(props.choices?.ceiling.sourceResponseBytes);
   const installationSourceMax = () => Math.min(sourceBytes(operator().policy.sourceResponseBytes), environmentSourceMax());
   const validOperatorSource = () => operator().profile !== 'dispatcher'
-    || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes()));
+    || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
+      && validOperationLimit(operatorOperationLimit()));
   const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
@@ -521,6 +530,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           revision: operator().revision, capabilities: operatorCapabilities(),
           ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
+          ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
           <legend>Operator capabilities</legend><p>Allowed actions remain bounded by Environment. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
           <Show when={operator().profile === 'dispatcher'}><p>Response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference request size is separate: data sent to the model, not responses received. These settings do not change final-output or SDK-history limits.</p></Show>
@@ -534,11 +544,18 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <Show when={operator().profile === 'dispatcher'}><SourceResponseField label="Operator source-response ceiling (bytes)" value={operatorSourceResponseBytes()} max={environmentSourceMax()}
             help="Maximum external response (body + headers) any installation may allow. Sets the operator-wide ceiling; installation allowances may be lower."
             recommended={api.MAX_SOURCE_RESPONSE_BYTES} blockedRecommendationHelp="An administrator must first raise the Environment source-response ceiling to use 1 MiB." onChange={setOperatorSourceResponseBytes} />
-            <div class="admin-form-field"><label for={inferenceFieldId}>Inference request limit (bytes)</label><input id={inferenceFieldId} aria-label="Inference request limit (bytes)" aria-describedby={inferenceFieldId + '-help'} type="number" required min="1" step="1" max={api.MAX_INFERENCE_REQUEST_BYTES}
+            <div class="admin-form-field"><label for={inferenceFieldId}>Inference request limit (bytes)</label><div class="operator-value-input"><input id={inferenceFieldId} aria-label="Inference request limit (bytes)" aria-describedby={inferenceFieldId + '-help'} type="number" required min="1" step="1" max={api.MAX_INFERENCE_REQUEST_BYTES}
               value={Number.isFinite(inferenceBytes(operatorInferenceRequestBytes())) ? inferenceBytes(operatorInferenceRequestBytes()) : ''}
               onInput={event => setOperatorInferenceRequestBytes(event.currentTarget.valueAsNumber)} />
+              <DefaultReset label="Inference request limit (bytes)" onReset={() => setOperatorInferenceRequestBytes(api.DEFAULT_INFERENCE_REQUEST_BYTES)} /></div>
               <small id={inferenceFieldId + '-help'}>Complete request body sent to the model (messages + tools). Tune this only for confirmed inference request body-limit failures when input fits the model's token budget. It does not fix authentication, token-context or SDK-history errors. Operator-wide; no installation override. Recommended: {RECOMMENDED_INFERENCE_REQUEST_BYTES} bytes (1 MiB) of transport headroom, not extra model context. Reduce input for token-context failures. Platform limits still apply.</small>
-              <button type="button" class="admin-secondary-button" aria-label="Use recommended inference request limit" onClick={() => setOperatorInferenceRequestBytes(RECOMMENDED_INFERENCE_REQUEST_BYTES)}>Use recommended (1 MiB)</button>
+            </div>
+            <div class="admin-form-field"><label for={operationFieldId}>Operation limit per run</label><div class="operator-value-input">
+              <input id={operationFieldId} aria-describedby={operationFieldId + '-help'} type="number" required min="1" step="1" max={api.MAX_DISPATCHER_OPERATION_LIMIT}
+                value={Number.isFinite(operationLimit(operatorOperationLimit())) ? operationLimit(operatorOperationLimit()) : ''}
+                onInput={event => setOperatorOperationLimit(event.currentTarget.valueAsNumber)} />
+              <DefaultReset label="Operation limit per run" onReset={() => setOperatorOperationLimit(api.DEFAULT_DISPATCHER_OPERATION_LIMIT)} /></div>
+              <small id={operationFieldId + '-help'}>An operation is a distinct request reserved in the run's durable journal, not a token, tool call or HTTP request count. Discovery, research reads, inference requests, comments, merges and recovery reads share this budget. Identical completed requests reuse their entry; receipt lookups, resolution and finish calls add no entry. Ordinary discovery uses two initial reads plus one per visited pull-request page; a fresh ordinary comment uses five entries per pull request. Merging adds checks and reads. Leave additional headroom for research, inference and recovery; 1,024 is a starting default, not a guarantee that every repository fits. Parent receipts report the actual used count and limit. Exhaustion blocks new protected operations. Operator-wide; no installation override. This setting does not change token, byte, deadline, SDK-history or authorization limits.</small>
             </div>
           </Show>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>

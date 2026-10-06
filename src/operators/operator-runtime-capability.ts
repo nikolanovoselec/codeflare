@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
   resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
-import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
+import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { resolveOperatorInference } from './inference-selection';
 import { z } from 'zod';
@@ -23,6 +23,7 @@ export interface DispatcherAdmittedTarget {
   createdAt: string; createdAfter: string; baseBranch: string;
 }
 
+const DEFAULT_DISPATCHER_BODY_BYTES = 64 * 1024;
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherSourceSchema = z.strictObject({ operationId: dispatcherOperationId,
   method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().max(64 * 1024).optional(),
@@ -102,7 +103,7 @@ export async function parseDispatcherOperation(request: Request, inferenceByteLi
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
   const value = JSON.parse(await readDispatcherBody(request, request.signal,
-    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : DEFAULT_SOURCE_RESPONSE_BYTES));
+    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : DEFAULT_DISPATCHER_BODY_BYTES));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema
@@ -120,9 +121,9 @@ export async function parseDispatcherOperation(request: Request, inferenceByteLi
   return { operationId: body.operationId, path: url.pathname, body, signal: request.signal };
 }
 
-/** Default bound for requests/status/inference/results; only approved source-response readers select another bound. */
+/** Primitive body bound; approved inference requests and source responses supply their independent limits. */
 export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal,
-  byteLimit = DEFAULT_SOURCE_RESPONSE_BYTES): Promise<string> {
+  byteLimit = DEFAULT_DISPATCHER_BODY_BYTES): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });

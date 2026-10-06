@@ -43,7 +43,8 @@ const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision }
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
 const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes,
-  inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional() });
+  inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
+  operationLimit: z.number().int().positive().safe().optional() });
 const configureBody = z.strictObject({ policy, configuration, revision });
 const boundaryEnrollmentBody = z.strictObject({
   repositoryUrl: z.string().min(1).max(2048),
@@ -285,9 +286,10 @@ app.post('/operators/:operatorId/capabilities', async c => {
   requireMutationCsrf(c);
   const input = await parseJsonBody(c, capabilitiesBody);
   if (input.inferenceRequestBytes !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Inference request bytes require a Dispatcher operator');
+  if (input.operationLimit !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Operation limits require a Dispatcher operator');
   withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities,
     ...(input.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: input.sourceResponseBytes }) });
-  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes));
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes, input.operationLimit));
   logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);
 });

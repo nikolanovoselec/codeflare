@@ -32,11 +32,12 @@ const sealPreflightSchema = z.object({
   category: z.enum(['undiscovered', 'incomplete-decisions', 'receipt', 'capacity', 'schema', 'oversized', 'ready']),
   targetCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   decisionCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  operationCount: z.number().int().positive().max(128).nullable(),
-  operationLimit: z.literal(128).nullable(),
+  operationCount: z.number().int().positive().safe().nullable(),
+  operationLimit: z.number().int().positive().safe().nullable(),
   requiredOperationCount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
   sealed: z.boolean(),
-}).strict();
+}).strict().refine(value => value.operationCount === null || value.operationLimit === null
+  || value.operationCount <= value.operationLimit);
 type DispatcherSealPreflight = z.infer<typeof sealPreflightSchema>;
 const MAX_SEAL_PREFLIGHT_BYTES = 512;
 const MAX_SEAL_PREFLIGHT_OBSERVATIONS = 32;

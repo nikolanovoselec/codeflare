@@ -12,6 +12,7 @@ import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
+import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
 import { z } from 'zod';
@@ -1690,6 +1691,7 @@ export class OperatorActivity extends Agent {
     let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
     let perform: () => Promise<Response>;
     let sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES;
+    let operationLimit = DEFAULT_DISPATCHER_OPERATION_LIMIT;
     let lease: DispatcherLease | undefined;
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
     let preparationStep: 'parse' | 'capability' = 'parse';
@@ -1702,6 +1704,7 @@ export class OperatorActivity extends Agent {
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
       const inferenceBytes = inferenceRequestBytes(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
+      operationLimit = dispatcherOperationLimit(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes));
       preparationStep = 'capability';
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
@@ -1722,7 +1725,7 @@ export class OperatorActivity extends Agent {
           if (!original?.request || original.generation !== generation) return denied();
           if (operation.path.endsWith('/receipt')) return Response.json({ operationId: value.operationId,
             generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
-            operationCount: Object.keys(operations).length, operationLimit: 128,
+            operationCount: Object.keys(operations).length, operationLimit,
             ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}) });
           if (original.requestDigest !== value.requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
           const readbacks = value.readbacks!;
@@ -1803,7 +1806,7 @@ export class OperatorActivity extends Agent {
         return { kind: 'unknown', lease: lease! } as const;
       }
       const operationCount = Object.keys(operations).length;
-      if (operationCount >= 128) return { kind: 'denied', reason: 'operation-limit',
+      if (operationCount >= operationLimit) return { kind: 'denied', reason: 'operation-limit',
         activityId: record!.intent.activityId, lease, operationCount } as const;
       await tx.put(DISPATCHER_OPERATIONS, { ...operations, [operation.operationId]: {
         generation, requestDigest, phase: 'reserved', ordinal: Object.keys(operations).length, ...(operation.path === '/v1/dispatcher/source'
@@ -1816,7 +1819,7 @@ export class OperatorActivity extends Agent {
         dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
           ...(reserved.activityId === undefined ? {} : { activityId: reserved.activityId }), generation,
           resource, deadline: deadline(reserved.lease), status: 403,
-          ...(reserved.reason === 'operation-limit' ? { operationCount: reserved.operationCount, operationLimit: 128 } : {}) });
+          ...(reserved.reason === 'operation-limit' ? { operationCount: reserved.operationCount, operationLimit } : {}) });
       } catch { /* Observability cannot replace the original denial. */ }
       return denied();
     }
@@ -1850,7 +1853,7 @@ export class OperatorActivity extends Agent {
           throw new Error('Protected operation did not complete');
         }
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
-          body: await readDispatcherBody(upstream, undefined, resource === 'source' ? sourceBytes : DEFAULT_SOURCE_RESPONSE_BYTES) };
+          body: await readDispatcherBody(upstream, undefined, resource === 'source' ? sourceBytes : undefined) };
       });
       let confirmedEffect = false;
       if (resource === 'comment' || resource === 'merge') {
