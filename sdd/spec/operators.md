@@ -829,20 +829,19 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Constraints:**
 
-- Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
-- Detailed preserved wire and fencing clauses remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
-- Completion observations retain ≤32 correlations of ≤256 characters; reset cannot erase previously observed outcomes. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: caps completion observations) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: later compaction) -->
-- Terminal observation logging is best-effort, without tool/model/assessment content, opaque identifiers or changes to collection authority. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: unavailable terminal diagnostic logging) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: unassociated assessment) -->
-- Schema diagnostics expose at most four unique closed rule labels plus a truncation flag, never raw validation issues or arbitrary field names.
-- Reservation denials distinguish lease mismatch from operation exhaustion using transaction-observed lease and parent-owned Activity/generation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: reservation diagnostic wire reports) -->
-- Exhaustion reports journal count and unchanged128-operation limit; existing receipts, conflicts and unknown-effect resolution retain their admission order. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution) -->
-- Reservation logging outages preserve generic403, lifecycle and original authority, even through the owner transport. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner reservation logging outage preserves) -->
-
-- Producer metadata permits only discovered/sealed booleans, target/decision/result/unknown-operation nonnegative safe-integer counts, and ready/undiscovered/unknown-operation/incomplete-results/schema/oversized/emission categories.
-- Values are bounded to512 encoded bytes and32 observations, retaining latest valid exact-submission metadata across compaction and deduplicating replayed positions.
-- Malformed/excessive metadata sets diagnostic truncation only; foreign records cannot affect the requested observation or otherwise-valid assessment/collection/SDK release.
-- No bodies, assessment values, prompts, tool inputs/outputs, raw errors, credentials or opaque identifiers; observations are never assessment or settlement authority.
-- Diagnostic data is excluded from existing projected-result accounting without raising page, record, result, operation or source bounds.
+- Original parent authority and deadlines remain mandatory; no activation or new principal.
+- Preserved wire/fencing details: [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+- Completion: ≤32 correlations, ≤256 characters each; reset preserves observed outcomes. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: caps completion observations) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: later compaction) -->
+- Terminal logging: best-effort, no tool/model/assessment content or opaque identifiers; collection authority unchanged. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: unavailable terminal diagnostic logging) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: unassociated assessment) -->
+- Schema diagnostics: ≤4 unique closed rule labels plus truncation; no raw validation issues/arbitrary field names.
+- Reservation denials distinguish lease-mismatch/operation-limit using transaction-observed lease and parent-owned Activity/generation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: reservation diagnostic wire reports) -->
+- Exhaustion: journal count/unchanged128-operation limit; existing receipt/conflict/unknown-effect-resolution admission order preserved. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution) -->
+- Reservation logging outages preserve generic403/lifecycle/original authority, including owner transport. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner reservation logging outage preserves) -->
+- Producer allowlist: discovered/sealed booleans, target/decision/result/unknown-operation nonnegative safe-integer counts, ready/undiscovered/unknown-operation/incomplete-results/schema/oversized/emission categories.
+- Producer: ≤512 encoded bytes/32 observations; latest-valid exact-submission metadata survives compaction; replayed positions deduplicated.
+- Malformed/excessive producer metadata only truncates diagnostics; foreign records cannot affect requested observations or otherwise-valid assessment/collection/SDK release.
+- Exclude bodies, assessment values, prompts, tool inputs/outputs, raw errors, credentials and opaque identifiers; never assessment/settlement authority.
+- Diagnostic data excluded from existing projected-result accounting; page/record/result/operation/source bounds unchanged.
 
 **Priority:** P0
 
