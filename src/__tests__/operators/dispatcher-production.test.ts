@@ -2642,3 +2642,216 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
   }, { prospective: true }));
 });
+
+describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
+  const marker = 'PRIVATE_PIPELINE_CONTENT';
+  const input = { messages: [{ role: 'user', content: marker }] };
+  const wire = (operationId = 'PRIVATE_PIPELINE_OPERATION') => genericWire('inference', { operationId, input });
+  const capture = async (run: (events: Array<Record<string, unknown>>) => Promise<void>, broken = false) => {
+    const events: Array<Record<string, unknown>> = [];
+    const spies = ['log', 'warn', 'error'].map(method => vi.spyOn(console, method as 'log').mockImplementation(value => {
+      if (broken) throw new Error(marker);
+      try {
+        const event = JSON.parse(String(value));
+        if (event.module === 'operator-inference') events.push(event.data);
+      } catch { /* Capture only the intentional structured pipeline wire. */ }
+    }));
+    setLogLevel('info');
+    try { await run(events); }
+    finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+  };
+  const privateWire = (events: Array<Record<string, unknown>>) => {
+    const text = JSON.stringify(events);
+    for (const value of [marker, 'PRIVATE_PIPELINE_OPERATION', 'PRIVATE_PIPELINE_RESPONSE', 'private.jwt', 'parent-only', 'owner@example.test', 'https://']) {
+      expect(text).not.toContain(value);
+    }
+  };
+
+  it.each([
+    ['native-error', 'data: {"error":{"code":"NATIVE_BEDROCK_STREAM_ERROR","message":"PRIVATE_PIPELINE_RESPONSE"}}\n\ndata: [DONE]\n\n', 'native-error', 'none'],
+    ['incomplete', 'data: {"choices":[{"delta":{"content":"PRIVATE_PIPELINE_RESPONSE"},"finish_reason":null}]}\n\ndata: [DONE]\n\n', 'none', 'none'],
+    ['complete', 'data: {"choices":[{"delta":{"content":"PRIVATE_PIPELINE_RESPONSE"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', 'none', 'stop'],
+  ])('correlates fresh and reconstructed cached %s inference without changing bytes or charging resend', (_name, body, streamError, stopReason) => fixture(async f => {
+    await start(f);
+    await capture(async events => {
+      const first = await f.capability.fetch(wire());
+      expect(first.status).toBe(200);
+      expect(await first.text()).toBe(body);
+      f.restart();
+      const cached = await f.capability.fetch(wire());
+      expect(cached.status).toBe(200);
+      expect(await cached.text()).toBe(body);
+      const source = await f.capability.fetch(genericWire('source', { operationId: 'diagnostic-capacity-observation', url: 'https://api.github.com/repos/owner/repo' }));
+      expect(source.status).toBe(200);
+      const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'diagnostic-capacity-observation' }));
+      expect(await receipt.json()).toMatchObject({ operationCount: 2, operationLimit: 1024 });
+      const journal = events.filter(value => value.stage === 'journal' && value.resource === 'inference');
+      expect(journal).toEqual(expect.arrayContaining([
+        expect.objectContaining({ activityId: f.activityId, generation: 1, outcome: 'reserved', operationCount: 1, operationLimit: 1024, requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        expect.objectContaining({ activityId: f.activityId, generation: 1, outcome: 'cached', operationCount: 1, operationLimit: 1024 }),
+      ]));
+      const reserved = journal.find(value => value.outcome === 'reserved')!;
+      const replayed = journal.find(value => value.outcome === 'cached')!;
+      expect(replayed.operationOrdinal).toBe(reserved.operationOrdinal);
+      expect(replayed.requestDigest).toBe(reserved.requestDigest);
+      const responses = events.filter(value => value.stage === 'response-commit' || (value.stage === 'journal' && value.outcome === 'cached'));
+      expect(responses).toEqual(expect.arrayContaining([expect.objectContaining({ streamError, stopReason,
+        responseBytes: new TextEncoder().encode(body).byteLength, responseDigest: expect.stringMatching(/^[a-f0-9]{64}$/) })]));
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ stage: 'operation-prepared', activityId: f.activityId, generation: 1 }),
+        expect.objectContaining({ stage: 'upstream', outcome: 'completed', status: 200 }),
+      ]));
+      privateWire(events);
+    });
+  }, { inferenceBody: body }));
+
+  it('correlates payload conflict without altering original cache or authority', () => fixture(async f => {
+    await start(f);
+    await capture(async events => {
+      const first = await f.capability.fetch(wire());
+      const original = await first.text();
+      const conflict = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_PIPELINE_OPERATION', input: { messages: [{ role: 'user', content: `${marker}_changed` }] } }));
+      expect(conflict.status).toBe(409);
+      expect(await conflict.json()).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      expect(await (await f.capability.fetch(wire())).text()).toBe(original);
+      expect(events).toContainEqual(expect.objectContaining({ stage: 'journal', outcome: 'conflict', activityId: f.activityId, generation: 1 }));
+      privateWire(events);
+    });
+  }));
+
+  it('reports upstream uncertainty and leaves failed inference fenced without model success', () => fixture(async f => {
+    await start(f);
+    f.loseResponse();
+    await capture(async events => {
+      const response = await f.capability.fetch(wire());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      const detail = await f.activity.getBrowserDetail();
+      expect(detail).toMatchObject({ executionStatus: 'unknown', collectionStatus: 'unavailable' });
+      expect(detail!.result).toBeNull();
+      expect(events).toContainEqual(expect.objectContaining({ stage: 'upstream', outcome: 'failed', status: 502 }));
+      expect(events).toContainEqual(expect.objectContaining({ stage: 'response-commit', outcome: 'unknown', activityId: f.activityId, generation: 1 }));
+      privateWire(events);
+    });
+  }));
+
+  it.each(['budget', 'authority'] as const)('traces %s denial without protected I/O or lifecycle repair', name => fixture(async f => {
+    await start(f);
+    if (name === 'budget') expect((await f.capability.fetch(wire('consume-only-slot'))).status).toBe(200);
+    else f.revokeSession();
+    const before = await f.activity.getBrowserDetail();
+    const issued = f.sent.map(request => ({ method: request.method, url: request.url }));
+    await capture(async events => {
+      const denied = await f.capability.fetch(wire());
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent.map(request => ({ method: request.method, url: request.url }))).toEqual(issued);
+      expect((await f.activity.getBrowserDetail())!.executionStatus).toBe(before!.executionStatus);
+      expect(events).toContainEqual(expect.objectContaining({ outcome: 'denied', activityId: f.activityId, generation: 1 }));
+      privateWire(events);
+    });
+  }, { operationLimit: 1 }));
+
+  it('logging outage preserves exact cache bytes and original capacity', () => fixture(async f => {
+    await start(f);
+    await capture(async () => {
+      const first = await f.capability.fetch(wire());
+      expect(first.status).toBe(200);
+      const body = await first.text();
+      f.restart();
+      expect(await (await f.capability.fetch(wire())).text()).toBe(body);
+      expect((await f.activity.getBrowserDetail())!.executionStatus).toBe('running');
+    }, true);
+  }));
+});
+
+describe('REQ-OPERATOR-063: complete lifecycle diagnostic contract', () => {
+  const capture = async (run: (events: Array<Record<string, unknown>>) => Promise<void>, broken = false) => {
+    const events: Array<Record<string, unknown>> = [];
+    const spies = ['log', 'warn', 'error'].map(method => vi.spyOn(console, method as 'log').mockImplementation(value => {
+      if (broken) throw new Error('PRIVATE_LIFECYCLE_LOGGER');
+      try { const entry = JSON.parse(String(value)); if (entry.module === 'operator-inference') events.push(entry.data); } catch { /* Closed structured wire only. */ }
+    }));
+    setLogLevel('info');
+    try { await run(events); } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+  };
+  it('correlates admission SDK settlement assessment collection and honest cleanup state', () => fixture(async f => capture(async events => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    const collected = await f.activity.collectBrowserResult();
+    expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', sdkCleanupReleased: true, result: assessment } });
+    for (const stage of ['drive', 'settlement', 'assessment', 'sdk-release', 'collection', 'cleanup']) {
+      expect(events).toContainEqual(expect.objectContaining({ stage, activityId: f.activityId, generation: 1 }));
+    }
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'sdk-release', outcome: 'completed' }));
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'collection', outcome: 'completed' }));
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'cleanup', sdkReleased: true, physicalCleanup: 'unknown' }));
+    expect(JSON.stringify(events)).not.toMatch(/submission-1|observedHead|private\.jwt|parent-only|owner@example\.test/);
+  })));
+  it('logs failed SDK settlement and collection refusal without pretending cleanup or success', () => fixture(async f => capture(async events => {
+    await start(f);
+    f.settle('submission-1', 'failed', { type: 'operation_failed', meta: {
+      operation: 'direct(submission-1)', reason: 'Stream ended without finish_reason (retryable_interruption)' } });
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.activity.getBrowserDetail())!.executionStatus).toBe('unknown');
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'settlement', outcome: 'failed', failureClass: 'model-completion' }));
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'collection', outcome: 'denied' }));
+    expect(events).not.toContainEqual(expect.objectContaining({ stage: 'collection', outcome: 'completed' }));
+    expect(JSON.stringify(events)).not.toContain('submission-1');
+  })));
+  it('classifies cleanup failure then cleanup-only recovery without losing the immutable result', () => fixture(async f => {
+    const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
+    const original = sdk._cf_cleanupFacetPrefix;
+    let fail = true;
+    const fault = vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockImplementation(function (this: Agent, ...args: unknown[]) {
+      if (fail) throw new Error('PRIVATE_CLEANUP_FAILURE');
+      return original.apply(this, args);
+    });
+    try { await capture(async events => {
+      await start(f);
+      const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { sdkCleanupReleased: false, result: assessment } });
+      expect(events).toContainEqual(expect.objectContaining({ stage: 'sdk-release', outcome: 'failed', failureClass: 'sdk-cleanup' }));
+      fail = false;
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { sdkCleanupReleased: true, result: assessment } });
+      expect(events).toContainEqual(expect.objectContaining({ stage: 'sdk-release', outcome: 'completed' }));
+      expect(JSON.stringify(events)).not.toMatch(/PRIVATE_CLEANUP_FAILURE|submission-1/);
+    }); } finally { fail = false; fault.mockRestore(); }
+  }));
+  it('all diagnostic sinks unavailable still permits validated collection and actual SDK release', () => fixture(async f => capture(async () => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { sdkCleanupReleased: true, result: assessment } });
+  }, true)));
+});
+
+it('REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error without replay or lifecycle mutation', () => fixture(async f => {
+  await start(f);
+  const original = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_HISTORICAL_OPERATION',
+    input: { messages: [{ role: 'user', content: 'PRIVATE_HISTORICAL_PROMPT' }] } }));
+  expect(await original.text()).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+  f.restart();
+  const before = await f.activity.getBrowserDetail();
+  const issued = f.sent.map(request => ({ method: request.method, url: request.url }));
+  const events: Array<Record<string, unknown>> = [];
+  const spy = vi.spyOn(console, 'log').mockImplementation(value => {
+    try { const entry = JSON.parse(String(value)); if (entry.module === 'operator-inference') events.push(entry.data); } catch { /* Structured inspection wire. */ }
+  });
+  setLogLevel('info');
+  try {
+    const after = await f.activity.getBrowserDetail();
+    expect(after).toEqual(before);
+    expect(f.sent.map(request => ({ method: request.method, url: request.url }))).toEqual(issued);
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'journal-inspection', outcome: 'observed',
+      activityId: f.activityId, generation: 1, streamError: 'native-error', stopReason: 'none',
+      requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/), responseDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }));
+    expect(JSON.stringify(events)).not.toMatch(/PRIVATE_HISTORICAL|private\.jwt|parent-only|https:\/\//);
+  } finally { spy.mockRestore(); setLogLevel('silent'); }
+}, { inferenceBody: 'data: {"error":{"code":"NATIVE_BEDROCK_STREAM_ERROR","message":"PRIVATE_HISTORICAL_RESPONSE"}}\n\ndata: [DONE]\n\n' }));

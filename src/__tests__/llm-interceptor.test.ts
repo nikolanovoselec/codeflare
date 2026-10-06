@@ -29,6 +29,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
+import { setLogLevel } from '../lib/logger';
 import { LlmInterceptor, nativeReplayStateKey } from '../llm-interceptor';
 import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-profiles';
 import { connectionFingerprint } from '../lib/reasoning-verification';
@@ -1201,6 +1202,52 @@ describe('native provider authorization and compat dispatch', () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST', error: 'Native Bedrock signed thinking state is unavailable' });
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  describe('REQ-OPERATOR-063: interceptor-to-native closed diagnostic correlation', () => {
+    it.each(['complete', 'native-failure', 'fetch-failure'] as const)('correlates %s without exposing authority or provider data', async scenario => {
+      const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+        transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v5' });
+      const marker = 'PRIVATE_INTERCEPTOR_DIAGNOSTIC';
+      const records: Array<Record<string, unknown>> = [];
+      const raw: string[] = [];
+      const spies = ['log', 'warn', 'error'].map(method => vi.spyOn(console, method as 'log').mockImplementation((...values) => {
+        raw.push(JSON.stringify(values));
+        try { const entry = JSON.parse(String(values[0])); if (entry.module === 'operator-inference') records.push(entry.data); } catch { /* Structured contract only. */ }
+      }));
+      setLogLevel('info');
+      const policy: OperatorPolicy = { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [fixture.handle], defaultRouteId: fixture.handle,
+          reasoningLevels: ['high'], defaultReasoningLevel: 'high', inheritUserDefaults: false } };
+      const context = { activityId: 'activity-diagnostic', generation: 1, operationOrdinal: 7, requestDigest: 'd'.repeat(64) };
+      const props = { user: SESSION_USER, sessionId: 'activity-diagnostic', groups: ['engineering'], operatorInference: {
+        activityId: 'activity-diagnostic', operatorId: 'dispatcher', policy, trusted: { routeId: fixture.handle, reasoningLevel: 'high' }, diagnosticContext: context } };
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+        const request = input as Request;
+        lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+        if (scenario === 'fetch-failure') throw new Error(marker);
+        if (scenario === 'complete') return bedrockToolResponse([{ type: 'text', text: marker }], 'eventstream', 'end_turn');
+        return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: marker }, 'exception')); controller.close();
+        } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream', 'x-private-header': marker } });
+      });
+      try {
+        const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, props).fetch(
+          new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+            model: fixture.handle, stream: true, messages: [{ role: 'user', content: marker }],
+          }) }));
+        const body = await response.text();
+        expect(response.status).toBe(scenario === 'fetch-failure' ? 502 : 200);
+        if (scenario === 'complete') expect(body).toContain('"finish_reason":"stop"');
+        if (scenario === 'native-failure') { expect(body).toContain('NATIVE_BEDROCK_STREAM_ERROR'); expect(body).not.toMatch(/"finish_reason":"[^"]+"/); }
+        if (scenario === 'fetch-failure') expect(JSON.parse(body).code).toBe('GATEWAY_FETCH_FAILED');
+        expect(lastFetch!.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+        expect(records).toContainEqual(expect.objectContaining({ ...context, stage: 'route-selection', outcome: 'completed', transport: 'eventstream' }));
+        expect(records).toContainEqual(expect.objectContaining({ ...context, stage: 'gateway-fetch', outcome: scenario === 'fetch-failure' ? 'failed' : 'completed' }));
+        if (scenario === 'native-failure') expect(records).toContainEqual(expect.objectContaining({ ...context, stage: 'native-stream', outcome: 'failed', failureClass: 'provider-exception' }));
+        for (const secret of [marker, SESSION_USER, AIG_TOKEN, 'verified.jwt', 'modelStreamErrorException', 'https://']) expect(JSON.stringify(raw)).not.toContain(secret);
+      } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+    });
   });
 
   it('REQ-ENTERPRISE-077: dispatches one initial provider-native Bedrock eventstream request', async () => {
