@@ -287,6 +287,38 @@ export function registerNativeDispatcherCases(
       }
     }
 
+    it('REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys', async () => {
+      const runs = [];
+      // Retain the global native bail fence. Run the full diagnostic scenario batch before asserting metadata.
+      for (const scenario of ['seal-undiscovered', 'ordinary', 'overflow-once', 'transient-interruption-once'] as const) {
+        runs.push({ scenario, run: await runProducerJourney(scenario, scenario === 'overflow-once' ? 45_000 : 25_000) });
+      }
+      for (const { scenario, run } of runs) {
+        expect(run.projection.outcome).toBe('completed');
+        if (scenario === 'seal-undiscovered') {
+          expect(run.projection.writes).toBe(0); expect(run.projection.result).toBeUndefined();
+          expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+            commentMatches: false, researchSourceRequests: 0 });
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: 1, truncated: false, latest: {
+            category: 'undiscovered', targetCount: 0, decisionCount: 0, operationCount: null,
+            operationLimit: null, requiredOperationCount: null, sealed: false,
+          } });
+        } else {
+          expect(run.projection.writes).toBe(1);
+          expect(run.projection.result).toMatchObject({ repository: 'authorized/project', results: [{
+            ...run.target, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+          }] });
+          expect(run.observation.effects).toEqual({ commentRequests: 1, otherMutationRequests: 0,
+            commentMatches: true, researchSourceRequests: 1 });
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: 1, truncated: false, latest: {
+            category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
+            operationLimit: 128, requiredOperationCount: 5, sealed: true,
+          } });
+        }
+        for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+      }
+    }, 150_000);
+
     it('REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment', async () => {
       const run = await runProducerJourney('seal-undiscovered', 25_000);
       expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
