@@ -707,25 +707,35 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
   const writer = transform.writable.getWriter();
   let sinkController!: WritableStreamDefaultController;
   let sourceReadFailed = false;
+  // Readiness is replaceable on backpressure/error transitions, independently
+  // of closed. Forward its current rejection rather than leaving it unowned.
+  const observeReadiness = () => { void writer.ready.catch(error => { sinkController.error(error); }); };
   const sink = new WritableStream<Uint8Array>({
     start(controller) { sinkController = controller; },
     write(chunk) {
       metrics.inputBytes += chunk.byteLength; metrics.chunks++;
-      return writer.write(chunk);
+      const written = writer.write(chunk);
+      observeReadiness();
+      return written;
     },
     close() { return writer.close(); },
     abort(error) {
       sourceReadFailed = true;
       inferenceDiagnostic(state.diagnosticContext, { stage: 'native-stream', outcome: 'failed', transport: 'eventstream',
         ...metrics, failureClass: 'stream-read', elapsedMs: performance.now() - began });
-      return writer.abort(error);
+      const aborted = writer.abort(error);
+      observeReadiness();
+      return aborted;
     },
   });
-  void writer.closed.catch(error => { sinkController.error(error); });
-  void response.body.pipeTo(sink).catch(() => {
+  observeReadiness();
+  void writer.closed.catch(error => {
+    observeReadiness();
     if (!sourceReadFailed) inferenceDiagnostic(state.diagnosticContext,
       { stage: 'native-stream', outcome: 'canceled', transport: 'eventstream', ...metrics });
+    sinkController.error(error);
   });
+  void response.body.pipeTo(sink).catch(() => {});
   return new Response(transform.readable, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
