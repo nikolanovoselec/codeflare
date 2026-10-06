@@ -1531,6 +1531,19 @@ export class OperatorActivity extends Agent {
             completionPending: completionCalls.filter(call => call.outcome === 'pending').length,
             completionTruncated: value.completion?.truncated ?? false,
             unmatchedAssessment: value.unmatchedAssessment ?? false,
+            ...(value.readiness ? {
+              producerReadinessObserved: value.readiness.latest !== undefined,
+              producerReadinessTruncated: value.readiness.truncated,
+              ...(value.readiness.latest ? {
+                producerCategory: value.readiness.latest.category,
+                producerDiscovered: value.readiness.latest.discovered,
+                producerSealed: value.readiness.latest.sealed,
+                producerTargetCount: value.readiness.latest.targetCount,
+                producerDecisionCount: value.readiness.latest.decisionCount,
+                producerResultCount: value.readiness.latest.resultCount,
+                producerUnknownOperationCount: value.readiness.latest.unknownOperationCount,
+              } : {}),
+            } : {}),
           });
         } catch { /* Observability failure cannot prevent settlement or collection. */ }
         stage = 'authorize';

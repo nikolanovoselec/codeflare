@@ -16,7 +16,19 @@ export interface DispatcherResultProjection {
   /** Observation only; opaque correlations never enter owner logs or result authority. */
   completion?: { calls: Array<{ id: string; outcome: 'pending' | 'succeeded' | 'failed' }>; truncated: boolean };
   unmatchedAssessment?: boolean;
+  readiness?: { latest?: DispatcherReadiness; observations: number; truncated: boolean };
 }
+const readinessSchema = z.object({
+  discovered: z.boolean(), sealed: z.boolean(),
+  targetCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  decisionCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  resultCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  unknownOperationCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  category: z.enum(['ready', 'undiscovered', 'unknown-operation', 'incomplete-results', 'schema', 'oversized', 'emission']),
+}).strict();
+type DispatcherReadiness = z.infer<typeof readinessSchema>;
+const MAX_READINESS_BYTES = 512;
+const MAX_READINESS_OBSERVATIONS = 32;
 const MAX_COMPLETION_OBSERVATIONS = 32;
 const MAX_COMPLETION_ID_LENGTH = 256;
 const MAX_UPDATE_PAGE_BYTES = 16 * 1024 * 1024;
@@ -32,6 +44,27 @@ function captureResult(state: DispatcherResultProjection, value: unknown): void 
   state.writes++;
   if (state.writes !== 1) throw new Error('Dispatcher result duplicated');
   state.result = value;
+}
+
+function observeReadiness(state: DispatcherResultProjection, value: unknown): void {
+  const observation = state.readiness ??= { observations: 0, truncated: false };
+  if (observation.observations >= MAX_READINESS_OBSERVATIONS) { observation.truncated = true; return; }
+  observation.observations++;
+  const parsed = readinessSchema.safeParse(value);
+  if (!parsed.success || new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength > MAX_READINESS_BYTES) {
+    observation.truncated = true; return;
+  }
+  observation.latest = parsed.data;
+}
+
+// Drop every unknown value before persistence/accounting, regardless of JSON member order.
+function normalizeReadinessData(part: Record<string, unknown>): void {
+  const parsed = readinessSchema.safeParse(part.data);
+  const valid = !part.dataProjectionOversized && parsed.success
+    && new TextEncoder().encode(JSON.stringify(part.data)).byteLength <= MAX_READINESS_BYTES;
+  Object.defineProperty(part, 'data', { value: valid && parsed.success ? parsed.data : undefined,
+    enumerable: false, configurable: true, writable: true });
+  delete part.dataProjectionOversized;
 }
 
 function observeCompletion(state: DispatcherResultProjection, id: unknown,
@@ -85,6 +118,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
       if (message.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
       for (const part of message.parts) {
         if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
+        if (part.type === 'data-dispatcher-readiness') observeReadiness(state, part.data);
         if (part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher') {
           observeCompletion(state, part.toolCallId, part.state === 'output-available' ? 'succeeded'
             : part.state === 'output-error' ? 'failed' : 'pending');
@@ -101,6 +135,9 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   } else if (chunk.type === 'data-part' && (chunk.name === 'assessment' || chunk.name === 'result')) {
     if (state.messageIds.includes(chunk.messageId as string)) captureResult(state, chunk.data);
     else state.unmatchedAssessment = true;
+  } else if (chunk.type === 'data-part' && chunk.name === 'dispatcher-readiness'
+    && state.messageIds.includes(chunk.messageId as string)) {
+    observeReadiness(state, chunk.data);
   } else if (chunk.type === 'tool-input' && chunk.toolName === 'finish_dispatcher'
     && state.messageIds.includes(chunk.messageId as string)) {
     observeCompletion(state, chunk.toolCallId, 'pending');
@@ -182,7 +219,8 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       }
       if (path[3] === 'parts' && path[5] === 'data') {
         const part = message?.parts?.[path[4] as number] as { type?: string } | undefined;
-        if (part?.type !== undefined && part.type !== 'data-assessment' && part.type !== 'data-result') return;
+        if (part?.type !== undefined && part.type !== 'data-assessment' && part.type !== 'data-result'
+          && part.type !== 'data-dispatcher-readiness') return;
       }
     }
     const diagnostic = (path.length === 1 && diagnosticFields.includes(String(path[0])))
@@ -196,7 +234,13 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         return;
       }
     }
-    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_RESULT_BYTES) throw new Error('Dispatcher projected value exceeds limit');
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_RESULT_BYTES) {
+      // The name/type may follow data. Defer only data's existing denial until attribution.
+      if ((path.length === 1 && path[0] === 'data') || (path.length === 6 && path[3] === 'parts' && path[5] === 'data')) {
+        put([...path.slice(0, -1), 'dataProjectionOversized'], true, false); return;
+      }
+      throw new Error('Dispatcher projected value exceeds limit');
+    }
     put(path, value, !diagnostic);
     if (path[0] === 'snapshot' && path[1] === 'messages' && path[3] === 'submissionId' && value !== submissionId) {
       const message = snapshotMessages()?.[path[2] as number];
@@ -238,6 +282,8 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         && frame.path[4] === 'parts') {
         const part = snapshotMessages()?.[frame.path[3] as number]?.parts?.[frame.path[5] as number] as Record<string, unknown> | undefined;
         if (part) {
+          if (part.type === 'data-dispatcher-readiness') normalizeReadinessData(part);
+          else if (part.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
           const completionPart = part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher';
           if (!completionPart || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
             if (completionPart) put(['snapshot', 'messages', frame.path[3], 'diagnosticTruncated'], true, false);
@@ -246,6 +292,8 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         }
       }
       if (frame.path.length === 1) {
+        if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record);
+        else if (record.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
         if (++records > 65536) throw new Error('Dispatcher update count exceeds limit');
         const snapshot = record.snapshot as { messages?: Array<{ submissionId?: string }> } | undefined;
         if (Array.isArray(snapshot?.messages)) snapshot.messages = snapshot.messages.filter(message => message?.submissionId === submissionId);

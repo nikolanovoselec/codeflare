@@ -347,4 +347,25 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
   });
 
+  it('REQ-OPERATOR-063: readiness.v1 classifies data before name without retaining oversized content', async () => {
+    const first = await readDispatcherUpdates(response([start,
+      event(1, { data: ready, messageId: 'answer', name: 'dispatcher-readiness', type: 'data-part' }),
+      event(2, { data: { ...ready, category: 'PRIVATE_PRODUCER_CONTENT'.repeat(5000) },
+        messageId: 'answer', name: 'dispatcher-readiness', type: 'data-part' }), data, settled,
+    ]), initial(), 'requested');
+    expect(Reflect.get(first, 'readiness')).toEqual({ latest: ready, observations: 2, truncated: true });
+    expect(first).toMatchObject({ writes: 1, result, outcome: 'completed' });
+    expect(JSON.stringify(first)).not.toContain('PRIVATE_PRODUCER_CONTENT');
+  });
+  it('REQ-OPERATOR-063: readiness.v1 reset classifies data before type without changing assessment denial', async () => {
+    const reset = event(5, { type: 'conversation-reset', snapshot: { conversationId: 'conversation', messages: [
+      { parts: [{ data: ready, type: 'data-dispatcher-readiness' }], submissionId: 'requested', id: 'answer' },
+    ], settlements: [] } });
+    const projected = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+    expect(Reflect.get(projected, 'readiness')).toEqual({ latest: ready, observations: 1, truncated: false });
+    expect(projected.writes).toBe(0); expect(projected.result).toBeUndefined();
+    const oversizedAssessment = event(6, { data: { body: 'x'.repeat(100000) }, messageId: 'answer', name: 'assessment', type: 'data-part' });
+    await expect(readDispatcherUpdates(response([oversizedAssessment]), projected, 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
+  });
+
 });

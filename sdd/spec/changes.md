@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-06
+
+- Observe strict bounded producer readiness on the existing exact-submission Flue stream ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Add only closed flags/counts/categories to terminal diagnostics; preserve assessment/result authority and collection through malformed, foreign, overflowing metadata and logger outages.
+
 ## 2026-10-05
 
 - Observe bounded completion-tool outcomes alongside assessment projection ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Terminal logs use trusted correlation and closed counters, never model/tool/result content. Preserve collection authority, bounds and unknown effects through diagnostic overflow or logging outages. Hosted GREEN and live diagnosis remain pending; observations cannot establish historical causality.

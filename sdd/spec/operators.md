@@ -825,6 +825,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 7. Terminal settlement diagnostics distinguish observed completion-tool outcomes from assessment projection using trusted Activity/generation and bounded counters. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: observes completion) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility) -->
 
+8. Exact-submission producer readiness observations appear as bounded, non-authorizing flags, counts and fixed categories in the existing trusted terminal diagnostic. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 projects an exact producer snapshot without granting assessment authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: invalid readiness.v1 terminal wire cannot expose content or block validated collection) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 logging outage preserves actual result and SDK release) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects) -->
+
 **Constraints:**
 
 - Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
@@ -835,6 +837,12 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Reservation denials distinguish lease mismatch from operation exhaustion using transaction-observed lease and parent-owned Activity/generation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: reservation diagnostic wire reports) -->
 - Exhaustion reports journal count and unchanged128-operation limit; existing receipts, conflicts and unknown-effect resolution retain their admission order. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution) -->
 - Reservation logging outages preserve generic403, lifecycle and original authority, even through the owner transport. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner reservation logging outage preserves) -->
+
+- Producer metadata permits only discovered/sealed booleans, target/decision/result/unknown-operation nonnegative safe-integer counts, and ready/undiscovered/unknown-operation/incomplete-results/schema/oversized/emission categories.
+- Values are bounded to512 encoded bytes and32 observations, retaining latest valid exact-submission metadata across compaction and deduplicating replayed positions.
+- Malformed/excessive metadata sets diagnostic truncation only; foreign records cannot affect the requested observation or otherwise-valid assessment/collection/SDK release.
+- No bodies, assessment values, prompts, tool inputs/outputs, raw errors, credentials or opaque identifiers; observations are never assessment or settlement authority.
+- Diagnostic data is excluded from existing projected-result accounting without raising page, record, result, operation or source bounds.
 
 **Priority:** P0
 
