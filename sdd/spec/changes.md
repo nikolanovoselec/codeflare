@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-06
 
+- Correlate Dispatcher inference, cache, native-stream failure and lifecycle diagnostics using trusted identity and closed metadata ([REQ-OPERATOR-078](operators.md#req-operator-078-correlated-inference-pipeline-diagnostics)). Permit bounded read-only owner inspection of historical journals without replay or lifecycle mutation; preserve private content, execution authority and honest physical-cleanup status.
+
 - Configure Dispatcher operation capacity per operator, default1024, and default all three byte settings to1MiB (REQ-OPERATOR-045/047/049). Replace recommendation buttons with autorenew draft resets and explain shared journal accounting. Retain explicit lower policies, CAS/re-enable, authentication, unknown-effect and other byte/token/deadline fences; diagnostics validate actual configured capacities (REQ-OPERATOR-063/076). Revised hosted RED verified missing behavior; final GREEN, delivery and live acceptance remain separate gates.
 
 - Preserve the requested submission's completion-diagnostic budget through foreign reset messages ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Bound provisional candidates until attribution; keep the shared32-observation ceiling and assessment/settlement authority unchanged. Hosted RED reproduced eight lost-completion cases; final GREEN and live acceptance remain separate gates.
