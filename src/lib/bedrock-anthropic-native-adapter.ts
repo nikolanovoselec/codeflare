@@ -735,8 +735,8 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       { stage: 'native-stream', outcome: 'canceled', transport: 'eventstream', ...metrics });
     sinkController.error(error);
   });
-  void response.body.pipeTo(sink).catch(() => {});
-  return new Response(transform.readable, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
+  const body = response.body.pipeThrough({ writable: sink, readable: transform.readable });
+  return new Response(body, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
 export async function adaptBedrockAnthropicResponse(response: Response, transport: BedrockAnthropicTransport, state: BedrockReplayState, streamRequested = false, observe?: BedrockThinkingObserver): Promise<Response> {

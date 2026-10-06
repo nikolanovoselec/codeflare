@@ -99,6 +99,9 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
         sourceOutcomes.push(expect(writer.closed).rejects.toBe(originalFailure));
         let sinkController!: WritableStreamDefaultController;
         const observeReadiness = () => { void writer.ready.catch(error => { sinkController.error(error); }); };
+        let observeAbort!: (error: unknown) => void;
+        const abortedSource = new Promise<unknown>(resolve => { observeAbort = resolve; });
+        sourceOutcomes.push(expect(abortedSource).resolves.toBe(originalFailure));
         const sink = new WritableStream<Uint8Array>({
           start(controller) { sinkController = controller; },
           write(chunk) {
@@ -108,14 +111,14 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
           },
           close() { return writer.close(); },
           abort(error) {
+            observeAbort(error);
             const aborted = writer.abort(error);
             return Promise.all([aborted, expect(writer.ready).rejects.toBe(originalFailure)]).then(() => {});
           },
         });
         observeReadiness();
         void writer.closed.catch(error => { observeReadiness(); sinkController.error(error); });
-        sourceOutcomes.push(expect(source.body!.pipeTo(sink)).rejects.toBe(originalFailure));
-        response = new Response(transform.readable);
+        response = new Response(source.body!.pipeThrough({ writable: sink, readable: transform.readable }));
       } else response = new Response(source.body!.pipeThrough(transform));
     }
     const reader = response.body!.getReader();
