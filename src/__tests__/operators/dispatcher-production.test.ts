@@ -90,7 +90,46 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
         expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: before!.result,
           cleanupStatus: before!.cleanupStatus, collectionStatus: before!.collectionStatus });
       } finally { spy.mockRestore(); setLogLevel('silent'); }
-    }, { repositoryOnly: true }));
+    }, { repositoryOnly: true, operationLimit: 128 }));
+
+  it('REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots', () => fixture(async f => {
+    await start(f);
+    await fillReads(f, 1023);
+    expect((await f.capability.fetch(inference('default-inference'))).status).toBe(200);
+    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 1024, operationLimit: 1024 });
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+    expect((await f.capability.fetch(inference('default-inference'))).status).toBe(200);
+    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 1024, operationLimit: 1024 });
+    expect((await f.capability.fetch(inference('new-over-default'))).status).toBe(403);
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'new-over-default-read', url: sourceUrl }))).status).toBe(403);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+  }, { repositoryOnly: true }), 120000);
+
+  it.each([3, 129])('REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary', operationLimit => fixture(async f => {
+    await start(f);
+    await fillReads(f, operationLimit);
+    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: operationLimit, operationLimit });
+    expect((await f.capability.fetch(inference('over-configured-budget'))).status).toBe(403);
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: operationLimit, operationLimit });
+    f.expire();
+    expect((await f.capability.fetch(genericWire('receipt', { operationId: 'capacity-read-0' }))).status).toBe(403);
+  }, { repositoryOnly: true, operationLimit }));
+
+  it('REQ-OPERATOR-063: configured budget exhaustion reports actual count and limit without lifecycle changes', () => fixture(async f => {
+    await start(f); await fillReads(f, 3);
+    const before = await f.activity.getBrowserDetail();
+    const events: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      expect((await f.capability.fetch(inference('configured-budget-denied'))).status).toBe(403);
+      expect(reservationEvents(events)).toEqual([{ stage: 'reservation', reason: 'operation-limit',
+        activityId: f.activityId, generation: 1, resource: 'inference', deadline: 'current', status: 403,
+        operationCount: 3, operationLimit: 3 }]);
+      expect(await f.activity.getBrowserDetail()).toEqual(before);
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true, operationLimit: 3 }));
 
   it('REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution', () => fixture(async f => {
     await start(f);
@@ -133,7 +172,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
     const denied = await f.capability.fetch(inference('new-at-capacity'));
     expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
-  }, { repositoryOnly: true }));
+  }, { repositoryOnly: true, operationLimit: 128 }));
 
   it('REQ-OPERATOR-063: reservation diagnostic wire reports lease-mismatch after concurrent cancellation without protected I/O', () => fixture(async f => {
     await start(f);
@@ -156,7 +195,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
       expect(await f.nextAlarm()).toBe(alarm);
       expect((await f.capability.fetch(inference('old-capability'))).status).toBe(403);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
-  }, { repositoryOnly: true }));
+  }, { repositoryOnly: true, operationLimit: 128 }));
 
   it.each(['operation-limit', 'lease-mismatch'] as const)(
     'REQ-OPERATOR-063: owner reservation logging outage preserves %s denial lifecycle and original authority', reason => fixture(async f => {
@@ -186,7 +225,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
         expect((await f.capability.fetch(inference('expired-original-authority'))).status).toBe(403);
         expect(f.sent).toEqual(outbound);
       } finally { spy.mockRestore(); setLogLevel('silent'); }
-    }, { repositoryOnly: true }));
+    }, { repositoryOnly: true, operationLimit: 128 }));
 });
 
 describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
@@ -312,7 +351,7 @@ async function fixture(test: (f: {
   afterRegistryResolve: (action: () => Promise<void>) => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
-  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number } = {}) {
+  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number; operationLimit?: number } = {}) {
   callerSessionCurrent = true;
   const fixtureInvocation = options.prospective ? { repository: 'nikolanovoselec/komodo',
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
@@ -331,7 +370,7 @@ async function fixture(test: (f: {
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
-      policy: { ...policy, ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
+      policy: { ...policy, ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
       ...(options.prospective ? { intentVersion: options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
