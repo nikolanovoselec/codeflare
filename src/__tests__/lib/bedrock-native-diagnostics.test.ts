@@ -25,6 +25,14 @@ const stream = (chunks: Uint8Array[]) => new Response(new ReadableStream<Uint8Ar
 }));
 const start = frame({ type: 'message_start', message: { id: privateMarker, model: privateMarker } });
 const stop = frame({ type: 'message_stop' });
+const readFailureSource = (failure: Error) => {
+  let failSource!: () => void;
+  const response = new Response(new ReadableStream<Uint8Array>({ start(controller) {
+    controller.enqueue(start);
+    failSource = () => controller.error(failure);
+  } }));
+  return { response, failSource };
+};
 const reason = (stop_reason: string) => frame({ type: 'message_delta', delta: { stop_reason } });
 
 // Structured logs are an intentional privacy/diagnostic wire contract. Every
@@ -75,13 +83,23 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     expect(JSON.stringify(events)).not.toContain(privateMarker);
   }));
 
+  it('control: plain Response preserves the same controlled read failure without the adapter', async () => {
+    const originalFailure = new Error('PRIVATE_PLAIN_RESPONSE_CONTROL');
+    const { response, failSource } = readFailureSource(originalFailure);
+    const reader = response.body!.getReader();
+    void reader.closed.catch(() => {});
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    expect(first.value).toEqual(start);
+    const failedRead = expect(reader.read()).rejects.toBe(originalFailure);
+    failSource();
+    await failedRead;
+    reader.releaseLock();
+  });
+
   it('observes upstream read failure without replacing the original thrown failure', async () => capture(async events => {
     const originalFailure = new Error(privateMarker);
-    let failSource!: () => void;
-    const upstream = new Response(new ReadableStream<Uint8Array>({ start(controller) {
-      controller.enqueue(start);
-      failSource = () => controller.error(originalFailure);
-    } }));
+    const { response: upstream, failSource } = readFailureSource(originalFailure);
     const response = await adaptBedrockAnthropicResponse(upstream, 'eventstream', replay());
     const reader = response.body!.getReader();
     // Observe actual delivery before injecting failure, with the consumer's
