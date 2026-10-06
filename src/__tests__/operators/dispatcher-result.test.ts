@@ -310,6 +310,12 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     operationLimit: 128, requiredOperationCount: 5, sealed: true };
   const sealPart = (index: number, value: unknown = sealReady, messageId = 'answer') =>
     event(index, { type: 'data-part', messageId, name: 'dispatcher-seal-preflight', data: value });
+  it.each([1024, 4096])('REQ-OPERATOR-076: seal metadata accepts configured %i capacity without granting assessment authority', async operationLimit => {
+    const value = { ...sealReady, operationCount: 129, operationLimit };
+    const final = await readDispatcherUpdates(response([start, sealPart(1, value), settled]), initial(), 'requested');
+    expect(final.sealPreflight).toEqual({ latest: value, observations: 1, truncated: false });
+    expect(final.writes).toBe(0); expect(final.result).toBeUndefined();
+  });
   it.each(['ready', 'capacity', 'schema', 'oversized'])('REQ-OPERATOR-076: seal-preflight.v1 projects exact %s metadata without assessment authority', async category => {
     const value = { ...sealReady, category, sealed: category === 'ready' };
     const final = await readDispatcherUpdates(response([start, sealPart(1, value), settled]), initial(), 'requested');
@@ -385,7 +391,9 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     ['zero-reserve', { ...sealReady, requiredOperationCount: 0 }],
     ['fractional-reserve', { ...sealReady, requiredOperationCount: 4.5 }],
     ['unsafe-reserve', { ...sealReady, requiredOperationCount: Number.MAX_SAFE_INTEGER + 1 }],
-    ['wrong-limit', { ...sealReady, operationLimit: 256 }],
+    ['zero-limit', { ...sealReady, operationLimit: 0 }],
+    ['fractional-limit', { ...sealReady, operationLimit: 1024.5 }],
+    ['unsafe-limit', { ...sealReady, operationLimit: Number.MAX_SAFE_INTEGER + 1 }],
     ['oversized', { ...sealReady, category: 'PRIVATE_PRODUCER_CONTENT'.repeat(5000) }],
   ])('REQ-OPERATOR-076: invalid seal-preflight.v1 %s cannot retain content or deny actual assessment', async (_caseName, value) => {
     const final = await readDispatcherUpdates(response([start, sealPart(1, value), data, settled]), initial(), 'requested');
