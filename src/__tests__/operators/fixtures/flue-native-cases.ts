@@ -261,7 +261,7 @@ export function registerNativeDispatcherCases(
       } });
       expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: expect.any(Number), truncated: false, latest: {
         category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
-        operationLimit: 128, requiredOperationCount: 5, sealed: true,
+        operationLimit: 1024, requiredOperationCount: 5, sealed: true,
       } });
       const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number; latest: { operationCount: number } };
       // Observations count accepted stream records, not unique producer tool calls.
@@ -316,7 +316,7 @@ export function registerNativeDispatcherCases(
             commentMatches: true, researchSourceRequests: 1 });
           expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: expect.any(Number), truncated: false, latest: {
             category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
-            operationLimit: 128, requiredOperationCount: 5, sealed: true,
+            operationLimit: 1024, requiredOperationCount: 5, sealed: true,
           } });
           const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number } | undefined;
           expect.soft(Number.isSafeInteger(seal?.observations), scenario).toBe(true);

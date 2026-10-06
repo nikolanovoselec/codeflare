@@ -747,7 +747,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Prior admission/production-composition and real Access-helper/source tests passed CI36852325679attempt2 at51f976d3. Configurable source allowance and larger real journal/cache/native proof await this correction's integrated CI. Live settlement/collection, authenticated selected effects, SDK release and physical cleanup remain separate unverified gates.
+**Verification:** Admission, configurable capacity and SQL-backed 1024-entry/cache recovery passed CI37493543646attempt2 atc1b78224. Host compatibility with the exact compiler-produced f1a0becc Dispatcher candidate awaits this fixture alignment's integrated CI. Live settlement/collection, authenticated selected effects, SDK release and physical cleanup remain separate unverified gates.
 
 **Status:** Implemented
 

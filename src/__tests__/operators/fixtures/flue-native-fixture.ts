@@ -769,7 +769,7 @@ export class FlueDispatcherAgent extends Pinned {
       await this.ctx.storage.put('fixture:journey-receipt-count', Object.keys(operations).length);
       return Response.json({ operationId: operation.operationId, generation: 1, requestDigest: 'a'.repeat(64),
         responseDigest: 'b'.repeat(64), method: source.method ?? 'GET', url: source.url,
-        phase: 'completed', operationCount: Object.keys(operations).length, operationLimit: 128 });
+        phase: 'completed', operationCount: Object.keys(operations).length, operationLimit: 1024 });
     }
     const researchBodyBytes = await this.ctx.storage.get<number>('fixture:research-body-bytes');
     const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
