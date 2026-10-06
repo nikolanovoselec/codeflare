@@ -2183,9 +2183,17 @@ export class OperatorActivity extends Agent {
     try {
       if (!state.drive || !state.receipt || !isManagementReceipt(state.receipt)
         || state.receipt.selection.operator.profile !== 'dispatcher') return;
-      const generation = state.drive.generation;
       const journal = await this.ctx.storage.get<DispatcherJournal>(DISPATCHER_JOURNAL);
-      if (!journal || journal.generation !== generation) return;
+      if (!journal) return;
+      let generation = state.drive.generation;
+      if (journal.generation !== generation) {
+        const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (state.drive.status !== 'unknown' || !lease || lease.status !== 'unknown'
+          || generation !== lease.generation + 1 || journal.generation !== lease.generation
+          || lease.inputDigest !== state.receipt.intentDigest
+          || lease.artifactDigest !== state.receipt.selection.release.bundleDigest) return;
+        generation = lease.generation;
+      }
       const prefix = `dispatcher:operation:${generation}:`;
       let after: string | undefined;
       const latest: Array<{ key: string; record: DispatcherOperationRecord }> = [];
