@@ -345,6 +345,11 @@ jobs:
             libevent_version=$(dpkg-query -W -f="\${Version}" libevent-core-2.1-7)
             dpkg --compare-versions "$libevent_version" ge "2.1.12-stable-8+deb12u1"
             printf "libevent-core-2.1-7=%s\n" "$libevent_version"
+            for package in libperl5.36 perl perl-base perl-modules-5.36; do
+              perl_version=$(dpkg-query -W -f="\${Version}" "$package")
+              dpkg --compare-versions "$perl_version" ge "5.36.0-7+deb12u4"
+              printf "%s=%s\n" "$package" "$perl_version"
+            done
           '
 
       - name: Verify packaged native Pi Chat and official Claude
