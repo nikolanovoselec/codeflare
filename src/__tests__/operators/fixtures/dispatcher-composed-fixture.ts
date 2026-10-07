@@ -244,7 +244,11 @@ export class OperatorDispatcherCapability extends ProductionCapability {
       await control.duplicate(responses.map(response => response.status), await Promise.all(responses.map(async response => hash(await response.clone().text()))));
       return responses[0];
     }
-    const response = await super.fetch(request);
+    const upstream = await super.fetch(request);
+    // Own the exact response bytes before ancillary fault-control RPCs; do not retain their live stream.
+    const response = new Response(await upstream.arrayBuffer(), {
+      status: upstream.status, statusText: upstream.statusText, headers: upstream.headers,
+    });
     const operationId = await control.sourceId();
     if (response.ok && operationId) {
       const receipt = await super.fetch(new Request('https://operator.internal/v1/dispatcher/receipt', { method: 'POST',
