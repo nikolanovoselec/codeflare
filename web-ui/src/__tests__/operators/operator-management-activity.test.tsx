@@ -57,7 +57,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     render(() => <OperatorManagement />);
     const pane = await screen.findByRole('region', { name: 'Prepare assessment' });
     await within(pane).findByText(/repository.*(?:not configured|missing|configure|required)|(?:not configured|missing|configure|required).*repository/i);
-    const back = within(pane).getByRole('link', { name: 'Back to settings' });
+    const back = within(pane).getByRole('link', { name: 'Back to operators' });
     expect(back).toHaveAttribute('href', expect.stringContaining('/operators'));
     const start = within(pane).getByRole('button', { name: 'Start assessment' });
     expect(start).toBeDisabled();

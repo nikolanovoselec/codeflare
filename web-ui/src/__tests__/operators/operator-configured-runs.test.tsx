@@ -70,7 +70,12 @@ async function open() {
   window.history.replaceState({}, '', '/operators');
   render(() => <OperatorManagement />);
   fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
-  return screen.findByRole('region', { name: 'Installed version' });
+  const installed = await screen.findByRole('region', { name: 'Installed version' });
+  const configuration = await within(installed).findByRole('combobox', { name: 'Installed configuration' });
+  if (!(configuration as HTMLSelectElement).value) {
+    fireEvent.change(configuration, { target: { value: 'installation-1' } });
+  }
+  return installed;
 }
 async function settings() {
   return screen.findByRole('group', { name: 'Run settings' });
