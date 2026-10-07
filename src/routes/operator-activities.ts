@@ -173,17 +173,6 @@ async function handleBrowserDetail(c: Context<ActivityRouteEnv>) {
   const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 }
-app.get('/:activityId/failure-inspection', async c => {
-  c.header('Cache-Control', 'no-store');
-  const activityId = c.req.param('activityId');
-  if (c.env.CLOUDFLARE_WORKER_NAME !== 'codeflare-enterprise-integration'
-    || activityId !== '9024a801-8bbd-426a-8330-59fdf5b8d688'
-    || c.get('operatorHuman').human.email !== 'nikola.novoselec@gmail.com'
-    || c.req.header('x-requested-with') !== 'XMLHttpRequest'
-    || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const value = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).inspectDispatcherFailure(c.get('ownerKey'));
-  return value ? c.json(value) : c.notFound();
-});
 app.get('/:activityId', handleBrowserDetail);
 app.get('/:activityId/result', handleBrowserDetail);
 app.post('/:activityId/result', async c => {

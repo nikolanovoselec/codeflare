@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
+- Add native compiled-SDK coverage for the corrected Dispatcher invocation/scope retention after a premature model stop (REQ-OPERATOR-048 AC4), independently of retained historical compatibility fixtures. Hosted verification remains pending.
+
+- Remove the temporary retained-failure reader, HTTP route, AC7 and inspection-only tests after the approved owner read identified the Dispatcher steering-signal JSON parse failure. REQ-OPERATOR-079 retains its six logging criteria; REQ-OPERATOR-027 covers the retired endpoint's 404. No execution, collection, SDK release or unknown-generation fence changes. Hosted removal delivery remains pending.
+
 - Remove the arbitrary retained-reason size rejection from the temporary private inspection (REQ-OPERATOR-079 AC7), as requested. Return the complete nonempty reason while preserving all access, attribution and execution fences. Remove reason-size test coverage as requested; hosted verification of this correction remains pending.
 
 - Add the authorized temporary retained-failure read for fenced Activity `9024a801-8bbd-426a-8330-59fdf5b8d688` in Enterprise Integration (REQ-OPERATOR-079 AC7). Preserve owner authentication, immutable attribution, unknown/result fences and no raw-error logging; never load or contact the child. Remove after inspection. Hosted verification and diagnosed cause remain pending.

@@ -34,7 +34,7 @@ export type NativeJourneyDiagnostic = {
   firstFailedTool: string | null;
   tools: Array<{ tool: string; state: string; reason: string }>;
 };
-export type NativeJourneyScenario = 'ordinary' | 'overflow-once' | 'transient-interruption-once' | 'finish-undiscovered' | 'seal-undiscovered';
+export type NativeJourneyScenario = 'ordinary' | 'overflow-once' | 'transient-interruption-once' | 'finish-undiscovered' | 'seal-undiscovered' | 'premature-stop-once';
 type NativeInferenceWire = {
   admission: 'accepted' | 'rejected'; stage: 'normal' | 'summary';
   tokenField: 'absent' | 'canonical' | 'completion-alias' | 'dual' | 'other';
@@ -134,8 +134,8 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
       return { ok: false, reason: 'fixture-artifact-rejected' };
     }
     // Closed host-only scenarios cannot change artifact modules or SDK settings.
-    if ((journeyScenario !== undefined && (!journey || researchBodyBytes !== 131072
-      || !['ordinary', 'overflow-once', 'transient-interruption-once', 'finish-undiscovered', 'seal-undiscovered'].includes(journeyScenario)))
+    if ((journeyScenario !== undefined && (!journey || (journeyScenario !== 'premature-stop-once' && researchBodyBytes !== 131072)
+      || !['ordinary', 'overflow-once', 'transient-interruption-once', 'finish-undiscovered', 'seal-undiscovered', 'premature-stop-once'].includes(journeyScenario)))
       || (admittedInferenceBytes !== undefined && (!journeyScenario || admittedInferenceBytes !== 1048576))) {
       return { ok: false, reason: 'fixture-scenario-rejected' };
     }
@@ -899,6 +899,11 @@ export class FlueDispatcherAgent extends Pinned {
     }
     const turn = scenario ? await this.ctx.storage.get<number>('fixture:journey-domain-turn') ?? 0
       : Object.values(operations).filter(item => item.path === operation.path).length;
+    if (scenario === 'premature-stop-once' && !await this.ctx.storage.get('fixture:journey-steered')) {
+      await this.ctx.storage.put('fixture:journey-steered', true);
+      await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+      return sse([{ choices: [{ index: 0, delta: { content: 'Work remains incomplete.' }, finish_reason: 'stop' }] }]);
+    }
     // Synthetic upstream model stop after a genuine failed producer completion tool.
     if ((scenario === 'finish-undiscovered' && turn > 0) || (scenario === 'seal-undiscovered' && turn > 1)) {
       await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
@@ -919,7 +924,7 @@ export class FlueDispatcherAgent extends Pinned {
         [...(await this.ctx.storage.get<number[]>('fixture:journey-inference-bytes') ?? []), bytes]);
     }
     const injectAt = scenario === 'overflow-once' ? researchTurns + 1 : 2;
-    if (scenario && scenario !== 'ordinary' && turn === injectAt
+    if (scenario && scenario !== 'ordinary' && scenario !== 'premature-stop-once' && turn === injectAt
       && !await this.ctx.storage.get('fixture:journey-injected')) {
       if (scenario === 'overflow-once') {
         // Validate actual SDK model-facing tool results before injecting overflow.

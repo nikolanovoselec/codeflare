@@ -113,10 +113,13 @@ export function registerNativeDispatcherCases(
     expect(predicate(value), JSON.stringify(value)).toBe(true);
     return value;
   }
-  async function pinnedArtifact(journey = false) {
-    const path = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_ARTIFACT : process.env.DISPATCHER_NATIVE_ARTIFACT;
-    const expectedDigest = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SHA256 : process.env.DISPATCHER_NATIVE_SHA256;
-    const expectedSource = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA : process.env.DISPATCHER_NATIVE_SOURCE_SHA;
+  async function pinnedArtifact(journey = false, steering = false) {
+    const path = steering ? process.env.DISPATCHER_STEERING_NATIVE_ARTIFACT
+      : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_ARTIFACT : process.env.DISPATCHER_NATIVE_ARTIFACT;
+    const expectedDigest = steering ? process.env.DISPATCHER_STEERING_NATIVE_SHA256
+      : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SHA256 : process.env.DISPATCHER_NATIVE_SHA256;
+    const expectedSource = steering ? process.env.DISPATCHER_STEERING_NATIVE_SOURCE_SHA
+      : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA : process.env.DISPATCHER_NATIVE_SOURCE_SHA;
     expect(path, 'CI must supply the real profile-built artifact').toBeTruthy();
     expect(expectedDigest, 'CI must bind the approved artifact bytes, not calculate and trust a new pin').toMatch(/^[a-f0-9]{64}$/);
     expect(expectedSource, 'CI must pin the profile source revision').toMatch(/^[a-f0-9]{40}$/);
@@ -174,6 +177,35 @@ export function registerNativeDispatcherCases(
 
   if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {
     beforeEach(() => harness.reset(), 60_000);
+    it('REQ-OPERATOR-048: authentic SDK finish steering continues the original invocation to exact assessment', async () => {
+      const pinned = await pinnedArtifact(true, true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, journeyScenario: 'premature-stop-once' })).toMatchObject({ ok: true });
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission.status).toBe(202);
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      const end = Date.now() + 20_000;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        if (projection.outcome) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      expect(projection).toMatchObject({ outcome: 'completed', writes: 1, result: { repository: 'authorized/project', results: [] } });
+      const evidence = await snapshot(id);
+      const operations = Object.values(evidence.journeyOperations ?? {});
+      expect(operations.filter(item => item.path === '/v1/dispatcher/source').map(item => item.body.url)).toEqual([
+        'https://api.github.com/repos/authorized/project',
+        'https://api.github.com/users/renovate%5Bbot%5D',
+        'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=1&page=1',
+      ]);
+      expect(evidence.external).toEqual([]);
+      expect(evidence.activity.sessionId).toBeNull();
+    }, 35_000);
+
     it.each([false, true])('REQ-OPERATOR-048: projects one exact empty discovery result through real SDK updates with oversized source metadata=%s', async oversizedSourceMetadata => {
       const pinned = await pinnedArtifact(true);
       const intent = await harness.queuedActivity();

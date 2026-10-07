@@ -42,7 +42,6 @@ const summary = {
 
 function fixture() {
   const activity = {
-    inspectDispatcherFailure: vi.fn(async (): Promise<{ reason: string } | null> => ({ reason: 'SYNTHETIC_PRIVATE_EXCEPTION' })),
     ownsPrepared: vi.fn(async () => true),
     getPreparedInstallationId: vi.fn(async () => null),
     start: vi.fn(async () => ({ ok: true, phase: 'queued' })),
@@ -93,25 +92,16 @@ function fixture() {
 beforeEach(() => { vi.clearAllMocks(); accessState.active = true; });
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
-  it.each(['eligible', 'environment', 'activity', 'owner', 'xhr', 'ownership', 'access', 'missing'])(
-    'REQ-OPERATOR-079: private failure HTTP read respects %s restrictions and no-store', async boundary => {
-      const f = fixture();
-      const previousEmail = claims.email;
-      const id = '9024a801-8bbd-426a-8330-59fdf5b8d688';
-      try {
-        claims.email = boundary === 'owner' ? previousEmail : 'nikola.novoselec@gmail.com';
-        f.env.CLOUDFLARE_WORKER_NAME = boundary === 'environment' ? 'codeflare-enterprise' : 'codeflare-enterprise-integration';
-        f.registry.getOwnedActivity.mockResolvedValue(boundary === 'ownership' ? null : { ...summary, activityId: id });
-        if (boundary === 'access') accessState.active = false;
-        if (boundary === 'missing') f.activity.inspectDispatcherFailure.mockResolvedValue(null);
-        const response = await f.request(`/${boundary === 'activity' ? 'foreign' : id}/failure-inspection`, 'GET', undefined, boundary !== 'xhr');
-        expect(response.status).toBe(boundary === 'eligible' ? 200 : boundary === 'access' ? 403 : 404);
-        if (boundary === 'eligible') {
-          expect(response.headers.get('cache-control')).toBe('no-store');
-          expect(await response.json()).toEqual({ reason: 'SYNTHETIC_PRIVATE_EXCEPTION' });
-        } else expect(await response.text()).not.toContain('SYNTHETIC_PRIVATE_EXCEPTION');
-      } finally { claims.email = previousEmail; accessState.active = true; }
-    });
+  it('REQ-OPERATOR-027: retired private failure inspection returns 404 for the approved owner', async () => {
+    const f = fixture();
+    const previousEmail = claims.email;
+    try {
+      claims.email = 'nikola.novoselec@gmail.com';
+      f.env.CLOUDFLARE_WORKER_NAME = 'codeflare-enterprise-integration';
+      const response = await f.request('/9024a801-8bbd-426a-8330-59fdf5b8d688/failure-inspection');
+      expect(response.status).toBe(404);
+    } finally { claims.email = previousEmail; }
+  });
   it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
     const { request, registry, activity } = fixture();
     const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
