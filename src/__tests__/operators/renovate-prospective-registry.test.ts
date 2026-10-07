@@ -1,11 +1,15 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry } from '../../operators/registry';
+import { OperatorRegistry, type CurrentProspectiveRegistration } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
+import { Hono } from 'hono';
+import * as access from '../../lib/access';
+import activityRoutes from '../../routes/operator-activities';
+import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
 import type { Env } from '../../types';
 
 const repoId = 424242, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
@@ -255,6 +259,77 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
 
 
 describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  it('authenticates configured repository metadata with one fixed parent GET before activation and retains the target and revisions through scheduled delivery', () => fixture(async ({ registry, restart, selection, environment }) => {
+    const selected = selection as { controlsRevision: number; installation: { revision: number }; operator: { revision: number } };
+    selected.controlsRevision = 13;
+    selected.installation.revision = 7;
+    selected.operator.revision = 11;
+    const authority = { human: claims('a@example.test'), accessJwt: 'a-jwt' };
+    const human = vi.spyOn(access, 'requireOperatorHumanContext').mockResolvedValue(authority as never);
+    const authenticated = vi.spyOn(access, 'authenticateRequest').mockResolvedValue({
+      user: { email: 'a@example.test', role: 'admin' }, bucketName: 'owner-bucket',
+    } as never);
+    type ScheduledGeneration = { registrationId: string; installationId: string; bucket: string;
+      sessionId: string; sessionGeneration: number };
+    let scheduled: ScheduledGeneration | null = null;
+    const session = { armRenovateScan: async (generation: ScheduledGeneration) => {
+      scheduled = structuredClone(generation);
+      return { ok: true };
+    } };
+    const reads: Array<{ url: string; method: string; redirect: RequestRedirect }> = [];
+    let createdAt = '';
+    const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+      reads.push({ url: request.url, method: request.method, redirect: request.redirect });
+      const url = new URL(request.url);
+      if (url.pathname === '/repos/acme/updates') return Response.json({
+        id: repoId, full_name: 'acme/updates', default_branch: 'trunk' });
+      if (url.pathname !== '/repos/acme/updates/pulls') throw Error('Unexpected protected path');
+      return Response.json([{ number: 1300, state: 'open', draft: false, created_at: createdAt,
+        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+        base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }]);
+    }, connect: () => { throw Error('Unexpected socket'); } }) };
+    const bindings = { ...environment, ENTERPRISE_MODE: 'active',
+      OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: {},
+      CONTAINER: { idFromName: (name: string) => name, get: () => session, getByName: () => session },
+    } as unknown as Env;
+    const app = new Hono<{ Bindings: Env }>().route('/api/operator-activities', activityRoutes);
+    try {
+      const response = await app.fetch(new Request('https://owner.example/api/operator-activities/renovate/activation', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest',
+          'cf-access-authenticated-user-email': 'a@example.test' },
+        body: JSON.stringify({ installationId: 'dispatcher-install', sessionId: 'asession01', sessionGeneration: 3 }),
+      }), bindings, { exports, waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext);
+      expect(response.status).toBe(202);
+      const result = await response.json() as { activatedAt: string; repositoryId: number };
+      expect(result).toMatchObject({ repositoryId: repoId, activatedAt: expect.any(String) });
+      // Intentional parent HTTP contract, coupled to the real persisted registration below.
+      expect(reads).toEqual([{ url: 'https://api.github.com/repos/acme/updates', method: 'GET', redirect: 'manual' }]);
+      const generation = scheduled as ScheduledGeneration | null;
+      expect(generation).toMatchObject({ installationId: 'dispatcher-install', bucket: 'owner-bucket',
+        sessionId: 'asession01', sessionGeneration: 3 });
+      if (!generation) throw Error('No scheduled generation');
+      const registered = await restart().currentProspectiveRenovateRegistration(generation.registrationId);
+      expect(registered).toMatchObject({ repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk',
+        controlsRevision: 13, installationRevision: 7, operatorRevision: 11,
+        releaseId: 'release', bundleDigest: 'c'.repeat(64), repetitionIntervalSeconds: 900,
+        activatedAt: result.activatedAt, bucket: generation.bucket, sessionId: generation.sessionId,
+        sessionGeneration: generation.sessionGeneration });
+      createdAt = new Date(Date.parse(result.activatedAt) + 1).toISOString();
+      const candidates = await listProspectiveRenovatePrs({ env: bindings, exports,
+        registration: registered as CurrentProspectiveRegistration,
+        current: async () => await restart().currentProspectiveRenovateRegistration(generation.registrationId) !== null });
+      expect(candidates).toMatchObject([{ repository: 'acme/updates', repositoryId: repoId,
+        baseBranch: 'trunk', pullRequest: 1300, head, createdAt }]);
+      const reservation = await registry.reserveProspectiveRenovateActivity({ registrationId: generation.registrationId,
+        ...candidates[0], activityId: 'handoff-activity' });
+      expect(reservation).toMatchObject({ ok: true, activityId: 'handoff-activity' });
+      expect(await restart().readProspectiveRenovateAdmission('handoff-activity')).toMatchObject({
+        repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk',
+        actor: { registrationId: generation.registrationId, sessionId: generation.sessionId,
+          sessionGeneration: generation.sessionGeneration },
+      });
+    } finally { human.mockRestore(); authenticated.mockRestore(); }
+  }));
   it.each([{}, { renovate: { repository: 'acme/updates' } },
     { renovate: { repository: 'acme/updates', automaticRuns: false } },
     { renovate: { automaticRuns: true, repetitionIntervalSeconds: 900 } }])

@@ -8,7 +8,8 @@ const row = (number: number) => ({ number, state: 'open', created_at: '2026-09-2
   user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
   draft: false, head: { sha: 'a'.repeat(40) }, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } });
 const next = `${root}/pulls?state=open&per_page=100&page=2`;
-function scan(pages: Array<{ rows: unknown[]; link?: string }>, metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }, current: () => Promise<boolean> = async () => true) {
+function scan(pages: Array<{ rows: unknown[]; link?: string }>, metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }, current: () => Promise<boolean> = async () => true,
+  onResponse: (request: Request) => void = () => {}) {
   return listProspectiveRenovatePrs({ env: {} as Env,
     registration: { bucket: 'owner', human: { email: 'owner@example.test' },
       activatedAt: '2026-09-27T00:00:00.000Z', repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
@@ -16,10 +17,16 @@ function scan(pages: Array<{ rows: unknown[]; link?: string }>, metadata: unknow
     current,
     exports: { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
       const url = new URL(request.url);
-      if (url.href === root) return metadata instanceof Response ? metadata : Response.json(metadata);
+      if (url.href === root) {
+        const response = metadata instanceof Response ? metadata : Response.json(metadata);
+        onResponse(request);
+        return response;
+      }
       const page = pages[Number(url.searchParams.get('page')) - 1];
       if (!page) throw Error('Unprovided external GitHub page');
-      return Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
+      const response = Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
+      onResponse(request);
+      return response;
     }, connect: () => { throw Error('Prospective GitHub reads do not open sockets'); } }) },
   });
 }
@@ -70,8 +77,10 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect((await scan([{ rows }])).map(value => value.pullRequest)).toEqual([1]);
   });
   it('denies an entire observation when current authority changes after protected I/O', async () => {
-    let checks = 0;
-    await expect(scan([{ rows: [row(1)] }], undefined, async () => ++checks < 3)).rejects.toThrow();
+    let authorized = true;
+    await expect(scan([{ rows: [row(1)] }], undefined, async () => authorized, request => {
+      if (new URL(request.url).pathname.endsWith('/pulls')) authorized = false;
+    })).rejects.toThrow();
   });
   it('preserves the ten-page bound rather than accepting an incomplete large scan', async () => {
     await expect(scan(Array.from({ length: 10 }, () => ({ rows: Array.from({ length: 100 }, (_, i) => row(i + 1)) }))))

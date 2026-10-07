@@ -497,16 +497,6 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     return { ...f, selected, admitted, armed, reads, command: {
       installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
   }
-  it('authenticates configured repository metadata with one fixed parent GET before activation', async () => {
-    const f = activationFixture();
-    const response = await f.request('/renovate/activation', 'POST', f.command);
-    expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ repositoryId: 424242 });
-    expect(f.reads.map(request => ({ url: request.url, method: request.method, redirect: request.redirect })))
-      .toEqual([{ url: 'https://api.github.com/repos/acme/updates', method: 'GET', redirect: 'manual' }]);
-    expect(f.admitted).toHaveLength(1);
-    expect(f.armed).toHaveLength(1);
-  });
   it.each(['unset', 'off', 'redirect', 'foreign-name', 'unsafe-id', 'no-branch', 'changed-selection', 'revoked-session'])
     ('denies %s before persisting or arming a registration', async fault => {
       const f = activationFixture();

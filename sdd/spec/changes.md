@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
+- Correct the REQ-OPERATOR-061 amendment's phase to Planned and qualify previous-contract verification after exact-head RED run `37642618938`. Keep AC1–3 focused on activation, complete observation and current admission authority; preserve configured input, retention, cadence, automation-disable and settings-invalidation predicates as anchored cross-cutting constraints. AC4–7 and their by-number obligations remain unchanged. Repair the directly renamed REQ-OPERATOR-058 AC3 test anchor; add no runtime or live-acceptance claim.
+
 - Amend REQ-OPERATOR-061 for required configured Renovate repository input without a fallback or manual override, an independent automatic-runs toggle, and a configurable interval defaulting to one hour. Specify revision-bound activation and disabled/stale callback fences. Add the complete backend/UI behavioral test batch; runtime implementation and hosted verification are pending.
 
 - Add native compiled-SDK coverage for the corrected Dispatcher invocation/scope retention after a premature model stop (REQ-OPERATOR-048 AC4), independently of retained historical compatibility fixtures. Hosted verification remains pending.
