@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Private, non-authorizing producer wire. No free text, values, URLs or caller identity. */
-export const producerRoles = ['discover', 'research', 'decide', 'seal', 'comment', 'merge', 'finish', 'agent', 'provider'] as const;
+const producerRoles = ['discover', 'research', 'decide', 'seal', 'comment', 'merge', 'finish', 'agent', 'provider'] as const;
 export const producerCodes = ['none', 'unknown', 'schema-validation', 'target-admission', 'persisted-target',
   'repository-scope', 'immutable-ref', 'discovery-incomplete', 'source-incomplete', 'source-http', 'source-redirect',
   'source-transport', 'source-format', 'source-secret', 'source-provenance', 'decision-missing', 'decision-conflict',

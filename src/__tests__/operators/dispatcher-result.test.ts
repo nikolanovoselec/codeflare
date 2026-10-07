@@ -30,6 +30,30 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(JSON.stringify(final)).not.toMatch(/PRIVATE_|foreign-call|merge/);
     expect(final.result).toBeUndefined();
   });
+  it('REQ-OPERATOR-079: requested reset overflow reports tool truncation without consuming completion or result authority', async () => {
+    const parts = Array.from({ length: 2049 }, (_, index) => ({ type: 'dynamic-tool', toolName: 'decide_renovate',
+      toolCallId: `decision-${index}`, state: index === 2048 ? 'output-error' : 'output-available' }));
+    const snapshot = { conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested', parts: [
+      ...parts, { type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: 'finish', state: 'output-available' },
+      { type: 'data-assessment', data: result }] }], settlements: [{ submissionId: 'requested', outcome: 'completed' }] };
+    const final = await readDispatcherUpdates(response([event(1, { type: 'conversation-reset', snapshot })]), initial(), 'requested');
+    expect(final.tools?.calls).toHaveLength(2048);
+    expect(final.tools?.truncated).toBe(true);
+    expect(final.completion).toEqual({ calls: [{ id: 'finish', outcome: 'succeeded' }], truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+  });
+  it.each([false, true])('REQ-OPERATOR-079: foreign reset overflow with parts-first=%s cannot truncate requested tool observations', async partsFirst => {
+    const parts = Array.from({ length: 2049 }, (_, index) => ({ type: 'dynamic-tool', toolName: 'decide_renovate',
+      toolCallId: `foreign-${index}`, state: 'output-error' }));
+    const foreign = partsFirst ? { parts, id: 'foreign', submissionId: 'another' } : { id: 'foreign', submissionId: 'another', parts };
+    const snapshot = { conversationId: 'conversation', messages: [foreign, { id: 'answer', submissionId: 'requested', parts: [
+      { type: 'dynamic-tool', toolName: 'research_renovate', toolCallId: 'requested-tool', state: 'output-available' },
+      { type: 'data-assessment', data: result }] }], settlements: [{ submissionId: 'requested', outcome: 'completed' }] };
+    const final = await readDispatcherUpdates(response([event(1, { type: 'conversation-reset', snapshot })]), initial(), 'requested');
+    expect(final.tools).toEqual({ calls: [{ id: 'requested-tool', role: 'research', outcome: 'succeeded' }], truncated: false });
+    expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
+    expect(final.completion).toBeUndefined();
+  });
   // Intentional SDK diagnostic wire: closed outcomes, never tool inputs/outputs/errors.
   it.each(['tool-output', 'tool-output-error'])('REQ-OPERATOR-063: observes completion %s across pages without retaining private payloads', async type => {
     const requested = event(1, { type: 'tool-input', messageId: 'answer', toolCallId: 'finish-1',

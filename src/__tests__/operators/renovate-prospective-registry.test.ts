@@ -53,6 +53,7 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
     const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
       enabled: true, revision: 1, releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
       operator: { id: 'dispatcher', operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
+        policy: { capabilities: ['fetch'], resourceProfileId: null },
         invokers: { users: ['a@example.test', 'z@example.test'], groups: [] } },
       release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({
         id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };

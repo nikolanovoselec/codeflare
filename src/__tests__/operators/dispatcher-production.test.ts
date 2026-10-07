@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Agent } from 'agents';
-import { OperatorActivity, OperatorDispatcherCapability, createOperatorIntentDigest } from '../../operators/activity';
+import { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail, createOperatorIntentDigest } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
@@ -726,6 +726,20 @@ async function start(f: Parameters<Parameters<typeof fixture>[0]>[0]) {
 }
 
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
+  it.each([true, false])('REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records', async loggingEnabled => {
+    const records: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { records.push(String(value)); });
+    try {
+      const tail = new OperatorDispatcherTail({ props: { activityId: 'activity', generation: 1, loggingEnabled } } as unknown as ExecutionContext,
+        env as unknown as ConstructorParameters<typeof OperatorDispatcherTail>[1]);
+      await tail.tail([{ logs: [{ message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] },
+        { message: ['Dispatcher inference boundary', { stage: 'fetch-rejected', reason: 'PRIVATE_TAIL_CONTENT' }] }] }]);
+      if (loggingEnabled) expect(records.map(value => JSON.parse(value).data)).toEqual([{ activityId: 'activity', generation: 1, stage: 'fetch-rejected' }]);
+      else expect(records).toEqual([]);
+      expect(records.join('')).not.toContain('PRIVATE_TAIL_CONTENT');
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  });
   it('binds only this Activity and generation into the child Tail Worker', () => fixture(async f => {
     await start(f);
     await f.deliverTail([{ logs: [{ message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] }] }]);

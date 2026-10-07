@@ -152,7 +152,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     || (next.batch === state.position.batch && next.index <= state.position.index))) return;
   if (chunk.unmatchedAssessment === true) state.unmatchedAssessment = true;
   if (chunk.type === 'conversation-reset') {
-    const snapshot = chunk.snapshot as { messages?: Array<{ id?: string; submissionId?: string; diagnosticTruncated?: boolean;
+    const snapshot = chunk.snapshot as { messages?: Array<{ id?: string; submissionId?: string; diagnosticTruncated?: boolean; toolsTruncated?: boolean;
       parts?: Array<{ type?: string; data?: unknown; toolName?: string; toolCallId?: string; state?: string; diagnosticTruncated?: boolean }> }>;
       settlements?: Array<{ submissionId?: string; outcome?: string; error?: unknown }> } | undefined;
     if (!snapshot || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.settlements)
@@ -163,6 +163,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
       if (typeof message.id !== 'string' || !Array.isArray(message.parts)) throw new Error('Dispatcher reset message unavailable');
       state.messageIds.push(message.id);
       if (message.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
+      if (message.toolsTruncated) (state.tools ??= { calls: [], truncated: false }).truncated = true;
       for (const part of message.parts) {
         if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
         if (part.type === 'data-dispatcher-readiness') observeReadiness(state, part.data);
@@ -352,6 +353,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
           if (otherTool && toolParts < MAX_TOOL_OBSERVATIONS) { toolParts++; }
           else if (!completionPart || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
             if (completionPart) put(['snapshot', 'messages', frame.path[3], 'diagnosticTruncated'], true, false);
+            if (otherTool) put(['snapshot', 'messages', frame.path[3], 'toolsTruncated'], true, false);
             for (const field of [...diagnosticFields, 'diagnosticTruncated']) delete part[field];
           } else diagnosticParts++;
         }

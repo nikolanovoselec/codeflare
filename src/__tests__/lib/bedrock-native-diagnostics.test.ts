@@ -38,6 +38,17 @@ const reason = (stop_reason: string) => frame({ type: 'message_delta', delta: { 
 // Structured logs are an intentional privacy/diagnostic wire contract. Every
 // diagnostic assertion is paired with the actual unchanged provider-wire outcome.
 describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
+  it.each([true, false])('REQ-OPERATOR-079: disabled native logging preserves successful=%s provider completion', async success => capture(async events => {
+    const storage = replay();
+    storage.diagnosticContext = { activityId: 'activity', generation: 1, loggingEnabled: false };
+    const source = success ? [start, reason('end_turn'), stop] : [start];
+    const response = await adaptBedrockAnthropicResponse(stream(source), 'eventstream', storage);
+    const text = await response.text();
+    if (success) expect(text).toContain('"finish_reason":"stop"');
+    else { expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR'); expect(text).not.toMatch(/"finish_reason":"[^"]+"/); }
+    expect(text).toContain('data: [DONE]');
+    expect(observations(events)).toEqual([]);
+  }));
   it.each([
     ['missing-stop', () => [start], 'missing-stop'],
     ['truncated-frame', () => [start, stop.subarray(0, 9)], 'truncated-frame'],

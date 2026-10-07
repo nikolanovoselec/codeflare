@@ -855,6 +855,44 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 ---
 
+<a id="req-operator-079-shared-execution-diagnostic-control"></a>
+### REQ-OPERATOR-079: Shared execution diagnostic control
+
+**Intent:** Users control execution diagnostics together while retaining bounded, private, non-authorizing failure observations.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Strict private producer reports expose closed failure codes, fingerprints, counts and evidence flags under parent-owned correlation, without charging operations or granting result authority. <!-- @impl: src/operators/dispatcher-diagnostic-wire.ts::producerDiagnosticSchema --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: producer diagnostics identify citation failure without charging, authority or private content) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: producer failure reports have an independent bounded budget without consuming execution authority) -->
+2. Exact-submission SDK tool observations diagnose outcomes outside callback boundaries, including reset snapshots, without retaining private tool bodies or changing collection fences. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-078: observes domain SDK %s outside callback boundaries without private input or error content) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-078: reset observes exact-submission domain failure without retaining foreign tools or private content) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-079: requested reset overflow reports tool truncation without consuming completion or result authority) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-079: foreign reset overflow with parts-first=%s cannot truncate requested tool observations) -->
+3. Failed-settlement fingerprints identify observed failures with opaque reason digests and closed public codes, without exposing reasons or granting recovery. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: SDK failure fingerprint identifies a public rejection without exposing the reason or granting recovery) -->
+4. One admitted operator logging setting suppresses all execution diagnostic channels together, preserving effects, original failures, result fences and independent security audits. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-049/078: one disabled logging setting suppresses execution diagnostics without changing fences or effects) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records) --> <!-- @test: src/__tests__/lib/bedrock-native-diagnostics.test.ts (REQ-OPERATOR-079: disabled native logging preserves successful=%s provider completion) -->
+5. One Enable logging checkbox saves the operator-wide boolean with existing revision/disable/re-enable fences; omitted settings retain enabled compatibility, independent of installation restrictions. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (loads logging=%s through the public client and saves the single execution-diagnostics checkbox) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (persists %s execution logging independently of installation restrictions and Environment limits) -->
+6. Response-tool observations expose bounded allowlisted argument shape, mark incomplete sampling and exclude private values or unknown names. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceResponseObservation --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (reconstructs fragmented SSE arguments and emits only allowlisted shape metadata) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (classifies malformed or non-object arguments without exposing their content: %s) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (marks call-cap overflow sampled and does not claim complete argument shape) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (marks %s sampling without inventing complete argument observations) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (suppresses response-shape logs when the admitted logging setting is disabled) -->
+
+**Constraints:**
+
+- Diagnostic privacy, trusted correlation and non-authorizing pipeline boundaries follow [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics).
+- Producer bodies are limited to2048bytes per report.
+- Each live generation permits2048 non-failed and64 failed producer reports independently of eight legacy reports.
+- SDK tool observations cap at2048; opaque correlations never enter logs.
+- Settlement fingerprints hash only the observed reason; readable codes require exact public implementation errors.
+- Unknown/private suffixes never become error text.
+- Logging is bounded and best-effort, not guaranteed delivery.
+- Changed-setting saves disable enabled installations for new runs until explicit re-enablement; effective no-ops preserve enablement.
+- Admitted runs retain their original logging configuration; security audits remain independent.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
+
+**Verification:** Named producer-wire, SDK-tool, settlement and management tests above retain their existing test names; authored coverage is bounded, and hosted CI, reviewed deployment and genuine end-to-end acceptance remain separate gates.
+
+**Status:** Implemented
+
+---
+
 <a id="req-operator-078-correlated-inference-pipeline-diagnostics"></a>
 ### REQ-OPERATOR-078: Correlated inference pipeline diagnostics
 
@@ -871,9 +909,6 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 5. Collection observations report the actual collection outcome without changing result availability. <!-- @impl: src/operators/activity.ts::OperatorActivity.collectBrowserResult --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates admission SDK settlement assessment collection and honest cleanup state) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (logs failed SDK settlement and collection refusal without pretending cleanup or success) -->
 6. Cleanup observations distinguish SDK bookkeeping release from physical cleanup status. <!-- @impl: src/operators/activity.ts::OperatorActivity.collectBrowserResult --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates admission SDK settlement assessment collection and honest cleanup state) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (classifies cleanup failure then cleanup-only recovery without losing the immutable result) -->
 7. Authorized owner detail reads inspect bounded historical journal observations without replay or lifecycle mutation. <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error without replay or lifecycle mutation) -->
-8. Strict private producer reports expose closed failure codes, fingerprints, counts and evidence flags under parent-owned correlation, without charging operations or granting result authority. <!-- @impl: src/operators/dispatcher-diagnostic-wire.ts::producerDiagnosticSchema --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: producer diagnostics identify citation failure without charging, authority or private content) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: producer failure reports have an independent bounded budget without consuming execution authority) -->
-9. Exact-submission SDK tool observations and failed-settlement fingerprints diagnose failures outside callback boundaries without retaining private tool bodies or changing collection fences. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-078: observes domain SDK %s outside callback boundaries without private input or error content) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-078: reset observes exact-submission domain failure without retaining foreign tools or private content) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: SDK failure fingerprint identifies a public rejection without exposing the reason or granting recovery) -->
-10. One admitted operator logging setting suppresses all execution diagnostic channels together, preserving effects, original failures, result fences and independent security audits. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-049/078: one disabled logging setting suppresses execution diagnostics without changing fences or effects) -->
 
 **Constraints:**
 
@@ -883,14 +918,13 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Response commitment classifies the bounded reader's overflow as `body-limit`; other read failures remain `body-read`, without raw errors or body content.
 - Owner inspection is read-only: ≤1,024 entries in32-record pages, ≤8 selected responses with matching stored digests; SSE sampling is ≤64KiB/256 final lines.
 - SDK bookkeeping release never establishes physical cleanup or completion authority.
-- Producer bodies are limited to2048bytes; each live generation permits2048 non-failed and64 failed producer reports independently of the eight legacy reports. SDK tool observations cap at2048; no opaque correlations enter logs.
-- Error fingerprints hash only the observed reason; readable codes require exact public implementation errors. Unknown/private suffixes never become error text. Best-effort logging is not guaranteed delivery.
+- Producer/SDK observations and shared logging control are owned by [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control).
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Named pipeline, lifecycle, native, producer-wire, SDK-tool and management tests above; hosted CI and deployed acceptance remain separate.
+**Verification:** Named pipeline, lifecycle, native and owner-inspection tests above; hosted CI and deployed acceptance remain separate.
 
 **Status:** Implemented
 
@@ -1499,11 +1533,11 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 5. Operator ceilings remain editable separately from installation restrictions; changes disable installations without discarding saved policies. <!-- @test: web-ui/src/__tests__/operators/operator-source-response.test.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response.test.tsx (REQ-OPERATOR-045/049: source default resets update only the selected ceiling or installation draft) --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (keeps saved missing grants, distinguishes unverified choices and shows local save feedback) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
 6. Responsive controls retain focus and scrolling for long names and errors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (retains the registration control and visible long error on a narrow viewport) --> <!-- @manual: Verify keyboard focus and scrolling on narrow and wide browser viewports. -->
 7. Mobile sections remain horizontal and retain save feedback beside the action without silently enabling installations. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (confirms a restriction save beside its action without silently enabling the installation) -->
-8. One Enable logging checkbox saves the operator-wide boolean with existing revision/disable/re-enable fences; omitted settings retain enabled compatibility, independent of installation restrictions. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (loads logging=%s through the public client and saves the single execution-diagnostics checkbox) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (persists %s execution logging independently of installation restrictions and Environment limits) -->
 
 **Constraints:**
 
 - The management surface cannot grant authority beyond server-side policy.
+- Operator-wide execution logging is owned by [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control).
 - Size guidance distinguishes received-response ceilings/allowances from model-input limits. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response.test.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) -->
 - MDI autorenew resets edit drafts to1MiB defaults, without saving or bypassing ceilings. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response.test.tsx (REQ-OPERATOR-045/049: source default resets update only the selected ceiling or installation draft) -->
 - Operator operation capacity defaults/reset to1024; guidance explains journal accounting and workload headroom, not guaranteed completion. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response.test.tsx (REQ-OPERATOR-045/049: explains and persists operation budget independently then resets to 1024) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response.test.tsx (REQ-OPERATOR-049: reset defaults remain subject to a lower inherited source ceiling) -->

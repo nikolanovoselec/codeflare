@@ -358,7 +358,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     const created = await request('/api/operator-management/operators', 'POST', registration);
     expect(created.status).toBe(201);
     const operator = await created.json() as { id: string; revision: number; policy: ManagementPolicy };
-    expect(operator.policy).toEqual(registration.policy);
+    expect(operator.policy).toEqual({ ...registration.policy, loggingEnabled: true });
     const installed = await request(`/api/operator-management/operators/${operator.id}/installations`, 'POST', {
       revision: operator.revision, name: 'default', policy: registration.policy,
     });
