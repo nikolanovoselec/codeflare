@@ -11,7 +11,7 @@ import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
-import { inferenceRequestBytes, MAX_INFERENCE_RESPONSE_BYTES } from './dispatcher-inference-limits';
+import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
@@ -1764,6 +1764,7 @@ export class OperatorActivity extends Agent {
     let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
     let perform: () => Promise<Response>;
     let sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES;
+    let inferenceBytes = inferenceRequestBytes();
     let operationLimit = DEFAULT_DISPATCHER_OPERATION_LIMIT;
     let lease: DispatcherLease | undefined;
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
@@ -1776,7 +1777,7 @@ export class OperatorActivity extends Agent {
       }
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
-      const inferenceBytes = inferenceRequestBytes(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
+      inferenceBytes = inferenceRequestBytes(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
       operationLimit = dispatcherOperationLimit(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes));
       preparationStep = 'capability';
@@ -1938,7 +1939,7 @@ export class OperatorActivity extends Agent {
         bodyReading = true;
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
           body: await readDispatcherBody(upstream, undefined,
-            resource === 'source' ? sourceBytes : resource === 'inference' ? MAX_INFERENCE_RESPONSE_BYTES : undefined) };
+            resource === 'source' ? sourceBytes : resource === 'inference' ? inferenceBytes : undefined) };
       });
       let confirmedEffect = false;
       if (resource === 'comment' || resource === 'merge') {

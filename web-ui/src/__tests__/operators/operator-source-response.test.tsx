@@ -62,17 +62,17 @@ describe('Dispatcher source response allowance', () => {
     await open();
     const ceiling = screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' });
     const allowance = screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' });
-    const inference = screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' });
+    const inference = screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' });
     expect(ceiling).toHaveValue(131072);
     expect(allowance).toHaveValue(65536);
     expect(inference).toHaveValue(2097152);
     expect(ceiling).toHaveAccessibleDescription(/any installation.*Recommended: 1048576 bytes.*administrator.*Environment/i);
     expect(allowance).toHaveAccessibleDescription(/this installation.*source-response size failure.*Recommended: 1048576 bytes.*operator ceiling/i);
-    expect(inference).toHaveAccessibleDescription(/sent to the model.*body-limit.*authentication.*Recommended: 1048576 bytes.*not extra model context.*Reduce input/i);
+    expect(inference).toHaveAccessibleDescription(/sent to the model.*response body received.*request or response body-limit.*authentication.*Recommended: 1048576 bytes.*not extra model context.*Reduce input/i);
     expect(screen.getByText(/Environment maximum → operator ceiling → installation allowance/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset Operator source-response ceiling (bytes) to default' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Reset Installation source-response allowance (bytes) to default' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Inference request limit (bytes) to default' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Inference limit (bytes) to default' }));
     expect(inference).toHaveValue(1048576);
     expect(ceiling).toHaveValue(131072);
     expect(allowance).toHaveValue(65536);
@@ -94,7 +94,7 @@ describe('Dispatcher source response allowance', () => {
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' }), { target: { value: '100000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset Installation source-response allowance (bytes) to default' }));
     expect(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' })).toHaveValue(1048576);
-    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(1048576);
+    expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(1048576);
     fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for default' }));
     await screen.findByText('Restrictions saved. Enable new runs separately when ready.');
     expect(saved).toEqual({ revision: 1, policy: { ...basePolicy, sourceResponseBytes: 1048576 }, configuration: { retained: 'value' } });
@@ -140,7 +140,7 @@ describe('Dispatcher source response allowance', () => {
 
   it('REQ-OPERATOR-045: operator inference bytes default without being added on an unrelated save', async () => {
     await open();
-    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(1048576);
+    expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(1048576);
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
     expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072 });
@@ -148,14 +148,14 @@ describe('Dispatcher source response allowance', () => {
 
   it('REQ-OPERATOR-045: operator inference maximum persists independently of installation source bytes', async () => {
     await open();
-    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' }), {
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' }), {
       target: { value: String(Number.MAX_SAFE_INTEGER) },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
     expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072,
       inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
-    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(Number.MAX_SAFE_INTEGER);
+    expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(Number.MAX_SAFE_INTEGER);
     expect(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' })).toHaveValue(65536);
     expect(installation.policy).toEqual(explicitInstallationPolicy);
     expect(installation.releaseId).toBe(release.id);
@@ -166,7 +166,7 @@ describe('Dispatcher source response allowance', () => {
 
   it.each(['', '0', '-1', '1.5', String(Number.MAX_SAFE_INTEGER + 1)])('REQ-OPERATOR-045: invalid inference bytes %s prevent saving', async value => {
     await open();
-    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' }), { target: { value } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' }), { target: { value } });
     expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeDisabled();
   });
 
@@ -174,26 +174,26 @@ describe('Dispatcher source response allowance', () => {
     let releaseSave!: () => void;
     holdSave = new Promise(resolve => { releaseSave = resolve; });
     await open();
-    const field = screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' });
+    const field = screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' });
     fireEvent.input(field, { target: { value: '1048576' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     expect(field).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Reset Inference request limit (bytes) to default' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset Inference limit (bytes) to default' })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: 'Operation limit per run' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reset Operation limit per run to default' })).toBeDisabled();
     releaseSave();
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toBeEnabled());
     rejectSave = true;
-    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' }), { target: { value: '2097152' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' }), { target: { value: '2097152' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByRole('alert');
-    expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Reset Inference request limit (bytes) to default' })).toBeDisabled();
+    expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset Inference limit (bytes) to default' })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: 'Operation limit per run' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reset Operation limit per run to default' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh current state' }));
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Inference request limit (bytes)' })).toHaveValue(1048576));
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(1048576));
   });
 
   it('edits and persists installation bytes while preserving its other policy and configuration', async () => {
@@ -308,7 +308,7 @@ describe('Dispatcher source response allowance', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
     await screen.findByRole('region', { name: 'Runtime permissions' });
     expect(screen.queryByRole('spinbutton', { name: /source-response (ceiling|allowance)/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('spinbutton', { name: 'Inference request limit (bytes)' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Inference limit (bytes)' })).not.toBeInTheDocument();
   });
 
   it.each(['', '0', '1.5', '1048577'])('rejects Environment value %s outside the supported integer allowance', async value => {

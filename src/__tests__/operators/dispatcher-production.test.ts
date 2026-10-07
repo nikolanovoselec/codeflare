@@ -2288,7 +2288,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(f.sent).toEqual([]);
   }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceRequestBytes: 65536 }));
 
-  it('REQ-OPERATOR-047: source settings cannot widen the separate 1 MiB inference response bound', () => fixture(async f => {
+  it.each([65536, 131072])('REQ-OPERATOR-047: source settings cannot widen the configured %i-byte inference response bound', limit => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(genericWire('inference', {
       operationId: 'oversized-inference-response', input: { messages: [{ role: 'user', content: 'assess' }] },
@@ -2297,9 +2297,9 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', collectionStatus: 'unavailable', result: null });
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceBody: 'x'.repeat(1048577) }));
+  }, { repositoryOnly: true, sourceResponseBytes: 1048576, inferenceRequestBytes: limit, inferenceBody: 'x'.repeat(limit + 1) }));
 
-  it.each([70 * 1024, 1048576])('REQ-OPERATOR-047: complete %i-byte inference SSE survives caching and reconstruction independently of input and source bounds', responseBytes => {
+  it.each([70 * 1024, 131072, 1048577])('REQ-OPERATOR-047: complete %i-byte inference SSE survives caching and reconstruction at the configured inference bound', responseBytes => {
     const prefix = 'data: {"choices":[{"delta":{"content":"';
     const suffix = '"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
     const body = prefix + 'x'.repeat(responseBytes - new TextEncoder().encode(prefix + suffix).byteLength) + suffix;
@@ -2315,7 +2315,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       expect(await cached.text()).toBe(body);
       const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'large-inference-response' }));
       expect(await receipt.json()).toMatchObject({ operationCount: 1, operationLimit: 1024 });
-    }, { repositoryOnly: true, sourceResponseBytes: 65536, inferenceRequestBytes: 65536, inferenceBody: body });
+    }, { repositoryOnly: true, sourceResponseBytes: 65536, inferenceRequestBytes: responseBytes, inferenceBody: body });
   });
 
   it.each([64512, 65537])('REQ-OPERATOR-048: source allowance preserves final-result admission for %s bytes', resultBytes => fixture(async f => {
