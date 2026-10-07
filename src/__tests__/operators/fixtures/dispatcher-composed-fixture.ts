@@ -207,7 +207,8 @@ export class OperatorActivity extends ProductionActivity {
       } catch { /* Only the existing closed diagnostic wire is retained. */ }
     };
     try {
-      const result = await driveDispatcherRuntime({ activity: this, deadline: human.expiresAt * 1000, bundle: artifact,
+      const approved = await parseDispatcherBundle(await services(this.fixtureEnv).getManagementBundle(digest), digest);
+      const result = await driveDispatcherRuntime({ activity: this, deadline: human.expiresAt * 1000, bundle: approved,
         artifactDigest: digest, invocation: { repository } });
       return { ...result, diagnostics };
     } finally { console.log = original; }
