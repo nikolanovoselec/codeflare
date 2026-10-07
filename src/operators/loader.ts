@@ -15,7 +15,7 @@ interface OperatorLoaderCode {
   mainModule: string;
   modules: OperatorBundle['modules'];
   env: { OPERATOR: Fetcher; GITHUB_API_ORIGIN?: string; OPERATOR_SOURCE_RESPONSE_BYTES?: string;
-    OPERATOR_ADMITTED_TARGET?: string };
+    OPERATOR_ADMITTED_TARGET?: string; OPERATOR_LOGGING_ENABLED?: string };
   globalOutbound: Fetcher | null;
   tails?: Array<{ tail(events: unknown): Promise<void> }>;
 }
@@ -70,6 +70,7 @@ export function loadOperatorDispatcherClass(
   githubApiOrigin?: string,
   sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES,
   admittedTargetJson?: string,
+  loggingEnabled = true,
 ): unknown {
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1) {
@@ -82,7 +83,8 @@ export function loadOperatorDispatcherClass(
     modules: bundle.modules,
     env: { OPERATOR: capability, ...(githubApiOrigin ? { GITHUB_API_ORIGIN: githubApiOrigin,
       OPERATOR_SOURCE_RESPONSE_BYTES: String(sourceBytes) } : {}),
-      ...(admittedTargetJson !== undefined ? { OPERATOR_ADMITTED_TARGET: admittedTargetJson } : {}) },
+      ...(admittedTargetJson !== undefined ? { OPERATOR_ADMITTED_TARGET: admittedTargetJson } : {}),
+      ...(loggingEnabled ? {} : { OPERATOR_LOGGING_ENABLED: 'false' }) },
     globalOutbound: outbound,
     tails: [tail],
   })).getDurableObjectClass(bundle.className);

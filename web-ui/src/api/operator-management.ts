@@ -25,7 +25,7 @@ const summarySchema = z.object({ id, name: z.string().optional(), description: z
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
   repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema,
   policy: policySchema.extend({ inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
-    operationLimit: z.number().int().positive().max(MAX_DISPATCHER_OPERATION_LIMIT).optional() }),
+    operationLimit: z.number().int().positive().max(MAX_DISPATCHER_OPERATION_LIMIT).optional(), loggingEnabled: z.boolean().optional() }),
   source: z.object({ kind: z.literal('github-release'), repositoryUrl: z.string(), repositoryId: z.number().int().positive(),
     credentialConfigured: z.boolean(), approvedWorkflow: z.object({ id: z.number().int().positive(), ref: z.string() }).nullable() }),
 });
@@ -82,7 +82,7 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
-export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number }) =>
+export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean }) =>
   request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.

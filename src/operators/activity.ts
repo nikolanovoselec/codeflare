@@ -11,6 +11,7 @@ import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
+import { producerDiagnosticSchema, sdkPublicReasonCode, type ProducerDiagnostic } from './dispatcher-diagnostic-wire';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
@@ -149,12 +150,12 @@ interface RenovatePublication {
 const dispatcherLog = createLogger('dispatcher-settlement');
 const dispatcherTailLog = createLogger('dispatcher-inference-tail');
 const dispatcherReportLog = createLogger('dispatcher-inference-report');
-type DispatcherDiagnostic = { stage: 'fetch-rejected' } | { stage: 'http-rejected'; status: number };
+type DispatcherDiagnostic = { stage: 'fetch-rejected' } | { stage: 'http-rejected'; status: number } | ProducerDiagnostic;
 
 async function readDispatcherDiagnostic(request: Request): Promise<DispatcherDiagnostic | null> {
   if (request.method !== 'POST' || request.headers.get('content-type') !== 'application/json' || !request.body) return null;
   const sizeHeader = request.headers.get('content-length');
-  if (sizeHeader && (!/^\d{1,3}$/.test(sizeHeader) || Number(sizeHeader) > 256)) return null;
+  if (sizeHeader && (!/^\d{1,4}$/.test(sizeHeader) || Number(sizeHeader) > 2048)) return null;
   const reader = request.body.getReader();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -165,7 +166,7 @@ async function readDispatcherDiagnostic(request: Request): Promise<DispatcherDia
         const chunk = await reader.read();
         if (chunk.done) break;
         size += chunk.value.byteLength;
-        if (size > 256) throw new Error('Diagnostic body limit');
+        if (size > 2048) throw new Error('Diagnostic body limit');
         parts.push(chunk.value);
       }
       const body = new Uint8Array(size);
@@ -179,6 +180,11 @@ async function readDispatcherDiagnostic(request: Request): Promise<DispatcherDia
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const data = value as Record<string, unknown>;
+    if (data.stage === 'producer') {
+      const parsed = producerDiagnosticSchema.safeParse(data);
+      return parsed.success ? parsed.data : null;
+    }
+    if (bytes.length > 256) return null;
     if (Object.keys(data).length === 1 && data.stage === 'fetch-rejected') return { stage: 'fetch-rejected' };
     if (Object.keys(data).length === 2 && data.stage === 'http-rejected' && typeof data.status === 'number'
       && Number.isInteger(data.status) && data.status >= 300 && data.status <= 599) {
@@ -344,6 +350,10 @@ function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmis
   return 'selection' in receipt;
 }
 
+function executionLoggingEnabled(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null | undefined): boolean {
+  return !receipt || !isManagementReceipt(receipt) || receipt.selection.operator.policy.loggingEnabled !== false;
+}
+
 async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -392,6 +402,8 @@ export class OperatorActivity extends Agent {
   #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
   #diagnosticReportGeneration?: number;
   #diagnosticReports = 0;
+  #producerReports = 0;
+  #producerFailureReports = 0;
   #reconciling?: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
@@ -1369,7 +1381,7 @@ export class OperatorActivity extends Agent {
     let boundary = 'authority';
     try {
       const plan = await this.getRuntimePlan();
-      if (plan) trace = { activityId: plan.activityId, generation };
+      if (plan) trace = { activityId: plan.activityId, generation, loggingEnabled: executionLoggingEnabled(plan.receipt) };
       boundary = 'artifact';
       if (!plan || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher'
         || artifactDigest !== plan.receipt.selection.release.bundleDigest
@@ -1383,7 +1395,7 @@ export class OperatorActivity extends Agent {
       boundary = 'authority';
       await authorizeDispatcherPlan(plan, this.#appEnv);
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary });
-      inferenceDiagnostic({ activityId: plan.activityId, generation }, { stage: 'drive', outcome: 'started', operationLimit: dispatcherOperationLimit(plan.receipt.selection.operator.policy), inferenceRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy) });
+      inferenceDiagnostic(trace, { stage: 'drive', outcome: 'started', operationLimit: dispatcherOperationLimit(plan.receipt.selection.operator.policy), inferenceRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy) });
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
         expiresAt: Math.floor(plan.deadline / 1000) * 1000,
         submissionId: null, status: 'admitting' };
@@ -1503,7 +1515,8 @@ export class OperatorActivity extends Agent {
         };
         facets: { get(name: string, init: () => unknown): DispatcherFacet };
       };
-      const props = { activityId: plan.activityId, generation: lease.generation };
+      const props = { activityId: plan.activityId, generation: lease.generation,
+        ...(executionLoggingEnabled(plan.receipt) ? {} : { loggingEnabled: false }) };
       const capability = context.exports.OperatorDispatcherCapability({ props });
       const tail = context.exports.OperatorDispatcherTail({ props });
       const admittedTarget = plan.prospectiveAdmissionId
@@ -1513,7 +1526,7 @@ export class OperatorActivity extends Agent {
         JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
         JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
         isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
-        admittedTarget ? JSON.stringify(admittedTarget) : undefined);
+        admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt));
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -1536,6 +1549,7 @@ export class OperatorActivity extends Agent {
       }
       // Historical executions without an admission cursor are never re-read or replayed.
       if (lease.status !== 'running' || !lease.submissionId || !lease.projection) return;
+      const loggingEnabled = executionLoggingEnabled((await this.ctx.storage.get<AdmissionState>('admission'))?.receipt);
       let stage = 'status';
       let statusStep = 'plan';
       let activityId: string | undefined;
@@ -1573,7 +1587,7 @@ export class OperatorActivity extends Agent {
         const settlement = value.outcome ? { outcome: value.outcome, error: value.error } : null;
         if (!settlement || !value.upToDate) {
           stage = 'recheck';
-          inferenceDiagnostic({ activityId: plan.activityId, generation: lease.generation }, { stage: 'settlement', outcome: 'pending', boundary: stage });
+          inferenceDiagnostic({ activityId: plan.activityId, generation: lease.generation, loggingEnabled }, { stage: 'settlement', outcome: 'pending', boundary: stage });
           // A child may settle just after this snapshot; the deadline alarm cannot
           // read it once the lease expires. Recheck within the original lease.
           const remainingSeconds = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
@@ -1583,10 +1597,10 @@ export class OperatorActivity extends Agent {
         }
         // SDK observations diagnose the producer/collector boundary, never authorize settlement.
         const completionCalls = value.completion?.calls ?? [];
-        const trace = { activityId: plan.activityId, generation: lease.generation };
+        const trace = { activityId: plan.activityId, generation: lease.generation, loggingEnabled };
         inferenceDiagnostic(trace, { stage: 'settlement', outcome: settlement.outcome, assessmentPresent: value.result !== undefined, completionCalls: completionCalls.length });
         try {
-          dispatcherLog.warn('Dispatcher settlement observed', {
+          if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement observed', {
             activityId: plan.activityId, generation: lease.generation, outcome: settlement.outcome,
             projectedWrites: value.writes, assessmentPresent: value.result !== undefined,
             messageCount: value.messageIds.length, completionCalls: completionCalls.length,
@@ -1637,13 +1651,22 @@ export class OperatorActivity extends Agent {
               : reason === 'the session advanced past this input before it completed' ? 'superseded'
                 : reason === 'the input could not be persisted' ? 'persistence' : 'unknown';
           inferenceDiagnostic(trace, { stage: 'settlement', outcome: 'failed', failureClass });
-          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
+          let reasonDigest: string | null = null;
+          try { if (loggingEnabled && reason) reasonDigest = await sha256(reason); }
+          catch { /* Diagnostic fingerprint failure cannot change failed settlement. */ }
+          if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'outcome',
             activityId: plan.activityId, generation: lease.generation, operation, failureClass,
             outcome: ['failed', 'aborted', 'completed'].includes(settlement.outcome) ? settlement.outcome : 'unrecognized',
             errorType: ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
               'tool_output_validation', 'operation_failed', 'submission_timeout', 'submission_aborted',
               'internal_error'].includes(errorType) ? errorType : 'other',
-            reasonAvailable: reason.length > 0,
+            ...(value.tools ? { sdkToolObservations: value.tools.calls.length,
+              sdkToolFailed: value.tools.calls.filter(call => call.outcome === 'failed').length,
+              sdkToolsTruncated: value.tools.truncated,
+              lastToolRole: value.tools.calls.at(-1)?.role ?? 'none',
+              lastToolOutcome: value.tools.calls.at(-1)?.outcome ?? 'none' } : {}),
+            reasonAvailable: reason.length > 0, reasonDigest,
+            reasonCode: sdkPublicReasonCode(reason), reasonBytes: new TextEncoder().encode(reason).length,
             reasonClass: [
               /\b(model|provider|api key|cloudflare_ai)\b/i.test(reason) ? 'model' : null,
               /\b(facet|rpc|schedule|bridge)\b/i.test(reason) ? 'bridge' : null,
@@ -1663,14 +1686,14 @@ export class OperatorActivity extends Agent {
           || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > 64 * 1024
           || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget))) {
           inferenceDiagnostic(trace, { stage: 'assessment', outcome: 'denied', failureClass: 'assessment' });
-          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
+          if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
           await this.interruptDrive(lease.generation); return;
         }
         stage = 'operations';
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
         const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, lease.generation));
         if (journal.unresolved !== 0) {
-          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'operations' });
+          if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'operations' });
           await this.interruptDrive(lease.generation); return;
         }
         await this.ctx.storage.transaction(async tx => {
@@ -1690,7 +1713,7 @@ export class OperatorActivity extends Agent {
             artifactDigest: lease.artifactDigest } : null,
           result: legacy ? null : assessmentParts[0].data });
         if (!committed.ok) {
-          dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
+          if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
           await this.interruptDrive(lease.generation);
         }
       } catch (error) {
@@ -1701,7 +1724,7 @@ export class OperatorActivity extends Agent {
               : error instanceof SyntaxError ? 'invalid-json'
                 : error instanceof TypeError ? 'type-error'
                   : error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'other';
-        dispatcherLog.warn('Dispatcher settlement rejected', { stage, activityId, generation: lease.generation,
+        if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage, activityId, generation: lease.generation,
           ...(stage === 'status' ? { statusStep, failureClass,
             ...(statusHttpStatus === undefined ? {} : { statusHttpStatus }) } : {}) });
         await this.interruptDrive(lease.generation);
@@ -1716,9 +1739,6 @@ export class OperatorActivity extends Agent {
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
     try {
       if (!await this.dispatcherGenerationCurrent(generation)) return denied();
-      if (this.#diagnosticReportGeneration === generation && this.#diagnosticReports >= 8) {
-        return new Response(null, { status: 429 });
-      }
       const diagnostic = await readDispatcherDiagnostic(request);
       if (!diagnostic) return denied();
       const plan = await this.getRuntimePlan();
@@ -1728,22 +1748,40 @@ export class OperatorActivity extends Agent {
       if (this.#diagnosticReportGeneration !== generation) {
         this.#diagnosticReportGeneration = generation;
         this.#diagnosticReports = 0;
+        this.#producerReports = 0;
+        this.#producerFailureReports = 0;
       }
-      // No await between the cap and increment: overlapping requests cannot
-      // forward more than eight reports from this live Activity generation.
-      if (this.#diagnosticReports >= 8) return new Response(null, { status: 429 });
-      this.#diagnosticReports++;
-      dispatcherReportLog.warn('Dispatcher child inference diagnostic', {
-        activityId: plan.activityId, generation, stage: diagnostic.stage,
-        ...(diagnostic.stage === 'http-rejected' ? { status: diagnostic.status } : {}),
-      });
+      if (!executionLoggingEnabled(plan.receipt)) return new Response(null, { status: 204 });
+      // Informational reports cannot exhaust the separately reserved failure budget.
+      // No await between each cap and increment; neither channel reserves an operation.
+      if (diagnostic.stage === 'producer') {
+        if (diagnostic.outcome === 'failed') {
+          if (this.#producerFailureReports >= 64) return new Response(null, { status: 429 });
+          this.#producerFailureReports++;
+        } else {
+          if (this.#producerReports >= 2048) return new Response(null, { status: 429 });
+          this.#producerReports++;
+        }
+        const observation = { activityId: plan.activityId, generation, ...diagnostic };
+        if (diagnostic.outcome === 'failed' || diagnostic.outcome === 'unavailable') {
+          dispatcherReportLog.warn('Dispatcher producer diagnostic', observation);
+        } else dispatcherReportLog.info('Dispatcher producer diagnostic', observation);
+      } else {
+        if (this.#diagnosticReports >= 8) return new Response(null, { status: 429 });
+        this.#diagnosticReports++;
+        dispatcherReportLog.warn('Dispatcher child inference diagnostic', {
+          activityId: plan.activityId, generation, stage: diagnostic.stage,
+          ...(diagnostic.stage === 'http-rejected' ? { status: diagnostic.status } : {}),
+        });
+      }
       return new Response(null, { status: 204 });
     } catch { return denied(); }
   }
 
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
     const diagnosticState = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
-    const trace: InferenceDiagnosticContext | undefined = diagnosticState ? { activityId: diagnosticState.intent.activityId, generation } : undefined;
+    const loggingEnabled = executionLoggingEnabled(diagnosticState?.receipt);
+    const trace: InferenceDiagnosticContext | undefined = diagnosticState ? { activityId: diagnosticState.intent.activityId, generation, loggingEnabled } : undefined;
     const began = performance.now();
     const denied = () => {
       inferenceDiagnostic(trace, { stage: 'authority', outcome: 'denied' });
@@ -1754,7 +1792,7 @@ export class OperatorActivity extends Agent {
     const rejected = (stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'forwarded-upstream' | 'commit',
       resource: 'unparsed' | 'inference' | 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' | 'comment' | 'merge' | 'source',
       lease: DispatcherLease | undefined, status: number, upstreamStatus?: number) => {
-      dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status,
+      if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status,
         ...(upstreamStatus === undefined ? {} : { upstreamStatus }) });
     };
     if (!await this.dispatcherGenerationCurrent(generation)) {
@@ -1849,7 +1887,7 @@ export class OperatorActivity extends Agent {
               : error instanceof SyntaxError ? 'invalid-json'
                 : error instanceof z.ZodError ? 'invalid-wire' : 'request-denied';
           // Fixed diagnostic wire only: no request, exception text or child identity.
-          dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
+          if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
             activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403,
             ...(preparationStep === 'parse' && error instanceof z.ZodError ? dispatcherWireRules(error) : {}) });
         }
@@ -1893,7 +1931,7 @@ export class OperatorActivity extends Agent {
     if (reserved.kind === 'denied') {
       inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource, operationLimit, ...('operationCount' in reserved ? { operationCount: reserved.operationCount } : {}) });
       try {
-        dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
+        if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
           ...(reserved.activityId === undefined ? {} : { activityId: reserved.activityId }), generation,
           resource, deadline: deadline(reserved.lease), status: 403,
           ...(reserved.reason === 'operation-limit' ? { operationCount: reserved.operationCount, operationLimit } : {}) });
@@ -2005,7 +2043,7 @@ export class OperatorActivity extends Agent {
     if (!lease || lease.sdkReleased || lease.status === 'running' || lease.status === 'admitting') return;
     const admission = await this.ctx.storage.get<AdmissionState>('admission');
     if (!admission) return;
-    const trace = { activityId: admission.intent.activityId, generation: lease.generation };
+    const trace = { activityId: admission.intent.activityId, generation: lease.generation, loggingEnabled: executionLoggingEnabled(admission.receipt) };
     inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: 'started' });
     try {
     await super._cf_cleanupFacetPrefix([{ className: 'OperatorActivity', name: admission.intent.activityId },
@@ -2212,7 +2250,7 @@ export class OperatorActivity extends Agent {
         if (entries.size < 32) break;
       }
       for (const { key, record } of latest) {
-        const trace = { activityId: state.intent.activityId, generation, operationOrdinal: record.ordinal, requestDigest: record.requestDigest };
+        const trace = { activityId: state.intent.activityId, generation, loggingEnabled: executionLoggingEnabled(state.receipt), operationOrdinal: record.ordinal, requestDigest: record.requestDigest };
         const response = record.phase === 'completed'
           ? await this.ctx.storage.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${key.slice(prefix.length)}`) : undefined;
         const matchingResponse = response && record.responseDigest && await sha256(response.body) === record.responseDigest;
@@ -2298,7 +2336,7 @@ export class OperatorActivity extends Agent {
       return { ok: true, detail: { ...this.browserSummary(consumed), checkpoint: consumed.drive?.checkpoint ?? null,
         result: consumed.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) } };
     });
-    const trace = before?.drive ? { activityId: before.intent.activityId, generation: before.drive.generation } : undefined;
+    const trace = before?.drive ? { activityId: before.intent.activityId, generation: before.drive.generation, loggingEnabled: executionLoggingEnabled(before.receipt) } : undefined;
     inferenceDiagnostic(trace, { stage: 'collection', outcome: outcome.ok ? 'completed' : 'denied' });
     if (outcome.ok) {
       inferenceDiagnostic(trace, { stage: 'cleanup', outcome: 'observed', sdkReleased: outcome.detail.sdkCleanupReleased, physicalCleanup: outcome.detail.cleanupStatus });
@@ -2563,7 +2601,8 @@ function filterDispatcherTailEvents(events: unknown): DispatcherChildDiagnostic[
 export class OperatorDispatcherTail extends WorkerEntrypoint<AppEnv> {
   async tail(events: unknown): Promise<void> {
     try {
-      const props = this.ctx.props as { activityId?: unknown; generation?: unknown } | undefined;
+      const props = this.ctx.props as { activityId?: unknown; generation?: unknown; loggingEnabled?: boolean } | undefined;
+      if (props?.loggingEnabled === false) return;
       if (!props || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
         || typeof props.generation !== 'number' || !Number.isSafeInteger(props.generation)
         || props.generation < 1) return;

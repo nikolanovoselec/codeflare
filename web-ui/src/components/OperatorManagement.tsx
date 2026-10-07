@@ -405,6 +405,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
   const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
   const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
+  const [operatorLoggingEnabled, setOperatorLoggingEnabled] = createSignal(true);
   const inferenceFieldId = createUniqueId();
   const operationFieldId = createUniqueId();
   const [sourceUrl, setSourceUrl] = createSignal('');
@@ -423,6 +424,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
     setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
     setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
+    setOperatorLoggingEnabled(props.detail.operator.policy.loggingEnabled ?? true);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
   createEffect(() => {
@@ -527,7 +529,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       <section class="admin-profile-editor" aria-label="Runtime permissions">
         <h3>Runtime permissions</h3>
         <form onSubmit={event => { event.preventDefault(); if (!validOperatorSource()) return; void props.perform(() => api.saveOperatorCapabilities(operator().id, {
-          revision: operator().revision, capabilities: operatorCapabilities(),
+          revision: operator().revision, capabilities: operatorCapabilities(), loggingEnabled: operatorLoggingEnabled(),
           ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
@@ -558,6 +560,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
               <small id={operationFieldId + '-help'}>An operation is a distinct request reserved in the run's durable journal, not a token, tool call or HTTP request count. Discovery, research reads, inference requests, comments, merges and recovery reads share this budget. Identical completed requests reuse their entry; receipt lookups, resolution and finish calls add no entry. Ordinary discovery uses two initial reads plus one per visited pull-request page; a fresh ordinary comment uses five entries per pull request. Merging adds checks and reads. Leave additional headroom for research, inference and recovery; 1,024 is a starting default, not a guarantee that every repository fits. Parent receipts report the actual used count and limit. Exhaustion blocks new protected operations. Operator-wide; no installation override. This setting does not change token, byte, deadline, SDK-history or authorization limits.</small>
             </div>
           </Show>
+          <label class="admin-toggle-field"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
         <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {

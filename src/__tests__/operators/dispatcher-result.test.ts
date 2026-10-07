@@ -12,6 +12,24 @@ const data = event(3, { type: 'data-part', messageId: 'answer', name: 'assessmen
 const settled = event(4, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' });
 
 describe('Dispatcher exact-submission public Flue updates contract', () => {
+  it.each(['tool-output', 'tool-output-error'])('REQ-OPERATOR-078: observes domain SDK %s outside callback boundaries without private input or error content', async type => {
+    const first = await readDispatcherUpdates(response([start, event(1, { type: 'tool-input', messageId: 'answer',
+      toolCallId: 'decision-1', toolName: 'decide_renovate', input: { comment: 'PRIVATE_TOOL_INPUT' } })]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([event(2, { type, toolCallId: 'decision-1',
+      output: 'PRIVATE_TOOL_OUTPUT', errorText: 'PRIVATE_TOOL_ERROR' }), data, settled], 'later'), first, 'requested');
+    expect(final.tools).toEqual({ calls: [{ id: 'decision-1', role: 'decide', outcome: type === 'tool-output' ? 'succeeded' : 'failed' }], truncated: false });
+    expect(JSON.stringify(final)).not.toMatch(/PRIVATE_TOOL/);
+    expect(final.result).toEqual(result);
+  });
+  it('REQ-OPERATOR-078: reset observes exact-submission domain failure without retaining foreign tools or private content', async () => {
+    const reset = event(1, { type: 'conversation-reset', snapshot: { conversationId: 'conversation',
+      messages: [{ id: 'foreign', submissionId: 'another', parts: [{ type: 'dynamic-tool', toolName: 'merge_renovate', toolCallId: 'foreign-call', state: 'output-error' }] },
+        { id: 'answer', submissionId: 'requested', parts: [{ type: 'dynamic-tool', toolName: 'decide_renovate', toolCallId: 'decision-1', state: 'output-error', input: 'PRIVATE_INPUT', errorText: 'PRIVATE_ERROR' }] }], settlements: [] } });
+    const final = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+    expect(final.tools).toEqual({ calls: [{ id: 'decision-1', role: 'decide', outcome: 'failed' }], truncated: false });
+    expect(JSON.stringify(final)).not.toMatch(/PRIVATE_|foreign-call|merge/);
+    expect(final.result).toBeUndefined();
+  });
   // Intentional SDK diagnostic wire: closed outcomes, never tool inputs/outputs/errors.
   it.each(['tool-output', 'tool-output-error'])('REQ-OPERATOR-063: observes completion %s across pages without retaining private payloads', async type => {
     const requested = event(1, { type: 'tool-input', messageId: 'answer', toolCallId: 'finish-1',

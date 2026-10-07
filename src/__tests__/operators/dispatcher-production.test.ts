@@ -353,7 +353,7 @@ async function fixture(test: (f: {
   afterRegistryResolve: (action: () => Promise<void>) => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
-  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number; operationLimit?: number } = {}) {
+  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean } = {}) {
   callerSessionCurrent = true;
   const fixtureInvocation = options.prospective ? { repository: 'nikolanovoselec/komodo',
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
@@ -372,7 +372,7 @@ async function fixture(test: (f: {
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
       enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
-      policy: { ...policy, ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
+      policy: { ...policy, ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
       ...(options.prospective ? { intentVersion: options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
@@ -752,7 +752,49 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }));
 
+  it('REQ-OPERATOR-049/078: one disabled logging setting suppresses execution diagnostics without changing fences or effects', () => fixture(async f => {
+    setLogLevel('debug');
+    const output: string[] = [];
+    const spies = ['log', 'debug', 'info', 'warn', 'error'].map(level => vi.spyOn(console, level as 'warn').mockImplementation(value => { output.push(String(value)); }));
+    try {
+      await start(f);
+      expect(await f.loaderEnv()).toMatchObject({ OPERATOR_LOGGING_ENABLED: 'false' });
+      expect((await f.capability.fetch(diagnosticReport({ stage: 'producer', role: 'decide', outcome: 'failed', code: 'citation-provenance' }))).status).toBe(204);
+      expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
+      expect((await f.capability.fetch(genericWire('source', { operationId: 'logging-disabled-read', url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+      f.settle('submission-1', 'failed', { type: 'operation_failed', meta: { operation: 'direct(submission-1)', reason: 'Citation provenance unavailable' } });
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+      expect(output.filter(value => /operator-inference|dispatcher-settlement|dispatcher-inference-report/.test(value))).toEqual([]);
+    } finally { spies.forEach(spy => spy.mockRestore()); setLogLevel('silent'); }
+  }, { loggingEnabled: false, repositoryOnly: true }));
+  it('REQ-OPERATOR-078: producer diagnostics identify citation failure without charging, authority or private content', () => fixture(async f => {
+    await start(f);
+    setLogLevel('warn');
+    const events: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { events.push(String(value)); });
+    try {
+      const observation = { stage: 'producer', role: 'decide', phase: 'tool', outcome: 'failed', code: 'citation-provenance',
+        targetCount: 27, decisionCount: 0, artifactCount: 54, sealed: false, claimIndex: 0, claimCount: 1,
+        artifactFound: true, artifactComplete: true, status: 200, quoteMatched: true, commentContainsSource: false };
+      expect((await f.capability.fetch(diagnosticReport(observation))).status).toBe(204);
+      const report = events.map(value => JSON.parse(value)).find(value => value.message === 'Dispatcher producer diagnostic');
+      expect(report.data).toEqual({ activityId: f.activityId, generation: 1, ...observation });
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.capability.fetch(genericWire('source', { operationId: 'after-producer-report', url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
+      const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'after-producer-report' }));
+      expect(await receipt.json()).toMatchObject({ operationCount: 1, operationLimit: 1024 });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }, { repositoryOnly: true }));
   it.each([
+    { stage: 'producer', role: 'decide', outcome: 'failed', code: 'citation-provenance', activityId: 'forged' },
+    { stage: 'producer', role: 'decide', outcome: 'failed', code: 'citation-provenance', message: 'PRIVATE_PROVIDER_BODY_SENTINEL' },
+    { stage: 'producer', role: 'decide', outcome: 'failed', code: 'citation-provenance', argumentFields: ['credential'] },
+    { stage: 'producer', role: 'decide', outcome: 'failed', code: 'citation-provenance', targetCount: -1 },
+    { stage: 'producer', role: 'private-secret', outcome: 'failed', code: 'citation-provenance' },
+    { stage: 'producer', role: 'decide', outcome: 'failed', code: 'private-secret' },
     { stage: 'fetch-rejected', activityId: 'forged' }, { stage: 'fetch-rejected', reason: 'PRIVATE_PROVIDER_BODY_SENTINEL' },
     { stage: 'http-rejected', status: '422' }, { stage: 'http-rejected', status: 200 },
     { stage: 'http-rejected', status: 600 }, { stage: 'http-rejected', status: 422.5 },
@@ -831,6 +873,16 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.result).toBeNull();
   }));
 
+  it('REQ-OPERATOR-078: producer failure reports have an independent bounded budget without consuming execution authority', () => fixture(async f => {
+    await start(f);
+    const body = { stage: 'producer', role: 'decide', outcome: 'failed', code: 'citation-provenance' };
+    const responses = await Promise.all(Array.from({ length: 68 }, () => f.capability.fetch(diagnosticReport(body))));
+    expect(responses.map(response => response.status).sort()).toEqual([...Array.from({ length: 64 }, () => 204), ...Array.from({ length: 4 }, () => 429)]);
+    expect((await f.capability.fetch(diagnosticReport({ stage: 'producer', role: 'research', outcome: 'completed', code: 'none' }))).status).toBe(204);
+    expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }));
   it('REQ-OPERATOR-048: bounded diagnostic report caps concurrent valid reports at eight per live Activity generation', () => fixture(async f => {
     await start(f);
     const responses = await Promise.all(Array.from({ length: 12 }, () => f.capability.fetch(diagnosticReport())));
@@ -1508,8 +1560,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
           generation: 1, outcome: 'failed', errorType, operation, failureClass: classification });
         expect(Object.keys(events[0].data ?? {}).sort()).toEqual([
           'activityId', 'errorType', 'failureClass', 'generation', 'operation', 'outcome',
-          'reasonAvailable', 'reasonClass', 'stage',
+          'reasonAvailable', 'reasonBytes', 'reasonClass', 'reasonCode', 'reasonDigest', 'stage',
         ]);
+        expect(events[0].data?.reasonDigest).toEqual(events[0].data?.reasonAvailable ? expect.stringMatching(/^[a-f0-9]{64}$/) : null);
         expect(JSON.stringify(events)).not.toMatch(/private\.jwt|inline-secret|arbitrary-secret/);
         expect(detail?.executionStatus).toBe('unknown');
         expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
@@ -1518,6 +1571,24 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       } finally { setLogLevel('silent'); }
     }));
   }
+  it('REQ-OPERATOR-078: SDK failure fingerprint identifies a public rejection without exposing the reason or granting recovery', () => fixture(async f => {
+    await start(f);
+    const emitted: string[] = [];
+    setLogLevel('warn');
+    const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
+    try {
+      f.settle('submission-1', 'failed', { type: 'operation_failed', meta: {
+        operation: 'direct(submission-1)', reason: 'Citation provenance unavailable' } });
+      await f.activity.reconcileDispatcherLease();
+      const report = emitted.map(value => JSON.parse(value)).find(value => value.message === 'Dispatcher settlement rejected');
+      expect(report.data).toMatchObject({ reasonCode: 'citation-provenance',
+        reasonDigest: '09154b2003b842c3c043252312ca33b20825cdf1560f91e02a4af060259b5441', failureClass: 'unknown' });
+      expect(emitted.join('')).not.toContain('Citation provenance unavailable');
+      expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+    } finally { spy.mockRestore(); setLogLevel('silent'); }
+  }));
   it('collects the settled pinned assessment once as a terminal result without another submission', () => fixture(async f => {
     await start(f);
     const assessment = { repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,

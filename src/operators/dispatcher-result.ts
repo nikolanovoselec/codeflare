@@ -15,6 +15,7 @@ export interface DispatcherResultProjection {
   position?: { batch: number; index: number };
   /** Observation only; opaque correlations never enter owner logs or result authority. */
   completion?: { calls: Array<{ id: string; outcome: 'pending' | 'succeeded' | 'failed' }>; truncated: boolean };
+  tools?: { calls: Array<{ id: string; role: string; outcome: 'pending' | 'succeeded' | 'failed' }>; truncated: boolean };
   unmatchedAssessment?: boolean;
   readiness?: { latest?: DispatcherReadiness; observations: number; truncated: boolean };
   sealPreflight?: { latest?: DispatcherSealPreflight; observations: number; truncated: boolean };
@@ -44,6 +45,18 @@ const MAX_SEAL_PREFLIGHT_OBSERVATIONS = 32;
 const MAX_READINESS_BYTES = 512;
 const MAX_READINESS_OBSERVATIONS = 32;
 const MAX_COMPLETION_OBSERVATIONS = 32;
+const MAX_TOOL_OBSERVATIONS = 2048;
+const toolRoles: Record<string, string> = { discover_renovate: 'discover', research_renovate: 'research', decide_renovate: 'decide',
+  seal_dispatcher: 'seal', comment_renovate: 'comment', merge_renovate: 'merge', finish_dispatcher: 'finish', finish: 'generic-finish' };
+function observeTool(state: DispatcherResultProjection, id: unknown, name: unknown, outcome: 'pending' | 'succeeded' | 'failed'): void {
+  const prior = state.tools?.calls.find(call => call.id === id);
+  if (prior) { if (outcome !== 'pending') prior.outcome = outcome; return; }
+  if (typeof name !== 'string' || !Object.hasOwn(toolRoles, name)) return;
+  const observation = state.tools ??= { calls: [], truncated: false };
+  if (typeof id !== 'string' || !id || id.length > MAX_COMPLETION_ID_LENGTH) { observation.truncated = true; return; }
+  if (observation.calls.length >= MAX_TOOL_OBSERVATIONS) { observation.truncated = true; return; }
+  observation.calls.push({ id, role: toolRoles[name], outcome });
+}
 const MAX_COMPLETION_ID_LENGTH = 256;
 const MAX_UPDATE_PAGE_BYTES = 16 * 1024 * 1024;
 const MAX_PROJECTED_RECORD_BYTES = 1024 * 1024;
@@ -154,6 +167,8 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
         if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
         if (part.type === 'data-dispatcher-readiness') observeReadiness(state, part.data);
         if (part.type === 'data-dispatcher-seal-preflight') observeSealPreflight(state, part.data);
+        if (part.type === 'dynamic-tool') observeTool(state, part.toolCallId, part.toolName,
+          part.state === 'output-available' ? 'succeeded' : part.state === 'output-error' ? 'failed' : 'pending');
         if (part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher') {
           observeCompletion(state, part.toolCallId, part.state === 'output-available' ? 'succeeded'
             : part.state === 'output-error' ? 'failed' : 'pending');
@@ -176,12 +191,16 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   } else if (chunk.type === 'data-part' && chunk.name === 'dispatcher-seal-preflight'
     && state.messageIds.includes(chunk.messageId as string)) {
     observeSealPreflight(state, chunk.data);
-  } else if (chunk.type === 'tool-input' && chunk.toolName === 'finish_dispatcher'
-    && state.messageIds.includes(chunk.messageId as string)) {
-    observeCompletion(state, chunk.toolCallId, 'pending');
+  } else if (chunk.type === 'tool-input' && state.messageIds.includes(chunk.messageId as string)) {
+    observeTool(state, chunk.toolCallId, chunk.toolName, 'pending');
+    if (chunk.toolName === 'finish_dispatcher') observeCompletion(state, chunk.toolCallId, 'pending');
   } else if ((chunk.type === 'tool-output' || chunk.type === 'tool-output-error')
     && state.completion?.calls.some(call => call.id === chunk.toolCallId)) {
     observeCompletion(state, chunk.toolCallId, chunk.type === 'tool-output' ? 'succeeded' : 'failed');
+  }
+  if ((chunk.type === 'tool-output' || chunk.type === 'tool-output-error')
+    && state.tools?.calls.some(call => call.id === chunk.toolCallId)) {
+    observeTool(state, chunk.toolCallId, undefined, chunk.type === 'tool-output' ? 'succeeded' : 'failed');
   }
   if ((chunk.type === 'submission-settled' && chunk.submissionId === submissionId)
     || (chunk.type === 'conversation-reset' && chunk.outcome !== undefined)) {
@@ -221,12 +240,13 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
     '$.*.snapshot.settlements.*',
   ] });
   type Frame = { path: Array<string | number>; array: boolean; index: number; key?: string; expectingKey: boolean;
-    diagnosticStart?: number };
+    diagnosticStart?: number; toolDiagnosticStart?: number };
   const frames: Frame[] = [];
   let record: Record<string, unknown> = Object.create(null);
   let bytes = 0;
   let records = 0;
   let diagnosticParts = 0;
+  let toolParts = 0;
   let ended = false;
   // Diagnostic metadata is separately bounded and must not consume the existing result-record allowance.
   const put = (path: Array<string | number>, value: unknown, enumerable = true) => {
@@ -267,7 +287,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         && path[3] === 'parts' && diagnosticFields.includes(String(path[5])));
     if (diagnostic) {
       if (path.at(-1) === 'toolName') {
-        if (value !== 'finish_dispatcher') return;
+        if (typeof value !== 'string' || !Object.hasOwn(toolRoles, value)) return;
       } else if (typeof value !== 'string' || !value || value.length > MAX_COMPLETION_ID_LENGTH) {
         if (path.length === 6) put([...path.slice(0, -1), 'diagnosticTruncated'], true, false);
         return;
@@ -310,7 +330,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       }
       frames.push({ path, array: kind === TokenType.LEFT_BRACKET, index: 0, expectingKey: true,
         ...(path.length === 4 && path[1] === 'snapshot' && path[2] === 'messages'
-          ? { diagnosticStart: diagnosticParts } : {}) });
+          ? { diagnosticStart: diagnosticParts, toolDiagnosticStart: toolParts } : {}) });
       if (frames.length > 128) throw new Error('Dispatcher update nesting exceeds limit');
       parser.write(token);
       return;
@@ -327,7 +347,10 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
           else if (part.type === 'data-dispatcher-seal-preflight') normalizeSealPreflightData(part);
           else if (part.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
           const completionPart = part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher';
-          if (!completionPart || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
+          const otherTool = part.type === 'dynamic-tool' && typeof part.toolName === 'string'
+            && Object.hasOwn(toolRoles, part.toolName) && !completionPart;
+          if (otherTool && toolParts < MAX_TOOL_OBSERVATIONS) { toolParts++; }
+          else if (!completionPart || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
             if (completionPart) put(['snapshot', 'messages', frame.path[3], 'diagnosticTruncated'], true, false);
             for (const field of [...diagnosticFields, 'diagnosticTruncated']) delete part[field];
           } else diagnosticParts++;
@@ -337,6 +360,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       if (frame.diagnosticStart !== undefined
         && snapshotMessages()?.[frame.path[3] as number]?.submissionId !== submissionId) {
         diagnosticParts = frame.diagnosticStart;
+        toolParts = frame.toolDiagnosticStart ?? toolParts;
       }
       if (frame.path.length === 1) {
         if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record);
@@ -349,6 +373,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         project(state, record, submissionId);
         record = Object.create(null);
         diagnosticParts = 0;
+        toolParts = 0;
       }
       if (frame.path.length === 0) ended = true;
       return;

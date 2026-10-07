@@ -155,7 +155,8 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     throw new Error('Conductor resources denied');
   }
   const ownerBucket = await resolveBucketName(env, admitted.authority.human.email);
-  const { bootstrap } = await bootstrapOperatorSession({ env, authority: admitted.authority, ownerBucket });
+  const { bootstrap } = await bootstrapOperatorSession({ env, authority: admitted.authority, ownerBucket,
+    loggingEnabled: admitted.selection.operator.policy.loggingEnabled !== false });
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': admitted.authority.accessJwt },
   }), env);

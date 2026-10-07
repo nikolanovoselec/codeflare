@@ -97,6 +97,56 @@ beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; ac
 afterEach(() => vi.unstubAllGlobals());
 
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
+  it.each(['conductor', 'dispatcher'] as const)('persists %s execution logging independently of installation restrictions and Environment limits', async profile => withApi(async request => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile })).fetcher);
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', { ...registration, profile });
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number; policy: { loggingEnabled?: boolean } };
+    expect(operator.policy.loggingEnabled).toBe(true);
+    const id = await enabledInstallation(request, operator);
+    const detailPath = `/api/operator-management/operators/${operator.id}`;
+    const path = `${detailPath}/capabilities`;
+    type Detail = { operator: { revision: number; policy: { loggingEnabled?: boolean } }; installations: ManagementInstallation[]; grants: unknown };
+    const read = async () => await (await request(detailPath)).json() as Detail;
+    const before = await read();
+    const revision = before.operator.revision;
+    const controls = await (await request('/api/operator-management/access')).json();
+    expect((await request(path, 'POST', { revision, capabilities: [], loggingEnabled: true })).status).toBe(200);
+    expect(await read()).toEqual(before);
+    for (const loggingEnabled of [null, 'false', 0, 1, {}]) {
+      expect((await request(path, 'POST', { revision, capabilities: [], loggingEnabled })).status).toBe(400);
+    }
+    expect((await request(path, 'POST', { revision, capabilities: [], loggingEnabled: false }, false)).status).toBe(403);
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], loggingEnabled: false })).status).toBe(409);
+    actor.email = 'other@example.test'; actor.groups = [];
+    expect((await request(path, 'POST', { revision, capabilities: [], loggingEnabled: false })).status).toBe(404);
+    actor.email = 'manager@example.test'; actor.groups = ['operators'];
+    expect(await read()).toEqual(before);
+    const changed = await request(path, 'POST', { revision, capabilities: [], loggingEnabled: false });
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({ revision: revision + 1, policy: { loggingEnabled: false } });
+    const after = await read();
+    expect(after.grants).toEqual(before.grants);
+    expect(after.installations[0]).toEqual({ ...before.installations[0], revision: before.installations[0]!.revision + 1, enabled: false });
+    expect(await (await request('/api/operator-management/access')).json()).toEqual(controls);
+    expect((await request(path, 'POST', { revision, capabilities: [], loggingEnabled: true })).status).toBe(409);
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [] })).status).toBe(200);
+    expect(await read()).toEqual(after);
+    expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
+      revision: after.installations[0]!.revision, enabled: true,
+    })).status).toBe(200);
+    const enabled = await read();
+    expect(enabled.operator.policy.loggingEnabled).toBe(false);
+    expect(enabled.installations[0]!.enabled).toBe(true);
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], loggingEnabled: false })).status).toBe(200);
+    expect(await read()).toEqual(enabled);
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], loggingEnabled: true })).status).toBe(200);
+    const restored = await read();
+    expect(restored.operator).toMatchObject({ revision: revision + 2, policy: { loggingEnabled: true } });
+    expect(restored.installations[0]).toEqual({ ...enabled.installations[0], revision: enabled.installations[0]!.revision + 1, enabled: false });
+  }));
+
   it('REQ-OPERATOR-045: persists operator inference bytes with revision fencing and unchanged installation policy', async () => withApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile: 'dispatcher' })).fetcher);
     await delegate(request);

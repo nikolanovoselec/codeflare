@@ -13,7 +13,7 @@ let operator: ManagementDetail['operator'];
 let installation: ManagementDetail['installations'][number];
 let access: ManagementAccess;
 let rejectSave: boolean;
-let saved: { revision: number; policy?: ManagementDetail['operator']['policy']; configuration?: unknown; capabilities?: string[]; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; ceiling?: ManagementAccess['ceiling']; managers?: ManagementAccess['managers'] };
+let saved: { revision: number; policy?: ManagementDetail['operator']['policy']; configuration?: unknown; capabilities?: string[]; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean; ceiling?: ManagementAccess['ceiling']; managers?: ManagementAccess['managers'] };
 let holdSave: Promise<void> | undefined;
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators');
@@ -34,6 +34,7 @@ beforeEach(() => {
       if (path.endsWith('/access')) { access = { ...access, ...saved, ceiling: saved.ceiling!, managers: saved.managers!, revision: access.revision + 1 }; return response(access); }
       if (path.endsWith('/capabilities')) {
         operator = { ...operator, revision: operator.revision + 1, policy: { ...operator.policy, capabilities: saved.capabilities!,
+          ...(saved.loggingEnabled === undefined ? {} : { loggingEnabled: saved.loggingEnabled }),
           ...(saved.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: saved.sourceResponseBytes }),
           ...(saved.operationLimit === undefined ? {} : { operationLimit: saved.operationLimit }),
           ...(saved.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: saved.inferenceRequestBytes }) } };
@@ -78,7 +79,7 @@ describe('Dispatcher source response allowance', () => {
     expect(allowance).toHaveValue(65536);
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072, inferenceRequestBytes: 1048576 });
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 131072, inferenceRequestBytes: 1048576 });
     expect(installation.policy).toEqual(explicitInstallationPolicy);
   });
 
@@ -111,7 +112,7 @@ describe('Dispatcher source response allowance', () => {
     fireEvent.input(field, { target: { value: '2048' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072, operationLimit: 2048 });
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 131072, operationLimit: 2048 });
     expect(screen.getByRole('spinbutton', { name: 'Operation limit per run' })).toHaveValue(2048);
     expect(installation.policy).toEqual(explicitInstallationPolicy);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
@@ -143,7 +144,7 @@ describe('Dispatcher source response allowance', () => {
     expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(1048576);
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072 });
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 131072 });
   });
 
   it('REQ-OPERATOR-045: operator inference maximum persists independently of installation source bytes', async () => {
@@ -153,7 +154,7 @@ describe('Dispatcher source response allowance', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 131072,
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 131072,
       inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
     expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(Number.MAX_SAFE_INTEGER);
     expect(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' })).toHaveValue(65536);
@@ -260,14 +261,14 @@ describe('Dispatcher source response allowance', () => {
     fireEvent.input(field, { target: { value: '200000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], sourceResponseBytes: 200000 });
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 200000 });
     expect(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' })).toHaveValue(200000);
     await waitFor(() => expect(screen.getByRole('button', { name: /^Enable for new runs$/ })).toBeEnabled());
     expect(screen.getByText(/v1\.0\.0/, { selector: 'strong' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' }), { target: { value: '65536' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
-    await waitFor(() => expect(saved).toEqual({ revision: 2, capabilities: ['fetch'], sourceResponseBytes: 65536 }));
+    await waitFor(() => expect(saved).toEqual({ revision: 2, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 65536 }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
     expect(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' })).toHaveValue(65536);
     expect(screen.getByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
@@ -284,11 +285,11 @@ describe('Dispatcher source response allowance', () => {
     expect(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' })).toHaveValue(1048576);
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
-    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'] });
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' }), { target: { value: '1048576' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
-    await waitFor(() => expect(saved).toEqual({ revision: 2, capabilities: ['fetch'], sourceResponseBytes: 1048576 }));
+    await waitFor(() => expect(saved).toEqual({ revision: 2, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 1048576 }));
   });
 
   it('locks a stale installation draft until refreshed', async () => {

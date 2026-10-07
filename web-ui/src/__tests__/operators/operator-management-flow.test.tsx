@@ -31,6 +31,34 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: management decisions and recovery', () => {
+  it.each([undefined, false, true])('loads logging=%s through the public client and saves the single execution-diagnostics checkbox', async initial => {
+    let loggingEnabled = initial;
+    let revision = operator.revision;
+    let saved: unknown;
+    serve = (url, init) => {
+      const current = () => ({ ...operator, revision, policy: { ...policy, ...(loggingEnabled === undefined ? {} : { loggingEnabled }) } });
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        saved = body; loggingEnabled = body.loggingEnabled; revision++;
+        return json(current());
+      }
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: current() }) : json({ items: [current()], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const checkbox = await screen.findByRole('checkbox', { name: /Enable logging/ });
+    expect(screen.getAllByRole('checkbox', { name: /Enable logging/ })).toHaveLength(1);
+    expect((checkbox as HTMLInputElement).checked).toBe(initial ?? true);
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toEqual({ revision: operator.revision, capabilities: [], loggingEnabled: !(initial ?? true) }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
+    expect((screen.getByRole('checkbox', { name: /Enable logging/ }) as HTMLInputElement).checked).toBe(!(initial ?? true));
+    expect(screen.getByText(/Privacy and security audits remain unchanged/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toEqual({ revision: operator.revision + 1, capabilities: [], loggingEnabled: !(initial ?? true) }));
+  });
+
   it('distinguishes loading, empty and catalog failure with explicit retry', async () => {
     let resolve!: (value: Response) => void;
     serve = () => new Promise<Response>(done => { resolve = done; });

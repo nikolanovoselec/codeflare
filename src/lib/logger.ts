@@ -118,7 +118,7 @@ export function setLogLevel(level: LogLevel): void {
  * @param context - Optional initial context to include in all log entries
  * @returns Logger instance
  */
-export function createLogger(module: string, context?: Record<string, unknown>): Logger {
+export function createLogger(module: string, context?: Record<string, unknown>, enabled = true): Logger {
   const baseContext = context || {};
 
   function log(
@@ -127,7 +127,7 @@ export function createLogger(module: string, context?: Record<string, unknown>):
     data?: Record<string, unknown>,
     error?: Error
   ): void {
-    if (LOG_LEVELS[level] < LOG_LEVELS[minLogLevel]) {
+    if (!enabled || LOG_LEVELS[level] < LOG_LEVELS[minLogLevel]) {
       return;
     }
 
@@ -185,6 +185,6 @@ export function createLogger(module: string, context?: Record<string, unknown>):
     // Parameter order is (message, error, data) — not (message, data) like other methods —
     // because the Error object is more important than metadata for debugging.
     error: (msg, err, data) => log('error', msg, data, err),
-    child: (ctx) => createLogger(module, { ...baseContext, ...ctx }),
+    child: (ctx) => createLogger(module, { ...baseContext, ...ctx }, enabled),
   };
 }
