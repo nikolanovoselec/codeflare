@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
-- Remove the arbitrary retained-reason size rejection from the temporary private inspection (REQ-OPERATOR-079 AC7), as requested. Return the complete nonempty reason while preserving all access, attribution and execution fences. Add full-return coverage above the removed threshold; hosted verification of this correction remains pending.
+- Remove the arbitrary retained-reason size rejection from the temporary private inspection (REQ-OPERATOR-079 AC7), as requested. Return the complete nonempty reason while preserving all access, attribution and execution fences. Remove reason-size test coverage as requested; hosted verification of this correction remains pending.
 
 - Add the authorized temporary retained-failure read for fenced Activity `9024a801-8bbd-426a-8330-59fdf5b8d688` in Enterprise Integration (REQ-OPERATOR-079 AC7). Preserve owner authentication, immutable attribution, unknown/result fences and no raw-error logging; never load or contact the child. Remove after inspection. Hosted verification and diagnosed cause remain pending.
 
