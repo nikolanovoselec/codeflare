@@ -4,8 +4,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
-- Correct scoped specification/documentation ownership: move REQ-OPERATOR-078 AC8–10 and REQ-OPERATOR-049 AC8 into [REQ-OPERATOR-079](operators.md#req-operator-079-shared-execution-diagnostic-control), splitting SDK observations from settlement fingerprints while preserving evidence anchors and existing AC1–7 numbering. Separate concise diagnostic constraints and add local producer/budget traceability. Clarify changed-setting installation disablement, effective no-op enablement and immutable admitted configuration; no behavior change or deployed acceptance is claimed.
-
 - Mark requested-submission SDK tool reset overflow as truncated without affecting completion/result authority (REQ-OPERATOR-079). Add response-shape privacy/sampling coverage and disabled native/Tail cases; complete typed fixtures and retain the intended default-enabled public policy. Hosted verification remains pending.
 
 - Extend private producer and SDK-tool diagnostics with closed error codes, evidence/state flags, argument shape and opaque failure fingerprints (REQ-OPERATOR-079). Preserve generation/authority checks, privacy, bounded independent report budgets, operation accounting and result fences.

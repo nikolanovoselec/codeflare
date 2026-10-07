@@ -733,8 +733,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     try {
       const tail = new OperatorDispatcherTail({ props: { activityId: 'activity', generation: 1, loggingEnabled } } as unknown as ExecutionContext,
         env as unknown as ConstructorParameters<typeof OperatorDispatcherTail>[1]);
-      await tail.tail([{ logs: [{ message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] },
-        { message: ['Dispatcher inference boundary', { stage: 'fetch-rejected', reason: 'PRIVATE_TAIL_CONTENT' }] }] }]);
+      await tail.tail([{ logs: [{ level: 'warn', message: ['Dispatcher inference boundary', { stage: 'fetch-rejected' }] },
+        { level: 'warn', message: ['Dispatcher inference boundary', { stage: 'fetch-rejected', reason: 'PRIVATE_TAIL_CONTENT' }] }] }]);
       if (loggingEnabled) expect(records.map(value => JSON.parse(value).data)).toEqual([{ activityId: 'activity', generation: 1, stage: 'fetch-rejected' }]);
       else expect(records).toEqual([]);
       expect(records.join('')).not.toContain('PRIVATE_TAIL_CONTENT');
