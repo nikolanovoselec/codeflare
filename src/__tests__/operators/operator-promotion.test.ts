@@ -213,3 +213,100 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     })).status).toBe(404);
   }));
 });
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  async function setup(request: (path: string, method?: string, body?: unknown) => Promise<Response>) {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ profile: 'dispatcher', repositoryName: 'codeflare-operator-dispatcher', repositoryOwner: 'nikolanovoselec', packageId: 'renovate-dispatcher', intentVersion: '3', inputSchema: { type: 'object', additionalProperties: false, required: ['repository'], properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } } })).fetcher);
+    expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [] } })).status).toBe(200);
+    const response = await request('/operators', 'POST', { ...registration, profile: 'dispatcher',
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher' });
+    expect(response.status).toBe(201);
+    const operator = await response.json() as { operatorId: string; revision: number };
+    const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+    expect(refreshed.status).toBe(200);
+    const release = (await refreshed.json() as { items: Array<{ id: string }> }).items[0];
+    const current = await (await request(`/operators/${operator.operatorId}`)).json() as { operator: { revision: number } };
+    return { ...operator, revision: current.operator.revision, releaseId: release.id };
+  }
+  it('persists independent configuration through CAS save/read and disables only the selected installation without changing policy', () => withManagementApi(async request => {
+    const operator = await setup(request);
+    const configuration = { unrelated: { labels: ['keep'], nested: { allowed: true } }, renovate: {
+      repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'primary', revision: operator.revision, policy, configuration });
+    expect(created.status).toBe(201);
+    const first = await created.json() as { id: string; revision: number };
+    const promoted = await request(`/installations/${first.id}/promote`, 'POST', { revision: first.revision, releaseId: operator.releaseId });
+    expect(promoted.status).toBe(200);
+    const pinned = await promoted.json() as { revision: number };
+    const enabled = await request(`/installations/${first.id}/enable`, 'POST', { revision: pinned.revision, enabled: true });
+    expect(enabled.status).toBe(200);
+    first.revision = (await enabled.json() as { revision: number }).revision;
+    const detail = await (await request(`/operators/${operator.operatorId}`)).json() as { operator: { revision: number } };
+    const otherResponse = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'other', revision: detail.operator.revision, policy, configuration: { renovate: {
+        repository: 'other/updates', automaticRuns: false, repetitionIntervalSeconds: 7200 } } });
+    expect(otherResponse.status).toBe(201);
+    const other = await otherResponse.json();
+    const next = { ...configuration, renovate: { ...configuration.renovate, automaticRuns: false, repetitionIntervalSeconds: 7200 } };
+    const saved = await request(`/installations/${first.id}/configure`, 'POST', { revision: first.revision, policy, configuration: next });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ id: first.id, revision: first.revision + 1, enabled: false, policy, configuration: next });
+    expect((await request(`/installations/${first.id}/configure`, 'POST', { revision: first.revision, policy, configuration })).status).toBe(409);
+    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({ installations: expect.arrayContaining([
+      expect.objectContaining({ id: first.id, enabled: false, configuration: next, policy }), other,
+    ]) });
+  }));
+  it.each([
+    { repository: '' }, { repository: 'acme' }, { repository: 'acme/../updates' }, { repository: './updates' },
+    { repository: 'acme/..' }, { repository: 'acme/%75pdates' }, { repository: 'https://github.com/acme/updates' },
+    { repository: 'acme/updates?override=1' }, { repository: 'acme/updates#branch' },
+    { repository: 'a'.repeat(202) + '/updates' }, { repository: ' acme/updates' },
+    { repetitionIntervalSeconds: 0 }, { repetitionIntervalSeconds: -1 }, { repetitionIntervalSeconds: 1.5 },
+    { repetitionIntervalSeconds: '900' }, { repetitionIntervalSeconds: Number.MAX_SAFE_INTEGER + 1 }, { repetitionIntervalSeconds: Number.MAX_SAFE_INTEGER },
+    { repetitionIntervalSeconds: 8_640_000_000_000 }, { repetitionIntervalSeconds: null },
+    { automaticRuns: 'true' }, { extraAuthority: true },
+  ])('rejects malformed reserved settings %j without changing retained installation', patch => withManagementApi(async request => {
+    const operator = await setup(request);
+    const configuration = { unrelated: { keep: true }, renovate: {
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'primary', revision: operator.revision, policy, configuration });
+    expect(created.status).toBe(201);
+    const installation = await created.json() as { id: string; revision: number };
+    const invalid = await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy, configuration: { ...configuration, renovate: { ...configuration.renovate, ...patch } } });
+    expect(invalid.status).toBe(400);
+    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({ installations: [expect.objectContaining({
+      id: installation.id, revision: installation.revision, configuration, enabled: false, policy })] });
+  }));
+  it.each([1, 900, 7200, 31_536_000, 1_000_000_000_000])('accepts valid %i-second cadence without inventing an hourly or short business cap', interval => withManagementApi(async request => {
+    const operator = await setup(request);
+    const configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: interval } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'primary', revision: operator.revision, policy, configuration });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({ configuration, enabled: false });
+  }));
+  it('validates reserved settings at the Registry RPC boundary and retains state on rejection', () => withManagementApi(async (request, ctx) => {
+    const operator = await setup(request);
+    const configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'primary', revision: operator.revision, policy, configuration });
+    expect(created.status).toBe(201);
+    const installation = await created.json() as { id: string; revision: number };
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    const current = await registry.getManagementOperator(operator.operatorId);
+    if (!current.ok) throw Error('Operator unavailable');
+    const controls = await registry.getManagementControls();
+    await expect(registry.configureManagementInstallation(installation.id, { revision: installation.revision, policy,
+      configurationJson: JSON.stringify({ renovate: { repository: 'acme/../other', automaticRuns: true, repetitionIntervalSeconds: 0 } }) },
+      { operatorRevision: current.value.revision, controlsRevision: controls.revision, expiresAt: Date.now() + 60000 }))
+      .rejects.toBeDefined();
+    expect(await registry.getManagementInstallation(installation.id)).toMatchObject({ ok: true, value: {
+      revision: installation.revision, configurationJson: JSON.stringify(configuration) } });
+  }));
+
+});

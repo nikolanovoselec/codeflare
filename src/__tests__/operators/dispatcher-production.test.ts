@@ -352,10 +352,12 @@ async function fixture(test: (f: {
   afterTargetRead: (action: () => void | Promise<void>) => void; revokeGrant: () => void;
   afterRegistryResolve: (action: () => Promise<void>) => void;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
+  configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean } = {}) {
   callerSessionCurrent = true;
-  const fixtureInvocation = options.prospective ? { repository: 'nikolanovoselec/komodo',
+  const configuredTarget = options.configuredTarget ?? { repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main' };
+  const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
     : options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -370,7 +372,7 @@ async function fixture(test: (f: {
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const fixtureOperatorId = options.prospective ? 'renovate-dispatcher' : 'operator';
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
-      enabled: true, policy, configurationJson: '{}', releaseId: 'release' },
+      enabled: true, policy, configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
       policy: { ...policy, ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
@@ -383,18 +385,21 @@ async function fixture(test: (f: {
         properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
           ...(options.legacyProspective ? { pullRequest: { type: 'integer', minimum: 1 } } : {}) } },
       requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) : '{}' };
-    const proof: ProspectiveAdmission = { activityId, installationId: 'installation', repositoryId: 973175879,
+    const proof = { activityId, installationId: 'installation', ...configuredTarget,
+      controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
       activatedAt: new Date(now - 2 * 86_400_000).toISOString(), ownerKey: await operatorOwnerKey(human),
       actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: 'original-session',
-        sessionGeneration: 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } };
-    const admittedTarget = { repository: 'nikolanovoselec/komodo', repositoryId: proof.repositoryId,
+        sessionGeneration: 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
+    const admittedTarget = { repository: configuredTarget.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
-      createdAfter: proof.activatedAt, baseBranch: 'main' };
+      createdAfter: proof.activatedAt, baseBranch: configuredTarget.baseBranch };
     let currentProof: Record<string, unknown> | null = structuredClone(proof) as unknown as Record<string, unknown>;
     let currentRegistration: CurrentProspectiveRegistration | null = { registrationId: proof.actor.registrationId,
       installationId: proof.installationId, activatedAt: proof.activatedAt, bucket: proof.actor.bucket,
-      sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt' };
+      sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt',
+      ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
+      repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration;
     let targetPatch: Record<string, unknown> = {};
     let afterTargetRead: (() => void | Promise<void>) | undefined;
     let afterRegistryResolve: (() => Promise<void>) | undefined;
@@ -496,13 +501,13 @@ async function fixture(test: (f: {
           if (options.prospective && request.method === 'GET') {
             if (transportThrows) throw new Error('Target authority unavailable');
             if (emptyResponse) return new Response(null, { status: 200 });
-            const repositoryUrl = `https://${options.githubApiHost ?? 'api.github.com'}/repos/nikolanovoselec/komodo`;
+            const repositoryUrl = `https://${options.githubApiHost ?? 'api.github.com'}/repos/${configuredTarget.repository}`;
             if (request.url === repositoryUrl) return Response.json({ id: proof.repositoryId,
-              full_name: 'nikolanovoselec/komodo', ...(targetPatch.repository as object | undefined) });
+              full_name: configuredTarget.repository, default_branch: configuredTarget.baseBranch, ...(targetPatch.repository as object | undefined) });
             if (request.url === `${repositoryUrl}/pulls/17`) {
               const observed = { number: 17, state: 'open', draft: false, created_at: proof.createdAt,
                 user: { login: 'renovate[bot]', id: 29139614, type: 'Bot' },
-                base: { ref: 'main', sha: baseSha, repo: { id: proof.repositoryId, full_name: 'nikolanovoselec/komodo' } },
+                base: { ref: configuredTarget.baseBranch, sha: baseSha, repo: { id: proof.repositoryId, full_name: configuredTarget.repository } },
                 head: { sha: headSha }, ...targetPatch };
               const action = afterTargetRead; afterTargetRead = undefined;
               await action?.();
@@ -2980,3 +2985,50 @@ it('REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error
     expect(JSON.stringify(events)).not.toMatch(/PRIVATE_HISTORICAL|private\.jwt|parent-only|https:\/\//);
   } finally { spy.mockRestore(); setLogLevel('silent'); }
 }, { inferenceBody: 'data: {"error":{"code":"NATIVE_BEDROCK_STREAM_ERROR","message":"PRIVATE_HISTORICAL_RESPONSE"}}\n\ndata: [DONE]\n\n' }));
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  const configuredTarget = { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' };
+  const root = 'https://api.github.com/repos/acme/updates';
+  const comment = (operationId: string) => ({ operationId, method: 'POST', url: `${root}/issues/17/comments`,
+    body: JSON.stringify({ body: 'Exact admitted judgment' }) });
+  it('the actual runtime Loader and exact mutation allowlist use the same immutable alternate admitted target through reconstruction', () => fixture(async f => {
+    await start(f);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    expect(f.input).toEqual({ repository: configuredTarget.repository });
+    expect(JSON.parse((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET as string)).toEqual(f.admittedTarget);
+    const request = comment('configured-comment');
+    const completed = await f.capability.fetch(genericWire('source', request));
+    expect(completed.status).toBe(200);
+    const cached = await completed.json();
+    f.restart();
+    expect(await (await f.capability.fetch(genericWire('source', request))).json()).toEqual(cached);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([`${root}/issues/17/comments`]);
+    expect((await f.capability.fetch(genericWire('source', { ...comment('foreign-target'), url: `${prospectiveBase}/issues/17/comments` }))).status).toBe(403);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([`${root}/issues/17/comments`]);
+  }, { prospective: true, configuredTarget }));
+  it('unknown alternate-target mutations are never replayed after reconstruction', () => fixture(async f => {
+    await start(f); f.loseResponse();
+    const operation = comment('configured-unknown');
+    expect(await (await f.capability.fetch(genericWire('source', operation))).json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport(); f.restart();
+    expect((await f.capability.fetch(genericWire('source', operation))).status).toBe(409);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([operation.url]);
+  }, { prospective: true, configuredTarget }));
+  it.each([{ repository: 'other/repo' }, { repositoryId: 1 }, { baseBranch: 'main' }, { installationRevision: 2 }])
+    ('a substituted admission %j cannot borrow current configured authority', patch => fixture(async f => {
+      await start(f); f.changeProof(patch);
+      const outbound = [...f.sent];
+      expect((await f.capability.fetch(genericWire('source', comment('substituted')))).status).toBe(403);
+      expect(f.sent).toEqual(outbound);
+    }, { prospective: true, configuredTarget }));
+  it('fresh registration cannot rebind an old proof after settings change', () => fixture(async f => {
+    await start(f);
+    f.changeRegistration({ registrationId: 'fresh-settings-generation', ...configuredTarget,
+      installationRevision: 2 } as unknown as Partial<CurrentProspectiveRegistration>);
+    const outbound = [...f.sent];
+    expect((await f.capability.fetch(genericWire('source', comment('old-proof')))).status).toBe(403);
+    expect(f.sent).toEqual(outbound);
+    expect(remoteMutations(f)).toEqual([]);
+  }, { prospective: true, configuredTarget }));
+});

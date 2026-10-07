@@ -8,7 +8,7 @@ import { authorizeDispatcherPlan } from '../../operators/operator-runtime-capabi
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 
-const repoId = 973175879, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
+const repoId = 424242, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
 const at = new Date().toISOString();
 const claims = (email: string) => ({ subject: email, email, issuer: 'https://owner.cloudflareaccess.com',
   audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
@@ -18,7 +18,8 @@ type Reservation = { ok: true; activityId: string; actor: { registrationId: stri
   sessionId: string; sessionGeneration: number } } | { ok: false; reason: string };
 type Prospective = {
   activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
-    sessionGeneration: number; human: ReturnType<typeof claims>; accessJwt: string }): Promise<Registration>;
+    sessionGeneration: number; human: ReturnType<typeof claims>; accessJwt: string;
+    repository?: { repository: string; repositoryId: number; baseBranch: string } }): Promise<Registration>;
   currentProspectiveRenovateRegistration(registrationId: string): Promise<unknown | null>;
   reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
     pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<Reservation>;
@@ -51,7 +52,8 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
       USAGE_DB: database, KV: kv } as unknown as Env;
     const registry = new OperatorRegistry(native, environment);
     const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
-      enabled: true, revision: 1, releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+      enabled: true, revision: 1, releaseId: 'release',
+      configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }), policy: { capabilities: ['fetch'], resourceProfileId: null } },
       operator: { id: 'dispatcher', operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
         policy: { capabilities: ['fetch'], resourceProfileId: null },
         invokers: { users: ['a@example.test', 'z@example.test'], groups: [] } },
@@ -78,12 +80,12 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
     finally { globalThis.fetch = originalFetch; }
   });
 }
-async function enroll(registry: Prospective, user: 'a' | 'z', generation = user === 'a' ? 3 : 4) {
+async function enroll(registry: Prospective, user: 'a' | 'z', generation = user === 'a' ? 3 : 4, repository = { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' }) {
   return registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', bucket: 'owner-bucket',
-    sessionId: `${user}session01`, sessionGeneration: generation, human: claims(`${user}@example.test`), accessJwt: `${user}-jwt` });
+    sessionId: `${user}session01`, sessionGeneration: generation, human: claims(`${user}@example.test`), accessJwt: `${user}-jwt`, repository });
 }
 function pr(registrationId: string, activatedAt: string, patch: Record<string, unknown> = {}) {
-  return { registrationId, repositoryId: repoId, pullRequest: 1300, head,
+  return { registrationId, repository: 'acme/updates', baseBranch: 'trunk', repositoryId: repoId, pullRequest: 1300, head,
     createdAt: new Date(Date.parse(activatedAt) + 1).toISOString(), activityId: 'activity-1', ...patch };
 }
 
@@ -160,7 +162,7 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
     const reserved = await registry.reserveProspectiveRenovateActivity(observed);
     if (!reserved.ok) throw Error('Reservation unavailable');
     const human = claims('a@example.test');
-    const invocationJson = JSON.stringify({ repository: 'nikolanovoselec/komodo', pullRequest: observed.pullRequest });
+    const invocationJson = JSON.stringify({ repository: 'acme/updates', pullRequest: observed.pullRequest });
     const token = 's'.repeat(43);
     const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))))
       .map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -199,7 +201,7 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
       human, accessJwt: 'a-jwt' }, environment);
     const selected = selection as { installation: { id: string } };
     const plan = { activityId: reservation.activityId, prospectiveAdmissionId: reservation.activityId,
-      deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'nikolanovoselec/komodo' }),
+      deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
       receipt: { selection: { ...selection as object }, installationId: selected.installation.id }, executionContext: context };
     const host = { ...environment, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env;
     await expect(authorizeDispatcherPlan(plan as never, host)).resolves.toBeDefined();
@@ -249,4 +251,112 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
     expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
       { repositoryId: 1 }))).ok).toBe(false);
   }));
+});
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  it.each([{}, { renovate: { repository: 'acme/updates' } },
+    { renovate: { repository: 'acme/updates', automaticRuns: false } },
+    { renovate: { automaticRuns: true, repetitionIntervalSeconds: 900 } }])
+    ('denies activation without an explicit repository and automatic opt-in %j', configuration => fixture(async ({ registry, selection }) => {
+      (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify(configuration);
+      expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
+    }));
+  it('pins alternate authenticated identity and defaults the registered interval to 3600', () => fixture(async ({ registry, selection }) => {
+    (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({
+      renovate: { repository: 'acme/updates', automaticRuns: true } });
+    const activation = await enroll(registry, 'a');
+    if (!activation.ok) throw Error('Configured activation unavailable');
+    expect(await registry.currentProspectiveRenovateRegistration(activation.registrationId)).toMatchObject({
+      repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk', repetitionIntervalSeconds: 3600 });
+    expect(await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt)))
+      .toMatchObject({ ok: true });
+    expect(await registry.readProspectiveRenovateAdmission('activity-1')).toMatchObject({
+      repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk', activatedAt: activation.activatedAt });
+  }));
+  it('configuration save and ordinary separate enable cannot refresh an old admitted generation', () => fixture(async ({ registry, restart, selection, state }) => {
+    const first = await enroll(registry, 'a');
+    if (!first.ok) throw Error('Activation unavailable');
+    const observed = pr(first.registrationId, first.activatedAt);
+    const reserved = await registry.reserveProspectiveRenovateActivity(observed);
+    expect(reserved).toMatchObject({ ok: true });
+    const original = await registry.readProspectiveRenovateAdmission('activity-1');
+    const selected = selection as { installation: { revision: number; configurationJson: string } };
+    state.enabled = false;
+    selected.installation.revision++;
+    selected.installation.configurationJson = JSON.stringify({ renovate: {
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 7200 } });
+    expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+    state.enabled = true;
+    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+    expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
+    selected.installation.revision++;
+    selected.installation.configurationJson = JSON.stringify({ renovate: {
+      repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 7200 } });
+    const next = await enroll(registry, 'a');
+    if (!next.ok) throw Error('Reactivation unavailable');
+    expect(next.activatedAt).toBe(first.activatedAt);
+    expect(next.registrationId).not.toBe(first.registrationId);
+    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+    expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(original);
+    expect(await registry.reserveProspectiveRenovateActivity({ ...observed, registrationId: next.registrationId,
+      activityId: 'replacement' })).toEqual(reserved);
+    expect(await registry.currentProspectiveRenovateRegistration(next.registrationId)).toMatchObject({ repetitionIntervalSeconds: 7200 });
+  }));
+  it('fences legacy automatic records without settings while leaving their admission readable', () => fixture(async ({ registry, native, selection }) => {
+    const legacy = { activityId: 'legacy-activity', installationId: 'dispatcher-install', repositoryId: 973175879,
+      pullRequest: 17, head, activatedAt: at, createdAt: at, ownerKey: 'a'.repeat(64), actor: { registrationId: 'legacy-scan' } };
+    await native.storage.put('renovate-activity:legacy-activity', legacy);
+    await native.storage.put('renovate-activation', { installationId: 'dispatcher-install', repositoryId: 973175879, activatedAt: at });
+    (selection as { installation: { configurationJson: string } }).installation.configurationJson = '{}';
+    expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
+    expect(await registry.readProspectiveRenovateAdmission('legacy-activity')).toEqual(legacy);
+  }));
+  it('each repository retains its first cutoff and returning to it retains same-head dedupe without replay', () => fixture(async ({ registry, restart, selection }) => {
+    const first = await enroll(registry, 'a');
+    if (!first.ok) throw Error('First activation unavailable');
+    const observed = pr(first.registrationId, first.activatedAt);
+    const reserved = await registry.reserveProspectiveRenovateActivity(observed);
+    expect(reserved).toMatchObject({ ok: true });
+    const selected = selection as { installation: { revision: number; configurationJson: string } };
+    const later = Date.now() + 2000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+    try {
+      selected.installation.revision++;
+      selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'other/service', automaticRuns: true, repetitionIntervalSeconds: 7200 } });
+      const other = await enroll(registry, 'a', 3, { repository: 'other/service', repositoryId: 565656, baseBranch: 'develop' });
+      expect(other).toMatchObject({ ok: true, activatedAt: new Date(later).toISOString() });
+      if (!other.ok) throw Error('Other activation unavailable');
+      expect(await registry.reserveProspectiveRenovateActivity(pr(other.registrationId, other.activatedAt,
+        { repository: 'other/service', repositoryId: 565656, baseBranch: 'develop', activityId: 'other-activity' })))
+        .toMatchObject({ ok: true, activityId: 'other-activity' });
+      expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+      selected.installation.revision++;
+      selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } });
+      clock.mockReturnValue(later + 2000);
+      const returning = await enroll(registry, 'a');
+      if (!returning.ok) throw Error('Returning activation unavailable');
+      expect(returning.activatedAt).toBe(first.activatedAt);
+      expect(await restart().reserveProspectiveRenovateActivity({ ...observed, registrationId: returning.registrationId,
+        activityId: 'replacement' })).toEqual(reserved);
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, registrationId: returning.registrationId,
+        head: newerHead, activityId: 'new-head' })).toMatchObject({ ok: true, activityId: 'new-head' });
+      selected.installation.revision++;
+      expect(await enroll(registry, 'a', 3, { repository: 'acme/updates', repositoryId: 1, baseBranch: 'trunk' }))
+        .toMatchObject({ ok: false });
+    } finally { clock.mockRestore(); }
+  }));
+  it('a settings change during asynchronous election cannot create a stale admission', () => fixture(async ({ registry, selection }) => {
+    const activation = await enroll(registry, 'a');
+    if (!activation.ok) throw Error('Activation unavailable');
+    const selected = selection as { installation: { revision: number } };
+    const original = globalThis.fetch;
+    globalThis.fetch = async (request, init) => { const result = await original(request, init); selected.installation.revision++; return result; };
+    try {
+      expect(await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt)))
+        .toMatchObject({ ok: false });
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+    } finally { globalThis.fetch = original; }
+  }));
+
 });

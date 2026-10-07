@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
+- Amend REQ-OPERATOR-061 for required configured Renovate repository input without a fallback or manual override, an independent automatic-runs toggle, and a configurable interval defaulting to one hour. Specify revision-bound activation and disabled/stale callback fences. Add the complete backend/UI behavioral test batch; runtime implementation and hosted verification are pending.
+
 - Add native compiled-SDK coverage for the corrected Dispatcher invocation/scope retention after a premature model stop (REQ-OPERATOR-048 AC4), independently of retained historical compatibility fixtures. Hosted verification remains pending.
 
 - Remove the temporary retained-failure reader, HTTP route, AC7 and inspection-only tests after the approved owner read identified the Dispatcher steering-signal JSON parse failure. REQ-OPERATOR-079 retains its six logging criteria; REQ-OPERATOR-027 covers the retired endpoint's 404. No execution, collection, SDK release or unknown-generation fence changes. Hosted removal delivery remains pending.

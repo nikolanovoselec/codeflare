@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement from '../../components/OperatorManagement';
 const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionStatus: 'running', cleanupStatus: 'pending', collectionStatus: 'unavailable',
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 let serve: (url: URL, init?: RequestInit) => Response;
-let preview: { name: string; version: string; guidedAssessment: boolean; guidedMode: 'repository' | 'legacy-pull-request' | null };
+let preview: { name: string; version: string; guidedAssessment: boolean; guidedMode: 'repository' | 'legacy-pull-request' | null; configuredRepository?: string };
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators?view=activity');
   serve = () => json({ items: [summary] });
@@ -16,9 +16,10 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
-  it('uses the installed repository-only contract, discloses effects, and ignores PR query input until explicit start', async () => {
-    window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=owner%2Frepo&pullRequest=42');
+  it('REQ-OPERATOR-061: configured Renovate run settings make the modern target read-only and ignore malicious repository and PR URL overrides until explicit start', async () => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=attacker%2Fforeign&pullRequest=42&automaticRuns=true&repetitionIntervalSeconds=1');
     preview.guidedMode = 'repository';
+    preview.configuredRepository = 'acme/configured';
     const admissions: unknown[] = [];
     serve = (url, init) => {
       if (url.pathname === '/api/operator-activities' && init?.method === 'POST') {
@@ -31,18 +32,43 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     };
     render(() => <OperatorManagement />);
     const repository = await screen.findByRole('textbox', { name: 'Repository' });
-    expect(repository).toHaveAttribute('maxlength', '201');
+    expect(repository).toHaveValue('acme/configured');
+    expect(repository).toHaveAttribute('readonly');
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
     expect(screen.getByText(/discovers recent Renovate pull requests/)).toHaveTextContent(/researches.*comments.*conditionally merge/);
     expect(admissions).toEqual([]);
-    fireEvent.input(repository, { target: { value: 'a'.repeat(198) + '/repo' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Repository must/);
-    expect(admissions).toEqual([]);
-    fireEvent.input(repository, { target: { value: 'owner/repo' } });
+    // Even a synthetic DOM input event cannot turn a read-only target into an override.
+    fireEvent.input(repository, { target: { value: 'attacker/dom-injection' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    expect(admissions).toEqual([{ installationId: 'installation-1', invocation: { repository: 'owner/repo' } }]);
+    // Intentional preparation wire contract: no interval, automatic flag or PR reaches the child input.
+    expect(admissions).toEqual([{ installationId: 'installation-1', invocation: { repository: 'acme/configured' } }]);
+  });
+
+  it.each([undefined, ''])('REQ-OPERATOR-061: configured Renovate run settings block modern start when repository is unset (%j), with no hardcoded or URL fallback', async configuredRepository => {
+    window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=nikolanovoselec%2Fkomodo&pullRequest=1253');
+    preview.guidedMode = 'repository';
+    preview.configuredRepository = configuredRepository;
+    const mutations: unknown[] = [];
+    serve = (_url, init) => {
+      if (init?.method === 'POST') mutations.push(JSON.parse(String(init.body)));
+      return json({ items: [] });
+    };
+    render(() => <OperatorManagement />);
+    const pane = await screen.findByRole('region', { name: 'Prepare assessment' });
+    await within(pane).findByText(/repository.*(?:not configured|missing|configure|required)|(?:not configured|missing|configure|required).*repository/i);
+    const back = within(pane).getByRole('link', { name: 'Back to settings' });
+    expect(back).toHaveAttribute('href', expect.stringContaining('/operators'));
+    const start = within(pane).getByRole('button', { name: 'Start assessment' });
+    expect(start).toBeDisabled();
+    fireEvent.submit(start.closest('form')!);
+    expect(mutations).toEqual([]);
+    expect(within(pane).queryByRole('spinbutton')).not.toBeInTheDocument();
+    const repository = within(pane).queryByRole('textbox', { name: 'Repository' });
+    if (repository) {
+      expect(repository).toHaveValue('');
+      expect(repository).toHaveAttribute('readonly');
+    }
   });
 
   it('preserves legacy read-only disclosure and rejects nonpositive PR input', async () => {

@@ -78,15 +78,18 @@ function fixture() {
   const waitUntil = vi.fn();
   const loopback = vi.fn(({ props }: { props: { activityId: string; generation: number } }) =>
     ({ fetch: vi.fn(), props }) as unknown as Fetcher);
+  let githubTransport: (request: Request) => Promise<Response> = async () => Response.json({
+    id: 424242, full_name: 'acme/updates', default_branch: 'trunk' });
+  const setGithub = (handler: typeof githubTransport) => { githubTransport = handler; };
   const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env) => app.request(
     `https://enterprise.example.test/api/operator-activities${path}`,
     { method, headers: {
       'content-type': 'application/json', 'cf-access-authenticated-user-email': claims.email,
       ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}),
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
-    { waitUntil, passThroughOnException: vi.fn(), props: {}, exports: { OperatorRuntimeCapability: loopback } },
+    { waitUntil, passThroughOnException: vi.fn(), props: {}, exports: { OperatorRuntimeCapability: loopback, GitHubInterceptor: () => ({ fetch: (request: Request) => githubTransport(request) }) } },
   );
-  return { activity, registry, env, kv, request, waitUntil, loopback };
+  return { activity, registry, env, kv, request, waitUntil, loopback, setGithub };
 }
 
 beforeEach(() => { vi.clearAllMocks(); accessState.active = true; });
@@ -167,7 +170,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
 
   it('REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan', async () => {
     const { request, kv, registry, env } = fixture();
-    const observed = { activatedAt: new Date().toISOString(), repositoryId: 973175879 };
+    const observed = { activatedAt: new Date().toISOString(), repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' };
     (registry as unknown as { activateProspectiveRenovate: (input: unknown) => Promise<unknown> })
       .activateProspectiveRenovate = async () => ({ ok: true, ...observed, registrationId: 'registered-admin' });
     (env as unknown as { USAGE_DB: unknown }).USAGE_DB = { prepare: () => ({ bind: () => ({ first: async () => ({
@@ -179,12 +182,12 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     (env as unknown as { CONTAINER: unknown }).CONTAINER = { idFromName: (value: string) => value,
       get: () => ({ armRenovateScan: async () => ({ ok: true, activatedAt: observed.activatedAt }) }) };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { installation: { id: 'dispatcher-install',
-      revision: 1, enabled: true }, operator: { profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
+      revision: 1, enabled: true, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
       release: { bundleDigest: 'a'.repeat(64) }, controlsRevision: 1 } });
     const command = { installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 };
     const response = await request('/renovate/activation', 'POST', command);
     expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ activatedAt: expect.any(String), repositoryId: 973175879 });
+    expect(await response.json()).toMatchObject({ activatedAt: expect.any(String), repositoryId: 424242 });
     expect((await request('/renovate/activation', 'POST', { ...command, activatedAt: '2000-01-01T00:00:00Z' })).status)
       .toBe(400);
     expect((await request('/renovate/activation', 'POST', command, false)).status).toBe(403);
@@ -436,5 +439,94 @@ describe('REQ-OPERATOR-060: explicit authenticated publisher admission', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ ok: true });
     expect((await f.request('/activity-1/result')).status).toBe(200);
+  });
+});
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  const schema = { type: 'object', additionalProperties: false, required: ['repository'], properties: {
+    repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
+  it('projects only the configured repository through authorized guided preview and ignores URL overrides', async () => {
+    const f = fixture();
+    const selected = { operator: { id: 'dispatcher', profile: 'dispatcher',
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+      invokers: { users: [claims.email], groups: [] } }, installation: { id: 'install', enabled: true,
+      configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false,
+        repetitionIntervalSeconds: 900 }, privateSetting: 'DO_NOT_PROJECT' }) },
+      release: { tagName: 'v1', githubReleaseId: 17 }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher',
+        profile: 'dispatcher', intentVersion: '3', name: 'Renovate Dispatcher', inputSchema: schema }) };
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
+    const preview = await f.request('/installations/install/preview?repository=other/repo');
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true,
+      guidedMode: 'repository', configuredRepository: 'acme/updates' });
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
+      installation: { ...selected.installation, configurationJson: '{}' } } });
+    expect(await (await f.request('/installations/install/preview')).json()).toEqual({
+      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository' });
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
+      operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
+    expect((await f.request('/installations/install/preview')).status).toBe(404);
+  });
+});
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  function activationFixture() {
+    const f = fixture();
+    const selected = { installation: { id: 'dispatcher-install', revision: 2, enabled: true,
+      policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
+        repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
+      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
+      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
+    f.registry.resolveManagementExecution.mockImplementation(async () => ({ ok: true, value: selected }));
+    const admitted: unknown[] = [], armed: unknown[] = [], reads: Request[] = [];
+    Object.assign(f.registry, { activateProspectiveRenovate: async (input: unknown) => {
+      admitted.push(input); return { ok: true, registrationId: 'scan-configured', activatedAt: '2026-09-28T00:00:00.000Z',
+        repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' }; } });
+    Object.assign(f.env, { USAGE_DB: { prepare: () => ({ bind: () => ({ first: async () => ({
+      lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
+      created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
+      observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
+    }) }) }) }, CONTAINER: { idFromName: (name: string) => name, get: () => ({
+      armRenovateScan: async (input: unknown) => { armed.push(input); return { ok: true }; } }) } });
+    f.kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
+    f.setGithub(async request => { reads.push(request); return Response.json({
+      id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }); });
+    return { ...f, selected, admitted, armed, reads, command: {
+      installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
+  }
+  it('authenticates configured repository metadata with one fixed parent GET before activation', async () => {
+    const f = activationFixture();
+    const response = await f.request('/renovate/activation', 'POST', f.command);
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({ repositoryId: 424242 });
+    expect(f.reads.map(request => ({ url: request.url, method: request.method, redirect: request.redirect })))
+      .toEqual([{ url: 'https://api.github.com/repos/acme/updates', method: 'GET', redirect: 'manual' }]);
+    expect(f.admitted).toHaveLength(1);
+    expect(f.armed).toHaveLength(1);
+  });
+  it.each(['unset', 'off', 'redirect', 'foreign-name', 'unsafe-id', 'no-branch', 'changed-selection', 'revoked-session'])
+    ('denies %s before persisting or arming a registration', async fault => {
+      const f = activationFixture();
+      if (fault === 'unset') f.selected.installation.configurationJson = '{}';
+      if (fault === 'off') f.selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } });
+      f.setGithub(async () => {
+        if (fault === 'changed-selection') f.selected.installation.revision++;
+        if (fault === 'revoked-session') accessState.active = false;
+        if (fault === 'redirect') return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/other/repo' } });
+        return Response.json({ id: fault === 'unsafe-id' ? Number.MAX_SAFE_INTEGER + 1 : 424242,
+          full_name: fault === 'foreign-name' ? 'other/repo' : 'acme/updates', default_branch: fault === 'no-branch' ? '' : 'trunk' });
+      });
+      expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
+      expect(f.admitted).toEqual([]);
+      expect(f.armed).toEqual([]);
+    });
+  it('cannot report activation success when schedule acknowledgement fails', async () => {
+    const f = activationFixture();
+    Object.assign(f.env, { CONTAINER: { idFromName: (name: string) => name,
+      get: () => ({ armRenovateScan: async () => { throw Error('lost schedule acknowledgement'); } }) } });
+    expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
   });
 });

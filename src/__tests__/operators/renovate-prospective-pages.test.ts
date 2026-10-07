@@ -3,20 +3,20 @@ import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective
 import type { CurrentProspectiveRegistration } from '../../operators/registry';
 import type { Env } from '../../types';
 
-const root = 'https://api.github.com/repos/nikolanovoselec/komodo';
+const root = 'https://api.github.com/repos/acme/updates';
 const row = (number: number) => ({ number, state: 'open', created_at: '2026-09-28T00:00:00Z',
   user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-  head: { sha: 'a'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } });
+  draft: false, head: { sha: 'a'.repeat(40) }, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } });
 const next = `${root}/pulls?state=open&per_page=100&page=2`;
-function scan(pages: Array<{ rows: unknown[]; link?: string }>) {
+function scan(pages: Array<{ rows: unknown[]; link?: string }>, metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }, current: () => Promise<boolean> = async () => true) {
   return listProspectiveRenovatePrs({ env: {} as Env,
     registration: { bucket: 'owner', human: { email: 'owner@example.test' },
-      activatedAt: '2026-09-27T00:00:00.000Z' } as CurrentProspectiveRegistration,
-    current: async () => true,
+      activatedAt: '2026-09-27T00:00:00.000Z', repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
+      repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration,
+    current,
     exports: { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
       const url = new URL(request.url);
-      if (url.href === root) return Response.json({ id: 973175879,
-        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
+      if (url.href === root) return metadata instanceof Response ? metadata : Response.json(metadata);
       const page = pages[Number(url.searchParams.get('page')) - 1];
       if (!page) throw Error('Unprovided external GitHub page');
       return Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
@@ -26,7 +26,7 @@ function scan(pages: Array<{ rows: unknown[]; link?: string }>) {
 
 describe('REQ-OPERATOR-061 AC2: prospective GitHub page completeness', () => {
   it('returns candidates from a complete terminal short page', async () => {
-    expect(await scan([{ rows: [row(1)] }])).toEqual([{ repositoryId: 973175879,
+    expect(await scan([{ rows: [row(1)] }])).toMatchObject([{ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       pullRequest: 1, head: 'a'.repeat(40), createdAt: '2026-09-28T00:00:00.000Z' }]);
   });
   it('reads all candidates through a valid fixed-origin continuation', async () => {
@@ -46,5 +46,35 @@ describe('REQ-OPERATOR-061 AC2: prospective GitHub page completeness', () => {
   ])('rejects inconsistent continuation %s without admitting candidates', async link => {
     await expect(scan([{ rows: Array.from({ length: 100 }, (_, index) => row(index + 1)), link },
       { rows: [row(101)] }])).rejects.toThrow();
+  });
+});
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  it.each([{ id: 1, full_name: 'acme/updates', default_branch: 'trunk' },
+    { id: 424242, full_name: 'acme/renamed', default_branch: 'trunk' },
+    { id: 424242, full_name: 'acme/updates', default_branch: 'main' },
+    { id: '424242', full_name: 'acme/updates', default_branch: 'trunk' },
+    new Response(null, { status: 302, headers: { location: 'https://attacker.example' } })])
+    ('rejects changed or redirected registered metadata %j without returning partial observations', async metadata => {
+      await expect(scan([{ rows: [row(1)] }], metadata)).rejects.toThrow();
+    });
+  it('observes only the exact bot, registered base repository and default branch after cutoff including offline arrivals', async () => {
+    const valid = row(1);
+    const rows = [valid, { ...row(2), created_at: '2026-09-27T00:00:00Z' },
+      { ...row(3), created_at: '2026-09-26T00:00:00Z' }, { ...row(4), draft: true },
+      { ...row(5), user: { ...valid.user, id: 1 } },
+      { ...row(6), base: { ...valid.base, ref: 'main' } },
+      { ...row(7), base: { ...valid.base, repo: { id: 1, full_name: 'acme/updates' } } },
+      { ...row(8), base: { ...valid.base, repo: { id: 424242, full_name: 'other/repo' } } }];
+    expect((await scan([{ rows }])).map(value => value.pullRequest)).toEqual([1]);
+  });
+  it('denies an entire observation when current authority changes after protected I/O', async () => {
+    let checks = 0;
+    await expect(scan([{ rows: [row(1)] }], undefined, async () => ++checks < 3)).rejects.toThrow();
+  });
+  it('preserves the ten-page bound rather than accepting an incomplete large scan', async () => {
+    await expect(scan(Array.from({ length: 10 }, () => ({ rows: Array.from({ length: 100 }, (_, i) => row(i + 1)) }))))
+      .rejects.toThrow();
   });
 });
