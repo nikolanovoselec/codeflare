@@ -365,7 +365,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           invokers: { users: ['admin@example.test'], groups: [] } },
         release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }),
       } }),
-      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, activatedAt, installationId: 'dispatcher-install',
+      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
         registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
           audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
@@ -516,7 +516,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         getManagementBundle: async () => bundleBytes,
         admitManagement: async (request: object) => ({ ok: true, value: { ...request,
           admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
-        currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, registrationId: 'registered-admin',
+        currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
           activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket: 'owner-bucket',
           sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
         reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
@@ -546,7 +546,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             return Response.json({ id: 801 });
           }
           if (url.pathname === '/user') return Response.json({ id: 9, login: 'admin' });
-          if (url.pathname === '/repos/acme/updates/') return Response.json({
+          if (url.pathname === '/repos/acme/updates' || url.pathname === '/repos/acme/updates/') return Response.json({
             id: 424242, full_name: 'acme/updates', default_branch: 'trunk',
             permissions: { admin: true } });
           if (url.pathname === '/repos/acme/updates/pulls/1302') return Response.json({

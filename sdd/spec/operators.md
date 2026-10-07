@@ -2379,7 +2379,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Verification:** Previous-contract evidence only: exact-head PR Checks `36490796134` at `188aee1162326fe817dfa11e745cf32e9dbdb500` passed Typecheck, backend Container, Registry, publisher and route shards, and the aggregate gate after test-only RED run `36485684846` failed on absent behavior. Tests exercise authenticated activation, concurrent durable admission, the scheduled callback contract with simulated SDK delivery, lost scheduling/start responses, an unchanged uncertain Activity, the real Activity collector on a synthetic settled-waiting snapshot, Activity-bound read/inference revocation and restricted publication. The connected fixture substitutes the child settlement and does not run a compiled Dispatcher, prove model judgment, activate scanning or demonstrate a naturally arriving post-activation Komodo PR; those remain separate acceptance boundaries.
 
-The amended configured-run contract is not implemented. Exact-head PR Checks `37642618938` at `53d25d4ad74d9265947f567212a8638b90e6f097` failed on the configured-run tests and converted target fixtures; no GREEN or hosted acceptance is claimed. Historical verification above does not verify the amendment.
+Runtime implementation for the amended configured-run contract is present and awaiting exact-head GREEN verification and deployment. Exact-head PR Checks `37642618938` at `53d25d4ad74d9265947f567212a8638b90e6f097` failed on the configured-run tests and converted target fixtures; no GREEN or hosted acceptance is claimed. Historical verification above does not verify the amendment.
 
 **Status:** Planned
 

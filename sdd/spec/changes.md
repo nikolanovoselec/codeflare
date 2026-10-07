@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
+- Implement REQ-OPERATOR-061 configured Renovate settings in existing installation configuration/CAS and controls. Materialize configured-only manual input, authenticate repository identity/default branch before activation, pin revisions and targets through admission/effects, retain per-repository cutoffs and uncertain identities, and deliver configured cadence with generation-fenced SDK callbacks. Automatic off denies observation/admission/rearming without removing manual invocation. Hosted GREEN, deployment and live acceptance remain pending; no SDK upgrade or legacy publication scope change.
+
 - Correct the REQ-OPERATOR-061 amendment's phase to Planned and qualify previous-contract verification after exact-head RED run `37642618938`. Keep AC1–3 focused on activation, complete observation and current admission authority; preserve configured input, retention, cadence, automation-disable and settings-invalidation predicates as anchored cross-cutting constraints. AC4–7 and their by-number obligations remain unchanged. Repair the directly renamed REQ-OPERATOR-058 AC3 test anchor; add no runtime or live-acceptance claim.
 
 - Amend REQ-OPERATOR-061 for required configured Renovate repository input without a fallback or manual override, an independent automatic-runs toggle, and a configurable interval defaulting to one hour. Specify revision-bound activation and disabled/stale callback fences. Add the complete backend/UI behavioral test batch; runtime implementation and hosted verification are pending.

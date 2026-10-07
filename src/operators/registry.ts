@@ -25,7 +25,9 @@ import { createOperatorExecutionContext, openOperatorExecutionAccess,
 import { operatorOwnerKey } from './browser-activity';
 import type { Env } from '../types';
 
-const RENOVATE_REPOSITORY_ID = 973175879;
+import { parseRenovateRunSettings, renovateRepositoryIdentity, prospectiveRenovatePackageSupported,
+  type RenovateRunSettings, type RenovateRepositoryIdentity } from './renovate-run-settings';
+export { prospectiveRenovatePackageSupported } from './renovate-run-settings';
 const scanId = /^[A-Za-z0-9_-]{1,128}$/;
 const sha = /^[0-9a-f]{40}$/;
 const scanSession = /^[a-z0-9]{8,24}$/;
@@ -164,13 +166,7 @@ export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
 }
 
 /** Compatibility metadata only; the selected immutable release remains the code authority. */
-export function prospectiveRenovatePackageSupported(manifestJson: string): boolean {
-  try {
-    const manifest = JSON.parse(manifestJson);
-    return manifest !== null && typeof manifest === 'object' && !Array.isArray(manifest)
-      && manifest.id === 'renovate-dispatcher' && manifest.profile === 'dispatcher' && manifest.intentVersion === '3';
-  } catch { return false; }
-}
+
 
 /** GitHub UTC seconds and parent UTC milliseconds denote the same canonical instant. */
 export function prospectiveRenovateTimestamp(value: string): number | null {
@@ -180,21 +176,23 @@ export function prospectiveRenovateTimestamp(value: string): number | null {
   return Number.isFinite(time) && new Date(time).toISOString() === milliseconds ? time : null;
 }
 
-interface ProspectiveActivation { installationId: string; activatedAt: string; repositoryId: typeof RENOVATE_REPOSITORY_ID }
-interface ProspectiveRegistration {
-  registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
-  sessionGeneration: number; revision: number; context: OperatorExecutionContext;
-  controlsRevision: number; installationRevision: number; operatorRevision: number; bundleDigest: string;
+interface ProspectiveSelectionPin {
+  controlsRevision: number; installationRevision: number; operatorRevision: number; releaseId: string; bundleDigest: string;
 }
-export interface ProspectiveAdmission {
-  activityId: string; installationId: string; repositoryId: typeof RENOVATE_REPOSITORY_ID;
+interface ProspectiveActivation extends RenovateRepositoryIdentity { installationId: string; activatedAt: string }
+interface ProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+  registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
+  sessionGeneration: number; revision: number; context: OperatorExecutionContext; repetitionIntervalSeconds: number;
+}
+export interface ProspectiveAdmission extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+  activityId: string; installationId: string;
   pullRequest: number; head: string; createdAt: string; activatedAt: string; ownerKey: string;
   actor: { registrationId: string; bucket: string; sessionId: string; sessionGeneration: number;
     subject: string; issuer: string; email: string; audiences: readonly string[] };
 }
-export interface CurrentProspectiveRegistration {
+export interface CurrentProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
-  sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string;
+  sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
 }
 export interface ManagementCatalogQuery {
   email: string; issuer: string; groups: string[]; platformAdmin: boolean; limit: number; cursor: string | null;
@@ -1114,11 +1112,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     return { ...installation, configurationJson: JSON.stringify(configuration) };
   }
 
-  private managementConfiguration(input: string): string {
+  private managementConfiguration(input: string, renovate = false): string {
     if (new TextEncoder().encode(input).byteLength > 64 * 1024) throw new ValidationError('Installation configuration exceeds the size limit');
     try {
       const parsed = JSON.parse(input) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+      if (renovate) parseRenovateRunSettings(input);
       return JSON.stringify(parsed);
     } catch { throw new ValidationError('Invalid installation configuration'); }
   }
@@ -1207,7 +1206,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND name=?', operatorId, name.toLowerCase()).toArray().length) return { ok: false, reason: 'already-exists' };
       if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_installations WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Installation limit reached');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
-        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson), approvedSourceRevision: null };
+        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), approvedSourceRevision: null };
       this.saveInstallation(value);
       return { ok: true, value };
     });
@@ -1276,7 +1275,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (fence) return fence;
       if (installation.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
       if (!this.restrictivePolicy(input.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
-      const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson), revision: installation.revision + 1, enabled: false };
+      const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
       this.saveInstallation(value);
       return { ok: true, value };
     });
@@ -1536,7 +1535,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
   }
 
   private async prospectiveAuthority(registration: ProspectiveRegistration): Promise<{
-    human: VerifiedHumanAccessClaims; accessJwt: string } | null> {
+    human: VerifiedHumanAccessClaims; accessJwt: string;
+  } | null> {
     const app = this.env as Env;
     if (!app.USAGE_DB || !app.KV) return null;
     try {
@@ -1547,102 +1547,123 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         this.resolveManagementExecution(registration.installationId),
         operatorAccessSessionCurrent(authority.human, authority.accessJwt),
       ]);
-      let user: unknown;
-      try { user = rawUser ? JSON.parse(rawUser) : null; } catch { return null; }
+      const user: unknown = rawUser ? JSON.parse(rawUser) : null;
       if (!user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
         || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== registration.sessionGeneration
         || !accessCurrent || !selected.ok || selected.value.operator.profile !== 'dispatcher'
         || selected.value.controlsRevision !== registration.controlsRevision
         || selected.value.installation.revision !== registration.installationRevision
         || selected.value.operator.revision !== registration.operatorRevision
+        || selected.value.release.id !== registration.releaseId
         || selected.value.release.bundleDigest !== registration.bundleDigest
-        || selected.value.installation.policy.resourceProfileId !== null) return null;
+        || selected.value.installation.policy.resourceProfileId !== null
+        || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return null;
+      const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
+      if (!configured?.automaticRuns || configured.repository !== registration.repository
+        || configured.repetitionIntervalSeconds !== registration.repetitionIntervalSeconds
+        || !renovateRepositoryIdentity.safeParse({ repository: registration.repository,
+          repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return null;
       const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
-      if (!canInvokeOperator(human, selected.value.operator)) return null;
-      return { human, accessJwt: authority.accessJwt };
+      const final = await this.resolveManagementExecution(registration.installationId);
+      if (!final.ok || final.value.controlsRevision !== registration.controlsRevision
+        || final.value.installation.revision !== registration.installationRevision
+        || final.value.operator.revision !== registration.operatorRevision
+        || final.value.release.id !== registration.releaseId
+        || final.value.release.bundleDigest !== registration.bundleDigest) return null;
+      return canInvokeOperator(human, final.value.operator) ? { human, accessJwt: authority.accessJwt } : null;
     } catch { return null; }
   }
 
-  /** Parent-only activation; the route provides a verified human, never a caller cutoff. */
+
   async activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
-    sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string }): Promise<
-      { ok: true; activatedAt: string; registrationId: string } | { ok: false; reason: string }> {
+    sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string;
+    repository: RenovateRepositoryIdentity; expectedManagement?: ProspectiveSelectionPin }): Promise<
+      { ok: true; activatedAt: string; registrationId: string } & RenovateRepositoryIdentity
+      | { ok: false; reason: string }> {
     const app = this.env as Env;
-    if (!scanId.test(input.installationId) || !/^[A-Za-z0-9._-]{1,128}$/.test(input.bucket)
+    const target = renovateRepositoryIdentity.safeParse(input.repository);
+    if (!target.success || !scanId.test(input.installationId) || !/^[A-Za-z0-9._-]{1,128}$/.test(input.bucket)
       || !scanSession.test(input.sessionId) || !Number.isSafeInteger(input.sessionGeneration)
       || input.sessionGeneration < 1 || !app.USAGE_DB || !app.KV
       || input.human.expiresAt * 1000 <= Date.now()) return { ok: false, reason: 'not-authorized' };
-    const ownerKey = await operatorOwnerKey(input.human);
-    const rawId = `${ownerKey}:${input.bucket}:${input.sessionId}:${input.sessionGeneration}:${input.installationId}`;
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawId)));
-    const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
     const selected = await this.resolveManagementExecution(input.installationId);
     if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
       || selected.value.installation.policy.resourceProfileId !== null
       || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { ok: false, reason: 'installation-unavailable' };
+    let configured: RenovateRunSettings | null;
+    try { configured = parseRenovateRunSettings(selected.value.installation.configurationJson); }
+    catch { return { ok: false, reason: 'configuration-unavailable' }; }
+    if (!configured?.automaticRuns || configured.repository !== target.data.repository) return { ok: false, reason: 'configuration-unavailable' };
+    const pins: ProspectiveSelectionPin = { controlsRevision: selected.value.controlsRevision,
+      installationRevision: selected.value.installation.revision, operatorRevision: selected.value.operator.revision,
+      releaseId: selected.value.release.id, bundleDigest: selected.value.release.bundleDigest };
+    if (input.expectedManagement && Object.entries(pins).some(([key, value]) =>
+      value !== input.expectedManagement![key as keyof ProspectiveSelectionPin])) return { ok: false, reason: 'stale-selection' };
+    const ownerKey = await operatorOwnerKey(input.human);
+    const rawId = JSON.stringify([ownerKey, input.bucket, input.sessionId, input.sessionGeneration,
+      input.installationId, pins, target.data, configured.repetitionIntervalSeconds, input.accessJwt]);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawId)));
+    const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
     const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
+      ...target.data, ...pins, repetitionIntervalSeconds: configured.repetitionIntervalSeconds,
       ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
       revision: 0, context: await createOperatorExecutionContext({ activityId: registrationId,
-        operatorId: selected.value.operator.operatorId, artifactDigest: selected.value.release.bundleDigest,
+        operatorId: selected.value.operator.operatorId, artifactDigest: pins.bundleDigest,
         policyDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
           new TextEncoder().encode(JSON.stringify(selected.value.installation.policy)))))
           .map(byte => byte.toString(16).padStart(2, '0')).join(''),
-        human: input.human, accessJwt: input.accessJwt }, this.env),
-      controlsRevision: selected.value.controlsRevision,
-      installationRevision: selected.value.installation.revision,
-      operatorRevision: selected.value.operator.revision,
-      bundleDigest: selected.value.release.bundleDigest };
+        human: input.human, accessJwt: input.accessJwt }, this.env) };
     if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'not-authorized' };
     const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
     const inactive: Array<{ key: string; revision: number }> = [];
     for (const [key, record] of registrations) {
-      if (record.context.expiresAt * 1000 <= Date.now()) {
-        inactive.push({ key, revision: record.revision });
-        continue;
-      }
+      if (record.context.expiresAt * 1000 <= Date.now()) { inactive.push({ key, revision: record.revision }); continue; }
       try {
         const session = await new D1SessionRepository(app.USAGE_DB).getSession(record.bucket, record.sessionId);
         if (session && (session.lifecycleGeneration !== record.sessionGeneration
-          || session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping')) {
-          inactive.push({ key, revision: record.revision });
-        }
-      } catch { /* Unavailable lifecycle reads are not evidence of retirement. */ }
+          || session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping')) inactive.push({ key, revision: record.revision });
+      } catch { /* Unavailable lifecycle is not proof of retirement. */ }
     }
     return this.ctx.storage.transaction(async tx => {
+      if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'stale-selection' } as const;
       const before = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-      for (const { key, revision } of inactive) {
-        if (before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
-      }
-      if (before.size >= 32 && !before.has(`renovate-registration:${registrationId}`)) {
-        return { ok: false, reason: 'registration-limit' } as const;
-      }
+      for (const { key, revision } of inactive) if (before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
+      if (before.size >= 32 && !before.has(`renovate-registration:${registrationId}`)) return { ok: false, reason: 'registration-limit' } as const;
       const previous = await tx.get<ProspectiveActivation>('renovate-activation');
-      if (previous && previous.installationId !== input.installationId) {
-        return { ok: false, reason: 'activation-conflict' } as const;
-      }
+      if (previous && previous.installationId !== input.installationId) return { ok: false, reason: 'activation-conflict' } as const;
+      const identityKey = `renovate-repository:${input.installationId}:${target.data.repository.toLowerCase()}`;
+      const retainedIdentity = await tx.get<number>(identityKey);
+      if (retainedIdentity !== undefined && retainedIdentity !== target.data.repositoryId) return { ok: false, reason: 'repository-changed' } as const;
+      const cutoffKey = `renovate-cutoff:${input.installationId}:${target.data.repositoryId}`;
+      const cutoff = await tx.get<string>(cutoffKey) ?? (previous?.repositoryId === target.data.repositoryId ? previous.activatedAt : new Date(Date.now()).toISOString());
+      const activation: ProspectiveActivation = { installationId: input.installationId, ...target.data, activatedAt: cutoff };
       const current = await tx.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`);
-      const activation = previous ?? { installationId: input.installationId,
-        repositoryId: RENOVATE_REPOSITORY_ID, activatedAt: new Date(Date.now()).toISOString() };
+      await tx.put(identityKey, target.data.repositoryId);
+      await tx.put(cutoffKey, cutoff);
       await tx.put('renovate-activation', activation);
       await tx.put(`renovate-registration:${registrationId}`, { ...provisional, revision: (current?.revision ?? 0) + 1 });
-      const election = await tx.get<number>('renovate-election-revision') ?? 0;
-      await tx.put('renovate-election-revision', election + 1);
-      return { ok: true, activatedAt: activation.activatedAt, registrationId } as const;
+      await tx.put('renovate-election-revision', (await tx.get<number>('renovate-election-revision') ?? 0) + 1);
+      return { ok: true, activatedAt: cutoff, registrationId, ...target.data } as const;
     });
   }
 
-  /** Never use the immutable admission readback as renewed actor authority. */
   async currentProspectiveRenovateRegistration(registrationId: string): Promise<CurrentProspectiveRegistration | null> {
     if (!scanId.test(registrationId)) return null;
     const [activation, record] = await Promise.all([
       this.ctx.storage.get<ProspectiveActivation>('renovate-activation'),
       this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`),
     ]);
-    if (!activation || !record || activation.installationId !== record.installationId) return null;
+    if (!activation || !record || activation.installationId !== record.installationId
+      || activation.repository !== record.repository || activation.repositoryId !== record.repositoryId
+      || activation.baseBranch !== record.baseBranch) return null;
     const current = await this.prospectiveAuthority(record);
     return current ? { registrationId, installationId: record.installationId,
-      activatedAt: activation.activatedAt, bucket: record.bucket, sessionId: record.sessionId,
-      sessionGeneration: record.sessionGeneration, ...current } : null;
+      repository: record.repository, repositoryId: record.repositoryId, baseBranch: record.baseBranch,
+      repetitionIntervalSeconds: record.repetitionIntervalSeconds, activatedAt: activation.activatedAt,
+      bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
+      controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
+      operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
+      ...current } : null;
   }
 
   /** Trusted parent passes its authenticated GitHub observation, not route/child data. */
@@ -1650,13 +1671,13 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<
       { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> {
     if (!scanId.test(input.registrationId) || !scanId.test(input.activityId)
-      || input.repositoryId !== RENOVATE_REPOSITORY_ID || !Number.isSafeInteger(input.pullRequest)
+      || !Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1 || !Number.isSafeInteger(input.pullRequest)
       || input.pullRequest < 1 || !sha.test(input.head)) return { ok: false, reason: 'invalid-target' };
     const activation = await this.ctx.storage.get<ProspectiveActivation>('renovate-activation');
     const created = prospectiveRenovateTimestamp(input.createdAt);
     const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
     if (created === null) return { ok: false, reason: 'invalid-target' };
-    if (!activation || cutoff === null || created <= cutoff) {
+    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null || created <= cutoff) {
       return { ok: false, reason: 'pre-activation' };
     }
     const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
@@ -1667,7 +1688,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
     const candidates: Array<{ record: ProspectiveRegistration; human: VerifiedHumanAccessClaims }> = [];
     for (const record of registrations.values()) {
-      if (record.installationId !== activation.installationId) continue;
+      if (record.installationId !== activation.installationId || record.repositoryId !== activation.repositoryId
+        || record.repository !== activation.repository || record.baseBranch !== activation.baseBranch) continue;
       const authority = await this.prospectiveAuthority(record);
       if (authority) candidates.push({ record, human: authority.human });
     }
@@ -1690,10 +1712,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         tx.get<number>('renovate-election-revision'),
       ]);
       if (collision) return { ok: false, reason: 'activity-conflict' } as const;
-      if (stillActivated?.activatedAt !== activation.activatedAt || currentElection !== election
-        || stillRegistered?.revision !== winner.record.revision) return { ok: false, reason: 'stale-election' } as const;
+      if (stillActivated?.activatedAt !== activation.activatedAt || stillActivated.repositoryId !== activation.repositoryId
+        || stillActivated.repository !== activation.repository || stillActivated.baseBranch !== activation.baseBranch
+        || currentElection !== election || stillRegistered?.revision !== winner.record.revision
+        || !await this.prospectiveAuthority(winner.record)) return { ok: false, reason: 'stale-election' } as const;
       const admission: ProspectiveAdmission = { activityId: input.activityId,
-        installationId: activation.installationId, repositoryId: RENOVATE_REPOSITORY_ID,
+        installationId: activation.installationId, repository: activation.repository, repositoryId: activation.repositoryId,
+        baseBranch: activation.baseBranch, controlsRevision: winner.record.controlsRevision,
+        installationRevision: winner.record.installationRevision, operatorRevision: winner.record.operatorRevision,
+        releaseId: winner.record.releaseId, bundleDigest: winner.record.bundleDigest,
         pullRequest: input.pullRequest, head: input.head, createdAt: input.createdAt,
         activatedAt: activation.activatedAt, ownerKey: winner.record.ownerKey, actor };
       await tx.put(key, admission);

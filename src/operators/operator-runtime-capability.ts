@@ -1,3 +1,4 @@
+import { parseRenovateRunSettings, renovateRepositoryIdentity } from './renovate-run-settings';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { inferenceDiagnostic, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
 import { interceptedGithubHosts } from '../github-interceptor';
@@ -166,7 +167,8 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   let admittedTarget: DispatcherAdmittedTarget | undefined;
   if (plan.prospectiveAdmissionId) {
     const repositoryOnly = parent.pullRequest === undefined;
-    if (repositoryOnly ? parent.repository !== 'nikolanovoselec/komodo'
+    const configured = repositoryOnly ? parseRenovateRunSettings(pinned.installation.configurationJson) : null;
+    if (repositoryOnly ? !configured?.automaticRuns || parent.repository !== configured.repository
       || !prospectiveRenovatePackageSupported(pinned.manifestJson)
       || !prospectiveRenovatePackageSupported(selected.value.manifestJson)
       : prospectiveRenovatePackageSupported(pinned.manifestJson)) {
@@ -177,7 +179,12 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     const created = proof ? prospectiveRenovateTimestamp(proof.createdAt) : null;
     const cutoff = proof ? prospectiveRenovateTimestamp(proof.activatedAt) : null;
     if (!proof || plan.prospectiveAdmissionId !== plan.activityId || proof.activityId !== plan.activityId
-      || plan.executionContext.activityId !== plan.activityId || proof.repositoryId !== 973175879
+      || plan.executionContext.activityId !== plan.activityId
+      || (repositoryOnly ? !renovateRepositoryIdentity.safeParse({ repository: proof.repository, repositoryId: proof.repositoryId, baseBranch: proof.baseBranch }).success
+        || proof.repository !== parent.repository || proof.controlsRevision !== pinned.controlsRevision
+        || proof.installationRevision !== pinned.installation.revision || proof.operatorRevision !== pinned.operator.revision
+        || proof.releaseId !== pinned.release.id || proof.bundleDigest !== pinned.release.bundleDigest
+        : proof.repositoryId !== 973175879)
       || (!repositoryOnly && (proof.pullRequest !== parent.pullRequest
         || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo'))
       || !Number.isSafeInteger(proof.pullRequest) || proof.pullRequest < 1 || !/^[0-9a-f]{40}$/.test(proof.head)
@@ -192,6 +199,10 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     const selectedActor = await registry.currentProspectiveRenovateRegistration(proof.actor.registrationId);
     if (!selectedActor || selectedActor.registrationId !== proof.actor.registrationId
       || selectedActor.installationId !== proof.installationId || selectedActor.activatedAt !== proof.activatedAt
+      || (repositoryOnly && (selectedActor.repository !== proof.repository || selectedActor.repositoryId !== proof.repositoryId
+        || selectedActor.baseBranch !== proof.baseBranch || selectedActor.controlsRevision !== proof.controlsRevision
+        || selectedActor.installationRevision !== proof.installationRevision || selectedActor.operatorRevision !== proof.operatorRevision
+        || selectedActor.releaseId !== proof.releaseId || selectedActor.bundleDigest !== proof.bundleDigest))
       || selectedActor.bucket !== proof.actor.bucket || selectedActor.sessionId !== proof.actor.sessionId
       || selectedActor.sessionGeneration !== proof.actor.sessionGeneration
       || selectedActor.human.subject !== human.subject || selectedActor.human.issuer !== human.issuer
@@ -202,7 +213,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     }
     if (repositoryOnly) admittedTarget = { repository: parent.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
-      createdAfter: proof.activatedAt, baseBranch: 'main' };
+      createdAfter: proof.activatedAt, baseBranch: proof.baseBranch };
   }
   return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget };
 }

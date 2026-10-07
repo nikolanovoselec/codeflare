@@ -1,3 +1,4 @@
+import { configuredRenovateInvocation, prospectiveRenovatePackageSupported } from './renovate-run-settings';
 import { z } from 'zod';
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -64,7 +65,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   // Only the parent passes a Registry-reserved ID. The caller's invocation cannot choose it.
   const activityId = parentReservation?.activityId ?? crypto.randomUUID();
-  const bounded = boundedInvocation(parsed.data.invocation);
+  let bounded = boundedInvocation(parsed.data.invocation);
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
@@ -95,6 +96,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   if (operatorId === 'codeflare-gate1-fixture') {
     throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
+  if (managementSelection?.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(managementSelection.manifestJson)) {
+    bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);
   }
   const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
   const invocation = usesConsumerContract
