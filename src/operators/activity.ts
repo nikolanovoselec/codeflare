@@ -11,7 +11,7 @@ import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
-import { inferenceRequestBytes } from './dispatcher-inference-limits';
+import { inferenceRequestBytes, MAX_INFERENCE_RESPONSE_BYTES } from './dispatcher-inference-limits';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
@@ -1937,7 +1937,8 @@ export class OperatorActivity extends Agent {
         }
         bodyReading = true;
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
-          body: await readDispatcherBody(upstream, undefined, resource === 'source' ? sourceBytes : undefined) };
+          body: await readDispatcherBody(upstream, undefined,
+            resource === 'source' ? sourceBytes : resource === 'inference' ? MAX_INFERENCE_RESPONSE_BYTES : undefined) };
       });
       let confirmedEffect = false;
       if (resource === 'comment' || resource === 'merge') {
@@ -1976,7 +1977,7 @@ export class OperatorActivity extends Agent {
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'completed', resource, status: committedResult.status, ...inferenceResponseObservation(committedResult), responseDigest: committedResponseDigest, elapsedMs: performance.now() - began });
       if (committedResult.status >= 400) rejected('forwarded-upstream', resource, lease, committedResult.status);
       return response(committedResult);
-    } catch {
+    } catch (error) {
       await this.ctx.storage.transaction(async tx => {
         const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
         if (live?.generation !== generation) return;
@@ -1991,7 +1992,7 @@ export class OperatorActivity extends Agent {
       if ((!genericMutation && resource !== 'comment' && resource !== 'merge') || !await this.dispatcherGenerationCurrent(generation)) {
         await this.interruptDrive(generation);
       }
-      inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
+      inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading && error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
     }

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-07
+
+- Give Dispatcher inference responses a separate fixed 1 MiB bound instead of the primitive 64 KiB default ([REQ-OPERATOR-047](operators.md#req-operator-047-generic-directed-profile-admission)). Preserve input/source setting independence, exact cached bytes, reservation accounting and unknown-output fences. Classify bounded-reader overflow as `body-limit` without private error content ([REQ-OPERATOR-078](operators.md#req-operator-078-correlated-inference-pipeline-diagnostics)). Behavioral coverage includes large complete SSE, exact output boundary, reconstruction and denied collection; hosted CI and live acceptance remain separate gates. The historical v0.1.14 body-read failure is not yet proved to be an overflow.
+
 ## 2026-10-06
 
 - Correlate Dispatcher inference, cache, native-stream failure and lifecycle diagnostics using trusted identity and closed metadata ([REQ-OPERATOR-078](operators.md#req-operator-078-correlated-inference-pipeline-diagnostics)). Permit bounded read-only owner inspection of historical journals without replay or lifecycle mutation; preserve private content, execution authority and honest physical-cleanup status.

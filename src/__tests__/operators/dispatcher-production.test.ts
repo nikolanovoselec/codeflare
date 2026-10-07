@@ -2288,14 +2288,35 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(f.sent).toEqual([]);
   }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceRequestBytes: 65536 }));
 
-  it('REQ-OPERATOR-047: raising source responses leaves inference response limit at 64 KiB', () => fixture(async f => {
+  it('REQ-OPERATOR-047: source settings cannot widen the separate 1 MiB inference response bound', () => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(genericWire('inference', {
       operationId: 'oversized-inference-response', input: { messages: [{ role: 'user', content: 'assess' }] },
     }));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceBody: 'x'.repeat(65537) }));
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', collectionStatus: 'unavailable', result: null });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceBody: 'x'.repeat(1048577) }));
+
+  it.each([70 * 1024, 1048576])('REQ-OPERATOR-047: complete %i-byte inference SSE survives caching and reconstruction independently of input and source bounds', responseBytes => {
+    const prefix = 'data: {"choices":[{"delta":{"content":"';
+    const suffix = '"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+    const body = prefix + 'x'.repeat(responseBytes - new TextEncoder().encode(prefix + suffix).byteLength) + suffix;
+    return fixture(async f => {
+      await start(f);
+      const request = () => genericWire('inference', { operationId: 'large-inference-response', input: { messages: [{ role: 'user', content: 'assess' }] } });
+      const first = await f.capability.fetch(request());
+      expect(first.status).toBe(200);
+      expect(await first.text()).toBe(body);
+      f.restart();
+      const cached = await f.capability.fetch(request());
+      expect(cached.status).toBe(200);
+      expect(await cached.text()).toBe(body);
+      const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'large-inference-response' }));
+      expect(await receipt.json()).toMatchObject({ operationCount: 1, operationLimit: 1024 });
+    }, { repositoryOnly: true, sourceResponseBytes: 65536, inferenceRequestBytes: 65536, inferenceBody: body });
+  });
 
   it.each([64512, 65537])('REQ-OPERATOR-048: source allowance preserves final-result admission for %s bytes', resultBytes => fixture(async f => {
     await start(f);
@@ -2734,6 +2755,20 @@ describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
       privateWire(events);
     });
   }));
+
+  it('REQ-OPERATOR-078: classifies inference output overflow without private content, collection or replay', () => fixture(async f => {
+    await start(f);
+    await capture(async events => {
+      const response = await f.capability.fetch(wire());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', collectionStatus: 'unavailable', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(events).toContainEqual(expect.objectContaining({ stage: 'response-commit', outcome: 'unknown', resource: 'inference',
+        failureClass: 'body-limit', activityId: f.activityId, generation: 1, operationOrdinal: 0 }));
+      privateWire(events);
+    });
+  }, { repositoryOnly: true, inferenceBody: marker + 'x'.repeat(1048576) }));
 
   it.each(['budget', 'authority'] as const)('traces %s denial without protected I/O or lifecycle repair', name => fixture(async f => {
     await start(f);
