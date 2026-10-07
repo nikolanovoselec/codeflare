@@ -98,6 +98,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     try {
       claims.email = 'nikola.novoselec@gmail.com';
       f.env.CLOUDFLARE_WORKER_NAME = 'codeflare-enterprise-integration';
+      f.registry.getOwnedActivity.mockResolvedValue({ ...summary, activityId: '9024a801-8bbd-426a-8330-59fdf5b8d688' });
       const response = await f.request('/9024a801-8bbd-426a-8330-59fdf5b8d688/failure-inspection');
       expect(response.status).toBe(404);
     } finally { claims.email = previousEmail; }
