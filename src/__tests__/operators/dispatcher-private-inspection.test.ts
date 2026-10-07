@@ -26,17 +26,18 @@ async function inspect(change: string) {
     if (change === 'outcome') lease.projection.outcome = 'completed';
     if (change === 'submission') lease.projection.error.meta.operation = 'direct(foreign)';
     if (change === 'error-type') lease.projection.error.type = 'internal_error';
-    if (change === 'oversized') lease.projection.error.meta.reason = '🦊'.repeat(1025);
+    if (change === 'long-reason') lease.projection.error.meta.reason = '🦊'.repeat(1025);
     if (change === 'empty') lease.projection.error.meta.reason = '';
     if (change === 'environment') bindings.CLOUDFLARE_WORKER_NAME = 'codeflare-enterprise';
     if (change === 'mode') bindings.ENTERPRISE_MODE = undefined;
     await ctx.storage.put('admission', admission);
     if (change !== 'missing') await ctx.storage.put('dispatcher:lease', lease);
     const activity = new OperatorActivity(ctx, bindings);
-    expect(await activity.inspectDispatcherFailure('owner')).toEqual(change === 'eligible' ? { reason } : null);
+    expect(await activity.inspectDispatcherFailure('owner')).toEqual(
+      change === 'eligible' || change === 'long-reason' ? { reason: lease.projection.error.meta.reason } : null);
   });
 }
 
 it.each(['eligible', 'activity', 'owner', 'running', 'generation', 'input', 'artifact', 'release', 'outcome',
-  'submission', 'error-type', 'oversized', 'empty', 'environment', 'mode', 'missing'])(
+  'submission', 'error-type', 'long-reason', 'empty', 'environment', 'mode', 'missing'])(
   'REQ-OPERATOR-079: stored private failure inspection respects %s evidence boundaries', inspect);

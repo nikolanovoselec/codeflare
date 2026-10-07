@@ -2227,8 +2227,7 @@ export class OperatorActivity extends Agent {
       || lease.projection.error?.type !== 'operation_failed'
       || lease.projection.error.meta?.operation !== `direct(${lease.submissionId})`) return null;
     const reason = lease.projection.error.meta.reason;
-    return typeof reason === 'string' && reason.length > 0
-      && new TextEncoder().encode(reason).byteLength <= 4096 ? { reason } : null;
+    return typeof reason === 'string' && reason.length > 0 ? { reason } : null;
   }
 
   private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
