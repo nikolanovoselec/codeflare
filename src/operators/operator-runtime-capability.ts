@@ -413,7 +413,7 @@ export async function createDispatcherOperation(input: {
         gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
         operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted,
           diagnosticContext: input.diagnosticContext } } });
-      return transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: operation.signal,
+      return await transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: operation.signal,
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
           max_tokens: value.input.max_tokens ?? 8192, model: trusted.routeId, stream: value.input.stream ?? true }) }));
     };

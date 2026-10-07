@@ -577,7 +577,7 @@ async function fixture(test: (f: {
         } }),
         LlmInterceptor: () => ({ fetch: async (request: Request) => {
           sent.push(request); inferenceAttempts++;
-          if (options.inferenceTransport) return options.inferenceTransport(request, inferenceAttempts);
+          if (options.inferenceTransport) return await options.inferenceTransport(request, inferenceAttempts);
           if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
           return new Response(options.inferenceBody ?? 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),

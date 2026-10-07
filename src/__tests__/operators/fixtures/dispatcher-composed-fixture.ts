@@ -13,7 +13,7 @@ import { getBuiltInProfile, getBuiltInProfileRef } from '../../../lib/reasoning-
 import { connectionFingerprint } from '../../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../../lib/reasoning-discovery';
 
-export type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent';
+type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent';
 interface FixtureEnv {
   KV: KVNamespace;
   LOADER: NonNullable<Env['LOADER']>;
@@ -33,7 +33,7 @@ const comment = `${quote} Source: ${researchUrl}`;
 const services = (env: FixtureEnv) => env.RECOVERY_SERVICES.getByName('services');
 const hash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const wire = (chunks: unknown[]) => new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
-let identityService: DurableObjectStub<RecoveryServices> | undefined;
+let identityService: { identity(): Promise<Response> } | undefined;
 const externalFetch = globalThis.fetch;
 // Synthetic Access upstream only. Production identity parsing, subject/email/grant checks remain real.
 globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -185,7 +185,7 @@ export class OperatorActivity extends ProductionActivity {
     const human = { subject: 'fixture-owner', email, issuer, audiences: ['fixture'], issuedAt: now - 1, expiresAt: now + 180 };
     const invocationJson = JSON.stringify({ repository });
     const context = await createOperatorExecutionContext({ activityId: id, operatorId: 'composed-dispatcher', artifactDigest: digest,
-      policyDigest: 'e'.repeat(64), human, accessJwt }, encryption);
+      policyDigest: await hash(JSON.stringify((await services(this.fixtureEnv).resolveManagementExecution('composed-installation')).value.installation.policy)), human, accessJwt }, encryption);
     const prepared = await this.prepareAuthorized({ activityId: id, operatorId: 'composed-dispatcher', installationId: 'composed-installation',
       intentDigest: await createOperatorIntentDigest('composed-dispatcher', id, invocationJson), expectedRevision: 1,
       expectedInstallationRevision: 1, expectedControlsRevision: 1, deadline: human.expiresAt * 1000,

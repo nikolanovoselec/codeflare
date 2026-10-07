@@ -450,10 +450,11 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [runAutomatic, setRunAutomatic] = createSignal(false);
   const [runInterval, setRunInterval] = createSignal(3600);
   const runIntervalId = createUniqueId();
+  const validRunInterval = () => Number.isSafeInteger(runInterval()) && runInterval() > 0
+    && Number.isFinite(new Date(Date.now() + runInterval() * 1000).getTime());
   const validRunSettings = () => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(runRepository())
     && runRepository().length <= 201 && runRepository().split('/').every(part => part !== '.' && part !== '..')
-    && Number.isSafeInteger(runInterval()) && runInterval() > 0
-    && Number.isFinite(new Date(Date.now() + runInterval() * 1000).getTime());
+    && validRunInterval();
   createEffect(() => {
     const raw = installation()?.configuration?.renovate;
     const settings: Record<string, unknown> = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -534,7 +535,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <Show when={configuredRuns()}><button class="admin-icon-button operator-repeat-toggle" type="button"
             aria-label="Automatic runs" aria-pressed={runAutomatic()} aria-describedby={runIntervalId + '-toggle-help'}
             title="Automatic runs — save run settings to apply" disabled={props.locked}
-            onClick={() => setRunAutomatic(value => !value)}>
+            onClick={() => {
+              if (runAutomatic() && !validRunInterval()) {
+                const settings = installation()?.configuration?.renovate as { repetitionIntervalSeconds?: number } | undefined;
+                setRunInterval(settings?.repetitionIntervalSeconds ?? 3600);
+              }
+              setRunAutomatic(value => !value);
+            }}>
             <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d={mdiRepeat} fill="currentColor" /></svg>
           </button></Show>
         </div>

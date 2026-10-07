@@ -126,6 +126,22 @@ describe('configured Renovate run settings', () => {
     expect(writes).toEqual([]);
   });
 
+  it.each(['', '0'])('REQ-OPERATOR-061: repeat off restores the saved interval after invalid draft %s and permits manual-only save', async value => {
+    setRunSettings('acme/automation', true, 900);
+    await open();
+    const group = await settings();
+    fireEvent.input(interval(group), { target: { value } });
+    expect(save()).toBeDisabled();
+    fireEvent.click(automatic());
+    expect(within(group).queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(save()).toBeEnabled();
+    fireEvent.click(save());
+    await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
+      repository: 'acme/automation', automaticRuns: false, repetitionIntervalSeconds: 900,
+    }));
+    expect(state.installations[0].enabled).toBe(false);
+  });
+
   it('REQ-OPERATOR-061: configured Renovate run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable', async () => {
     const before = structuredClone(state);
     await open();
