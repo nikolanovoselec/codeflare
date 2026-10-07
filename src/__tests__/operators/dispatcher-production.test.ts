@@ -2313,8 +2313,13 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       const cached = await f.capability.fetch(request());
       expect(cached.status).toBe(200);
       expect(await cached.text()).toBe(body);
-      const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'large-inference-response' }));
-      expect(await receipt.json()).toMatchObject({ operationCount: 1, operationLimit: 1024 });
+      const source = await f.capability.fetch(genericWire('source', {
+        operationId: 'large-inference-accounting', url: 'https://api.github.com/repos/another/service',
+      }));
+      expect(source.status).toBe(200);
+      const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'large-inference-accounting' }));
+      expect(receipt.status).toBe(200);
+      expect(await receipt.json()).toMatchObject({ operationCount: 2, operationLimit: 1024 });
     }, { repositoryOnly: true, sourceResponseBytes: 65536, inferenceRequestBytes: responseBytes, inferenceBody: body });
   });
 
