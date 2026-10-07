@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, untrack, type Component, type JSX } from 'solid-js';
-import { mdiAutorenew, mdiLayersSearch } from '@mdi/js';
+import { mdiAutorenew, mdiLayersSearch, mdiRepeat } from '@mdi/js';
 import * as api from '../api/operator-management';
 import { ApiError, apiErrorMessage } from '../api/fetch-helper';
 import OperatorManagementActivity from './OperatorManagementActivity';
@@ -16,6 +16,8 @@ const inferenceBytes = (value?: number) => value ?? api.DEFAULT_INFERENCE_REQUES
 const validInferenceBytes = (value?: number) => Number.isSafeInteger(inferenceBytes(value)) && inferenceBytes(value) >= 1;
 const operationLimit = (value?: number) => value ?? api.DEFAULT_DISPATCHER_OPERATION_LIMIT;
 const validOperationLimit = (value?: number) => Number.isSafeInteger(operationLimit(value)) && operationLimit(value) >= 1;
+const inferenceAttemptLimit = (value?: number) => value ?? api.DEFAULT_INFERENCE_ATTEMPT_LIMIT;
+const validInferenceAttemptLimit = (value?: number) => Number.isSafeInteger(inferenceAttemptLimit(value)) && inferenceAttemptLimit(value) >= 1;
 const DefaultReset: Component<{ label: string; onReset: () => void }> = props =>
   <button type="button" class="operator-reset-default" aria-label={`Reset ${props.label} to default`} title={`Reset ${props.label} to default`} onClick={props.onReset}>
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={mdiAutorenew} fill="currentColor" /></svg>
@@ -405,9 +407,11 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
   const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
   const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
+  const [operatorInferenceAttemptLimit, setOperatorInferenceAttemptLimit] = createSignal<number>();
   const [operatorLoggingEnabled, setOperatorLoggingEnabled] = createSignal(true);
   const inferenceFieldId = createUniqueId();
   const operationFieldId = createUniqueId();
+  const inferenceAttemptFieldId = createUniqueId();
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
   const [assessmentRepository, setAssessmentRepository] = createSignal('');
@@ -424,6 +428,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
     setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
     setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
+    setOperatorInferenceAttemptLimit(props.detail.operator.policy.inferenceAttemptLimit);
     setOperatorLoggingEnabled(props.detail.operator.policy.loggingEnabled ?? true);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
@@ -465,7 +470,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const installationSourceMax = () => Math.min(sourceBytes(operator().policy.sourceResponseBytes), environmentSourceMax());
   const validOperatorSource = () => operator().profile !== 'dispatcher'
     || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
-      && validOperationLimit(operatorOperationLimit()));
+      && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit()));
   const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
@@ -525,7 +530,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           {props.feedback('installed-metadata')}</div></Show>
         <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={props.locked} onClick={() => void props.perform(
           () => api.enableInstallation(installation()!.id, !installation()!.enabled, installation()!.revision),
-          installation()!.enabled ? 'No new runs will start on this version.' : 'This version is enabled for new runs.', 'installed-enable')}>{installation()?.enabled ? 'Disable for new runs' : 'Enable for new runs'}</button>
+          installation()!.enabled ? 'No new runs will start on this version.' : 'This version is enabled for new runs.', 'installed-enable')}>{installation()?.enabled ? 'Disable' : 'Enable'}</button>
+          <Show when={configuredRuns()}><button class="admin-icon-button operator-repeat-toggle" type="button"
+            aria-label="Automatic runs" aria-pressed={runAutomatic()} aria-describedby={runIntervalId + '-toggle-help'}
+            title="Automatic runs — save run settings to apply" disabled={props.locked}
+            onClick={() => setRunAutomatic(value => !value)}>
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d={mdiRepeat} fill="currentColor" /></svg>
+          </button></Show>
         </div>
         <Show when={installation()?.enabled && guidedAssessment() && !configuredRuns()}><div class="admin-form-grid">
           <label class="admin-form-field"><span>Repository to assess</span><input type="text" maxlength="256" autocomplete="off" placeholder="owner/repository" value={assessmentRepository()} onInput={event => setAssessmentRepository(event.currentTarget.value)} /></label>
@@ -558,21 +569,19 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   }), 'Run settings saved. New runs are disabled; enable them separately when ready. Automatic activation is separate.', 'run-settings');
 }}><fieldset disabled={props.locked}>
   <legend>Run settings</legend>
-  <p>Manual and automatic runs use this repository. Saving does not start work or activate a schedule.</p>
+  <p id={runIntervalId + '-toggle-help'}>Manual and automatic runs use this repository. Use Save run settings to apply the repeat toggle; saving does not start work or activate a schedule.</p>
   <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength="201"
     autocomplete="off" placeholder="owner/repository" value={runRepository()}
     onInput={event => setRunRepository(event.currentTarget.value)} />
     <small>The work repository, not the operator package source. No default or manual override.</small>
   </label>
-  <label class="admin-toggle-field"><input type="checkbox" checked={runAutomatic()}
-    onChange={event => setRunAutomatic(event.currentTarget.checked)} /><span>Automatic runs</span></label>
-  <div class="admin-form-field"><label for={runIntervalId}>Repeat interval (seconds)</label>
+  <Show when={runAutomatic()}><div class="admin-form-field"><label for={runIntervalId}>Repeat interval (seconds)</label>
     <div class="operator-value-input"><input id={runIntervalId} type="number" required min="1" step="1"
-      disabled={!runAutomatic()} value={Number.isFinite(runInterval()) ? runInterval() : ''}
+      aria-describedby={runIntervalId + '-help'} value={Number.isFinite(runInterval()) ? runInterval() : ''}
       onInput={event => setRunInterval(event.currentTarget.valueAsNumber)} />
       <DefaultReset label="Repeat interval (seconds)" onReset={() => setRunInterval(3600)} />
-    </div><small>Default: 3,600 seconds (1 hour). Turning automatic runs off retains this interval and leaves manual runs available.</small>
-  </div>
+    </div><small id={runIntervalId + '-help'}>Default: 3,600 seconds (1 hour). Turning automatic runs off retains this interval and leaves manual runs available.</small>
+  </div></Show>
   <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validRunSettings()}>Save run settings</button>
 </fieldset>{props.feedback('run-settings')}</form></Show>
 
@@ -583,6 +592,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
+          ...(operator().profile === 'dispatcher' && operatorInferenceAttemptLimit() !== undefined ? { inferenceAttemptLimit: operatorInferenceAttemptLimit() } : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
           <legend>Operator capabilities</legend><p>Allowed actions remain bounded by Environment. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
           <Show when={operator().profile === 'dispatcher'}><p>Source-response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference size is separate: the same operator limit applies to requests sent to the model and responses received. These settings do not change final-output or SDK-history limits.</p></Show>
@@ -600,17 +610,24 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
               value={Number.isFinite(inferenceBytes(operatorInferenceRequestBytes())) ? inferenceBytes(operatorInferenceRequestBytes()) : ''}
               onInput={event => setOperatorInferenceRequestBytes(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Inference limit (bytes)" onReset={() => setOperatorInferenceRequestBytes(api.DEFAULT_INFERENCE_REQUEST_BYTES)} /></div>
-              <small id={inferenceFieldId + '-help'}>Maximum request body sent to the model (messages + tools) and response body received from it. Tune confirmed inference request or response body-limit failures; input must still fit the model's token budget. It does not fix authentication, token-context or SDK-history errors. Operator-wide; no installation override. Recommended: {RECOMMENDED_INFERENCE_REQUEST_BYTES} bytes (1 MiB) of transport headroom, not extra model context. Reduce input for token-context failures. Platform limits still apply.</small>
+              <small id={inferenceFieldId + '-help'}>Maximum request and response body size for model inference. Operator-wide; no installation override. Does not increase model context or SDK-history limits. Recommended: {RECOMMENDED_INFERENCE_REQUEST_BYTES} bytes (1 MiB). Platform limits still apply.</small>
             </div>
             <div class="admin-form-field"><label for={operationFieldId}>Operation limit per run</label><div class="operator-value-input">
               <input id={operationFieldId} aria-describedby={operationFieldId + '-help'} type="number" required min="1" step="1" max={api.MAX_DISPATCHER_OPERATION_LIMIT}
                 value={Number.isFinite(operationLimit(operatorOperationLimit())) ? operationLimit(operatorOperationLimit()) : ''}
                 onInput={event => setOperatorOperationLimit(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Operation limit per run" onReset={() => setOperatorOperationLimit(api.DEFAULT_DISPATCHER_OPERATION_LIMIT)} /></div>
-              <small id={operationFieldId + '-help'}>An operation is a distinct request reserved in the run's durable journal, not a token, tool call or HTTP request count. Discovery, research reads, inference requests, comments, merges and recovery reads share this budget. Identical completed requests reuse their entry; receipt lookups, resolution and finish calls add no entry. Ordinary discovery uses two initial reads plus one per visited pull-request page; a fresh ordinary comment uses five entries per pull request. Merging adds checks and reads. Leave additional headroom for research, inference and recovery; 1,024 is a starting default, not a guarantee that every repository fits. Parent receipts report the actual used count and limit. Exhaustion blocks new protected operations. Operator-wide; no installation override. This setting does not change token, byte, deadline, SDK-history or authorization limits.</small>
+              <small id={operationFieldId + '-help'}>Maximum charged operations per run, shared by discovery, research, inference attempts and repository effects. Cached responses and receipt checks add no charge. Default: 1,024. Exhaustion blocks new work; authority and deadlines still apply.</small>
+            </div>
+            <div class="admin-form-field"><label for={inferenceAttemptFieldId}>Max inference attempts</label><div class="operator-value-input">
+              <input id={inferenceAttemptFieldId} aria-describedby={inferenceAttemptFieldId + '-help'} type="number" required min="1" step="1" max={Number.MAX_SAFE_INTEGER}
+                value={Number.isFinite(inferenceAttemptLimit(operatorInferenceAttemptLimit())) ? inferenceAttemptLimit(operatorInferenceAttemptLimit()) : ''}
+                onInput={event => setOperatorInferenceAttemptLimit(event.currentTarget.valueAsNumber)} />
+              <DefaultReset label="Max inference attempts" onReset={() => setOperatorInferenceAttemptLimit(api.DEFAULT_INFERENCE_ATTEMPT_LIMIT)} /></div>
+              <small id={inferenceAttemptFieldId + '-help'}>Maximum attempts for one inference, including the initial request. Default: 4; use 1 to disable retries. Each attempt consumes the run's operation budget and may incur model cost. Repository writes are never retried.</small>
             </div>
           </Show>
-          <label class="admin-toggle-field"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
+          <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
         <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {

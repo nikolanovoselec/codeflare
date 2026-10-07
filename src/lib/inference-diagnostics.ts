@@ -12,11 +12,12 @@ const logger = createLogger('operator-inference');
 const categories: Record<string, ReadonlySet<string>> = {
   stage: new Set(['drive', 'operation-prepared', 'authority', 'journal', 'upstream', 'response-commit', 'journal-inspection',
     'route-selection', 'gateway-fetch', 'interceptor-response', 'native-request', 'native-response', 'native-stream', 'native-replay',
-    'source-fetch', 'source-read', 'settlement', 'assessment', 'sdk-release', 'collection', 'cleanup']),
+    'source-fetch', 'source-read', 'settlement', 'assessment', 'sdk-release', 'collection', 'cleanup', 'inference-attempt']),
   outcome: new Set(['started', 'completed', 'failed', 'canceled', 'reserved', 'cached', 'conflict', 'unknown', 'denied', 'observed', 'pending', 'aborted']),
   boundary: new Set(['authority', 'artifact', 'lease', 'loader', 'admission', 'cursor', 'commit', 'snapshot', 'projection', 'recheck', 'status', 'assessment', 'operations']),
   resource: new Set(['inference', 'source', 'comment', 'merge', 'pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose', 'open-pull-requests', 'unparsed']),
   transport: new Set(['invoke', 'eventstream', 'compat', 'rest']),
+  inferenceOutcome: new Set(['usable', 'final-error', 'retryable', 'permanent', 'transport']),
   contentType: new Set(['sse', 'json', 'eventstream', 'other']),
   stopReason: new Set(['stop', 'tool_calls', 'length', 'content_filter', 'none', 'other']),
   streamError: new Set(['native-error', 'other-error', 'none']),
@@ -30,7 +31,7 @@ const categories: Record<string, ReadonlySet<string>> = {
 const numeric = new Set(['operationOrdinal', 'operationCount', 'operationLimit', 'responseBytes', 'inputBytes', 'requestBytes',
   'elapsedMs', 'frames', 'events', 'chunks', 'replayBytes', 'serializedReplayBytes', 'replayLimit', 'frameLimit', 'toolBlocks', 'status', 'sourceStatus',
   'messages', 'tools', 'replayLoads', 'replayMissing', 'inferenceRequestBytes', 'inspectedEntries', 'journalCount', 'unresolved', 'completionCalls', 'results',
-  'toolCallCount', 'toolArgumentBytes', 'toolArgumentFieldCount', 'toolUnknownFieldCount']);
+  'toolCallCount', 'toolArgumentBytes', 'toolArgumentFieldCount', 'toolUnknownFieldCount', 'inferenceAttempt', 'inferenceAttemptLimit']);
 const flags = new Set(['sampled', 'doneObserved', 'malformedObserved', 'sdkReleased', 'assessmentPresent', 'thinkingPresent',
   'toolArgumentsObserved', 'toolArgumentsMalformed']);
 const toolRoles = new Set(['discover', 'research', 'decide', 'seal', 'comment', 'merge', 'finish', 'generic-finish', 'unknown']);

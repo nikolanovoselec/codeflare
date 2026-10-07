@@ -82,7 +82,7 @@ async function settings() {
 }
 function repository(group: HTMLElement) { return within(group).getByRole('textbox', { name: 'Repository' }); }
 function interval(group: HTMLElement) { return within(group).getByRole('spinbutton', { name: 'Repeat interval (seconds)' }); }
-function automatic(group: HTMLElement) { return within(group).getByRole('checkbox', { name: 'Automatic runs' }); }
+function automatic(_group?: HTMLElement) { return screen.getByRole('button', { name: 'Automatic runs' }); }
 function save() { return screen.getByRole('button', { name: /Save run settings/i }); }
 function submit() { fireEvent.submit(save().closest('form')!); }
 function setRunSettings(repository: string, automaticRuns: boolean, repetitionIntervalSeconds: number) {
@@ -96,13 +96,34 @@ describe('configured Renovate run settings', () => {
     expect(repository(group)).toHaveValue('');
     expect(repository(group)).toBeRequired();
     expect(repository(group)).toHaveAttribute('maxlength', '201');
-    expect(automatic(group)).not.toBeChecked();
-    expect(interval(group)).toHaveValue(3600);
-    expect(interval(group)).toBeDisabled();
-    expect(group).toHaveTextContent(/1 hour/i);
+    expect(automatic(group)).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(group).not.toHaveTextContent(/1 hour/i);
+    expect(screen.queryByRole('checkbox', { name: 'Automatic runs' })).not.toBeInTheDocument();
+    expect(automatic()).toHaveAccessibleDescription(/Save run settings.*does not start work/i);
     expect(save()).toBeDisabled();
     expect(writes).toEqual([]);
     expect(state.installations[0].configuration).toEqual(retained);
+  });
+
+  it('REQ-OPERATOR-061: repeat follows Enable or Disable and edits only the unsaved run-settings draft', async () => {
+    const installed = await open();
+    const group = await settings();
+    const before = structuredClone(state);
+    const actions = within(installed).getAllByRole('button');
+    // Intentional accessible action order: repeat immediately follows enablement.
+    expect(actions[actions.indexOf(within(installed).getByRole('button', { name: 'Disable' })) + 1]).toBe(automatic());
+    fireEvent.click(automatic());
+    expect(automatic()).toHaveAttribute('aria-pressed', 'true');
+    expect(interval(group)).toHaveValue(3600);
+    expect(interval(group)).toHaveAccessibleDescription(/Default: 3,600 seconds/);
+    expect(writes).toEqual([]);
+    expect(state).toEqual(before);
+    fireEvent.click(automatic());
+    expect(automatic()).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(group).not.toHaveTextContent(/Default: 3,600 seconds/);
+    expect(writes).toEqual([]);
   });
 
   it('REQ-OPERATOR-061: configured Renovate run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable', async () => {
@@ -121,7 +142,7 @@ describe('configured Renovate run settings', () => {
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getAllByRole('status').some(element =>
       /saved/i.test(element.textContent ?? '') && /disable|enable/i.test(element.textContent ?? ''))).toBe(true));
-    await screen.findByRole('button', { name: 'Enable for new runs' });
+    await screen.findByRole('button', { name: 'Enable' });
     expect(state.installations[0]).toMatchObject({ enabled: false, revision: 5, configuration });
     expect(state.installations[1]).toEqual(before.installations[1]);
     expect(state.operator).toEqual(before.operator);
@@ -130,14 +151,14 @@ describe('configured Renovate run settings', () => {
     cleanup(); await open();
     const reloaded = await settings();
     expect(repository(reloaded)).toHaveValue('acme/automation');
-    expect(automatic(reloaded)).toBeChecked();
+    expect(automatic(reloaded)).toHaveAttribute('aria-pressed', 'true');
     expect(interval(reloaded)).toHaveValue(900);
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
     expect(repository(await settings())).toHaveValue('other/project');
     expect(interval(await settings())).toHaveValue(7200);
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Enable for new runs' }));
-    await screen.findByRole('button', { name: 'Disable for new runs' });
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
+    await screen.findByRole('button', { name: 'Disable' });
     expect(writes).toContainEqual({ path: '/api/operator-management/installations/installation-1/enable', body: { revision: 5, enabled: true } });
     expect(state.installations[0].configuration).toEqual(configuration);
   });
@@ -147,16 +168,19 @@ describe('configured Renovate run settings', () => {
     await open();
     const group = await settings();
     fireEvent.click(automatic(group));
-    expect(interval(group)).toBeDisabled();
-    expect(interval(group)).toHaveValue(1800);
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(group).not.toHaveTextContent(/Default: 3,600/);
     fireEvent.click(save());
     await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
       repository: 'acme/manual', automaticRuns: false, repetitionIntervalSeconds: 1800 }));
     cleanup(); await open();
+    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    fireEvent.click(automatic());
     expect(interval(await settings())).toHaveValue(1800);
-    expect(automatic(await settings())).not.toBeChecked();
-    fireEvent.click(screen.getByRole('button', { name: 'Enable for new runs' }));
-    await screen.findByRole('button', { name: 'Disable for new runs' });
+    fireEvent.click(automatic());
+    expect(automatic(await settings())).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
+    await screen.findByRole('button', { name: 'Disable' });
     const installed = screen.getByRole('region', { name: 'Installed version' });
     expect(within(installed).queryByRole('textbox', { name: 'Repository to assess' })).not.toBeInTheDocument();
     expect(within(installed).queryByRole('spinbutton', { name: 'Pull request to assess' })).not.toBeInTheDocument();
@@ -171,7 +195,7 @@ describe('configured Renovate run settings', () => {
     setRunSettings('acme/resume', false, 7200);
     await open();
     const group = await settings();
-    expect(interval(group)).toBeDisabled();
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
     fireEvent.click(automatic(group));
     expect(interval(group)).toBeEnabled();
     expect(interval(group)).toHaveValue(7200);
@@ -179,7 +203,7 @@ describe('configured Renovate run settings', () => {
     await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
       repository: 'acme/resume', automaticRuns: true, repetitionIntervalSeconds: 7200 }));
     cleanup(); await open();
-    expect(automatic(await settings())).toBeChecked();
+    expect(automatic(await settings())).toHaveAttribute('aria-pressed', 'true');
     expect(interval(await settings())).toHaveValue(7200);
     expect(interval(await settings())).toBeEnabled();
   });
@@ -192,7 +216,7 @@ describe('configured Renovate run settings', () => {
     fireEvent.click(within(group).getByRole('button', { name: 'Reset Repeat interval (seconds) to default' }));
     expect(interval(group)).toHaveValue(3600);
     expect(repository(group)).toHaveValue('acme/reset');
-    expect(automatic(group)).toBeChecked();
+    expect(automatic(group)).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(save());
     await waitFor(() => expect(state.installations[0].configuration).toEqual({ ...retained,
       renovate: { repository: 'acme/reset', automaticRuns: true, repetitionIntervalSeconds: 3600 } }));
@@ -236,6 +260,8 @@ describe('configured Renovate run settings', () => {
     expect(state.installations[0].configuration).toEqual(configuration);
     cleanup(); await open();
     expect(repository(await settings())).toHaveValue('acme/restricted');
+    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    fireEvent.click(automatic());
     expect(interval(await settings())).toHaveValue(7200);
   });
 

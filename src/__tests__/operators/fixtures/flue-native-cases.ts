@@ -175,6 +175,84 @@ export function registerNativeDispatcherCases(
     return { id, value };
   }
 
+  if (group === 'flue') describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
+    beforeEach(() => harness.reset(), 60_000);
+    type Composed = { instance: string; detail: { executionStatus: string; collectionStatus: string; result: unknown; sdkCleanupReleased?: boolean };
+      external: { held: boolean; inference: Array<{ inputDigest: string; turn: number }>; comments: Array<{ body: string }>;
+        sourceRequests: Array<{ url: string; method: string }>; duplicates: Array<{ statuses: number[]; digests: string[] }>;
+        budget?: { operationCount: number; operationLimit: number } } };
+    async function composed<T>(id: string, value: unknown): Promise<T> {
+      const response = await harness.fetch(`/dispatcher-composed?activity=${id}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value), signal: AbortSignal.timeout(20_000),
+      });
+      const body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      return body as T;
+    }
+    async function observed(id: string, predicate: (value: Composed) => boolean) {
+      const deadline = Date.now() + 60_000;
+      let value: Composed;
+      do {
+        value = await composed<Composed>(id, { action: 'observe' });
+        if (predicate(value) || ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus)) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      expect(predicate(value!), JSON.stringify(value!)).toBe(true);
+      return value!;
+    }
+    it.each(['ordinary', 'incomplete', 'native-error', 'duplicate', 'precommit-reset', 'committed-reset'] as const)(
+      'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
+        const pinned = await pinnedArtifact(true, true);
+        const id = `composed-${crypto.randomUUID()}`;
+        expect(await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+        let originalInstance: string | undefined;
+        if (scenario.endsWith('-reset')) {
+          const held = await observed(id, value => value.external.held);
+          originalInstance = held.instance;
+          expect(held.external.inference).toHaveLength(1);
+          expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+          expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+        }
+        const result = await observed(id, value => value.detail.executionStatus === 'completed');
+        if (originalInstance) expect(result.instance).not.toBe(originalInstance);
+        const firstTurn = result.external.inference.filter(item => item.turn === 0);
+        const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
+        expect(firstTurn).toHaveLength(recovered ? 2 : 1);
+        expect(new Set(firstTurn.map(item => item.inputDigest)).size).toBe(1);
+        expect(result.external.comments).toEqual([expect.objectContaining({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/migration' })]);
+        expect(result.external.sourceRequests.filter(item => item.method !== 'GET')).toEqual([
+          { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
+        ]);
+        expect(result.external.budget).toEqual({ operationCount: result.external.inference.length + result.external.sourceRequests.length, operationLimit: 1024 });
+        if (scenario === 'duplicate') {
+          expect(result.external.duplicates).toEqual([{ statuses: [200, 200], digests: [expect.any(String), expect.any(String)] }]);
+          expect(new Set(result.external.duplicates[0].digests).size).toBe(1);
+        }
+        const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
+        expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
+          repository: 'authorized/project', results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED' }],
+        } } });
+        expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+          result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+        } });
+        const after = await composed<Composed>(id, { action: 'observe' });
+        expect(after.external).toEqual(result.external);
+        expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
+      }, 90_000);
+
+    it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
+      const pinned = await pinnedArtifact(true, true);
+      const id = `exhausted-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit })).toMatchObject({ ok: true });
+      const result = await observed(id, value => value.detail.executionStatus === 'unknown');
+      expect(result.external.inference).toHaveLength(attemptLimit);
+      expect(result.external.comments).toEqual([]);
+      expect(result.detail.result).toBeNull();
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });
+      expect((await composed<Composed>(id, { action: 'observe' })).external.inference).toEqual(result.external.inference);
+    }, 90_000);
+  });
+
   if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {
     beforeEach(() => harness.reset(), 60_000);
     it('REQ-OPERATOR-048: authentic SDK finish steering continues the original invocation to exact assessment', async () => {

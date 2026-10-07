@@ -12,10 +12,12 @@ import { driveOperatorRuntime } from '../../../operators/runtime';
 import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
-import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
+import { OperatorActivity as ProductionActivity, type OperatorActivityPreparation } from '../../../operators/activity';
 export { OperatorDispatcherTail } from '../../../operators/activity';
+import { composedFixture } from './dispatcher-composed-fixture';
+export { OperatorActivity, OperatorDispatcherCapability, RecoveryServices, LlmInterceptor, GitHubInterceptor, EgressController } from './dispatcher-composed-fixture';
 /** Native eviction fixture proves state survives a new DO instance, not isolate memory. */
-export class FixtureActivity extends OperatorActivity {
+export class FixtureActivity extends ProductionActivity {
   private readonly instanceId = crypto.randomUUID();
   getInstanceId(): string { return this.instanceId; }
   /** Fixture-private owner read; this capability is never bound into the child. */
@@ -172,6 +174,7 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      if (url.pathname === '/dispatcher-composed') return composedFixture(request, env as unknown as Parameters<typeof composedFixture>[1]);
       if (url.pathname === '/flue') {
         return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
       }

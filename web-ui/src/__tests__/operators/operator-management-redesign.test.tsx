@@ -282,7 +282,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     fireEvent.click(within(capabilities).getByRole('checkbox', { name: /Scoped storage/i }));
     fireEvent.click(within(capabilities).getByRole('button', { name: 'Save operator capabilities' }));
     await waitFor(() => expect(saved).toEqual({ revision: 3, capabilities: ['session'], loggingEnabled: true }));
-    expect(await screen.findByRole('button', { name: 'Enable for new runs' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Enable' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Installation restrictions' })).toHaveTextContent(/storage.*unavailable/i);
   });
 

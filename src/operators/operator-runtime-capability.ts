@@ -9,6 +9,7 @@ import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { resolveOperatorInference } from './inference-selection';
+import type { DispatcherInferenceSelection } from './dispatcher-inference-recovery';
 import { z } from 'zod';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
 import { openOperatorExecutionAccess } from './execution-context';
@@ -129,6 +130,10 @@ export async function readDispatcherBody(message: Request | Response, signal?: A
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+  const decode = (bytes?: Uint8Array, stream = false) => {
+    try { return decoder.decode(bytes, { stream }); }
+    catch { throw new Error('Dispatcher body encoding invalid'); }
+  };
   let size = 0;
   let value = '';
   const abort = () => { void reader.cancel(signal?.reason).catch(() => {}); };
@@ -138,10 +143,10 @@ export async function readDispatcherBody(message: Request | Response, signal?: A
       if (signal?.aborted) throw signal.reason;
       const chunk = await reader.read();
       if (signal?.aborted) throw signal.reason;
-      if (chunk.done) return value + decoder.decode();
+      if (chunk.done) return value + decode();
       size += chunk.value.byteLength;
       if (size > byteLimit) throw new Error('Dispatcher body exceeds limit');
-      value += decoder.decode(chunk.value, { stream: true });
+      value += decode(chunk.value, true);
     }
   } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
@@ -224,6 +229,7 @@ export async function createDispatcherOperation(input: {
   operation: DispatcherOperation; current: () => Promise<boolean>;
   effectContext?: { authorize: () => Promise<void>; reconcileOnly: boolean };
   diagnosticContext?: InferenceDiagnosticContext;
+  pinInferenceSelection?: (selection: DispatcherInferenceSelection) => Promise<void>;
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
@@ -377,7 +383,7 @@ export async function createDispatcherOperation(input: {
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
     if (!input.exports.LlmInterceptor) throw new Error('LLM interceptor unavailable');
-    const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+    let groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
       headers: { 'cf-access-jwt-assertion': authority.accessJwt },
     }), env);
     const routes = await loadEnterpriseRouteConfig(env, groups);
@@ -386,10 +392,20 @@ export async function createDispatcherOperation(input: {
       reasoningLevels: [routes.defaultReasoning], defaultReasoningLevel: routes.defaultReasoning, inheritUserDefaults: false };
     const trusted = resolveOperatorInference({ policy, eligible: { routeIds: routes.routeCatalog,
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
+    await input.pinInferenceSelection?.({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
     const aig = await getAigConfig(env);
     const value = dispatcherInferenceSchema.parse(operation.body);
     return async () => {
       await current();
+      if (input.pinInferenceSelection) {
+        groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+          headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+        }), env);
+        const latest = await loadEnterpriseRouteConfig(env, groups);
+        if (!latest.routeCatalog.includes(trusted.routeId) || latest.defaultRoute !== trusted.routeId
+          || latest.defaultReasoning !== trusted.reasoningLevel) throw new Error('Dispatcher inference route changed');
+        await input.pinInferenceSelection({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
+      }
       inferenceDiagnostic(input.diagnosticContext, { stage: 'authority', outcome: 'completed', resource: 'inference', messages: value.input.messages.length, tools: value.input.tools?.length ?? 0 });
       const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups,
         // Stable owner-scoped native replay, with the now-reserved parent ordinal.
@@ -397,7 +413,7 @@ export async function createDispatcherOperation(input: {
         gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
         operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted,
           diagnosticContext: input.diagnosticContext } } });
-      return transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST',
+      return transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: operation.signal,
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
           max_tokens: value.input.max_tokens ?? 8192, model: trusted.routeId, stream: value.input.stream ?? true }) }));
     };

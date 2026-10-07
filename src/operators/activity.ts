@@ -12,7 +12,9 @@ import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { producerDiagnosticSchema, sdkPublicReasonCode, type ProducerDiagnostic } from './dispatcher-diagnostic-wire';
-import { inferenceRequestBytes } from './dispatcher-inference-limits';
+import { inferenceRequestBytes, inferenceAttemptLimit } from './dispatcher-inference-limits';
+import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
+  type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
@@ -74,6 +76,7 @@ interface DispatcherLease {
   generation: number; artifactDigest: string; inputDigest: string; expiresAt: number;
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
   projection?: DispatcherResultProjection;
+  inferenceRecovery?: { version: 1; attemptLimit: number };
   status: 'admitting' | 'running' | 'settled' | 'unknown';
 }
 interface DispatcherOperationRecord {
@@ -83,6 +86,7 @@ interface DispatcherOperationRecord {
   ordinal?: number;
   resolution?: { readbacks: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
   response?: { status: number; contentType: string; body: string };
+  inference?: DispatcherInferenceChain;
 }
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
@@ -118,11 +122,11 @@ async function loadDispatcherJournal(tx: DispatcherJournalTx, generation: number
 
 /** Entry, capacity and unresolved-state changes belong to the caller's fenced transaction. */
 async function putDispatcherEntry(tx: DispatcherJournalTx, journal: DispatcherJournal, id: string,
-  prior: DispatcherOperationRecord | undefined, next: DispatcherOperationRecord): Promise<void> {
+  prior: DispatcherOperationRecord | undefined, next: DispatcherOperationRecord, additionalReservations = 0): Promise<void> {
   await tx.put(dispatcherEntryKey(journal, id), next);
   await tx.put(DISPATCHER_JOURNAL, { ...journal,
-    count: journal.count + (prior ? 0 : 1),
-    nextOrdinal: prior ? journal.nextOrdinal : Math.max(journal.nextOrdinal, (next.ordinal ?? journal.nextOrdinal) + 1),
+    count: journal.count + (prior ? 0 : 1) + additionalReservations,
+    nextOrdinal: prior ? journal.nextOrdinal + additionalReservations : Math.max(journal.nextOrdinal, (next.ordinal ?? journal.nextOrdinal) + 1),
     unresolved: journal.unresolved + (next.phase === 'completed' ? 0 : 1) - (prior && prior.phase !== 'completed' ? 1 : 0),
   });
 }
@@ -293,6 +297,7 @@ interface AdmissionState {
   receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null;
   executionContext?: OperatorExecutionContext;
   invocationJson?: string;
+  inferenceRecoveryVersion?: 1;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
   approvedPackets?: Record<string, ApprovedPacketRecord>;
@@ -405,6 +410,8 @@ export class OperatorActivity extends Agent {
   #producerReports = 0;
   #producerFailureReports = 0;
   #reconciling?: Promise<void>;
+  #inferenceOwner?: { generation: number; epoch: Promise<number> };
+  #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env as unknown as Env);
@@ -447,7 +454,8 @@ export class OperatorActivity extends Agent {
     const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
       await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
-        invocationJson, ownerKey, ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
+        invocationJson, ownerKey, inferenceRecoveryVersion: 1,
+        ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
       return { ok: true, phase: 'prepared' };
     });
     return result;
@@ -519,7 +527,10 @@ export class OperatorActivity extends Agent {
       if (lease && lease.status !== 'settled') await tx.put(DISPATCHER_LEASE, { ...lease, status: 'unknown' });
       return { ok: true };
     });
-    if (result.ok) await this.publishBrowserSummary().catch(() => {});
+    if (result.ok) {
+      for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+      await this.publishBrowserSummary().catch(() => {});
+    }
     return result;
   }
 
@@ -1353,7 +1364,7 @@ export class OperatorActivity extends Agent {
 
   private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number,
     allowWaiting = false): Promise<OperatorDriveResult> {
-    return this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+    const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
       if (generation !== undefined && (record.drive?.generation !== generation
@@ -1372,6 +1383,8 @@ export class OperatorActivity extends Agent {
       if (lease && lease.status !== 'settled') await tx.put(DISPATCHER_LEASE, { ...lease, status: 'unknown' });
       return { ok: true, state };
     });
+    if (result.ok) for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+    return result;
   }
 
   /** REQ-OPERATOR-048: bind one already-reserved drive to immutable code/input and one Flue submission. */
@@ -1396,6 +1409,7 @@ export class OperatorActivity extends Agent {
       await authorizeDispatcherPlan(plan, this.#appEnv);
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary });
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'started', operationLimit: dispatcherOperationLimit(plan.receipt.selection.operator.policy), inferenceRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy) });
+      const attemptLimit = inferenceAttemptLimit(plan.receipt.selection.operator.policy);
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
         expiresAt: Math.floor(plan.deadline / 1000) * 1000,
         submissionId: null, status: 'admitting' };
@@ -1409,6 +1423,9 @@ export class OperatorActivity extends Agent {
         }
         const journal = await loadDispatcherJournal(tx, previous?.generation ?? generation);
         if (journal.unresolved !== 0) throw new Error('Unresolved Dispatcher journal');
+        if (record.inferenceRecoveryVersion === 1) lease.inferenceRecovery = {
+          version: 1, attemptLimit,
+        };
         await tx.put(DISPATCHER_LEASE, lease);
         // Old completed entries remain isolated; a continued generation reserves its own reads.
         await tx.put<DispatcherJournal>(DISPATCHER_JOURNAL, { generation, count: 0, nextOrdinal: 0, unresolved: 0 });
@@ -1901,6 +1918,9 @@ export class OperatorActivity extends Agent {
           : (operation.body as { resource: 'pull-request' | 'files' | 'checks' | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' }).resource;
     const requestDigest = trace?.requestDigest ?? await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
     inferenceDiagnostic(trace, { stage: 'operation-prepared', outcome: 'completed', resource });
+    if (resource === 'inference' && lease?.inferenceRecovery?.version === 1) {
+      return this.#recoverDispatcherInference(generation, operation, requestDigest, lease, inferenceBytes, operationLimit, trace);
+    }
     const reserved = await this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -2034,6 +2054,240 @@ export class OperatorActivity extends Agent {
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading && error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+    }
+  }
+
+  /** One logical inference owns its attempts; delivery retries join rather than poisoning its reservation. */
+  async #recoverDispatcherInference(generation: number, operation: Awaited<ReturnType<typeof parseDispatcherOperation>>,
+    requestDigest: string, lease: DispatcherLease, byteLimit: number, operationLimit: number,
+    trace: InferenceDiagnosticContext | undefined): Promise<Response> {
+    const key = `${generation}:${operation.operationId}`;
+    let flight = this.#inferenceFlights.get(key);
+    if (flight && flight.digest !== requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+    if (!flight) {
+      const controller = new AbortController();
+      // Register synchronously before the first reservation can become visible to another delivery.
+      const result = this.#runDispatcherInference(generation, operation, requestDigest, lease, byteLimit, operationLimit, trace, controller)
+        .finally(() => { this.#inferenceFlights.delete(key); controller.abort(); });
+      flight = { digest: requestDigest, controller, result };
+      this.#inferenceFlights.set(key, flight);
+    }
+    const value = await flight.result;
+    if (value.status < 400) {
+      try {
+        const plan = await this.getRuntimePlan();
+        if (!plan) throw new Error('Dispatcher inference unavailable');
+        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+          || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher inference denied');
+      } catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
+    }
+    return new Response(value.body, { status: value.status,
+      headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
+  }
+
+  async #runDispatcherInference(generation: number, operation: Awaited<ReturnType<typeof parseDispatcherOperation>>,
+    requestDigest: string, lease: DispatcherLease, byteLimit: number, operationLimit: number,
+    trace: InferenceDiagnosticContext | undefined, controller: AbortController): Promise<DispatcherInferenceResponse> {
+    const rejected = (code: string, status = 409): DispatcherInferenceResponse => ({ status, contentType: 'application/json', body: JSON.stringify({ code }) });
+    const ownerKey = `dispatcher:inference-owner:${generation}`;
+    const attemptLimit = lease.inferenceRecovery!.attemptLimit;
+    let epoch: number | undefined;
+    let terminalCode = 'OPERATOR_OPERATION_UNKNOWN';
+    let failureClass = 'commit';
+    const live = async (tx: DispatcherJournalTx) => {
+      const [record, currentLease, owner] = await Promise.all([tx.get<AdmissionState>('admission'),
+        tx.get<DispatcherLease>(DISPATCHER_LEASE), tx.get<number>(ownerKey)]);
+      if (!this.#leaseMatches(record, currentLease, generation) || owner !== epoch || controller.signal.aborted
+        || currentLease?.inferenceRecovery?.version !== 1 || currentLease.inferenceRecovery.attemptLimit !== attemptLimit) {
+        throw new Error('Dispatcher inference fenced');
+      }
+    };
+    try {
+      if (!this.#inferenceOwner || this.#inferenceOwner.generation !== generation) {
+        this.#inferenceOwner = { generation, epoch: this.ctx.storage.transaction(async tx => {
+          if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), await tx.get<DispatcherLease>(DISPATCHER_LEASE), generation)) {
+            throw new Error('Dispatcher inference fenced');
+          }
+          const next = (await tx.get<number>(ownerKey) ?? 0) + 1;
+          if (!Number.isSafeInteger(next)) throw new Error('Dispatcher inference owner exhausted');
+          await tx.put(ownerKey, next);
+          return next;
+        }) };
+      }
+      epoch = await this.#inferenceOwner.epoch;
+      const plan = await this.getRuntimePlan();
+      if (!plan) return rejected('OPERATOR_CAPABILITY_DENIED', 403);
+      const prepare = async (attemptTrace: InferenceDiagnosticContext | undefined, pin = true) => {
+        failureClass = 'authority';
+        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (controller.signal.aborted || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+          || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher inference authority expired');
+        return createDispatcherOperation({ plan, env: this.#appEnv, operation: { ...operation, signal: controller.signal },
+          current: () => this.dispatcherGenerationCurrent(generation), diagnosticContext: attemptTrace,
+          exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports,
+          pinInferenceSelection: !pin ? undefined : async selection => this.ctx.storage.transaction(async tx => {
+            await live(tx);
+            const journal = await loadDispatcherJournal(tx, generation);
+            const key = dispatcherEntryKey(journal, operation.operationId);
+            const record = await tx.get<DispatcherOperationRecord>(key);
+            if (record?.requestDigest !== requestDigest || !record.inference || record.phase === 'unknown') throw new Error('Dispatcher inference identity changed');
+            const pinned = record.inference.selection;
+            if (pinned && (pinned.routeId !== selection.routeId || pinned.reasoningLevel !== selection.reasoningLevel)) {
+              throw new Error('Dispatcher inference route changed');
+            }
+            if (!pinned) await tx.put(key, { ...record, inference: { ...record.inference, selection } });
+          }) });
+      };
+      for (;;) {
+        failureClass = 'commit';
+        const next = await this.ctx.storage.transaction(async tx => {
+          await live(tx);
+          const journal = await loadDispatcherJournal(tx, generation);
+          const key = dispatcherEntryKey(journal, operation.operationId);
+          const record = await tx.get<DispatcherOperationRecord>(key);
+          if (record && record.requestDigest !== requestDigest) return { kind: 'conflict' } as const;
+          if (record?.phase === 'completed') {
+            const cached = await tx.get<DispatcherInferenceResponse>(`dispatcher:response:${operation.operationId}`);
+            if (!cached) throw new Error('Dispatcher inference receipt missing');
+            return { kind: 'cached', response: cached, ordinal: record.ordinal, recoverable: record.inference?.version === 1, operationCount: journal.count } as const;
+          }
+          // Neither an old record nor a terminal unknown record can be upgraded into recovery.
+          if (record && (record.phase !== 'reserved' || record.inference?.version !== 1)) throw new Error('Dispatcher inference is not recoverable');
+          if (!record) {
+            if (journal.count >= operationLimit) return { kind: 'capacity', operationCount: journal.count } as const;
+            const attempt: DispatcherInferenceAttempt = { index: 1, ordinal: journal.nextOrdinal, phase: 'ready', notBefore: Date.now() };
+            await tx.put(inferenceAttemptKey(generation, operation.operationId, 1), attempt);
+            await putDispatcherEntry(tx, journal, operation.operationId, undefined,
+              { generation, requestDigest, phase: 'reserved', ordinal: attempt.ordinal, inference: { version: 1, attempt: 1 } });
+            return { kind: 'ready', attempt, operationCount: journal.count + 1 } as const;
+          }
+          const attemptKey = inferenceAttemptKey(generation, operation.operationId, record.inference!.attempt);
+          let previous = await tx.get<DispatcherInferenceAttempt>(attemptKey);
+          if (!previous) throw new Error('Dispatcher inference attempt missing');
+          if (previous.phase === 'ready') return { kind: 'ready', attempt: previous, operationCount: journal.count } as const;
+          if (previous.phase === 'in-flight') {
+            if (previous.owner === undefined || previous.owner >= epoch!) throw new Error('Dispatcher inference owner conflict');
+            previous = { ...previous, phase: 'unknown', classification: 'transport' };
+            await tx.put(attemptKey, previous);
+          }
+          if (previous.classification !== 'retryable' && previous.classification !== 'transport') throw new Error('Dispatcher inference cannot recover');
+          if (previous.index >= attemptLimit || journal.count >= operationLimit) return { kind: 'exhausted', operationCount: journal.count } as const;
+          const attempt: DispatcherInferenceAttempt = { index: previous.index + 1, ordinal: journal.nextOrdinal,
+            phase: 'ready', notBefore: Date.now() + inferenceRetryDelay(previous.index) };
+          if (attempt.notBefore >= lease.expiresAt) throw new Error('Dispatcher inference deadline reached');
+          await tx.put(attemptKey, { ...previous, successor: attempt.index });
+          await tx.put(inferenceAttemptKey(generation, operation.operationId, attempt.index), attempt);
+          await putDispatcherEntry(tx, journal, operation.operationId, record,
+            { ...record, inference: { ...record.inference!, attempt: attempt.index } }, 1);
+          return { kind: 'ready', attempt, operationCount: journal.count + 1 } as const;
+        }).catch(async error => this.ctx.storage.transaction(async tx => {
+          // A lost allocation acknowledgement is not a second allocation. Only an
+          // independently retained, unclaimed reservation (or final cache) reconciles it.
+          await live(tx);
+          const journal = await loadDispatcherJournal(tx, generation);
+          const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operation.operationId));
+          if (record?.requestDigest !== requestDigest || record.inference?.version !== 1) throw error;
+          if (record.phase === 'completed') {
+            const cached = await tx.get<DispatcherInferenceResponse>(`dispatcher:response:${operation.operationId}`);
+            if (cached) return { kind: 'cached', response: cached, ordinal: record.ordinal, recoverable: true, operationCount: journal.count } as const;
+          }
+          const attempt = await tx.get<DispatcherInferenceAttempt>(inferenceAttemptKey(generation, operation.operationId, record.inference.attempt));
+          if (record.phase !== 'reserved' || attempt?.phase !== 'ready' || attempt.owner !== undefined) throw error;
+          return { kind: 'ready', attempt, operationCount: journal.count } as const;
+        }));
+        if (next.kind === 'conflict') return rejected('OPERATOR_OPERATION_CONFLICT');
+        if (next.kind === 'capacity' || next.kind === 'exhausted') {
+          inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource: 'inference',
+            operationCount: next.operationCount, operationLimit, inferenceAttemptLimit: attemptLimit });
+          if (next.kind === 'capacity') return rejected('OPERATOR_CAPABILITY_DENIED', 403);
+          terminalCode = 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED'; throw new Error('Dispatcher inference exhausted');
+        }
+        if (next.kind === 'cached') {
+          await prepare(trace, next.recoverable);
+          inferenceDiagnostic(trace ? { ...trace, operationOrdinal: next.ordinal } : undefined, { stage: 'journal', outcome: 'cached', resource: 'inference', operationCount: next.operationCount, operationLimit });
+          return next.response;
+        }
+        const attempt = next.attempt;
+        const attemptTrace = trace ? { ...trace, operationOrdinal: attempt.ordinal } : undefined;
+        if (attempt.notBefore > Date.now()) await this.#boundedDispatcher(lease, () => new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', abort); reject(new Error('Dispatcher inference cancelled')); };
+          const timer = setTimeout(() => { controller.signal.removeEventListener('abort', abort); resolve(); }, attempt.notBefore - Date.now());
+          controller.signal.addEventListener('abort', abort, { once: true });
+          if (controller.signal.aborted) abort();
+        }));
+        const perform = await prepare(attemptTrace);
+        failureClass = 'commit';
+        const attemptKey = inferenceAttemptKey(generation, operation.operationId, attempt.index);
+        await this.ctx.storage.transaction(async tx => {
+          await live(tx);
+          const current = await tx.get<DispatcherInferenceAttempt>(attemptKey);
+          if (current?.phase !== 'ready') throw new Error('Dispatcher inference already claimed');
+          await tx.put(attemptKey, { ...current, phase: 'in-flight', owner: epoch });
+        });
+        inferenceDiagnostic(attemptTrace, { stage: 'inference-attempt', outcome: 'started', resource: 'inference',
+          inferenceAttempt: attempt.index, inferenceAttemptLimit: attemptLimit, operationCount: next.operationCount, operationLimit });
+        let response: DispatcherInferenceResponse | undefined;
+        let classification: NonNullable<DispatcherInferenceAttempt['classification']> = 'transport';
+        let responseFailure: string | undefined;
+        try {
+          response = await this.#boundedDispatcher(lease, async () => {
+            const upstream = await perform();
+            return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
+              body: upstream.body ? await readDispatcherBody(upstream, controller.signal, byteLimit) : '' };
+          });
+          classification = classifyDispatcherInference(response, (operation.body as { input: { stream?: boolean } }).input.stream !== false);
+        } catch (error) {
+          responseFailure = error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : 'body-read';
+          if (error instanceof Error && ['Dispatcher body exceeds limit', 'Dispatcher body encoding invalid'].includes(error.message)) classification = 'permanent';
+        }
+        // A transport rejection is retryable only while the original full authority and pinned route remain current.
+        await prepare(attemptTrace);
+        failureClass = 'commit';
+        const responseDigest = response ? await sha256(response.body) : undefined;
+        await this.ctx.storage.transaction(async tx => {
+          await live(tx);
+          const journal = await loadDispatcherJournal(tx, generation);
+          const key = dispatcherEntryKey(journal, operation.operationId);
+          const record = await tx.get<DispatcherOperationRecord>(key);
+          const current = await tx.get<DispatcherInferenceAttempt>(attemptKey);
+          if (record?.phase !== 'reserved' || record.requestDigest !== requestDigest || record.inference?.attempt !== attempt.index
+            || current?.phase !== 'in-flight' || current.owner !== epoch) throw new Error('Dispatcher inference result superseded');
+          const final = classification === 'usable' || classification === 'final-error';
+          const responseKey = final ? `dispatcher:response:${operation.operationId}` : `${attemptKey}:response`;
+          if (response) await tx.put(responseKey, response);
+          await tx.put(attemptKey, { ...current, phase: response ? 'completed' : 'unknown', classification,
+            ...(response ? { responseKey, responseDigest } : {}) });
+          if (final && response) {
+            await putDispatcherEntry(tx, journal, operation.operationId, record, { ...record, phase: 'completed', responseDigest });
+          }
+        });
+        inferenceDiagnostic(attemptTrace, { stage: 'inference-attempt', outcome: classification === 'usable' ? 'completed' : response ? 'failed' : 'unknown',
+          resource: 'inference', inferenceAttempt: attempt.index, inferenceAttemptLimit: attemptLimit,
+          operationCount: next.operationCount, operationLimit, inferenceOutcome: classification,
+          ...(responseFailure ? { failureClass: responseFailure } : {}),
+          ...(response ? { status: response.status, responseDigest, ...inferenceResponseObservation(response) } : {}) });
+        if ((classification === 'usable' || classification === 'final-error') && response) return response;
+        if (classification === 'permanent') { failureClass = responseFailure ?? 'model-completion'; throw new Error('Dispatcher inference permanent failure'); }
+      }
+    } catch {
+      // A replaced owner's late failure cannot fence its successor. Persistence ambiguity never authorizes I/O.
+      let owns = false;
+      try {
+        owns = epoch !== undefined && await this.ctx.storage.get<number>(ownerKey) === epoch;
+        if (owns) await this.ctx.storage.transaction(async tx => {
+          const currentLease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (currentLease?.generation !== generation || await tx.get<number>(ownerKey) !== epoch) { owns = false; return; }
+          const journal = await loadDispatcherJournal(tx, generation);
+          const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operation.operationId));
+          if (record?.requestDigest === requestDigest && record.phase === 'reserved') {
+            await putDispatcherEntry(tx, journal, operation.operationId, record, { ...record, phase: 'unknown' });
+          }
+        });
+        if (owns) await this.interruptDrive(generation);
+      } catch { /* No fresh inference follows a journal or fence failure. */ }
+      inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource: 'inference', failureClass });
+      return rejected(terminalCode);
     }
   }
 

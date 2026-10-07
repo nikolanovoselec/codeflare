@@ -51,6 +51,19 @@ describe('REQ-OPERATOR-079: bounded response tool observations', () => {
       toolArgumentFields: [], toolArgumentFieldCount: 0 });
     expect(JSON.stringify(observation)).not.toContain('PRIVATE_TARGET');
   });
+  it('REQ-OPERATOR-078: the attempt diagnostic wire accepts only safe counters and closed outcomes', () => {
+    const logs = capture();
+    inferenceDiagnostic({ activityId: 'activity', generation: 1 }, { stage: 'inference-attempt', outcome: 'failed',
+      inferenceAttempt: 2, inferenceAttemptLimit: 5, inferenceOutcome: 'retryable', operationCount: 9,
+      prompt: 'PRIVATE_PROMPT', error: 'PRIVATE_ERROR' });
+    expect(JSON.parse(logs[0]).data).toEqual({ schemaVersion: 1, activityId: 'activity', generation: 1,
+      stage: 'inference-attempt', outcome: 'failed', inferenceAttempt: 2, inferenceAttemptLimit: 5,
+      inferenceOutcome: 'retryable', operationCount: 9 });
+    inferenceDiagnostic(undefined, { stage: 'inference-attempt', outcome: 'failed',
+      inferenceAttempt: -1, inferenceAttemptLimit: Number.MAX_SAFE_INTEGER + 1, inferenceOutcome: 'PRIVATE_UNKNOWN' });
+    expect(JSON.parse(logs[1]).data).toEqual({ schemaVersion: 1, stage: 'inference-attempt', outcome: 'failed' });
+    expect(logs.join('')).not.toContain('PRIVATE_');
+  });
   it('suppresses response-shape logs when the admitted logging setting is disabled', () => {
     const logs = capture();
     const observation = observe(frame([{ index: 0, function: { name: 'seal_dispatcher', arguments: '{}' } }]));
