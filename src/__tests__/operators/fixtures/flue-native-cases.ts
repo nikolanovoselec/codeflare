@@ -247,7 +247,7 @@ export function registerNativeDispatcherCases(
       const admission = await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit });
       expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
       const result = await observed(id, value => value.detail.executionStatus === 'unknown');
-      expect(result.external.inference).toHaveLength(attemptLimit);
+      expect(result.external.inference, JSON.stringify(result)).toHaveLength(attemptLimit);
       expect(result.external.comments).toEqual([]);
       expect(result.detail.result).toBeNull();
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });

@@ -35,6 +35,28 @@ const services = (env: FixtureEnv) => env.RECOVERY_SERVICES.getByName('services'
 const hash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const wire = (chunks: unknown[]) => new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
 let identityService: { identity(): Promise<Response> } | undefined;
+let diagnosticActivity: string | undefined;
+const diagnostics: Array<Record<string, string | number | boolean | null>> = [];
+const capture = (value: unknown) => {
+  try {
+    const entry = JSON.parse(String(value));
+    if (!['operator-inference', 'dispatcher-settlement'].includes(entry.module)
+      || !diagnosticActivity || entry.data?.activityId !== diagnosticActivity) return;
+    const observation: Record<string, string | number | boolean | null> = { module: entry.module };
+    for (const key of ['stage', 'outcome', 'boundary', 'status', 'failureClass', 'inferenceOutcome',
+      'inferenceAttempt', 'operationOrdinal', 'operationCount', 'reasonCode', 'reasonDigest', 'reasonBytes',
+      'errorType', 'lastToolRole', 'lastToolOutcome']) {
+      const item = entry.data[key];
+      if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) observation[key] = item;
+    }
+    diagnostics.push(observation);
+    if (diagnostics.length > 64) diagnostics.shift();
+  } catch { /* Only selected fields from the existing closed diagnostic wire are retained. */ }
+};
+for (const level of ['log', 'warn'] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...values: unknown[]) => { capture(values[0]); original(...values); };
+}
 const externalFetch = globalThis.fetch;
 // Synthetic Access upstream only. Production identity parsing, subject/email/grant checks remain real.
 globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -182,6 +204,7 @@ export class OperatorActivity extends ProductionActivity {
     this.fixtureEnv = env;
   }
   async startComposed(id: string, artifact: DispatcherBundle, digest: string) {
+    diagnosticActivity = id; diagnostics.length = 0; setLogLevel('info');
     const now = Math.floor(Date.now() / 1000);
     const human = { subject: 'fixture-owner', email, issuer, audiences: ['fixture'], issuedAt: now - 1, expiresAt: now + 180 };
     const invocationJson = JSON.stringify({ repository });
@@ -194,29 +217,16 @@ export class OperatorActivity extends ProductionActivity {
     if (!prepared.ok) return prepared;
     const started = await this.start('s'.repeat(43));
     if (!started.ok) return started;
-    const diagnostics: Array<{ stage: string; outcome: string; boundary?: string; status?: number }> = [];
-    const original = console.log;
-    setLogLevel('info');
-    console.log = (value: unknown) => {
-      try {
-        const entry = JSON.parse(String(value));
-        if (entry.module === 'operator-inference' && entry.data?.activityId === id && diagnostics.length < 32) {
-          const { stage, outcome, boundary, status } = entry.data;
-          diagnostics.push({ stage, outcome, ...(boundary ? { boundary } : {}), ...(status === undefined ? {} : { status }) });
-        }
-      } catch { /* Only the existing closed diagnostic wire is retained. */ }
-    };
-    try {
-      const approved = await parseDispatcherBundle(await services(this.fixtureEnv).getManagementBundle(digest), digest);
-      const result = await driveDispatcherRuntime({ activity: this, deadline: human.expiresAt * 1000, bundle: approved,
-        artifactDigest: digest, invocation: { repository } });
-      return { ...result, diagnostics };
-    } finally { console.log = original; }
+    const approved = await parseDispatcherBundle(await services(this.fixtureEnv).getManagementBundle(digest), digest);
+    const result = await driveDispatcherRuntime({ activity: this, deadline: human.expiresAt * 1000, bundle: approved,
+      artifactDigest: digest, invocation: { repository } });
+    return { ...result, diagnostics: [...diagnostics] };
 
   }
   async observeComposed() {
     await this.reconcileDispatcherLease();
-    return { instance: this.instance, detail: await this.getBrowserDetail(), external: await services(this.fixtureEnv).observe() };
+    return { instance: this.instance, detail: await this.getBrowserDetail(), external: await services(this.fixtureEnv).observe(),
+      diagnostics: [...diagnostics] };
   }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
 }
