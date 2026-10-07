@@ -34,18 +34,19 @@ const comment = `${quote} Source: ${researchUrl}`;
 const services = (env: FixtureEnv) => env.RECOVERY_SERVICES.getByName('services');
 const hash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const wire = (chunks: unknown[]) => new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
-let identityService: { identity(): Promise<Response> } | undefined;
+let identityService: (() => { identity(): Promise<Response> }) | undefined;
 let diagnosticActivity: string | undefined;
 const diagnostics: Array<Record<string, string | number | boolean | null>> = [];
 const capture = (value: unknown) => {
   try {
     const entry = JSON.parse(String(value));
-    if (!['operator-inference', 'dispatcher-settlement'].includes(entry.module)
-      || !diagnosticActivity || entry.data?.activityId !== diagnosticActivity) return;
+    const identityDenial = entry.module === 'access' && entry.message === 'Operator human authentication denied';
+    if (!diagnosticActivity || (!identityDenial && (!['operator-inference', 'dispatcher-settlement'].includes(entry.module)
+      || entry.data?.activityId !== diagnosticActivity))) return;
     const observation: Record<string, string | number | boolean | null> = { module: entry.module };
     for (const key of ['stage', 'outcome', 'boundary', 'status', 'failureClass', 'inferenceOutcome',
       'inferenceAttempt', 'operationOrdinal', 'operationCount', 'reasonCode', 'reasonDigest', 'reasonBytes',
-      'errorType', 'lastToolRole', 'lastToolOutcome']) {
+      'errorType', 'lastToolRole', 'lastToolOutcome', 'reason', 'messages', 'tools']) {
       const item = entry.data[key];
       if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) observation[key] = item;
     }
@@ -63,7 +64,7 @@ globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init);
   if (request.url === `${issuer}/cdn-cgi/access/get-identity`) {
     return identityService && request.redirect === 'manual' && request.headers.get('cookie') === `CF_Authorization=${accessJwt}`
-      ? identityService.identity() : Promise.resolve(new Response(null, { status: 401 }));
+      ? identityService().identity() : Promise.resolve(new Response(null, { status: 401 }));
   }
   return externalFetch(input, init);
 }) as typeof fetch;
@@ -195,7 +196,7 @@ export class OperatorActivity extends ProductionActivity {
   private readonly instance = crypto.randomUUID();
   private readonly fixtureEnv: FixtureEnv;
   constructor(ctx: DurableObjectState, env: FixtureEnv) {
-    identityService = services(env);
+    identityService = () => services(env);
     super(ctx, { ...env, ...encryption, ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: gateway.gatewayUrl,
       AIG_GATEWAY_ID: gateway.gatewayId, AIG_TOKEN: gateway.token,
       OPERATOR_REGISTRY: { getByName: () => services(env) },
@@ -267,7 +268,7 @@ export class EgressController extends WorkerEntrypoint<FixtureEnv> {
   fetch(request: Request) { return services(this.env).source(request); }
 }
 export async function composedFixture(request: Request, env: FixtureEnv): Promise<Response> {
-  identityService = services(env);
+  identityService = () => services(env);
   const command = await request.json<{ action: string; artifact?: DispatcherBundle; digest?: string; scenario?: RecoveryScenario; attemptLimit?: number }>();
   const id = new URL(request.url).searchParams.get('activity')!;
   const activity = await getAgentByName(env.OPERATOR_ACTIVITY, id);
