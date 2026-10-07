@@ -552,14 +552,14 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   if (!selected || !validRunSettings()) return;
   void props.perform(() => api.configureInstallation(selected.id, {
     revision: selected.revision, policy: selected.policy,
-    configuration: { ...(selected.configuration ?? {}), renovate: {
+    configuration: { ...selected.configuration, renovate: {
       repository: runRepository(), automaticRuns: runAutomatic(), repetitionIntervalSeconds: runInterval(),
     } },
   }), 'Run settings saved. New runs are disabled; enable them separately when ready. Automatic activation is separate.', 'run-settings');
 }}><fieldset disabled={props.locked}>
   <legend>Run settings</legend>
   <p>Manual and automatic runs use this repository. Saving does not start work or activate a schedule.</p>
-  <label class="admin-form-field"><span>Repository</span><input type="text" required maxlength="201"
+  <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength="201"
     autocomplete="off" placeholder="owner/repository" value={runRepository()}
     onInput={event => setRunRepository(event.currentTarget.value)} />
     <small>The work repository, not the operator package source. No default or manual override.</small>

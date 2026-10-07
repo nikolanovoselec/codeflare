@@ -67,6 +67,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 async function open() {
+  window.history.replaceState({}, '', '/operators');
   render(() => <OperatorManagement />);
   fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
   return screen.findByRole('region', { name: 'Installed version' });

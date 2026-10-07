@@ -11,7 +11,7 @@ type ParentScanTransport = {
 async function readScanPage(response: Response): Promise<unknown> {
   if (!response.body) throw Error('Renovate page unavailable');
   const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let size = 0, text = '';
   try {
     for (;;) {

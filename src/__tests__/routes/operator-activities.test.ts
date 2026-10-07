@@ -113,7 +113,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
       invokers: { users: [claims.email], groups: [] } },
       release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: { type: 'object', additionalProperties: false,
         required: ['repository', 'pullRequest'], properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
-      installation: { id: 'installation-1', releaseId: 'release-1' } };
+      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}' } };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
     const preview = await request('/installations/installation-1/preview');
     expect(preview.status).toBe(200);
@@ -125,6 +125,14 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(schema) });
     expect(await (await request('/installations/installation-1/preview?guidedMode=legacy-pull-request')).json())
       .toMatchObject({ guidedAssessment: true, guidedMode: 'repository', version: 'v0.1.2' });
+    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: {
+      ...installed(schema), installation: { ...selection.installation,
+        configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } }) },
+    } });
+    const configured = await request('/installations/installation-1/preview');
+    expect(configured.status).toBe(200);
+    expect(await configured.json()).toMatchObject({ guidedAssessment: true, guidedMode: 'repository',
+      version: 'v0.1.2', configuredRepository: 'acme/updates' });
     for (const unsupportedSchema of [undefined, { ...schema, additionalProperties: true },
       { ...schema, required: [] }, { ...schema, properties: { ...schema.properties, surprise: { type: 'string' } } },
       { ...schema, properties: { repository: { ...schema.properties.repository, maxLength: 256 } } }]) {
