@@ -3250,6 +3250,65 @@ it('REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error
 }, { inferenceBody: 'data: {"error":{"code":"NATIVE_BEDROCK_STREAM_ERROR","message":"PRIVATE_HISTORICAL_RESPONSE"}}\n\ndata: [DONE]\n\n' }));
 
 
+describe('REQ-OPERATOR-063: stored SDK failure inspection', () => {
+  const captureInspection = async (run: () => Promise<void>) => {
+    const events: Array<Record<string, unknown>> = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation(value => {
+      try {
+        const entry = JSON.parse(String(value));
+        if (entry.module === 'operator-inference') events.push(entry.data);
+      } catch { /* Closed structured diagnostic wire only. */ }
+    });
+    setLogLevel('info');
+    try { await run(); return events; }
+    finally { spy.mockRestore(); setLogLevel('silent'); }
+  };
+  it.each([
+    ['submission_retry_exhausted', 'submission_retry_exhausted'],
+    ['PRIVATE_SDK_FAILURE_TYPE', 'other'],
+  ])('owner read classifies retained %s without exposing content or restarting work', (type, expected) => fixture(async f => {
+    await start(f);
+    const source = await f.capability.fetch(genericWire('source', { operationId: 'stored-failure-read',
+      url: 'https://api.github.com/repos/owner/repo/pulls/17' }));
+    expect(source.status).toBe(200);
+    f.settle('submission-1', 'failed', { type, message: 'PRIVATE_SDK_MESSAGE',
+      meta: { reason: 'PRIVATE_SDK_REASON', operation: 'PRIVATE_SDK_OPERATION' } });
+    await f.activity.reconcileDispatcherLease();
+    f.restart();
+    const before = await f.activity.getBrowserDetail();
+    const outbound = f.sent.map(request => ({ method: request.method, url: request.url }));
+    const events = await captureInspection(async () => {
+      expect(await f.activity.getBrowserDetail()).toEqual(before);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    });
+    expect(before).toMatchObject({ executionStatus: 'unknown', collectionStatus: 'unavailable', result: null });
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'journal-inspection', boundary: 'projection',
+      outcome: 'failed', activityId: f.activityId, generation: 1, sdkErrorType: expected }));
+    expect(JSON.stringify(events)).not.toMatch(/PRIVATE_SDK|private\.jwt|parent-only|submission-1/);
+    expect(f.sent.map(request => ({ method: request.method, url: request.url }))).toEqual(outbound);
+  }));
+  it('foreign failed settlement cannot create an owner failure classification', () => fixture(async f => {
+    await start(f);
+    f.settle('foreign-submission', 'failed', { type: 'submission_retry_exhausted' });
+    await f.activity.reconcileDispatcherLease();
+    const events = await captureInspection(async () => {
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    });
+    expect(events.filter(event => event.sdkErrorType !== undefined)).toEqual([]);
+  }));
+  it('REQ-OPERATOR-079: logging OFF suppresses retained SDK failure inspection without changing owner state', () => fixture(async f => {
+    await start(f);
+    f.settle('submission-1', 'failed', { type: 'submission_retry_exhausted' });
+    await f.activity.reconcileDispatcherLease();
+    const events = await captureInspection(async () => {
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
+        collectionStatus: 'unavailable' });
+    });
+    expect(events).toEqual([]);
+  }, { loggingEnabled: false }));
+});
+
+
 describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   const configuredTarget = { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' };
   const root = 'https://api.github.com/repos/acme/updates';
