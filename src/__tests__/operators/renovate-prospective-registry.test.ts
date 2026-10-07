@@ -276,7 +276,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       scheduled = structuredClone(generation);
       return { ok: true };
     } };
-    const reads: Array<{ url: string; method: string; redirect: RequestRedirect }> = [];
+    const reads: Array<{ url: string; method: string; redirect: Request['redirect'] }> = [];
     let createdAt = '';
     const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
       reads.push({ url: request.url, method: request.method, redirect: request.redirect });
