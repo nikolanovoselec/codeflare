@@ -204,7 +204,8 @@ export function registerNativeDispatcherCases(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
         const pinned = await pinnedArtifact(true, true);
         const id = `composed-${crypto.randomUUID()}`;
-        expect(await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+        const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 });
+        expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
         let originalInstance: string | undefined;
         if (scenario.endsWith('-reset')) {
           const held = await observed(id, value => value.external.held);
@@ -243,7 +244,8 @@ export function registerNativeDispatcherCases(
     it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
       const pinned = await pinnedArtifact(true, true);
       const id = `exhausted-${crypto.randomUUID()}`;
-      expect(await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit })).toMatchObject({ ok: true });
+      const admission = await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit });
+      expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
       const result = await observed(id, value => value.detail.executionStatus === 'unknown');
       expect(result.external.inference).toHaveLength(attemptLimit);
       expect(result.external.comments).toEqual([]);

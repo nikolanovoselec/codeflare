@@ -12,6 +12,7 @@ import { SETUP_KEYS } from '../../../lib/kv-keys';
 import { getBuiltInProfile, getBuiltInProfileRef } from '../../../lib/reasoning-profiles';
 import { connectionFingerprint } from '../../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../../lib/reasoning-discovery';
+import { setLogLevel } from '../../../lib/logger';
 
 type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent';
 interface FixtureEnv {
@@ -193,8 +194,24 @@ export class OperatorActivity extends ProductionActivity {
     if (!prepared.ok) return prepared;
     const started = await this.start('s'.repeat(43));
     if (!started.ok) return started;
-    return driveDispatcherRuntime({ activity: this, deadline: human.expiresAt * 1000, bundle: artifact,
-      artifactDigest: digest, invocation: { repository } });
+    const diagnostics: Array<{ stage: string; outcome: string; boundary?: string; status?: number }> = [];
+    const original = console.log;
+    setLogLevel('info');
+    console.log = (value: unknown) => {
+      try {
+        const entry = JSON.parse(String(value));
+        if (entry.module === 'operator-inference' && entry.data?.activityId === id && diagnostics.length < 32) {
+          const { stage, outcome, boundary, status } = entry.data;
+          diagnostics.push({ stage, outcome, ...(boundary ? { boundary } : {}), ...(status === undefined ? {} : { status }) });
+        }
+      } catch { /* Only the existing closed diagnostic wire is retained. */ }
+    };
+    try {
+      const result = await driveDispatcherRuntime({ activity: this, deadline: human.expiresAt * 1000, bundle: artifact,
+        artifactDigest: digest, invocation: { repository } });
+      return { ...result, diagnostics };
+    } finally { console.log = original; }
+
   }
   async observeComposed() {
     await this.reconcileDispatcherLease();
