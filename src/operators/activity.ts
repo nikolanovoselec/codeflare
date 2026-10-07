@@ -2206,6 +2206,31 @@ export class OperatorActivity extends Agent {
     catch { /* execution state remains authoritative; the safe index can reconcile later */ }
   }
 
+  /** Temporary stored-evidence read; never loads, contacts or recreates a child. */
+  async inspectDispatcherFailure(ownerKey: string): Promise<{ reason: string } | null> {
+    if (this.#appEnv.CLOUDFLARE_WORKER_NAME !== 'codeflare-enterprise-integration'
+      || this.#appEnv.ENTERPRISE_MODE !== 'active') return null;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    if (!state || state.ownerKey !== ownerKey
+      || state.intent.activityId !== '9024a801-8bbd-426a-8330-59fdf5b8d688'
+      || !state.receipt || !isManagementReceipt(state.receipt)
+      || state.receipt.selection.operator.profile !== 'dispatcher'
+      || state.phase !== 'queued' || state.drive?.status !== 'unknown'
+      || !lease || lease.status !== 'unknown' || !lease.submissionId
+      || state.drive.generation !== lease.generation + 1
+      || lease.inputDigest !== state.receipt.intentDigest
+      || lease.artifactDigest !== state.executionContext?.artifactDigest
+      || lease.artifactDigest !== state.receipt.selection.release.bundleDigest
+      || lease.artifactDigest !== 'f6dd11afab3bf35f32fefd160d9d899d3d14fcb2c12690a79fca82c7760d7309'
+      || lease.projection?.outcome !== 'failed'
+      || lease.projection.error?.type !== 'operation_failed'
+      || lease.projection.error.meta?.operation !== `direct(${lease.submissionId})`) return null;
+    const reason = lease.projection.error.meta.reason;
+    return typeof reason === 'string' && reason.length > 0
+      && new TextEncoder().encode(reason).byteLength <= 4096 ? { reason } : null;
+  }
+
   private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
     if (!state.drive || !state.receipt || !isManagementReceipt(state.receipt)
       || state.receipt.selection.operator.profile !== 'dispatcher') return undefined;

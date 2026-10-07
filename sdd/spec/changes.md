@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
+- Add the authorized temporary retained-failure read for fenced Activity `9024a801-8bbd-426a-8330-59fdf5b8d688` in Enterprise Integration (REQ-OPERATOR-079 AC7). Preserve owner authentication, immutable attribution, unknown/result fences and no raw-error logging; never load or contact the child. Remove after inspection. Hosted verification and diagnosed cause remain pending.
+
 - Mark requested-submission SDK tool reset overflow as truncated without affecting completion/result authority (REQ-OPERATOR-079). Add response-shape privacy/sampling coverage and disabled native/Tail cases; complete typed fixtures and retain the intended default-enabled public policy. Hosted verification remains pending.
 
 - Extend private producer and SDK-tool diagnostics with closed error codes, evidence/state flags, argument shape and opaque failure fingerprints (REQ-OPERATOR-079). Preserve generation/authority checks, privacy, bounded independent report budgets, operation accounting and result fences.
