@@ -12,7 +12,7 @@ export function registerFlueShard(index: number) {
   async function startWorker() {
     worker = await unstable_dev(fileURLToPath(new URL('./loader-worker.ts', import.meta.url)), {
       config: fileURLToPath(new URL('./wrangler.toml', import.meta.url)),
-      local: true, ip: '127.0.0.1', port: 0, inspectorPort: 0, persist: false, logLevel: 'none',
+      local: true, ip: '127.0.0.1', port: 0, inspectorPort: 0, persist: false, logLevel: 'error',
       experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
     });
   }
