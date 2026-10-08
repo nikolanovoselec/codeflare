@@ -18,8 +18,7 @@ export function registerFlueShard(index: number) {
       config: fileURLToPath(new URL('./wrangler.toml', import.meta.url)),
       dev: {
         remote: false, server: { hostname: '127.0.0.1', port: 0 }, inspector: { port: 0 },
-        // Temporary native INFO capture for the failing file-owned CI runtime; retain default reporting.
-        persist: false, logLevel: process.env.GITHUB_ACTIONS === 'true' && index === 1 ? 'debug' : 'error', watch: false,
+        persist: false, logLevel: 'error', watch: false,
       },
     });
     await worker.ready;
