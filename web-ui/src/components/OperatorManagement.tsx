@@ -18,6 +18,8 @@ const operationLimit = (value?: number) => value ?? api.DEFAULT_DISPATCHER_OPERA
 const validOperationLimit = (value?: number) => Number.isSafeInteger(operationLimit(value)) && operationLimit(value) >= 1;
 const inferenceAttemptLimit = (value?: number) => value ?? api.DEFAULT_INFERENCE_ATTEMPT_LIMIT;
 const validInferenceAttemptLimit = (value?: number) => Number.isSafeInteger(inferenceAttemptLimit(value)) && inferenceAttemptLimit(value) >= 1;
+const submissionAttemptLimit = (value?: number) => value ?? api.DEFAULT_SUBMISSION_ATTEMPT_LIMIT;
+const validSubmissionAttemptLimit = (value?: number) => Number.isSafeInteger(submissionAttemptLimit(value)) && submissionAttemptLimit(value) >= 1;
 const DefaultReset: Component<{ label: string; onReset: () => void }> = props =>
   <button type="button" class="operator-reset-default" aria-label={`Reset ${props.label} to default`} title={`Reset ${props.label} to default`} onClick={props.onReset}>
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={mdiAutorenew} fill="currentColor" /></svg>
@@ -408,10 +410,12 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
   const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
   const [operatorInferenceAttemptLimit, setOperatorInferenceAttemptLimit] = createSignal<number>();
+  const [operatorSubmissionAttemptLimit, setOperatorSubmissionAttemptLimit] = createSignal<number>();
   const [operatorLoggingEnabled, setOperatorLoggingEnabled] = createSignal(true);
   const inferenceFieldId = createUniqueId();
   const operationFieldId = createUniqueId();
   const inferenceAttemptFieldId = createUniqueId();
+  const submissionAttemptFieldId = createUniqueId();
   const [sourceUrl, setSourceUrl] = createSignal('');
   const [sourcePat, setSourcePat] = createSignal('');
   const [assessmentRepository, setAssessmentRepository] = createSignal('');
@@ -429,6 +433,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
     setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
     setOperatorInferenceAttemptLimit(props.detail.operator.policy.inferenceAttemptLimit);
+    setOperatorSubmissionAttemptLimit(props.detail.operator.policy.submissionAttemptLimit);
     setOperatorLoggingEnabled(props.detail.operator.policy.loggingEnabled ?? true);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
@@ -471,7 +476,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const installationSourceMax = () => Math.min(sourceBytes(operator().policy.sourceResponseBytes), environmentSourceMax());
   const validOperatorSource = () => operator().profile !== 'dispatcher'
     || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
-      && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit()));
+      && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit())
+      && validSubmissionAttemptLimit(operatorSubmissionAttemptLimit()));
   const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
@@ -600,6 +606,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceAttemptLimit() !== undefined ? { inferenceAttemptLimit: operatorInferenceAttemptLimit() } : {}),
+          ...(operator().profile === 'dispatcher' && operatorSubmissionAttemptLimit() !== undefined ? { submissionAttemptLimit: operatorSubmissionAttemptLimit() } : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
           <legend>Operator capabilities</legend><p>Allowed actions remain bounded by Environment. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
           <Show when={operator().profile === 'dispatcher'}><p>Source-response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference size is separate: the same operator limit applies to requests sent to the model and responses received. These settings do not change final-output or SDK-history limits.</p></Show>
@@ -632,6 +639,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
                 onInput={event => setOperatorInferenceAttemptLimit(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Max inference attempts" onReset={() => setOperatorInferenceAttemptLimit(api.DEFAULT_INFERENCE_ATTEMPT_LIMIT)} /></div>
               <small id={inferenceAttemptFieldId + '-help'}>Maximum attempts for one inference, including the initial request. Default: 4; use 1 to disable retries. Each attempt consumes the run's operation budget and may incur model cost. Repository writes are never retried.</small>
+            </div>
+            <div class="admin-form-field"><label for={submissionAttemptFieldId}>Submission attempt limit</label><div class="operator-value-input">
+              <input id={submissionAttemptFieldId} aria-describedby={submissionAttemptFieldId + '-help'} type="number" required min="1" step="1" max={Number.MAX_SAFE_INTEGER}
+                value={Number.isFinite(submissionAttemptLimit(operatorSubmissionAttemptLimit())) ? submissionAttemptLimit(operatorSubmissionAttemptLimit()) : ''}
+                onInput={event => setOperatorSubmissionAttemptLimit(event.currentTarget.valueAsNumber)} />
+              <DefaultReset label="Submission attempt limit" onReset={() => setOperatorSubmissionAttemptLimit(api.DEFAULT_SUBMISSION_ATTEMPT_LIMIT)} /></div>
+              <small id={submissionAttemptFieldId + '-help'}>Maximum SDK submission attempts, including the initial submission. Default: 1,024; use 1 to disable retries. Separate from inference retries; the original operation budget and deadline still apply. Uncertain repository writes are not replayed.</small>
             </div>
           </Show>
           <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>

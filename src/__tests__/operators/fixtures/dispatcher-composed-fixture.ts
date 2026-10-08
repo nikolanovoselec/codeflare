@@ -32,7 +32,7 @@ const researchUrl = 'https://docs.example.test/migration';
 const quote = 'Migration compatibility remains unverified.';
 const comment = `${quote} Source: ${researchUrl}`;
 // REQ-DISPATCHER-001 AC2; 002 AC2/3/4/5/7/10: upstream bytes, never synthetic tool decisions.
-export const largeEvidenceTargets = Array.from({ length: 7 }, (_, index) => ({
+const largeEvidenceTargets = Array.from({ length: 7 }, (_, index) => ({
   pullRequest: 17 + index, headSha: (index + 1).toString(16).repeat(40),
 }));
 const largeEvidence = Array.from({ length: 32 }, (_, index) => {
@@ -61,6 +61,12 @@ export function fixtureOperatorDispatcherTail(events: unknown): CanonicalAppendO
     else if (value && typeof value === 'object') {
       const item = value as Record<string, unknown>;
       const meta = item.meta as Record<string, unknown> | undefined;
+      if (item.stage === 'sdk-canonical-append' && item.errorType === 'conversation_stream_store_failure'
+        && item.operation === 'append' && ['canonical-append-oversized', 'canonical-append-other'].includes(String(item.category))) {
+        first = { category: item.category as CanonicalAppendObservation['category'],
+          ...(item.largestRecordType === 'state_write' ? { largestRecordType: 'state_write' as const } : {}) };
+        return;
+      }
       if (item.type === 'conversation_stream_store_failure' && meta?.operation === 'append') {
         first = { category: 'canonical-append-other' };
         if (typeof meta.reason !== 'string') return;

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-08
+
+- Add operator-owned SDK submission attempts to existing REQ-OPERATOR-045/049 controls, default1024 with positive-safe-integer validation and1 disabling retries. Preserve original admission pins (REQ-OPERATOR-011/048), independent inference/operation budgets, revision fencing and explicit re-enablement. Correct the native test helper and unused fixture export. First-append observation remains closed and Activity-correlated; the large-evidence persistence defect is not yet proven or repaired. Compatible package artifacts, exact-head CI and live acceptance remain pending.
+
 ## 2026-10-07
 
 - Extend existing owner-triggered journal inspection with a closed retained SDK failure category (REQ-OPERATOR-078 AC7), including pinned `submission_retry_exhausted`. Move this owner-read contract and its anchors from REQ-OPERATOR-063 AC2 into existing REQ-OPERATOR-078 AC7; retain AC2's settlement-time contract. Preserve exact generation/input/artifact attribution, unknown fences, logging OFF and best-effort delivery; expose no new endpoint/result property or raw error and perform no child I/O. Corrected RED `a2c02c35c803` / CI37704923275 reaches both missing classification assertions; implementation `f354777b2099` passed exact-head CI37705502573. Delivery and same-Activity diagnosis remain pending.

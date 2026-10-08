@@ -13,6 +13,7 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseOperatorPolicy } from './policy';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceResponseBytes } from './dispatcher-source-limits';
+import { submissionAttemptLimit as effectiveSubmissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes as effectiveInferenceRequestBytes, inferenceAttemptLimit as effectiveInferenceAttemptLimit } from './dispatcher-inference-limits';
 import { dispatcherOperationLimit as effectiveOperationLimit } from './dispatcher-operation-limits';
 import type { OperatorBrowserSummary } from './browser-activity';
@@ -111,7 +112,7 @@ export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
 export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number }
-interface ManagementOperatorPolicy extends ManagementPolicy { inferenceRequestBytes?: number; inferenceAttemptLimit?: number; operationLimit?: number; loggingEnabled?: boolean }
+interface ManagementOperatorPolicy extends ManagementPolicy { inferenceRequestBytes?: number; inferenceAttemptLimit?: number; submissionAttemptLimit?: number; operationLimit?: number; loggingEnabled?: boolean }
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
   manifestDigest: string; bundleDigest: string; interfaceVersion: 1; approved: boolean;
@@ -1281,7 +1282,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     });
   }
 
-  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number, operationLimit?: number, loggingEnabled?: boolean, inferenceAttemptLimit?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number, operationLimit?: number, loggingEnabled?: boolean, inferenceAttemptLimit?: number, submissionAttemptLimit?: number): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -1299,12 +1300,17 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         || !Number.isSafeInteger(inferenceAttemptLimit) || inferenceAttemptLimit < 1)) {
         throw new ValidationError('Invalid Dispatcher inference attempt limit');
       }
+      if (submissionAttemptLimit !== undefined && (state!.profile !== 'dispatcher'
+        || !Number.isSafeInteger(submissionAttemptLimit) || submissionAttemptLimit < 1)) {
+        throw new ValidationError('Invalid Dispatcher submission attempt limit');
+      }
       if (loggingEnabled !== undefined && typeof loggingEnabled !== 'boolean') throw new ValidationError('Invalid operator logging setting');
       const policy = { ...state!.policy, capabilities,
         ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }),
         ...(inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes }),
         ...(operationLimit === undefined ? {} : { operationLimit }),
         ...(inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit }),
+        ...(submissionAttemptLimit === undefined ? {} : { submissionAttemptLimit }),
         ...(loggingEnabled === undefined ? {} : { loggingEnabled }) };
       if (!this.withinManagementCeiling(policy)) throw new ValidationError('Operator capabilities exceed management ceiling');
       if (capabilities.length === state!.policy.capabilities.length
@@ -1313,6 +1319,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         && effectiveInferenceRequestBytes(policy) === effectiveInferenceRequestBytes(state!.policy)
         && effectiveOperationLimit(policy) === effectiveOperationLimit(state!.policy)
         && effectiveInferenceAttemptLimit(policy) === effectiveInferenceAttemptLimit(state!.policy)
+        && effectiveSubmissionAttemptLimit(policy) === effectiveSubmissionAttemptLimit(state!.policy)
         && (policy.loggingEnabled ?? true) === (state!.policy.loggingEnabled ?? true)) return { ok: true, value: this.saveManagement(state!) };
       const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
       for (const row of rows) {

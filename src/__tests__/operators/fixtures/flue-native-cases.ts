@@ -209,7 +209,7 @@ export function registerNativeDispatcherCases(
       expect(await composed(id, { action: 'start', ...pinned, scenario: 'ordinary', attemptLimit: 4,
         ...(limit === undefined ? {} : { submissionAttemptLimit: limit }) })).toMatchObject({ ok: true });
       const expected = limit ?? 1024;
-      const result = await waitComposed(id, value => value.detail.executionStatus === 'completed'
+      const result = await observed(id, value => value.detail.executionStatus === 'completed'
         && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount === 1 && entry.maxAttempts === expected));
       expect(result.external.sdkSubmissions).toEqual(expect.arrayContaining([{ attemptCount: 1, maxAttempts: expected }]));
       expect(result.external.comments).toHaveLength(1);
@@ -223,11 +223,11 @@ export function registerNativeDispatcherCases(
       const id = `submission-pin-${crypto.randomUUID()}`;
       expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
         submissionAttemptLimit: 17 })).toMatchObject({ ok: true });
-      await waitComposed(id, value => value.external.held);
+      await observed(id, value => value.external.held);
       await composed(id, { action: 'change-submission-policy', submissionAttemptLimit: 1 });
       await composed(id, { action: 'evict' });
       await composed(id, { action: 'release' });
-      const result = await waitComposed(id, value => value.detail.executionStatus === 'completed'
+      const result = await observed(id, value => value.detail.executionStatus === 'completed'
         && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount > 1));
       expect(result.external.sdkSubmissions!.every(entry => entry.maxAttempts === 17)).toBe(true);
       expect(result.external.comments).toHaveLength(1);
