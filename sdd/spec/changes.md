@@ -4,8 +4,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-08
 
-- Enable existing Wrangler runtime error reporting in the synthetic native harness after CI identified `Network connection lost` at the entry-server service fetch. This investigation changes logging only; preserve runtime/package behavior, assertions, deadlines and historical Activity fences. The underlying cause and hosted acceptance remain unverified.
-
 - At explicit user direction, capture a sanitized first exception line from the synthetic native CI failed response, redacting credential-like values, URLs and identifiers. Do not emit its stack or response body or inspect historical Activities. Category-only probes identified the outer entry-server failure but not its cause; keep all runtime behavior, pins, deadlines and collection assertions unchanged.
 
 - Extend the existing native failed-response inspection with an allowlisted exception class and named public source location only. Miniflare has an outer plain-text exception response path, but the prior CI failure remains unattributed. Do not retain the body, message or stack, change runtime/package behavior, suppress failures or alter deadlines and collection assertions.
