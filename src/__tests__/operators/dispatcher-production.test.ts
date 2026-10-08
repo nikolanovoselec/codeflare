@@ -2750,7 +2750,7 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     // Intent-3 Loader wire is an intentional closed metadata contract, not public input or a grant.
     expect(JSON.parse(loaded.OPERATOR_ADMITTED_TARGET as string)).toEqual(f.admittedTarget);
     const loadedKeys = Object.keys(loaded).sort();
-    expect(loadedKeys).toEqual(['GITHUB_API_ORIGIN', 'OPERATOR', 'OPERATOR_ADMITTED_TARGET', 'OPERATOR_SOURCE_RESPONSE_BYTES']);
+    expect(loadedKeys).toEqual(['GITHUB_API_ORIGIN', 'OPERATOR', 'OPERATOR_ADMITTED_TARGET', 'OPERATOR_SOURCE_RESPONSE_BYTES', 'OPERATOR_SUBMISSION_ATTEMPT_LIMIT']);
     expect(loaded.OPERATOR_ADMITTED_TARGET).not.toContain('private.jwt');
     const restarted = f.restart();
     expect((await f.capability.fetch(genericWire('source', { operationId: 'reconstructed-read',

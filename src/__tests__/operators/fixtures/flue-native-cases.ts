@@ -185,18 +185,50 @@ export function registerNativeDispatcherCases(
         firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
         sdkSubmissions?: Array<{ attemptCount: number; maxAttempts: number }> } };
     async function composed<T>(id: string, value: unknown): Promise<T> {
-      const response = await harness.fetch(`/dispatcher-composed?activity=${id}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value), signal: AbortSignal.timeout(20_000),
+      const action = (value as { action?: unknown }).action;
+      const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
+        ? String(action) : 'other';
+      const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
       });
-      const body = await response.json();
-      expect(response.status, JSON.stringify(body)).toBe(200);
+      let boundary: 'fetch-rejected' | 'response-not-json' = 'fetch-rejected';
+      let status: number | undefined;
+      let body: unknown;
+      try {
+        const response = await send(value);
+        status = response.status;
+        boundary = 'response-not-json';
+        body = await response.json();
+      } catch {
+        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status })}`);
+        // One independent, read-only retained-evidence read; never repeat the failed command.
+        try {
+          const diagnostic = await send({ action: 'diagnose' });
+          if (diagnostic.status === 200) {
+            console.info(`[native-flue] composed retained=${JSON.stringify(await diagnostic.json())}`);
+          } else console.info('[native-flue] composed retained=unavailable');
+        } catch { console.info('[native-flue] composed retained=unavailable'); }
+        throw new Error(`Native composed transport failed: ${boundary}`);
+      }
+      expect(status, JSON.stringify({ phase, status })).toBe(200);
       return body as T;
+    }
+    let lastClosedObservation: string | undefined;
+    function reportObservation(value: Composed) {
+      const closed = JSON.stringify({ executionStatus: value.detail.executionStatus,
+        collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
+        sdkSubmissions: value.external.sdkSubmissions ?? [], inferenceCount: value.external.inference.length,
+        commentCount: value.external.comments.length });
+      if (closed !== lastClosedObservation) console.info(`[native-flue] composed closed=${closed}`);
+      lastClosedObservation = closed;
     }
     async function observed(id: string, predicate: (value: Composed) => boolean) {
       const deadline = Date.now() + 60_000;
       let value: Composed;
+      lastClosedObservation = undefined;
       do {
         value = await composed<Composed>(id, { action: 'observe' });
+        reportObservation(value);
         if (predicate(value) || ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus)) break;
         await new Promise(resolve => setTimeout(resolve, 100));
       } while (Date.now() < deadline);
@@ -229,7 +261,8 @@ export function registerNativeDispatcherCases(
       await composed(id, { action: 'release' });
       const result = await observed(id, value => value.detail.executionStatus === 'completed'
         && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount > 1));
-      expect(result.external.sdkSubmissions!.every(entry => entry.maxAttempts === 17)).toBe(true);
+      expect(result.external.sdkSubmissions!.every(entry => entry.maxAttempts === 17),
+        JSON.stringify(result.external.sdkSubmissions)).toBe(true);
       expect(result.external.comments).toHaveLength(1);
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
     }, 60_000);
@@ -243,8 +276,10 @@ export function registerNativeDispatcherCases(
       // is deliberately not classified as an append failure.
       const deadline = Date.now() + 60_000;
       let result: Composed;
+      lastClosedObservation = undefined;
       do {
         result = await composed<Composed>(id, { action: 'observe' });
+        reportObservation(result);
         if (result.detail.executionStatus !== 'running') break;
         await new Promise(resolve => setTimeout(resolve, 100));
       } while (Date.now() < deadline);

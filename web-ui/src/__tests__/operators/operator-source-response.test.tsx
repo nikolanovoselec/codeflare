@@ -99,7 +99,7 @@ describe('Dispatcher source response allowance', () => {
   });
   it.each([1, 7, Number.MAX_SAFE_INTEGER])('REQ-OPERATOR-045/049: submission attempts %i persist independently and reset to 1024', async limit => {
     await open();
-    const field = screen.getByRole('spinbutton', { name: 'Max submission attempts' });
+    const field = screen.getByRole('spinbutton', { name: 'Submission attempt limit' });
     expect(field).toHaveValue(1024);
     expect(field).toHaveAccessibleDescription(/including the initial submission.*1 to disable retries.*operation budget.*deadline/i);
     fireEvent.input(field, { target: { value: String(limit) } });
@@ -108,10 +108,10 @@ describe('Dispatcher source response allowance', () => {
     expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 131072, submissionAttemptLimit: limit });
     expect(installation).toMatchObject({ enabled: false, releaseId: release.id, policy: explicitInstallationPolicy });
     cleanup(); await open();
-    expect(screen.getByRole('spinbutton', { name: 'Max submission attempts' })).toHaveValue(limit);
+    expect(screen.getByRole('spinbutton', { name: 'Submission attempt limit' })).toHaveValue(limit);
     expect(screen.getByRole('spinbutton', { name: 'Operation limit per run' })).toHaveValue(1024);
     expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(1048576);
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Max submission attempts to default' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Submission attempt limit to default' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
     await waitFor(() => expect(operator.policy).toMatchObject({ submissionAttemptLimit: 1024 }));
   });
@@ -119,7 +119,7 @@ describe('Dispatcher source response allowance', () => {
   it.each(['', '0', '-1', '1.5', '9007199254740992'])('REQ-OPERATOR-045/049: invalid submission attempt limit %s prevents mutation', async value => {
     await open();
     const before = structuredClone(operator);
-    fireEvent.input(screen.getByRole('spinbutton', { name: 'Max submission attempts' }), { target: { value } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Submission attempt limit' }), { target: { value } });
     const save = screen.getByRole('button', { name: 'Save operator capabilities' });
     expect(save).toBeDisabled();
     fireEvent.submit(save.closest('form')!);
@@ -131,7 +131,7 @@ describe('Dispatcher source response allowance', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
     await screen.findByRole('group', { name: 'Operator capabilities' });
-    expect(screen.queryByRole('spinbutton', { name: 'Max submission attempts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Submission attempt limit' })).not.toBeInTheDocument();
   });
   it('REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields', async () => {
     operator.policy.inferenceRequestBytes = 2097152;

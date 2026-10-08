@@ -373,6 +373,16 @@ export class OperatorActivity extends ProductionActivity {
     return { instance: this.instance, detail: await this.getBrowserDetail(), external: await services(this.fixtureEnv).observe(),
       diagnostics: [...diagnostics] };
   }
+  async diagnoseComposed() {
+    // Read retained owner/service evidence without reconciling or fetching the child.
+    const detail = await this.getBrowserDetail();
+    const external = await services(this.fixtureEnv).observe();
+    return { executionStatus: detail?.executionStatus ?? 'unprepared',
+      collectionStatus: detail?.collectionStatus ?? 'unavailable', firstAppend: external.firstAppend,
+      sdkSubmissions: external.sdkSubmissions,
+      inferenceCount: (external.inference as unknown[] | undefined)?.length ?? 0,
+      commentCount: (external.comments as unknown[] | undefined)?.length ?? 0 };
+  }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
 }
 
@@ -426,6 +436,7 @@ export async function composedFixture(request: Request, env: FixtureEnv): Promis
   }
   if (command.action === 'change-submission-policy') { await services(env).changeSubmissionPolicy(command.submissionAttemptLimit!); return Response.json({ ok: true }); }
   if (command.action === 'observe') return Response.json(await activity.observeComposed());
+  if (command.action === 'diagnose') return Response.json(await activity.diagnoseComposed());
   if (command.action === 'collect') return Response.json(await activity.collectBrowserResult());
   if (command.action === 'evict') { await activity.evictComposed().catch(() => {}); return Response.json({ evicted: true }); }
   if (command.action === 'release') { await services(env).release(); return Response.json({ released: true }); }
