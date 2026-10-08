@@ -240,14 +240,14 @@ export function registerNativeDispatcherCases(
       lastClosedObservation = closed;
       return closed;
     }
-    async function observed(id: string, predicate: (value: Composed) => boolean, terminalEvidence = false) {
+    async function observed(id: string, predicate: (value: Composed) => boolean) {
       const deadline = Date.now() + 60_000;
       let value: Composed;
       lastClosedObservation = undefined;
       do {
         value = await composed<Composed>(id, { action: 'observe' });
         reportObservation(value);
-        if (predicate(value) || (!terminalEvidence && ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus))) break;
+        if (predicate(value) || ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus)) break;
         await new Promise(resolve => setTimeout(resolve, 100));
       } while (Date.now() < deadline);
       expect(predicate(value!), reportObservation(value!)).toBe(true);
@@ -283,9 +283,11 @@ export function registerNativeDispatcherCases(
         await observed(interruptedId, value => value.external.held);
         await composed(interruptedId, { action: 'evict' });
         await composed(interruptedId, { action: 'release' });
-        const exhausted = await observed(interruptedId, value => value.detail.executionStatus === 'unknown'
-          && originalSdk(value).some(entry => entry.stage === 'sdk-submission-exhausted'
-            && entry.attemptCount === 1 && entry.maxAttempts === 1), true);
+        // observe() is live-only; hard eviction cannot promise delivery of its
+        // terminal event. Verify disabled recovery through retained outcomes.
+        const exhausted = await observed(interruptedId, value => value.detail.executionStatus === 'unknown');
+        expect(originalSdk(exhausted).some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1)).toBe(true);
+        expect(originalSdk(exhausted).filter(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1)).toEqual([]);
         expect(exhausted.external.inference).toHaveLength(1);
         expect(exhausted.external.comments).toEqual([]);
         expect(exhausted.external.sourceRequests.filter(entry => entry.method !== 'GET')).toEqual([]);
