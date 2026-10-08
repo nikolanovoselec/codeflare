@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-08
 
+- Extend the existing native failed-response inspection with an allowlisted exception class and named public source location only. Miniflare has an outer plain-text exception response path, but the prior CI failure remains unattributed. Do not retain the body, message or stack, change runtime/package behavior, suppress failures or alter deadlines and collection assertions.
+
 - Classify native composed non-JSON failures against fixed platform error templates in memory, retaining only a closed category. The unchanged-head rerun repeated an observation HTTP 500 despite retained completion and seven comments; its cause remains unidentified. Preserve failure propagation, assertions, deadlines and package pins; log no response body or stack.
 
 - Correct the native one-attempt interruption check to verify retained behavior: one inference, no same-submission replacement attempt, no writes and unavailable collection. Public SDK observation is live-only and cannot promise terminal telemetry after hard eviction. Keep ordinary completion/collection, positive recovery-limit checks, persistence assertions and deadlines unchanged; host CI and hosted acceptance remain pending.

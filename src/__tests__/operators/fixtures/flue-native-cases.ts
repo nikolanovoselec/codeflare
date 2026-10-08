@@ -208,6 +208,8 @@ export function registerNativeDispatcherCases(
       let status: number | undefined;
       let body: unknown;
       let responseCategory: string | undefined;
+      let responseErrorClass: string | undefined;
+      let responseSource: { file: string; line: number; column: number } | undefined;
       try {
         const response = await send(value);
         status = response.status;
@@ -216,6 +218,10 @@ export function registerNativeDispatcherCases(
         try { body = JSON.parse(text); }
         catch (error) {
           // Match fixed platform error templates in memory; never retain the response.
+          responseErrorClass = /^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError):/m.exec(text)?.[1] ?? 'other';
+          // Only locations in named public sources may leave this in-memory response.
+          const location = /\b(entry\.worker\.js|activity\.ts|loader-worker\.ts|dispatcher-composed-fixture\.ts):(\d{1,7}):(\d{1,7})\b/.exec(text);
+          if (location) responseSource = { file: location[1], line: Number(location[2]), column: Number(location[3]) };
           const normalized = text.toLowerCase();
           responseCategory = [
             ['cross-request-io', 'cannot perform i/o on behalf of a different request'],
@@ -231,7 +237,7 @@ export function registerNativeDispatcherCases(
           throw new Error('Native composed fixture rejected');
         }
       } catch (error) {
-        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, ...closedTransportFailure(error) })}`);
+        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, responseErrorClass, responseSource, ...closedTransportFailure(error) })}`);
         // One independent, read-only retained-evidence read; never repeat the failed command.
         try {
           const diagnostic = await send({ action: 'diagnose' });
